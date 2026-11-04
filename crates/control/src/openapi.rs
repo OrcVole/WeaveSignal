@@ -505,7 +505,7 @@ mod tests {
                 format!("{}\n", json(&doc)),
             ),
             (
-                "docs/src/content/docs/reference/api.md",
+                "docs/src/content/docs/docs/reference/api.md",
                 reference_page(&doc),
             ),
         ] {

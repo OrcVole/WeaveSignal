@@ -26,7 +26,7 @@ The cushion can grow to 10 s at most; whatever it holds is listener delay.
 
 | Server | Set | What the cushion held |
 |---|---|---|
-| A dedicated 4-vCPU public server | 0.5 s | 0.20–0.36 s over 13 hours unattended, no container restarted |
+| A dedicated 4-vCPU public server | 0.5 s | 0.20–0.38 s over 24 hours, no container restarted and no error |
 | A workstation running the Compose stack | 0.5 s | 2 hours with no underrun (ADR-0182) |
 | A heavily shared server (load 9–22 on 12 cores) | 3 s | median 8.5 s, and up to its 10 s cap |
 

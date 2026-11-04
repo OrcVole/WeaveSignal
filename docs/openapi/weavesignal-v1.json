@@ -8610,7 +8610,7 @@
           },
           {
             "type": "object",
-            "description": "Who chooses the picture (video on): `auto` follows the audio, `slate` holds the slate\n(desk B's F7), `person` holds one camera.",
+            "description": "Who chooses the picture (video on): `auto` follows the audio, `slate` holds the slate\n(the desk's F7), `person` holds one camera.",
             "required": [
               "mode",
               "op"
@@ -8838,7 +8838,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/DelayView",
-                "description": "The profanity delay (desk B's `desk.delay`); `None` while the desk does not answer."
+                "description": "The profanity delay (the desk's `desk.delay`); `None` while the desk does not answer."
               },
               {
                 "type": "null"
@@ -8855,7 +8855,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/DeskVideo",
-                "description": "The picture (desk B's `desk.picture`, F7): `None` with video off."
+                "description": "The picture (the desk's `desk.picture`, F7): `None` with video off."
               },
               {
                 "type": "null"
@@ -12996,7 +12996,7 @@
         "properties": {
           "audience": {
             "$ref": "#/components/schemas/AudienceView",
-            "description": "Who is listening and what carries them (desk B's `desk.audience`)."
+            "description": "Who is listening and what carries them (the desk's `desk.audience`)."
           },
           "callers": {
             "type": "array",

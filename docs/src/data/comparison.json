@@ -587,7 +587,7 @@
       "capability": "Maturity and user base",
       "weavesignal": {
         "v": "no",
-        "note": "1.0.0 released 2026-11-04. No user base yet; 13 hours of unattended playout measured so far, not 24."
+        "note": "1.0.0 released 2026-11-04. No user base yet; 24 hours of playout on a server of its own measured, with no restart."
       },
       "others": [
         {

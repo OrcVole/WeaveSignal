@@ -15,7 +15,7 @@
   import Account from './lib/Account.svelte';
   import SessionEnded from './lib/SessionEnded.svelte';
   import Schedule from './schedule/Schedule.svelte';
-  import { follow, packaged, savedStation } from './lib/api.ts';
+  import { follow, packaged, sandboxed, savedStation } from './lib/api.ts';
   import { installSessionWatch, loadMe } from './lib/account.svelte.ts';
   import { installUpdateCheck, updateNag } from './lib/update.svelte.ts';
   import { run } from './lib/actions.ts';
@@ -149,7 +149,8 @@
 {#if packaged() && !savedStation()}
   <StationSetup />
 {:else}
-<div class="shell">
+<div class="shell" class:with-guide={sandboxed()}>
+  {#if import.meta.env.MODE === 'sandbox'}{#await import('./sandbox/Guide.svelte') then guide}<guide.default />{/await}{/if}
   <header class="frame" data-panel="studio.frame">
     <span class="brand" data-panel-title><Mark />{studio.view?.station || 'WeaveSignal'}</span>
     <nav class="tabs" aria-label="Studio">
@@ -217,6 +218,9 @@
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     height: 100vh;
+  }
+  .shell.with-guide {
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
   /* As tall as the design pages' mock-up bar, so each surface keeps the height it was drawn in. */
   .frame {

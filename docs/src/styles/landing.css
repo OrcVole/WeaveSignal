@@ -1162,3 +1162,206 @@ td .note {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* Try the desk (/try/, ADR-0212): the door to the sandbox desk. The words beside the desk's
+   window, the cast, the steps with their key caps and the product's own lamp drawings, the
+   notes, the credits. */
+.try-hero {
+  padding-block: 2.5rem 2rem;
+}
+.try-hero .wrap {
+  display: grid;
+  gap: 2rem;
+  align-items: start;
+}
+.try-copy {
+  display: grid;
+  gap: 1.25rem;
+  justify-items: start;
+  max-width: 40rem;
+}
+.try-copy h1 {
+  max-width: 16ch;
+}
+.try-copy .sub {
+  font-size: clamp(1.0625rem, 1rem + 0.4vw, 1.25rem);
+  color: var(--ink-2);
+  max-width: 44ch;
+}
+.try-copy .try-note {
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+  max-width: 48ch;
+}
+.try-media {
+  min-width: 0;
+}
+@media (min-width: 72rem) {
+  .try-hero {
+    padding-block: 4rem 3rem;
+  }
+  .try-hero .wrap {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 3rem;
+  }
+}
+
+/* A key cap: the printed key, as the keymap prints it. */
+.key {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1;
+  min-width: 1.9rem;
+  padding: 0.3rem 0.5rem;
+  text-align: center;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--axis);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  vertical-align: 0.1em;
+  white-space: nowrap;
+}
+p .key {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  min-width: 1.6rem;
+}
+
+/* The cast: a name, a role, where they sit. */
+.cast {
+  display: grid;
+  gap: 1.5rem 2.5rem;
+}
+.cast > div {
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+  max-width: 44rem;
+}
+.cast dt {
+  font-weight: 600;
+  font-size: 1.0625rem;
+}
+.cast dd {
+  margin: 0.15rem 0 0;
+  color: var(--ink-2);
+  font-size: 1rem;
+}
+.cast dd.role {
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+@media (min-width: 48rem) {
+  .cast {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 72rem) {
+  .cast {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* The steps: a number, the keys, the words, and the lamp that answers the key. */
+.steps {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  counter-reset: steps;
+}
+.steps li {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  grid-template-areas:
+    'n keys'
+    'n step'
+    'n lamp';
+  gap: 0.5rem 0;
+  padding-block: 1.25rem;
+  border-top: 1px solid var(--hairline);
+  counter-increment: steps;
+}
+.steps li::before {
+  content: counter(steps);
+  grid-area: n;
+  font-family: var(--mono);
+  color: var(--muted);
+  padding-top: 0.15rem;
+}
+.steps .keys {
+  grid-area: keys;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: start;
+}
+.steps .keys .plus,
+.steps .keys .then {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.steps .keys .then {
+  margin-inline: 0.25rem;
+}
+.steps .step {
+  grid-area: step;
+  max-width: 60ch;
+}
+.steps .step h3 {
+  font-size: 1.0625rem;
+  margin-bottom: 0.3rem;
+}
+.steps .step p {
+  color: var(--ink-2);
+  font-size: 1rem;
+}
+.steps .lamp {
+  grid-area: lamp;
+  line-height: 0;
+}
+.steps .lamp img {
+  width: auto;
+  height: 2rem;
+}
+/* a chip is drawn smaller than a lamp (28 against 48 high): keep their words the same size */
+.steps .lamp img[src*='chip-'] {
+  height: 1.5rem;
+  margin-top: 0.25rem;
+}
+/* the lamp drawn for this theme only (the drawings carry their own surface colours) */
+.steps .lamp img[data-theme='light'] {
+  display: none;
+}
+:root[data-theme='light'] .steps .lamp img[data-theme='dark'] {
+  display: none;
+}
+:root[data-theme='light'] .steps .lamp img[data-theme='light'] {
+  display: inline;
+}
+@media (min-width: 48rem) {
+  .steps li {
+    grid-template-columns: 2.25rem 14rem minmax(0, 60ch) auto;
+    grid-template-areas: 'n keys step lamp';
+    gap: 0 1.5rem;
+    align-items: start;
+    justify-content: start;
+  }
+  .steps .keys {
+    padding-top: 0.15rem;
+  }
+  .steps .lamp {
+    padding-top: 0.1rem;
+  }
+}
+
+/* The home page's line under the demo video: the door to the sandbox desk. */
+.hero-media .try-cta {
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+  max-width: var(--measure);
+}

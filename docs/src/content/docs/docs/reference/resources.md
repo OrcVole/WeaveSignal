@@ -19,7 +19,7 @@ When the host cannot give them CPU on time, the cushion runs dry, listeners hear
 
 | Server | Cushion set | What the listener process held | When |
 |---|---|---|---|
-| A dedicated server, 4 vCPU, load 0.3–0.5, the Compose bundle on the public route | 0.5 s | 0.20–0.36 s, over 13 hours unattended; no container restarted | 2026-11-03 to 11-04 |
+| A dedicated server, 4 vCPU, load 0.3–0.5, the Compose bundle on the public route | 0.5 s | 0.20–0.38 s, over 24 hours; no container restarted | 2026-11-03 to 11-04 |
 | A heavily shared server, 12 cores at load 9–22, the Cloudron package | 3 s | median 8.5 s, at most 10.0 s (the buffer's cap), over 7 hours | 2026-11-03 |
 
 - Give a station on air a server of its own, or one where its CPU is reserved. A busy shared server is fine for checking that a station works.
@@ -47,7 +47,7 @@ Measured with the package's memory gate (`deploy/cloudron/memory-gate.sh`) on a 
 The load was three tone publishers through LiveKit and the desk, fifty listeners for 300 s, the studio's event stream and the chat's load generator; the chat's share is understated, as its per-address limits closed most of the generator's sockets, all from one address.
 The gate's rule (peak ÷ 0.7) gives 1 GiB; the limit stays higher for a Liquidsoap starting without its script cache, and for the chat with thousands of sockets (97 MiB resident for 4,000; [The live chat](/docs/reference/chat/#load)).
 
-On the dedicated server above, after 13 hours unattended, the Compose bundle's processes held: playout 249 MB, the listener process 159 MB, LiveKit 51 MB, PostgreSQL 46 MB, the desk 34 MB, the control plane 7 MB, the chat 2 MB.
+On the dedicated server above, after 24 hours, the Compose bundle's processes held: playout 248 MB, the listener process 160 MB, LiveKit 50 MB, PostgreSQL 47 MB, the desk 34 MB, the control plane 7 MB, the chat 2 MB.
 
 Large audiences do not reach the station: 2,000 listeners reach it through edges or a CDN (ADR-0051).
 

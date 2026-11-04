@@ -409,6 +409,13 @@ export function packaged(): boolean {
   return !!l && (l.protocol === 'tauri:' || l.hostname === 'tauri.localhost');
 }
 
+/** The sandbox build for the website's "Try the desk" (ADR-0212): the station is simulated in
+ *  the page and nothing leaves it. Fixed at build time (`vite build --mode sandbox`), so the
+ *  other builds carry none of it. */
+export function sandboxed(): boolean {
+  return import.meta.env.MODE === 'sandbox';
+}
+
 /** The bearer a browser build sends (`?token=` once, kept for this session). A packaged app
  * sends none from the page: its requests go out from Rust, which adds the key. */
 function token(): string | null {
@@ -547,6 +554,7 @@ async function noticeRefusal(url: string, res: Response): Promise<void> {
  * redirect of the preflight would otherwise block every request; and the key stays out of the
  * page), the browser's otherwise. A 401 is noticed on the way back. */
 export const netFetch: typeof fetch = async (input, init) => {
+  if (import.meta.env.MODE === 'sandbox') return (await import('../sandbox/sandbox.svelte.ts')).sandboxFetch(input, init);
   const res = await (packaged() ? stationFetch(input, init) : fetch(input, init));
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   await noticeRefusal(url, res);

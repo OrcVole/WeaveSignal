@@ -82,7 +82,7 @@ A listener hears the fallback for a few seconds, then the programme again, and i
 Now playing reaches the control plane over playout's socket instead of travelling in the stream.
 
 Between the two processes sits a small cushion (`listeners.feed_buffer_s`, 0.5 s by default; `FEED_BUFFER_S` in the Compose bundle).
-On a dedicated 4-vCPU server it held 0.20–0.36 s for 13 hours unattended.
+On a dedicated 4-vCPU server it held 0.20–0.38 s for 24 hours, with no restart.
 On a heavily shared server even a 3 s cushion filled to its 10 s cap, and listeners heard the fallback for moments.
 So run a station on a server that is not overloaded ([Memory and CPU](/docs/reference/resources/)).
 

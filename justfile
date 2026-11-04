@@ -303,6 +303,13 @@ docs-build:
 docs-links:
     node {{root}}/tests/docs-links/check.mjs {{root}}/docs/dist
 
+# The website's "Try the desk" (ADR-0212): the studio app built with the station simulated in
+# the page, for the root of demo.weavesignal.top, into apps/studio/dist-sandbox; its sounds
+# (/media/sandbox/: the voices, the carts, the default loop) are copied in at deploy, git-ignored.
+# The sandbox desk's build; tests/sandbox/drive.mjs runs its show in a browser
+sandbox-build:
+    cd {{root}}/apps/studio && pnpm install --frozen-lockfile && pnpm test && pnpm build:sandbox
+
 # The model's migrations, the control plane's cart, retention, show, card and feed routes (M8),
 # the public API's tokens, webhooks and open routes (ADR-0195), and the chat (M6: sign-in, the rules, the hold, moderation with statements of reasons, the
 # studio lane, recovery, erasure, the retention sweep, over real sockets) against a throwaway

@@ -16,7 +16,10 @@ const bearer = env.WEAVESIGNAL_CONTROL_TOKEN;
 const chat = env.WEAVESIGNAL_CHAT_URL;
 const auth = bearer ? { Authorization: `Bearer ${bearer}` } : {};
 
-export default defineConfig({
+// `--mode sandbox` builds the website's "Try the desk" (ADR-0212): the same app with the station
+// simulated in the page (src/sandbox/), served at the root of demo.weavesignal.top, its sounds
+// from /media/sandbox/ beside it (VITE_SANDBOX_MEDIA to change it).
+export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   clearScreen: false,
   server: {
@@ -28,6 +31,6 @@ export default defineConfig({
       ...(control ? { '/api': { target: control, headers: auth } } : {}),
     },
   },
-  build: { target: 'es2022', outDir: 'dist' },
+  build: { target: 'es2022', outDir: mode === 'sandbox' ? 'dist-sandbox' : 'dist' },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },
-});
+}));

@@ -1,0 +1,199 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// Try the desk (ADR-0212): the door to the sandbox build of the studio app at demo.weavesignal.top, which
+// runs a simulated station in the visitor's browser. The page says what the visitor is about to
+// do, who is in the room, which keys to press (the keymap's own: packages/ui/keymap.ts), what
+// the sandbox needs, and whose sounds it plays. The keys and the slot a caller takes are the
+// product's documented ones (how-to/take-a-caller); the sandbox's guide bar says the rest.
+import Site from '../layouts/Site.astro';
+import Frame from '../components/site/Frame.astro';
+import desk from '../assets/screens/reference-desk-window.png';
+import onAirDark from '../assets/states/lamp-on-air-dark.svg';
+import onAirLight from '../assets/states/lamp-on-air-light.svg';
+import cueDark from '../assets/states/chip-cue-dark.svg';
+import cueLight from '../assets/states/chip-cue-light.svg';
+import dumpedDark from '../assets/states/chip-dumped-dark.svg';
+import dumpedLight from '../assets/states/chip-dumped-light.svg';
+
+const app = 'https://demo.weavesignal.top/';
+const credits = 'https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/assets/carts-demo/CREDITS.md';
+
+// The five people, in the order the visitor meets them.
+const cast = [
+  {
+    name: 'Eilidh Fraser-MacLeod',
+    role: 'Presenter of The Morning Kettle',
+    where: 'At the desk, slot 1. You sit in her chair: her keys are yours, and her voice is on the recording.',
+  },
+  {
+    name: 'Gregor Stewart',
+    role: 'Guest, a local historian',
+    where: 'Joined the room from an invite link, slot 2. He hears the show without his own voice.',
+  },
+  {
+    name: 'Shona Campbell',
+    role: 'The telephonist',
+    where: 'On the Screener tab. You answer the callers as her, off air, write the line the presenter sees, and send them to the desk.',
+  },
+  {
+    name: 'Niall Anderson',
+    role: 'A caller',
+    where: 'Waiting in his booth, about the bus lanes on Leith Walk. He has rung in three weeks running.',
+  },
+  {
+    name: 'Jessie Brown',
+    role: 'A caller',
+    where: 'Waiting in her booth. She is about to swear on air.',
+  },
+];
+---
+
+<Site
+  title="Try the desk — WeaveSignal"
+  description="Run a short show on Kettle FM from the studio app's real interface, in your browser: put the presenter and a guest on air, play a jingle, answer a screened caller and dump a swear before listeners hear it. A sandbox: nothing you press reaches a real station."
+  path="/try/"
+>
+  <section class="try-hero" aria-labelledby="try-h">
+    <div class="wrap">
+      <div class="try-copy">
+        <h1 id="try-h">Try the desk</h1>
+        <p class="sub">Run a short show on Kettle FM from the studio's real interface, in your browser. The people are pre-recorded. Nothing you press reaches a real station.</p>
+        <div class="actions">
+          <a class="btn primary" href={app}>Open the sandbox desk</a>
+          <a class="btn" href={app} target="_blank" rel="noopener">Open it in a new tab</a>
+        </div>
+        <p class="try-note">A short show. Best with sound on and headphones, on a computer with a keyboard. A guide bar in the app walks you through the same steps.</p>
+      </div>
+      <div class="try-media">
+        <Frame
+          src={desk}
+          eager
+          alt="The desk as the studio app shows it with a show running: the clock and rundown on the left, the stage in the middle with the ON AIR lamp, and listeners, the picture and the carts on the right."
+          caption="The desk you will sit at. Kettle FM, its shows and its people are sample data."
+        />
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="sandbox-h">
+    <div class="wrap">
+      <h2 id="sandbox-h">What the sandbox is</h2>
+      <p class="lead">The studio app, built for the browser, against a station that is simulated inside the page. There is no server behind it: each visitor has a copy of their own, and reloading the page starts it again. Press <strong>Start</strong> in the app to turn the sound on, then follow the steps below or the app's own guide bar. A switch in that bar, <strong>Hear: Studio / Listeners</strong>, lets you listen as the presenter does, or as a listener does, seconds behind.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="cast-h">
+    <div class="wrap">
+      <h2 id="cast-h">Who is in the room</h2>
+      <p class="lead">Five people, with designed voices: no one is a recording of a real person, and Kettle FM is not a real station.</p>
+      <dl class="cast">
+        {cast.map((p) => (
+          <div>
+            <dt>{p.name}</dt>
+            <dd class="role">{p.role}</dd>
+            <dd>{p.where}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="steps-h">
+    <div class="wrap">
+      <h2 id="steps-h">What you will do</h2>
+      <p class="lead">Six steps, each on a key. The keys are the studio app's own, from <a href="/docs/how-to/present-from-the-keyboard/">the keymap</a>: the number row puts a slot on air, the row under it cues, and the function keys fire the carts.</p>
+      <ol class="steps">
+        <li>
+          <div class="keys"><kbd class="key">1</kbd></div>
+          <div class="step">
+            <h3>Put Eilidh on air</h3>
+            <p>Press <kbd class="key">1</kbd>, slot 1's On key. The lamp turns ON AIR: listeners can hear her. Press it again at any time to take her off.</p>
+          </div>
+          <div class="lamp" aria-hidden="true">
+            <img src={onAirDark.src} width={onAirDark.width} height={onAirDark.height} alt="" data-theme="dark" />
+            <img src={onAirLight.src} width={onAirLight.width} height={onAirLight.height} alt="" data-theme="light" />
+          </div>
+        </li>
+        <li>
+          <div class="keys"><kbd class="key">F1</kbd></div>
+          <div class="step">
+            <h3>Play a jingle</h3>
+            <p>Press <kbd class="key">F1</kbd>: the first cart in the wall's top row, from any tab. Eilidh waits for it to end, then opens the show; a music bed (<kbd class="key">F2</kbd>) ducks under her voice, as on the real desk.</p>
+          </div>
+        </li>
+        <li>
+          <div class="keys"><kbd class="key">2</kbd></div>
+          <div class="step">
+            <h3>Bring Gregor in</h3>
+            <p>Press <kbd class="key">2</kbd> to open slot 2. Gregor hears Eilidh and never his own voice back: the desk sends each person a mix of their own.</p>
+          </div>
+        </li>
+        <li>
+          <div class="keys"><kbd class="key">Ctrl</kbd><span class="plus">+</span><kbd class="key">2</kbd> <span class="then">then</span> <kbd class="key">1</kbd> <kbd class="key">T</kbd> <kbd class="key">P</kbd></div>
+          <div class="step">
+            <h3>Answer a caller</h3>
+            <p>When Eilidh says the phones have lit up, <kbd class="key">Ctrl</kbd>+<kbd class="key">2</kbd> opens the Screener tab. Press <kbd class="key">1</kbd> to pick Niall from the queue and <kbd class="key">T</kbd> to answer him as Shona, off air: listeners hear none of it. Write the line Eilidh will see if you like, then <kbd class="key">P</kbd> sends him to the desk.</p>
+          </div>
+        </li>
+        <li>
+          <div class="keys"><kbd class="key">Ctrl</kbd><span class="plus">+</span><kbd class="key">1</kbd> <span class="then">then</span> <kbd class="key">R</kbd> <kbd class="key">4</kbd></div>
+          <div class="step">
+            <h3>Cue him, then take him to air</h3>
+            <p>Back at the desk (<kbd class="key">Ctrl</kbd>+<kbd class="key">1</kbd>), Niall is READY in slot 4. Press <kbd class="key">R</kbd>, slot 4's cue key, to hear him in your headphones while listeners do not (his Cue key lights); then <kbd class="key">4</kbd> puts him on air, with Shona's line on his tile.</p>
+          </div>
+          <div class="lamp" aria-hidden="true">
+            <img src={cueDark.src} width={cueDark.width} height={cueDark.height} alt="" data-theme="dark" />
+            <img src={cueLight.src} width={cueLight.width} height={cueLight.height} alt="" data-theme="light" />
+          </div>
+        </li>
+        <li>
+          <div class="keys"><kbd class="key">Del</kbd> <kbd class="key">Del</kbd></div>
+          <div class="step">
+            <h3>Dump the swear</h3>
+            <p>Screen Jessie Brown the same way and put her on air from her strip: she is about to swear. Press <kbd class="key">Del</kbd> twice, within three seconds: the profanity delay throws away what it holds, and the delay chip beside the lamp says DUMPED while it rebuilds. Then switch <strong>Hear</strong> to <strong>Listeners</strong>: the studio heard it, the listeners never did.</p>
+          </div>
+          <div class="lamp" aria-hidden="true">
+            <img src={dumpedDark.src} width={dumpedDark.width} height={dumpedDark.height} alt="" data-theme="dark" />
+            <img src={dumpedLight.src} width={dumpedLight.width} height={dumpedLight.height} alt="" data-theme="light" />
+          </div>
+        </li>
+      </ol>
+      <p class="lead" style="margin-top:2rem">Everything else on the desk works the same way: <kbd class="key">Q</kbd> to <kbd class="key">Y</kbd> cue a slot, <kbd class="key">A</kbd> to <kbd class="key">H</kbd> talk to one person while held, <kbd class="key">Z</kbd> to <kbd class="key">N</kbd> mute. <a href="/docs/how-to/present-from-the-keyboard/">Present from the keyboard</a> has the whole map.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="before-h">
+    <div class="wrap">
+      <h2 id="before-h">Before you start</h2>
+      <div class="cols" data-n="3">
+        <div>
+          <h3>Sound and keys</h3>
+          <p>Turn the sound on; headphones are best, so the cue mix is yours alone. Use a laptop or desktop with a keyboard: every step is a key, as it is for a presenter.</p>
+        </div>
+        <div>
+          <h3>A wide window</h3>
+          <p>The desk is laid out for a window at least 1280 pixels wide, like the studio app. On a phone the link still opens, but the desk will not fit: watch <a href="/#hero-h">the demo video</a>, which shows the same show, and <a href="https://client.weavesignal.top/">listen to the demo station</a>, which is a real one.</p>
+        </div>
+        <div>
+          <h3>Your browser</h3>
+          <p>Works in current Chromium, Firefox and Safari. Nothing is installed and nothing is sent anywhere. The Schedule, Settings and the chat need a real station and are empty in the sandbox.</p>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:2rem">
+        <a class="btn primary" href={app}>Open the sandbox desk</a>
+        <a class="btn" href="/docs/">Read the documentation</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="credits-h">
+    <div class="wrap">
+      <h2 id="credits-h">Whose voices and sounds</h2>
+      <div class="prose">
+        <p>The voices are designed with OmniVoice's voice design; no one's voice was cloned. The names are from the Tartan National Names list, as all of Kettle FM's are. The cart sounds are the repository's demo cart pack, public domain, CC0 and CC BY, <a href={credits}>credited file by file</a>. The music bed is "Wholesome" by Kevin MacLeod (<a href="https://incompetech.com/">incompetech.com</a>), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p>
+        <p>The real thing is <a href="/docs/">documented</a> in full, and <a href="/run/">runs on a server of your own</a>.</p>
+      </div>
+    </div>
+  </section>
+</Site>

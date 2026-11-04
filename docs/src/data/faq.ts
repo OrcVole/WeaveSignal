@@ -26,7 +26,7 @@ export const questions: Question[] = [
     home: true,
     q: 'What hardware does a station need?',
     a: [
-      'Less than you might think, as long as it is not shared with something busy. With video off, the whole station peaked at about 700 MiB of memory under a test load, and the Cloudron package is limited to 1.5 GiB. It ran for 13 hours unattended on a dedicated 4-vCPU server; a 2-vCPU server with 2–4 GB of memory should do for an audio-only station.',
+      'Less than you might think, as long as it is not shared with something busy. With video off, the whole station peaked at about 700 MiB of memory under a test load, and the Cloudron package is limited to 1.5 GiB. It ran for 24 hours on a dedicated 4-vCPU server with no restart and no error, its memory flat; a 2-vCPU server with 2–4 GB of memory should do for an audio-only station.',
       'The one thing live audio needs is CPU on time: on a heavily shared server the listener stream ran dry even with a 3 s cushion. Give a station on air a server of its own. <a href="/docs/reference/resources/">Memory and CPU</a> has the measurements.',
     ],
   },
@@ -87,7 +87,7 @@ export const questions: Question[] = [
     home: true,
     q: 'Is it ready for a real station?',
     a: [
-      'Release 1.0.0 is the first public release. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has not yet streamed for 24 hours unattended (13 hours have), two people talking over two real networks has been measured but not judged by ear, and the Windows installer has not been run on Windows.',
+      'Release 1.0.0 is the first public release. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has not been run on Windows.',
       'So: run a test show before you put a real one on air, on a server of its own, and read <a href="/docs/reference/release-one-status/">what 1.0.0 does and leaves out</a>.',
     ],
   },
