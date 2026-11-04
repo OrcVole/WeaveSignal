@@ -10,9 +10,11 @@
   "website": "https://weavesignal.top",
   "contactEmail": "info@weavesignal.top",
   "packagerName": "The WeaveSignal contributors",
-  "packagerUrl": "https://weavesignal.top",
-  "documentationUrl": "https://weavesignal.top/how-to/install-on-cloudron/",
+  "packagerUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal",
+  "packageUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/deploy/cloudron",
+  "documentationUrl": "https://weavesignal.top/docs/how-to/install-on-cloudron/",
   "icon": "file://logo.png",
+  "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.0/deploy/cloudron/logo.png",
   "healthCheckPath": "/health",
   "httpPort": 8000,
   "httpPorts": {
@@ -73,7 +75,7 @@
   },
   "optionalSso": true,
   "memoryLimit": 1610612736,
-  "minBoxVersion": "9.2.0",
+  "minBoxVersion": "10.0.0",
   "postInstallMessage": "file://POSTINSTALL.md",
   "changelog": "file://CHANGELOG.md",
   "tags": [
@@ -82,5 +84,12 @@
     "streaming",
     "video",
     "chat"
+  ],
+  "mediaLinks": [
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.0/docs/src/assets/screens/reference-desk-window.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.0/docs/src/assets/screens/reference-screener-queue.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.0/docs/src/assets/screens/reference-public-pages-player.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.0/docs/src/assets/screens/reference-calendar-week.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.0/docs/src/assets/screens/reference-carts-window.png"
   ]
 }

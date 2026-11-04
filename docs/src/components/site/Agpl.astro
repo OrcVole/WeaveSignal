@@ -1,0 +1,18 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The FSF's AGPLv3 logo (ADR-0211; public domain, the FSF's trademark, see REUSE.toml) on a light
+// chip so it reads in both themes, linking the licence page, with the licence in words beside it.
+import logo from '../../assets/agplv3-logo.svg';
+interface Props {
+  compact?: boolean;
+}
+const { compact = false } = Astro.props;
+---
+
+<div class="agpl-block">
+  <a class="agpl" href="/docs/reference/licence/" aria-label="AGPLv3: which licence covers what">
+    <img src={logo.src} width={logo.width} height={logo.height} alt="The AGPLv3 logo" />
+  </a>
+  {!compact && <span>Free software under the GNU AGPL, version 3 only.</span>}
+</div>

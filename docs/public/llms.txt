@@ -1,66 +1,60 @@
 # WeaveSignal
 
-> WeaveSignal is an AGPL-3.0-only radio and video station studio: a LiveKit room for presenters, guests and callers; a desk (Rust, gstreamer-rs) that mixes the programme and a mix-minus for each participant; playout through one fixed Liquidsoap 2.5 script; and listener streams from Liquidsoap's icecast.server. It is in development: release one's milestone M1 is built, with the first slice of the studio app (desk B and the screener, M2). Pages mark everything else as planned, with its milestone. Documentation text is CC BY-SA 4.0; code samples are AGPL-3.0-only.
+> WeaveSignal is open-source (AGPL-3.0-only) software for a self-hosted internet radio or video station with the live studio built in: a LiveKit room for presenters, guests and screened callers; a desk (Rust, gstreamer-rs) that mixes the programme and a mix-minus for each person; playout through one fixed Liquidsoap 2.5 script; listener streams (Ogg Opus, an optional MP3 stream, HLS with video) from Liquidsoap's icecast.server; a live chat; show cards and podcast feeds; one installation on your own server. Release 1.0.0 was published on 2026-11-04. The website is at / and the documentation under /docs/. Documentation text is CC BY-SA 4.0; code samples are AGPL-3.0-only.
+
+## The website
+
+- [Home](/): what it is, the demo station, the status of 1.0.0, who uses what, the two latencies, a short comparison, how to run it, eight questions
+- [Compare](/compare/): WeaveSignal against the stack of tools a station combines today, by job, with sources and the date read
+- [Questions](/faq/): cost, hardware, players and relays, macOS, packaging, chat, AzuraCast, readiness, telephones, hosting, help, versioning
+- [Run your own station](/run/): the one-line script, Cloudron and Quadlets, and the studio app's downloads
 
 ## Status
 
-- [What is built, and what is planned](/reference/release-one-status/): release one's milestones, M1 to M11
+- [What release one does, and what it leaves out](/docs/reference/release-one-status/): 1.0.0, what is in it, what is not, the known limits, what was measured
 
-## Tutorials
+## Documentation
 
-- [Run a first show at desk B](/tutorials/first-show/): the studio app against the real desk on one machine, with synthetic people
+- [Overview](/docs/): the pages by reader
+- [Glossary](/docs/reference/glossary/): the studio words in plain language
+- [Run a first show](/docs/tutorials/first-show/): the studio app against the real desk on one machine, with synthetic people
+- [How the parts fit together](/docs/explanation/architecture/): the processes, and why two latencies
 
 ## How-to guides: presenters
 
-- [Get ready to present](/how-to/get-ready/): joining, headphones, the microphone's browser settings
-- [Present from the keyboard at desk B](/how-to/present-at-desk-b/): on air, cue, mute, held talk
-- [Take a caller to air](/how-to/take-a-caller/): accept with Cue, decline with Esc, drop with Ctrl+D twice
-- [Start on the count-in, and take turns](/how-to/count-in/): talkback from the producer or screener; the delay with remote guests
-- [When the lamp says PLAYOUT DOWN](/how-to/playout-down/): the room is alive, listeners hear nothing; restart playout
+- [Get ready to present](/docs/how-to/get-ready/): joining, headphones, the microphone's browser settings
+- [Present from the keyboard](/docs/how-to/present-from-the-keyboard/): on air, cue, mute, held talk
+- [Take a caller to air](/docs/how-to/take-a-caller/): accept with Cue, decline with Esc, drop with Ctrl+D twice
+- [Start on the count-in, and take turns](/docs/how-to/count-in/): talkback from the producer or screener; the delay with remote guests
+- [When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/): the room is alive, listeners hear nothing; restart playout
 
-## How-to guides: screeners and station admins
+## How-to guides: screeners and station staff
 
-- [Screen callers](/how-to/screen-callers/): hold T to talk, P to send, the chat modes
-- [Give someone a room token](/how-to/issue-room-tokens/): short-lived tokens with a role, from the command line or the API
-- [Set the show, the rundown and the banned list](/how-to/set-the-show/): temporary settings until the schedule and accounts
+- [Screen callers](/docs/how-to/screen-callers/): hold T to talk, P to send, the chat modes
+- [Moderate the chat](/docs/how-to/moderate-the-chat/): reports, held messages, statements of reasons
+- [Schedule the week](/docs/how-to/schedule-the-week/): shows, automation blocks, corrections
+- [Add staff and sign in](/docs/how-to/add-staff/): accounts, roles, sign-in codes
+- [Set retention](/docs/how-to/set-retention/): jurisdiction presets, holds
+- [Give someone a room token](/docs/how-to/issue-room-tokens/): short-lived tokens with a role
+- [Set the show, the rundown and the banned list](/docs/how-to/set-the-show/)
 
 ## How-to guides: self-hosting
 
-- [Install on Cloudron](/how-to/install-on-cloudron/): the staging package 0.1.1; TURN over TLS on 15349; the private stream; 1.5 GiB
-- [Install a station with weavesignal.sh](/how-to/install-with-weavesignal-sh/): the Compose bundle in one command; secrets made locally, free ports, uninstall keeps the data
-- [Run the loopback stack with Compose](/how-to/run-with-compose/): every listener on loopback, for development
-- [Run a station as Podman Quadlets](/how-to/run-with-quadlets/): units generated from the Compose bundle, secrets as Podman secrets
-- [Install the studio app on Linux](/how-to/install-studio-linux/): AppImage, .deb or .rpm; checksums; the Wayland setting
-- [Install the studio app on Windows](/how-to/install-studio-windows/): the unsigned installer, its checksum, and SmartScreen's "More info" then "Run anyway"
-- [Check a station's ports](/how-to/check-ports/): the free-port check and what to change
+- [Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/): the Compose bundle in one command; secrets made locally, free ports, uninstall keeps the data
+- [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/): a reverse proxy with a certificate, TURN over TLS, the ports to open
+- [Install on Cloudron](/docs/how-to/install-on-cloudron/): the 1.0.0 package from its published image; TURN over TLS on 15349; 1.5 GiB
+- [Run a station as Podman Quadlets](/docs/how-to/run-with-quadlets/): units generated from the Compose bundle, secrets as Podman secrets
+- [Run the loopback stack with Compose](/docs/how-to/run-with-compose/): every listener on loopback, for development
+- [Install the studio app on Linux](/docs/how-to/install-studio-linux/): AppImage, .deb or .rpm; checksums; the Wayland setting
+- [Install the studio app on Windows](/docs/how-to/install-studio-windows/): the unsigned installer, its checksum, SmartScreen
+- [Check a station's ports](/docs/how-to/check-ports/): the free-port check and what to change
+- [Memory and CPU](/docs/reference/resources/): measured on a workstation, a dedicated server and a shared one
 
 ## Reference
 
-- [Roles](/reference/roles/): the seven roles and what each can do
-- [Who hears whom](/reference/who-hears-whom/): the desk's routes and gates by role
-- [Keymap](/reference/keymap/): every studio key, built or planned
-- [States](/reference/states/): ON AIR, OPEN, PLAYOUT DOWN, STANDBY, FAULT and the caller states
-- [Ports](/reference/ports/): every listening port, its default and alternatives, and the Cloudron package's
-- [Memory and CPU](/reference/resources/): measured on a workstation and on the staging Cloudron
-- [Packages and install files](/reference/packages/): the desktop packages, their files and build settings, the updater key, weavesignal.sh's settings, the Quadlets
-- [Control plane routes](/reference/control-api/): the HTTP API, its bearers, errors and stability promise
-- [API reference](/reference/api/): every route, generated from the code (also `GET /api/v1/openapi.json`)
-- [The desk's control socket](/reference/desk-control/): six JSON-line requests and the status
-- [Settings](/reference/settings/): control.toml, desk.toml and the environment
-- [Licences](/reference/licence/): code AGPL-3.0-only; documentation text CC BY-SA 4.0, its code samples AGPL-3.0-only
-
-## Reference: panels by name
-
-- [Studio app frame](/reference/surfaces/studio/): studio.frame
-- [Desk](/reference/surfaces/desk/): desk B's 19 panels and what each shows in this build
-- [Screener](/reference/surfaces/screener/): 8 panels; the caller lane built, the chat lane planned (M6)
-- [Cart wall](/reference/surfaces/carts/): planned, later in M2
-- [Calendar](/reference/surfaces/calendar/): planned, M4
-- [Presenter kit](/reference/surfaces/kit/): planned, M9
-- [Show cards](/reference/surfaces/cards/): planned, M8
-
-## Explanation
-
-- [How the parts fit together](/explanation/architecture/): the processes, how they talk, and why two latencies
-- [What ON AIR promises](/explanation/on-air/): why OPEN and PLAYOUT DOWN exist
-- [Why headphones, and why the browser cancels echo](/explanation/echo-and-headphones/): the measured echo and the three fixes
+- [Roles](/docs/reference/roles/): the seven roles and what each can do
+- [Who hears whom](/docs/reference/who-hears-whom/): the desk's routes and gates by role
+- [The state vocabulary](/docs/reference/states/): the fifteen state words
+- [Playout](/docs/reference/playout/), [The chat](/docs/reference/chat/), [The public pages](/docs/reference/public-pages/), [Settings](/docs/reference/settings/), [Ports](/docs/reference/ports/)
+- [Control plane routes](/docs/reference/control-api/) and the [API reference](/docs/reference/api/)
+- [Packages and install files](/docs/reference/packages/), [Licences](/docs/reference/licence/)

@@ -1,0 +1,30 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// Every question (ADR-0211), from src/data/faq.ts; the home page shows eight of them.
+import Site from '../layouts/Site.astro';
+import { questions } from '../data/faq';
+---
+
+<Site
+  title="Questions — WeaveSignal"
+  description="What WeaveSignal costs to run, the hardware a station needs, existing players and relays, the studio app, macOS, packaging, an existing chat, AzuraCast, readiness, telephones, hosting, help and the version number."
+  path="/faq/"
+>
+  <div class="wrap page-title">
+    <h1>Questions</h1>
+    <p class="lead">The questions people arrive with, answered short; each links the page that says more. Something missing? <a href="mailto:info@weavesignal.top">Ask</a>.</p>
+  </div>
+  <section class="section" aria-label="Questions and answers">
+    <div class="wrap">
+      <div class="faq">
+        {questions.map((q) => (
+          <div id={q.id}>
+            <h2><a href={`#${q.id}`} style="color:inherit;text-decoration:none">{q.q}</a></h2>
+            {q.a.map((p) => <p set:html={p} />)}
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+</Site>

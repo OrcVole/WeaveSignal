@@ -183,7 +183,7 @@ reuse-check:
 openapi:
     mkdir -p {{root}}/docs/openapi
     cargo run -q -p weavesignal-control -- openapi > {{root}}/docs/openapi/weavesignal-v1.json
-    cargo run -q -p weavesignal-control -- openapi --markdown > {{root}}/docs/src/content/docs/reference/api.md
+    cargo run -q -p weavesignal-control -- openapi --markdown > {{root}}/docs/src/content/docs/docs/reference/api.md
 
 # Fail when the committed description or reference page differs from what the handlers generate
 openapi-check:
@@ -191,7 +191,7 @@ openapi-check:
     cargo run -q -p weavesignal-control -- openapi > {{root}}/target/openapi-check/weavesignal-v1.json
     cargo run -q -p weavesignal-control -- openapi --markdown > {{root}}/target/openapi-check/api.md
     diff -u {{root}}/docs/openapi/weavesignal-v1.json {{root}}/target/openapi-check/weavesignal-v1.json || { echo "docs/openapi/weavesignal-v1.json is out of date: run 'just openapi' and commit it"; exit 1; }
-    diff -u {{root}}/docs/src/content/docs/reference/api.md {{root}}/target/openapi-check/api.md || { echo "docs/src/content/docs/reference/api.md is out of date: run 'just openapi' and commit it"; exit 1; }
+    diff -u {{root}}/docs/src/content/docs/docs/reference/api.md {{root}}/target/openapi-check/api.md || { echo "docs/src/content/docs/docs/reference/api.md is out of date: run 'just openapi' and commit it"; exit 1; }
     @echo "the API description is current"
 
 # Validate the Compose bundle (and with its two local edges, edges.yaml) against the example settings, its secrets filled with throwaways
@@ -293,9 +293,15 @@ package-desktop-test:
 web-check:
     cd {{root}}/apps/web && pnpm install --frozen-lockfile && pnpm check && pnpm test && pnpm build
 
-# Build the documentation site (pnpm 10 must be first on PATH)
+# Build the website (the landing site and the documentation; pnpm 10 must be first on PATH),
+# then check every internal link, image and source in the build, the redirect pages included
 docs-build:
     cd {{root}}/docs && pnpm install --frozen-lockfile && ASTRO_TELEMETRY_DISABLED=1 pnpm build
+    node {{root}}/tests/docs-links/check.mjs {{root}}/docs/dist
+
+# The link check alone, over an existing build
+docs-links:
+    node {{root}}/tests/docs-links/check.mjs {{root}}/docs/dist
 
 # The model's migrations, the control plane's cart, retention, show, card and feed routes (M8),
 # the public API's tokens, webhooks and open routes (ADR-0195), and the chat (M6: sign-in, the rules, the hold, moderation with statements of reasons, the

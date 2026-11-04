@@ -2,7 +2,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
-## 1.0.0 (2026-11-04)
+[1.0.0]
 
 - **WeaveSignal, release one**, the first public version. The app id is
   `top.weavesignal.cloudronapp`; the 0.x versions below were private test builds under another
@@ -13,13 +13,13 @@
   the mix, not from the clock when it is encoded (0.0 % concealed, from 30–50 %).
 - The edge passes only its own `Cache-Control`; the unused `hls_origin` port is retired.
 
-## 0.9.3 (for staging, 2026-11-03)
+[0.9.3]
 
 - **A show can have its own slate picture** (ADR-0200): set in the show editor, it is on the
   video slate while the show is on air by the schedule, else the station's. The station's
   existing picture is kept as the station's.
 
-## 0.9.2 (for staging, 2026-11-03)
+[0.9.2]
 
 - **API tokens get a key of their own** (ADR-0202): `CONTROL_TOKEN_KEY` is generated once in
   `secrets.env`, so rotating the station key no longer revokes tokens. **Upgrading revokes the
@@ -29,14 +29,14 @@
 - The docs say what No retention keeps (ADR-0199) and that a webhook delivery waiting at a
   restart is lost (ADR-0201).
 
-## 0.9.1 (for staging, 2026-11-03)
+[0.9.1]
 
 - **The listener process's cushion of playout's feed is a setting, `FEED_BUFFER_S`, 1.5 s by
   default.** 0.9.0 shipped 0.5 s, proven on a quiet workstation; on the shared staging server
   the listener process fell behind, the cushion ran dry, listeners heard the fallback for
   moments, and the backlog grew to 6 s. Each second set is a second more listener delay.
 
-## 0.9.0 (for staging, 2026-11-03)
+[0.9.0]
 
 The package carries `m1` at `810553f` (2026-11-03): `after-0028`, the fixes from review 0028, the public API's
 tokens and webhooks (migrations 0019-0020 run at start), the chat's minimum age by
@@ -54,7 +54,7 @@ signed-in admin.
   `weavesignal.env`; setting -23 again afterwards keeps it, and any other value is left alone.
 - The processing chain is its own script (`playout/chain.liq`), copied beside playout's.
 
-## 0.8.0 (for staging, 2026-11-02)
+[0.8.0]
 
 The package carries `w-all2` (2026-11-02): the chat's keyed email hash, consents on air,
 extended holds, the glyph refusal, episode kinds and corrections, the address check, the camera
@@ -91,7 +91,7 @@ and the studio app's updater. Migrations 0013-0018 run at start.
   private, from Cloudron's header), so the control plane now reading the last entry changes
   nothing; `join.forwarded_for` and the chat's `forwarded_for` stay on.
 
-## 0.7.0 (for staging, 2026-11-01)
+[0.7.0]
 
 The package carries `m1` at `a170857`.
 
@@ -101,7 +101,7 @@ The package carries `m1` at `a170857`.
 - From the first AI call-in show (live 01): the studio app's keychain works on a real desktop,
   and a station without staff sign-in no longer upsets the app's frame.
 
-## 0.6.0 (for staging, 2026-11-01)
+[0.6.0]
 
 The package carries `m1` at `e390ae5`.
 
@@ -110,7 +110,7 @@ The package carries `m1` at `e390ae5`.
 - A caller is not shown the programme picture (it is published in the studio room).
 - The public pages allow the camera for the station's own origin.
 
-## 0.5.0 (for staging, 2026-11-01)
+[0.5.0]
 
 The package carries `m1` at `ea2addf`.
 
@@ -122,7 +122,7 @@ The package carries `m1` at `ea2addf`.
   the chat's powers at once.
 - Migration 0012 runs at start.
 
-## 0.4.1 (for staging, 2026-11-01)
+[0.4.1]
 
 The package carries `m1` at `d740331`.
 
@@ -138,7 +138,7 @@ The package carries `m1` at `d740331`.
 
 0.4.0 was tried on staging the same morning, heard silent (this fault), and rolled back.
 
-## 0.4.0 (for staging, 2026-11-01)
+[0.4.0]
 
 The package carries `m1` at `c9cbf11`: room privacy (ADR-0118) and End pass (ADR-0119).
 
@@ -150,7 +150,7 @@ The package carries `m1` at `c9cbf11`: room privacy (ADR-0118) and End pass (ADR
   migration 0010 keeps ended passes for a day across restarts.
 - `.containerignore` lets `spike/desk-image/patches` into the build context.
 
-## 0.3.0 (for staging, 2026-10-31)
+[0.3.0]
 
 The package carries `m1` at `4a0c2cd`: the Schedule tab's screens, the video path (off unless a
 station turns it on), packaging, the studio's station setting, and the 2026-10-31 review's
@@ -162,11 +162,11 @@ alone, uploads check the bearer first, one station time zone, chat ids never reu
 - Migration 0009: a station whose zone was never set in the studio takes `PUBLISHING_ZONE`
   (Europe/London by default) on start, replacing the UTC row playout created before it.
 
-## 0.2.1 (installed on staging)
+[0.2.1]
 
 The manifest names the app's icon (`logo.png`, the Boxicons broadcast mark, ADR-0117); 0.2.0 had none, so Cloudron showed its default.
 
-## 0.2.0 (built and checked locally; not pushed, not installed)
+[0.2.0]
 
 The package carries `m1` at `1cd70a1`: retention, carts in the desk's mixer, show cards and
 feeds, the live chat and M4's playout layer.
@@ -199,11 +199,11 @@ feeds, the live chat and M4's playout layer.
   `X-Forwarded-For`), and both the control plane and the chat take it (`forwarded_for`).
 * Migrations 0004 to 0007 run at start, as before, by the control plane.
 
-## 0.1.1
+[0.1.1]
 
 * The desk contains a person's failure; listen-only tokens; a constant-rate listener stream.
 
-## 0.1.0
+[0.1.0]
 
 * First staging build: the control plane, the desk, Liquidsoap 2.5 playout and
   `icecast.server`, LiveKit with TURN over TLS on 15349, behind nginx; PostgreSQL addon.

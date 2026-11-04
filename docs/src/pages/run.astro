@@ -1,0 +1,109 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// Run your own station (ADR-0211): the three server routes with their platform, command,
+// requirements and guide, then the studio app's downloads. The commands are the guides' own.
+import Site from '../layouts/Site.astro';
+
+const release = 'https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.0';
+const asset = (f: string) => `https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/download/v1.0.0/${f}`;
+---
+
+<Site
+  title="Run your own station — WeaveSignal"
+  description="Install a WeaveSignal station on a Linux server with one script, on Cloudron, or as systemd Quadlets, and download the studio app for Linux or Windows."
+  path="/run/"
+>
+  <div class="wrap page-title">
+    <h1>Run your own station</h1>
+    <p class="lead">Three ways to the same station, all from the same published images. Each wants a Linux server of its own: live audio needs CPU on time, and on a heavily shared server the listener stream runs dry. A busy server is fine for finding out whether it works.</p>
+  </div>
+
+  <section class="section" aria-labelledby="server-h">
+    <div class="wrap">
+      <h2 id="server-h">The server</h2>
+      <div class="routes">
+        <div class="route">
+          <span class="platform">Linux with Docker Compose, or Podman 5 with the docker-compose provider</span>
+          <h3>One script</h3>
+          <span class="quickest">The quickest route</span>
+          <pre><code>git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git
+cd weavesignal
+deploy/compose/weavesignal.sh</code></pre>
+          <p>The script finds Podman or Docker, makes the station's secrets on your machine, picks free ports, pulls <code>weavesignal-server:1.0.0</code> and starts the station, listening on this machine only. Run it again with <code>--public station.example</code> to put a reverse proxy with a certificate in front and open the room to the internet.</p>
+          <ul>
+            <li>Docker Engine with the Compose plugin, or Podman 5 with <code>docker-compose</code> as its provider. Not <code>podman-compose</code>: the script refuses it.</li>
+            <li>The repository checked out where it will stay: the bundle mounts playout's scripts from it.</li>
+            <li>Ports are chosen for you and stay settings.</li>
+          </ul>
+          <p><a href="/docs/how-to/install-with-weavesignal-sh/">Install a station with weavesignal.sh</a>, then <a href="/docs/how-to/publish-with-compose/">publish it</a>.</p>
+        </div>
+        <div class="route">
+          <span class="platform">Cloudron 10.0 or later, amd64</span>
+          <h3>Cloudron</h3>
+          <pre><code>git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git
+cd weavesignal/deploy/cloudron
+cloudron install --image forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.0</code></pre>
+          <p>Cloudron is a self-hosting platform that runs apps on your own server with backups, updates and a login in front of them. WeaveSignal's package is not in Cloudron's app store yet, so it is installed with Cloudron's command-line tool from the published image; Cloudron asks for the four domains and the public ports as it installs.</p>
+          <ul>
+            <li>The Cloudron command-line tool, logged in to your Cloudron.</li>
+            <li>PostgreSQL is Cloudron's addon; sign-in codes go through Cloudron's mail.</li>
+            <li>1.5 GiB of memory is the package's limit; a server with IPv6 should read the guide's TURN note first.</li>
+          </ul>
+          <p><a href="/docs/how-to/install-on-cloudron/">Install on Cloudron</a></p>
+        </div>
+        <div class="route">
+          <span class="platform">Linux with Podman 5 and systemd</span>
+          <h3>Quadlets</h3>
+          <pre><code>git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git
+cd weavesignal
+mkdir -p ~/.config/weavesignal
+deploy/compose/weavesignal.sh --no-start --env-file ~/.config/weavesignal/station.env
+deploy/quadlets/generate.sh --env-file ~/.config/weavesignal/station.env \
+  --out ~/.config/weavesignal/quadlets --create-secrets</code></pre>
+          <p>Quadlets are Podman's systemd units for containers. The first command makes the secrets and chooses the ports without starting anything; the second writes one unit per container and per volume from the same Compose bundle, and stores the secrets as Podman secrets. Copy the units into place and systemd starts the station at boot.</p>
+          <ul>
+            <li>Podman 5 with <code>docker-compose</code> as its provider, and systemd for your user.</li>
+            <li>The repository checked out where it will stay.</li>
+            <li>Generated and checked on every build; not yet run as a station's daily route.</li>
+          </ul>
+          <p><a href="/docs/how-to/run-with-quadlets/">Run a station as Podman Quadlets</a></p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:2rem">Whichever route: sign in from the studio app with the station key the install made, add yourself as an admin, then <a href="/docs/how-to/add-staff/">add your staff</a>. For a big night, <a href="/docs/how-to/run-edges/">edges</a> or <a href="/docs/how-to/use-bunny/">a CDN</a> go in front of the stream.</p>
+    </div>
+  </section>
+
+  <section class="section" id="studio-app" aria-labelledby="studio-h">
+    <div class="wrap">
+      <h2 id="studio-h">The studio app</h2>
+      <p class="lead">For whoever runs the desk and screens the calls. Presenters, guests, callers and listeners need nothing but a browser. Release 1.0.0, from <a href={release}>the release on the Forgejo</a>; check each file against its checksum before you install it.</p>
+      <div class="cols" data-n="3">
+        <div>
+          <h3>Linux, 64-bit Intel and AMD</h3>
+          <ul class="downloads">
+            <li><a href={asset('WeaveSignal_1.0.0_amd64.AppImage')}>AppImage</a> <span class="file">WeaveSignal_1.0.0_amd64.AppImage</span></li>
+            <li><a href={asset('WeaveSignal_1.0.0_amd64.deb')}>.deb</a> <span class="file">Debian 13 and later, Ubuntu 24.04 and later</span></li>
+            <li><a href={asset('WeaveSignal-1.0.0-1.x86_64.rpm')}>.rpm</a> <span class="file">Fedora 43 and later</span></li>
+            <li><a href={asset('SHA256SUMS-1.0.0')}>SHA256SUMS-1.0.0</a> <span class="file">the checksums</span></li>
+          </ul>
+          <p style="margin-top:0.75rem"><a href="/docs/how-to/install-studio-linux/">Install the studio app on Linux</a></p>
+        </div>
+        <div>
+          <h3>Windows 10 and 11, x64</h3>
+          <ul class="downloads">
+            <li><a href={asset('WeaveSignal_1.0.0_x64-setup.exe')}>Installer</a> <span class="file">WeaveSignal_1.0.0_x64-setup.exe</span></li>
+            <li><a href={asset('SHA256SUMS-1.0.0-windows')}>SHA256SUMS-1.0.0-windows</a> <span class="file">the checksum</span></li>
+          </ul>
+          <p style="margin-top:0.75rem">The installer is unsigned, so Windows' SmartScreen stops it the first time, and it has been built on Linux and inspected but not yet run on Windows. <a href="/docs/how-to/install-studio-windows/">Install the studio app on Windows</a> says how to check it and get past the warning.</p>
+        </div>
+        <div>
+          <h3>macOS</h3>
+          <p>There is no macOS build. A presenter or guest on a Mac joins from the browser; running the desk needs a Linux or Windows machine.</p>
+          <h3 style="margin-top:1.25rem">Updates</h3>
+          <p>The app checks for signed updates and installs one only when asked; an AppImage can roll back. <a href="/docs/how-to/update-studio-app/">Update the studio app, or roll it back</a>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</Site>

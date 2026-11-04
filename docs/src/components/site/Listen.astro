@@ -1,0 +1,17 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// Listen to the demo station (ADR-0211): a listen-only station on demo.weavesignal.top, playing
+// the default loop and the recorded demo show. Opus first, the MP3 stream second for players
+// without Opus; nothing plays until pressed.
+---
+
+<section class="listen" aria-labelledby="listen-h">
+  <h2 id="listen-h">Listen to the demo station</h2>
+  <audio controls preload="none">
+    <source src="https://demo-listen.weavesignal.top/programme.opus" type="audio/ogg; codecs=opus" />
+    <source src="https://demo-listen.weavesignal.top/programme.mp3" type="audio/mpeg" />
+    Your browser cannot play the stream here; open <a href="https://demo.weavesignal.top/">the demo station's player page</a>.
+  </audio>
+  <p>A real WeaveSignal station, listen-only: you cannot call in to it. Its station, Kettle FM, and the people in its shows are sample data. The <a href="https://demo.weavesignal.top/">demo station's player page</a> is what a station's listeners see.</p>
+</section>

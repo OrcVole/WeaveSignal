@@ -1,0 +1,201 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The home page (ADR-0211): what it is, hear it, the status of 1.0.0, who uses what, the parts
+// in plain words, the two latencies, the stack it replaces, how to run it, eight questions.
+import Site from '../layouts/Site.astro';
+import Demo from '../components/site/Demo.astro';
+import Listen from '../components/site/Listen.astro';
+import Status from '../components/site/Status.astro';
+import Signal from '../components/site/Signal.astro';
+import Clip from '../components/site/Clip.astro';
+import { questions } from '../data/faq';
+import screener from '../assets/screens/reference-screener-queue.png';
+import player from '../assets/screens/reference-public-pages-player.png';
+import week from '../assets/screens/reference-calendar-week.png';
+
+const home = questions.filter((q) => q.home);
+---
+
+<Site
+  title="WeaveSignal — open-source internet radio with a live studio"
+  description="WeaveSignal is open-source, self-hosted internet radio software with the live studio built in: presenters, guests and screened callers in one room, playout between shows, streams for listeners, in one installation on your own server."
+  path="/"
+>
+  <section class="hero" aria-labelledby="hero-h">
+    <div class="wrap">
+      <div class="hero-copy">
+        <h1 id="hero-h">Open-source internet radio, with the live studio built in.</h1>
+        <p class="sub">Presenters, guests and screened callers talk in one room. Playout fills the air between shows. Listeners get a stream. One installation, on your own server.</p>
+        <div class="actions">
+          <a class="btn primary" href="/run/">Run your own station</a>
+          <a class="btn" href="/docs/">Read the documentation</a>
+        </div>
+        <p class="open-source">Free software (AGPL-3.0-only) for a self-hosted internet radio or video station. Release 1.0.0, 4 November 2026.</p>
+        <Listen />
+      </div>
+      <div class="hero-media">
+        <Demo />
+      </div>
+    </div>
+  </section>
+
+  <Status />
+
+  <section class="section" aria-labelledby="who-h">
+    <div class="wrap">
+      <h2 id="who-h">Who uses what</h2>
+      <p class="lead">Three things; the people on air install none of them.</p>
+      <div class="who">
+        <div>
+          <h3>A browser</h3>
+          <p>Presenters, guests and callers join the room from a web page, on a computer or a phone. Listeners play the stream and chat on the station's page. Nothing to install.</p>
+          <a class="link" href="/docs/how-to/get-ready/">Get ready to present</a>
+        </div>
+        <div>
+          <h3>The studio app</h3>
+          <p>A desktop program for whoever runs the show: the desk, the screener, the cart wall and the schedule, every action on a key. Linux and Windows; no macOS build yet.</p>
+          <a class="link" href="/run/#studio-app">Download the studio app</a>
+        </div>
+        <div>
+          <h3>The server</h3>
+          <p>One installation holds the whole station: the room, the desk, playout, the stream, the chat and the pages. A Linux server of its own, through one script, Cloudron or systemd.</p>
+          <a class="link" href="/run/">Run your own station</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="words-h">
+    <div class="wrap">
+      <h2 id="words-h">The parts, in plain words</h2>
+      <div class="words">
+        <dl>
+          <div>
+            <dt>The room</dt>
+            <dd>Where the people talking are. Everyone joins from a browser; callers each wait in a booth of their own, hearing the show, seen by nobody.</dd>
+          </div>
+          <div>
+            <dt>The desk</dt>
+            <dd>The mixing desk, as software. It hears everyone, mixes the programme, and gives each person the show without their own voice, so nobody hears themselves back late. Cue, talk, mute, a profanity delay with a Dump key, and a lamp that says ON AIR only when listeners can hear you.</dd>
+          </div>
+          <div>
+            <dt>The screener</dt>
+            <dd>The person who answers the callers off air, talks to them, writes the one line the presenter sees, and sends them to the desk. Someone banned before is marked before they are heard.</dd>
+          </div>
+          <div>
+            <dt>Playout</dt>
+            <dd>The automation that fills the air between shows: a week of shows and music blocks, each hour from a clock, with a fallback so listeners stay connected and hear something. When the desk goes on air, playout steps aside; when it stops, playout holds the air.</dd>
+          </div>
+          <div>
+            <dt>The stream</dt>
+            <dd>Ogg Opus for listeners, an optional MP3 stream for older players, and video as HLS when a station turns it on. A chat on the player page, show cards for each episode, and a podcast feed per show.</dd>
+          </div>
+          <div>
+            <dd><a href="/docs/reference/glossary/">The glossary</a> has the rest of the studio words.</dd>
+          </div>
+        </dl>
+        <div class="words-media">
+          <Clip
+            name="screener"
+            src={screener}
+            size="phone"
+            alt="The screener's queue: four callers waiting, Dougal Thomson, Jessie Brown, Niall Anderson and Tavish, who is marked BANNED BEFORE; below, Dougal's card with one line for Eilidh, the consent record, a note for the presenter, the name on air and the Send to desk, To queue and Drop keys."
+            caption="The screener's queue and a caller's card (sample data)."
+          />
+          <Clip
+            name="player"
+            src={player}
+            size="phone"
+            alt="The listener's page on a phone: Kettle FM with its ON AIR lamp, The Morning Kettle with Rory Bruce live now, a Listen live button, and a Talk to the studio panel with a Call the studio button."
+            caption="The station's page on a phone, with the call-in button (sample data)."
+          />
+          <Clip
+            name="week"
+            src={week}
+            alt="The studio app's Schedule tab showing a week: automation blocks for the daytime and evening playlists, live shows such as Kettle Breakfast, The Long Lunch and Kettle Drive, one marked CONFLICT, and the current time line on Tuesday."
+            caption="The week: live shows, automation blocks and one conflict (sample data)."
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <Signal />
+
+  <section class="section" aria-labelledby="compare-h">
+    <div class="wrap">
+      <h2 id="compare-h">Instead of a stack of tools</h2>
+      <p class="lead">A station that takes live guests and callers today combines a playout suite, a guest link, a phone hybrid or a group call, a chat widget and a stream, each with its own login and its own idea of who hears whom. WeaveSignal does those jobs in one installation. It does not do everything they do, and <a href="/compare/">the full comparison</a> says where each is better, with sources and dates.</p>
+      <div class="table compare-home">
+        <table>
+          <caption class="sr">The jobs a station combines tools for, and what WeaveSignal does for each</caption>
+          <thead>
+            <tr><th scope="col">The job</th><th scope="col">Done today with</th><th scope="col">WeaveSignal</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Playout, automation and a stream</th><td>AzuraCast, LibreTime, Rivendell, or Liquidsoap and Icecast by hand</td><td>Yes: a schedule from clocks, a dead-air fallback, Ogg Opus and an optional MP3 stream</td></tr>
+            <tr><th scope="row">Remote guests who hear each other</th><td>Cleanfeed, Studio Link, VDO.Ninja</td><td>Yes: a room with a mix of their own for each person, from a browser</td></tr>
+            <tr><th scope="row">Callers, screened</th><td>A phone hybrid such as Telos VX, or Discord</td><td>Yes, from the station's page with a screener; no telephone number</td></tr>
+            <tr><th scope="row">A listener chat</th><td>A chat widget, or Rocket.Chat beside the station</td><td>Yes, on the player page, moderated by the screener</td></tr>
+            <tr><th scope="row">Several stations in one admin</th><td>AzuraCast, hosted platforms</td><td>No: one station per installation</td></tr>
+            <tr><th scope="row">Nothing to run yourself</th><td>Radio.co, Live365, Zeno.FM</td><td>No: self-hosted only</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="lead" style="margin-top:1.5rem">If you only need automation and a stream, you may not need this: AzuraCast or LibreTime will serve you well, and they have years on us.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="run-h">
+    <div class="wrap">
+      <h2 id="run-h">Run your own station</h2>
+      <p class="lead">Three ways to the same station, on a Linux server of its own. The script is the quickest; the other two suit a server you already run that way.</p>
+      <div class="routes">
+        <div class="route">
+          <span class="platform">Linux with Docker Compose, or Podman with the docker-compose provider</span>
+          <h3>One script</h3>
+          <span class="quickest">The quickest route</span>
+          <pre><code>git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git
+cd weavesignal
+deploy/compose/weavesignal.sh</code></pre>
+          <p>Makes the secrets, picks free ports, pulls the published image and starts the station on this machine. Add <code>--public station.example</code> for a certificate and a public address.</p>
+          <p><a href="/docs/how-to/install-with-weavesignal-sh/">The guide</a></p>
+        </div>
+        <div class="route">
+          <span class="platform">Cloudron 10.0 or later</span>
+          <h3>Cloudron</h3>
+          <pre><code>cd deploy/cloudron
+cloudron install --image forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.0</code></pre>
+          <p>Cloudron is a self-hosting platform that runs apps on your server with backups and updates. The package is not in its app store yet, so it is installed with Cloudron's command-line tool from the published image.</p>
+          <p><a href="/docs/how-to/install-on-cloudron/">The guide</a></p>
+        </div>
+        <div class="route">
+          <span class="platform">Linux with Podman 5 and systemd</span>
+          <h3>Quadlets</h3>
+          <pre><code>deploy/compose/weavesignal.sh --no-start --env-file ~/.config/weavesignal/station.env
+deploy/quadlets/generate.sh --env-file ~/.config/weavesignal/station.env \
+  --out ~/.config/weavesignal/quadlets --create-secrets</code></pre>
+          <p>One systemd unit per container, generated from the same bundle, with the secrets as Podman secrets; systemd starts the station at boot.</p>
+          <p><a href="/docs/how-to/run-with-quadlets/">The guide</a></p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:2rem">The studio app, for the desk and the screener, is a separate download for Linux and Windows: <a href="/run/#studio-app">the packages and their checksums</a>.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="faq-h">
+    <div class="wrap">
+      <h2 id="faq-h">Questions</h2>
+      <div class="faq">
+        {home.map((q) => (
+          <div id={q.id}>
+            <h3>{q.q}</h3>
+            {q.a.map((p) => <p set:html={p} />)}
+          </div>
+        ))}
+      </div>
+      <p class="lead" style="margin-top:2rem"><a href="/faq/">More questions</a>: packaging, telephones, a hosted version, who makes it, the version number.</p>
+    </div>
+  </section>
+</Site>

@@ -1,0 +1,36 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// A short clip of one moment (public/media/clip-<name>.webm with its captions) when both files
+// are there at build time, otherwise the screenshot given; played only when pressed.
+import { existsSync } from 'node:fs';
+import Frame from './Frame.astro';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  name: string;
+  src: ImageMetadata;
+  alt: string;
+  caption: string;
+  size?: 'wide' | 'phone';
+}
+const { name, src, alt, caption, size = 'wide' } = Astro.props;
+const media = new URL('../../../public/media/', import.meta.url).pathname;
+const clip = existsSync(`${media}clip-${name}.webm`) && existsSync(`${media}clip-${name}.vtt`);
+const poster = existsSync(`${media}clip-${name}.jpg`) ? `/media/clip-${name}.jpg` : undefined;
+---
+
+{
+  clip ? (
+    <figure class="frame" data-size={size}>
+      <video controls preload="none" poster={poster} playsinline>
+        <source src={`/media/clip-${name}.webm`} type="video/webm" />
+        <track kind="captions" src={`/media/clip-${name}.vtt`} srclang="en" label="English" default />
+        <p>Your browser cannot play this clip.</p>
+      </video>
+      <figcaption>{caption}</figcaption>
+    </figure>
+  ) : (
+    <Frame {src} {alt} {caption} {size} />
+  )
+}

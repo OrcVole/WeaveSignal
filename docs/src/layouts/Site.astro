@@ -1,0 +1,137 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The landing site's frame (ADR-0211): the head with the page's own title, description and share
+// picture; the header with the pages, the source and the theme; the footer with who makes it,
+// where to talk and the licence. The documentation under /docs/ keeps Starlight's frame.
+import '../styles/landing.css';
+import Agpl from '../components/site/Agpl.astro';
+import icon from '../assets/weavesignal-app-icon.svg';
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+}
+const { title, description, path } = Astro.props;
+const site = 'https://weavesignal.top';
+const canonical = `${site}${path}`;
+const pages = [
+  ['/compare/', 'Compare'],
+  ['/faq/', 'Questions'],
+  ['/run/', 'Run your own station'],
+  ['/docs/', 'Docs'],
+];
+---
+
+<!doctype html>
+<html lang="en-GB" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WeaveSignal" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={`${site}/og.png`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The studio app's desk: ON AIR for The Morning Kettle on Kettle FM (sample data), three people on air, two standing by." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script is:inline>
+      // The theme before the first paint, from the key Starlight keeps ('starlight-theme':
+      // dark, light or auto), so the toggle is one state across the whole site.
+      (function () {
+        // No key, or 'auto', follows the system, as Starlight does.
+        var t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        try {
+          var s = localStorage.getItem('starlight-theme');
+          if (s === 'light' || s === 'dark') t = s;
+        } catch (e) {}
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="top">
+      <div class="wrap">
+        <a class="mark" href="/" aria-label="WeaveSignal, home">
+          <img src={icon.src} width="28" height="28" alt="" />
+          WeaveSignal
+        </a>
+        <nav class="nav" aria-label="Pages">
+          {pages.map(([href, label]) => (
+            <a href={href} aria-current={path === href ? 'page' : undefined}>{label}</a>
+          ))}
+          <a href="https://forgejo.weavesignal.top/WeaveSignal/weavesignal">Source</a>
+        </nav>
+        <button class="theme" type="button" id="theme" aria-pressed="false">
+          <span class="sr">Theme: </span><span data-label>Dark</span>
+        </button>
+      </div>
+    </header>
+    <main id="main">
+      <slot />
+    </main>
+    <footer class="foot">
+      <div class="wrap">
+        <div>
+          <h2>Who makes it</h2>
+          <p>WeaveSignal is made by the WeaveSignal contributors. It is free software: the code is AGPL-3.0-only, the documentation CC BY-SA 4.0.</p>
+          <p style="margin-top:0.5rem">Write to <a href="mailto:info@weavesignal.top">info@weavesignal.top</a>.</p>
+        </div>
+        <div>
+          <h2>Where to talk</h2>
+          <ul>
+            <li><a href="https://forgejo.weavesignal.top/WeaveSignal/weavesignal/issues">Issues on the project's Forgejo</a> (sign-up is open)</li>
+            <li><a href="https://forgejo.weavesignal.top/WeaveSignal/weavesignal">Source code on the Forgejo</a>, and a <a href="https://github.com/OrcVole/WeaveSignal">mirror on GitHub</a></li>
+            <!-- L-12: when the package is announced on the Cloudron forum, link the thread here. -->
+            <li>A Cloudron forum thread follows the announcement there.</li>
+            <li>Security: email info@weavesignal.top with "Security" in the subject (<a href="https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/SECURITY.md">SECURITY.md</a>)</li>
+          </ul>
+        </div>
+        <div>
+          <h2>On this site</h2>
+          <ul>
+            <li><a href="/compare/">Compared with the stack it replaces</a></li>
+            <li><a href="/faq/">Questions</a></li>
+            <li><a href="/run/">Run your own station</a></li>
+            <li><a href="/docs/">Documentation</a> and the <a href="/docs/reference/glossary/">glossary</a></li>
+            <li><a href="/docs/reference/release-one-status/">What 1.0.0 does, and leaves out</a></li>
+            <li><a href="https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/CHANGELOG.md">Changelog</a></li>
+          </ul>
+        </div>
+        <div class="licence">
+          <Agpl />
+          <p>Kettle FM, its shows and its people are sample data, from the Tartan National Names list; no real station or person is shown. Text and images on this site are CC BY-SA 4.0; code samples are AGPL-3.0-only, as the code is: <a href="/docs/reference/licence/">which licence covers what</a>.</p>
+        </div>
+      </div>
+    </footer>
+    <script is:inline>
+      // The theme toggle: dark or light, written to Starlight's key.
+      (function () {
+        var b = document.getElementById('theme');
+        var label = b.querySelector('[data-label]');
+        function show() {
+          var light = document.documentElement.dataset.theme === 'light';
+          label.textContent = light ? 'Light' : 'Dark';
+          b.setAttribute('aria-pressed', light ? 'true' : 'false');
+        }
+        b.addEventListener('click', function () {
+          var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+          document.documentElement.dataset.theme = next;
+          try { localStorage.setItem('starlight-theme', next); } catch (e) {}
+          show();
+        });
+        show();
+      })();
+    </script>
+  </body>
+</html>

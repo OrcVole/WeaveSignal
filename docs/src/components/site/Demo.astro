@@ -1,0 +1,36 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The hero's picture: the demo video when its files are in public/media at build time (ADR-0211;
+// the video is made separately), otherwise the strongest screenshot, a caller going to air. The
+// video plays only when pressed, with captions on; nothing on the page points at a file that is
+// not there.
+import { existsSync } from 'node:fs';
+import Frame from './Frame.astro';
+import stage from '../../assets/screens/how-to-take-a-caller-on-air.png';
+
+const media = new URL('../../../public/media/', import.meta.url).pathname;
+const files = ['demo.webm', 'demo.mp4', 'demo.vtt', 'poster.jpg'];
+const video = files.every((f) => existsSync(media + f));
+---
+
+{
+  video ? (
+    <figure class="frame">
+      <video controls preload="none" poster="/media/poster.jpg" playsinline width="1440" height="900">
+        <source src="/media/demo.webm" type="video/webm" />
+        <source src="/media/demo.mp4" type="video/mp4" />
+        <track kind="captions" src="/media/demo.vtt" srclang="en" label="English" default />
+        <p>Your browser cannot play this video. <a href="/media/demo.mp4">Download it</a> instead.</p>
+      </video>
+      <figcaption>One minute of a show going to air, with sound: a caller is screened, cued in the presenter's headphones, taken to air, and playout takes over when the show ends. Kettle FM and its people are sample data.</figcaption>
+    </figure>
+  ) : (
+    <Frame
+      src={stage}
+      eager
+      alt="The desk's stage with the ON AIR lamp lit for The Morning Kettle: Eilidh Fraser-MacLeod the presenter, Gregor Stewart and Kirsty Wilson as guests, and Niall Anderson, a caller the screener sent, on air with Cue lit and the screener's line under his name, 'Bus lanes on Leith Walk · Has rung in three weeks running; keep it short'. Finlay Grant, a remote DJ, and playout stand by below. The profanity delay shows 7.6 of 8.0 s held, with a Dump key beside it."
+      caption="A caller on air beside the presenter and two guests, with the screener's one line under his name. Kettle FM and its people are sample data."
+    />
+  )
+}

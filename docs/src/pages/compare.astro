@@ -1,0 +1,130 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The comparison by job (ADR-0211): the stack of tools a station combines today beside
+// WeaveSignal, from src/data/comparison.json (the research of 2026-11-04: every cell has its
+// source and the date it was read; "not verified" means the pages read did not say). Prices are
+// shown only here, with the date.
+import Site from '../layouts/Site.astro';
+import data from '../data/comparison.json';
+
+const asOf = new Date(data.as_of).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+const tools = data.jobs.flatMap((j) => j.tools.map((t) => ({ ...t, job: j.job })));
+const toolUrl = (name: string) => tools.find((t) => t.name === name || name.startsWith(t.name.split(' ')[0]))?.url;
+const words: Record<string, string> = { yes: 'Yes', partial: 'Partial', no: 'No', 'not verified': 'Not verified' };
+// every source once, numbered, so a cell can cite it without repeating the address
+const sources: string[] = [];
+const cite = (url: string) => {
+  let i = sources.indexOf(url);
+  if (i < 0) {
+    sources.push(url);
+    i = sources.length - 1;
+  }
+  return i + 1;
+};
+const rows = data.rows.map((r) => ({
+  ...r,
+  others: r.others.map((o) => ({ ...o, n: cite(o.source) })),
+}));
+---
+
+<Site
+  title="Compared with the stack it replaces — WeaveSignal"
+  description="WeaveSignal beside the tools a station combines today, by job: playout suites, remote-guest tools, phone systems, hosted platforms, Liquidsoap and Icecast by hand, and chat; with sources, the date read, and when to choose something else."
+  path="/compare/"
+>
+  <div class="wrap page-title">
+    <h1>Compared with the stack it replaces</h1>
+    <p class="lead">A station that takes live guests and callers combines several tools today. The table puts WeaveSignal beside each, job by job, from the tools' own pages as read on {asOf}. <strong>Not verified</strong> means the pages read did not say, not that the tool lacks it. Where another tool is better, it says so; the last section says when to choose something else.</p>
+  </div>
+
+  <section class="section" aria-labelledby="jobs-h">
+    <div class="wrap">
+      <h2 id="jobs-h">The jobs, and the tools</h2>
+      <div class="table table-wide">
+        <table>
+          <caption class="sr">The tools compared, by job, with their kind, licence and price as read</caption>
+          <thead>
+            <tr><th scope="col">Job</th><th scope="col">Tool</th><th scope="col">Kind</th><th scope="col">Licence</th><th scope="col">Price, as read on {asOf}</th></tr>
+          </thead>
+          <tbody>
+            {data.jobs.map((j) =>
+              j.tools.map((t, i) => (
+                <tr>
+                  {i === 0 && <th scope="rowgroup" rowspan={j.tools.length}>{j.job}</th>}
+                  <td><a href={t.url} rel="nofollow">{t.name}</a></td>
+                  <td>{t.kind}</td>
+                  <td>{t.licence}</td>
+                  <td>{t.price_note}</td>
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p class="small muted" style="margin-top:0.75rem">WeaveSignal itself: open source, AGPL-3.0-only, free; you run the server.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="rows-h">
+    <div class="wrap">
+      <h2 id="rows-h">What each does</h2>
+      <p class="lead">One table per capability: WeaveSignal first, then every tool the research read for it. The number after a note is its source, listed at the end.</p>
+      {rows.map((r) => (
+        <div style="margin-top:2rem">
+          <h3>{r.capability}</h3>
+          <div class="table" style="margin-top:0.75rem">
+            <table>
+              <caption class="sr">{r.capability}: WeaveSignal and the other tools</caption>
+              <thead>
+                <tr><th scope="col">Tool</th><th scope="col">Has it</th><th scope="col">As read</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">WeaveSignal</th>
+                  <td class="v" data-v={r.weavesignal.v}>{words[r.weavesignal.v]}</td>
+                  <td>{r.weavesignal.note}</td>
+                </tr>
+                {r.others.map((o) => (
+                  <tr>
+                    <th scope="row">{toolUrl(o.tool) ? <a href={toolUrl(o.tool)} rel="nofollow">{o.tool}</a> : o.tool}</th>
+                    <td class="v" data-v={o.v}>{words[o.v]}</td>
+                    <td>{o.note} <a href={`#source-${o.n}`} aria-label={`source ${o.n}`}>[{o.n}]</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="choose-h">
+    <div class="wrap">
+      <h2 id="choose-h">When to choose something else</h2>
+      <p class="lead">If you only need automation and a stream, you may not need this. More precisely:</p>
+      <dl class="choose">
+        {data.choose_other_if.map((c) => (
+          <div>
+            <dt>{c.tool}</dt>
+            <dd>{c.when}</dd>
+          </div>
+        ))}
+      </dl>
+      <p class="lead" style="margin-top:1.5rem">Choose WeaveSignal when the live part is the point: a presenter with remote guests and callers who must hear each other, a screener between the callers and the desk, and one installation that also fills the air between shows.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="sources-h">
+    <div class="wrap">
+      <h2 id="sources-h">Sources</h2>
+      <p class="lead">Every page was read on {asOf}. Prices and features change; a tool's own page is the current word.</p>
+      <ol class="sources">
+        {sources.map((s, i) => (
+          <li id={`source-${i + 1}`}><a href={s} rel="nofollow">{s}</a></li>
+        ))}
+      </ol>
+    </div>
+  </section>
+</Site>

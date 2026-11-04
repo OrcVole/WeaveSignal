@@ -300,7 +300,7 @@ sidebar:\n  order: 9\n\
         doc["openapi"].as_str().unwrap_or("3.1")
     );
     out.push_str(
-        "Who may call a route, how a refusal looks and what the API promises are in [Control plane routes](/reference/control-api/).\n\n",
+        "Who may call a route, how a refusal looks and what the API promises are in [Control plane routes](/docs/reference/control-api/).\n\n",
     );
 
     // Operations by tag, in the order the tags are declared.

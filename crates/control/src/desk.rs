@@ -256,7 +256,7 @@ pub enum DeskCommand {
     /// delay builds back up. Allowed while it rebuilds; refused only when nothing is held.
     Dump,
     /// Who chooses the picture (video on): `auto` follows the audio, `slate` holds the slate
-    /// (desk B's F7), `person` holds one camera.
+    /// (the desk's F7), `person` holds one camera.
     Picture {
         mode: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -12,6 +12,7 @@ version = 1
 path = [
   "Cargo.lock",
   "deploy/cloudron/CloudronManifest.json",
+  "deploy/cloudron/CloudronVersions.json",
   "apps/studio/package.json",
   "apps/studio/pnpm-lock.yaml",
   "apps/studio/tsconfig.json",
@@ -32,18 +33,39 @@ SPDX-License-Identifier = "AGPL-3.0-only"
 [[annotations]]
 path = [
   "docs/public/llms.txt",
+  "docs/public/robots.txt",
   "docs/src/content/docs/**",
+  "docs/src/data/*.json",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
 SPDX-License-Identifier = "CC-BY-SA-4.0 AND AGPL-3.0-only"
 
-# Screenshots of the running interface for the documentation (ADR-0081), written by tests/docs-shots/shoot.mjs.
+# Screenshots of the running interface for the documentation (ADR-0081), written by tests/docs-shots/shoot.mjs,
+# and the website's share picture (docs/public/og.png), cut from the desk's screenshot.
 [[annotations]]
-path = ["docs/src/assets/screens/*.png"]
+path = ["docs/src/assets/screens/*.png", "docs/public/og.png"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
 SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# The website's faces: Noto Sans and Noto Sans Mono, subset to Latin from the unmodified releases
+# in crates/cards/fonts (the faces the show cards are drawn in), as woff2.
+[[annotations]]
+path = ["docs/public/fonts/*.woff2"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors"
+SPDX-License-Identifier = "OFL-1.1"
+
+# The AGPLv3 logo the Free Software Foundation publishes for marking works under the licence,
+# from Wikimedia Commons ("File:AGPLv3_Logo.svg", artist: Free Software Foundation), which records
+# it as public domain. A viewBox attribute was added so it scales; nothing else was changed. The
+# mark is the FSF's trademark: it is shown to say the code is under the AGPL, and for nothing else.
+[[annotations]]
+path = ["docs/src/assets/agplv3-logo.svg"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Free Software Foundation"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
 
 # The state chips and master lamps drawn for the documentation (ADR-0081): our own drawings,
 # exported from the design system's section 3, one dark and one light file per chip and lamp.

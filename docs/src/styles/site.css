@@ -6,7 +6,32 @@
    design system's section 2), so the site reads like the desk: the plane behind everything, the
    surface for the header and cards, the ink for text, the accent for links and the one primary
    button. The only red on the page is the ON AIR lamp in its own drawing. Starlight switches
-   themes with the same data-theme attribute on html as the product does. */
+   themes with the same data-theme attribute on html as the product does, and the landing site
+   (src/styles/landing.css) reads the same key, so one toggle serves both.
+
+   Faces: Noto Sans and Noto Sans Mono, the faces the station draws its show cards in
+   (crates/cards/fonts), subset to Latin as woff2 in public/fonts (OFL-1.1). */
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/NotoSans-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/NotoSans-SemiBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Sans Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/NotoSansMono-Regular.woff2') format('woff2');
+}
 :root {
   --sl-color-white: #e2e7f9;
   --sl-color-gray-1: #c0caf5;
@@ -22,9 +47,9 @@
   --sl-color-text-invert: #13141c;
   --sl-color-hairline-light: #3b3f57;
   --sl-color-hairline: #272a3d;
-  /* the product's faces: the system sans for reading, the system monospace for counting */
-  --sl-font: system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif;
-  --sl-font-mono: ui-monospace, 'Fira Code', 'Cascadia Mono', 'Liberation Mono', Menlo, monospace;
+  /* the station's own faces for reading and for counting, with the system faces behind them */
+  --sl-font: 'Noto Sans', system-ui, 'Segoe UI', Cantarell, Roboto, 'Helvetica Neue', sans-serif;
+  --sl-font-mono: 'Noto Sans Mono', ui-monospace, 'Fira Code', 'Cascadia Mono', 'Liberation Mono', Menlo, monospace;
 }
 :root[data-theme='light'] {
   --sl-color-white: #1a1b26;
@@ -44,107 +69,9 @@
   --sl-color-hairline: #e3e6ef;
 }
 
-/* The landing page (the one page with a hero) is wider than a documentation page, and its
-   sections lay themselves out; prose inside them keeps a reading measure. */
-[data-has-hero] .sl-container {
-  max-width: 72rem;
-}
-[data-has-hero] .sl-markdown-content > h2 {
-  font-size: var(--sl-text-2xl);
-}
 
-/* A section of the landing page: a heading and prose beside a picture; stacked on a phone. */
-.ws-feature {
-  display: grid;
-  grid-template-columns: 100%;
-  gap: 1.5rem;
-  align-items: start;
-  padding-block: 1.5rem;
-  border-top: 1px solid var(--sl-color-hairline);
-}
-.ws-feature-copy > * + * {
-  margin-top: 0.75rem;
-}
-.ws-feature-copy > ul {
-  padding-inline-start: 1.1rem;
-}
-.ws-feature-copy > ul > li + li {
-  margin-top: 0.35rem;
-}
-.ws-feature-copy > p,
-.ws-feature-copy > ul {
-  max-width: 60ch;
-  color: var(--sl-color-gray-2);
-}
-.ws-kicker {
-  font-size: var(--sl-text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--sl-color-gray-3);
-}
-.ws-feature-copy > h2,
-.ws-feature-copy > h3 {
-  margin-top: 0.25rem;
-  color: var(--sl-color-white);
-  line-height: var(--sl-line-height-headings);
-}
-.ws-feature-media {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: flex-start;
-  min-width: 0;
-}
-.ws-feature-media > * {
-  min-width: 0;
-}
-/* phone-width shots sit side by side when the column has room for two */
-.ws-feature[data-media='phones'] .ws-feature-media {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 1rem;
-}
-@media (min-width: 50rem) {
-  .ws-feature {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    gap: 2.5rem;
-    padding-block: 2.5rem;
-  }
-  .ws-feature[data-media='phones'] {
-    grid-template-columns: minmax(0, 6fr) minmax(0, 6fr);
-  }
-  .ws-feature[data-side='left'] .ws-feature-copy {
-    order: 2;
-  }
-  .ws-feature[data-media='none'] {
-    grid-template-columns: 100%;
-  }
-}
-
-/* Two short sections side by side (video and the chat). */
-.ws-pair {
-  display: grid;
-  grid-template-columns: 100%;
-  gap: 1.5rem;
-  border-top: 1px solid var(--sl-color-hairline);
-  padding-block: 1.5rem;
-}
-.ws-pair > .ws-feature {
-  border-top: 0;
-  padding-block: 0;
-  grid-template-columns: 100%;
-}
-.ws-pair .ws-feature-copy > h2 {
-  font-size: var(--sl-text-xl);
-}
-@media (min-width: 50rem) {
-  .ws-pair {
-    grid-template-columns: 1fr 1fr;
-    gap: 3rem;
-    padding-block: 2.5rem;
-  }
-}
+/* Bold text in the documentation is the semibold we ship, not a synthesised bold. */
+strong, b, .sl-markdown-content h1, .sl-markdown-content h2, .sl-markdown-content h3, .sl-markdown-content h4 { font-weight: 600; }
 
 /* A screenshot in a frame: the surface behind it, a hairline, the product's radius. */
 .ws-shot {
@@ -172,81 +99,4 @@
 }
 .ws-shot[data-size='phone'] > img {
   border-radius: 12px;
-}
-
-/* The master lamps as the documentation draws them, one drawing per theme. */
-.ws-lamps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 2rem;
-  align-items: flex-start;
-}
-.ws-feature-below {
-  grid-column: 1 / -1;
-}
-.ws-lamp {
-  display: grid;
-  gap: 0.4rem;
-  justify-items: start;
-  max-width: 14rem;
-}
-.ws-lamp > img {
-  /* no display rule here: Starlight's theme utilities (light:sl-hidden, dark:sl-hidden) hide one */
-  height: 2.5rem;
-  width: auto;
-}
-.ws-lamp > span {
-  font-size: var(--sl-text-sm);
-  color: var(--sl-color-gray-2);
-  line-height: 1.4;
-}
-
-/* The self-hosting routes and the licence facts as plain tiles. */
-.ws-tiles {
-  display: grid;
-  grid-template-columns: 100%;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-.ws-tile {
-  border: 1px solid var(--sl-color-hairline-light);
-  border-radius: 8px;
-  padding: 1rem;
-  background: var(--sl-color-gray-6);
-}
-.ws-tile > h3 {
-  font-size: var(--sl-text-base);
-  color: var(--sl-color-white);
-  margin: 0;
-}
-.ws-tile > p {
-  margin: 0.5rem 0 0;
-  font-size: var(--sl-text-sm);
-  color: var(--sl-color-gray-2);
-}
-.ws-tile code {
-  white-space: nowrap;
-}
-@media (min-width: 50rem) {
-  .ws-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (min-width: 72rem) {
-  .ws-tiles[data-cols='4'] {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-/* The honest notes: release one and the licence. */
-.ws-note {
-  border-left: 3px solid var(--sl-color-accent);
-  padding: 0.25rem 0 0.25rem 1rem;
-  max-width: 66ch;
-}
-.ws-note > p {
-  margin: 0;
-}
-.ws-note > p + p {
-  margin-top: 0.75rem;
 }

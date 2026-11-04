@@ -278,7 +278,7 @@ pub struct View {
     /// Listeners are hearing the default loop WeaveSignal ships, not the station's own fallback
     /// (ADR-0130): the desk's playout panel says so until the station adds fallback files.
     pub default_fallback: bool,
-    /// Who is listening and what carries them (desk B's `desk.audience`).
+    /// Who is listening and what carries them (the desk's `desk.audience`).
     pub audience: AudienceView,
     /// The station's mode (ADR-0045): `live`, the desk first with automation on dead air, or
     /// `auto`, automation holding the air, where the master lamp is to say AUTO (ADR-0183).
@@ -319,9 +319,9 @@ pub struct DeskView {
     pub reachable: bool,
     pub error: Option<String>,
     pub playout: PlayoutLink,
-    /// The profanity delay (desk B's `desk.delay`); `None` while the desk does not answer.
+    /// The profanity delay (the desk's `desk.delay`); `None` while the desk does not answer.
     pub delay: Option<DelayView>,
-    /// The picture (desk B's `desk.picture`, F7): `None` with video off.
+    /// The picture (the desk's `desk.picture`, F7): `None` with video off.
     pub picture: Option<crate::desk::DeskVideo>,
 }
 

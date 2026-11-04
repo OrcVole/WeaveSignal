@@ -18,7 +18,7 @@
 #   /rtc, /rtc/*          LiveKit's signalling (a browser's join); its server API (/twirp) is
 #                         never published
 #   /api/v1/chat/*        the chat (its socket included)
-#   /programme.opus       the listener process's mount, read only; its /status.json and admin
+#   /programme.opus       the listener process's mount (and /programme.mp3 when the MP3 stream is on), read only; its /status.json and admin
 #                         pages are never published, nor are the playout feed or the ports above
 #                         it and above the listener port
 #   everything else       the control plane: the pages, /api/, /health, /hls/, feeds and cards
@@ -79,7 +79,8 @@ configs:
       # Plain HTTP: the mount for players that cannot do TLS, a redirect for everything else.
       # (The certificate authority's HTTP challenge is answered before these routes.)
       http://${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN} {
-      	handle /programme.opus {
+      	@stream path /programme.opus /programme.mp3
+      	handle @stream {
       		@write not method GET HEAD
       		respond @write 405
       		reverse_proxy 127.0.0.1:${LISTENERS_PORT:-7312} {
@@ -118,7 +119,8 @@ configs:
 
       	# The listener stream: only the mount, read only. A client asking for ICY metadata would
       	# get blocks spliced into the Ogg stream (bench 02), so the request header is dropped.
-      	handle /programme.opus {
+      	@stream path /programme.opus /programme.mp3
+      	handle @stream {
       		@write not method GET HEAD
       		respond @write 405
       		reverse_proxy 127.0.0.1:${LISTENERS_PORT:-7312} {

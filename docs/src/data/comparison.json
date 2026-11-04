@@ -1,0 +1,664 @@
+{
+  "as_of": "2026-11-04",
+  "jobs": [
+    {
+      "job": "Playout, automation and streaming",
+      "tools": [
+        {
+          "name": "AzuraCast",
+          "kind": "open source",
+          "url": "https://www.azuracast.com/",
+          "licence": "AGPL-3.0",
+          "price_note": "Free software; you run the server. Hosted AzuraCast from third parties exists (prices not checked)."
+        },
+        {
+          "name": "LibreTime",
+          "kind": "open source",
+          "url": "https://libretime.org/",
+          "licence": "AGPL-3.0 (code), GPL-2.0 (docs)",
+          "price_note": "Free software; you run the server."
+        },
+        {
+          "name": "Rivendell",
+          "kind": "open source",
+          "url": "https://rivendellaudio.org/",
+          "licence": "GPL-2.0 (as the site states it)",
+          "price_note": "Free, no dongles or unlock codes (its site)."
+        },
+        {
+          "name": "SAM Broadcaster, RadioBOSS, mAirList",
+          "kind": "proprietary",
+          "url": "https://www.mairlist.com/en/",
+          "licence": "Proprietary",
+          "price_note": "Paid desktop playout suites (mAirList: Windows 10 or later, 30-day trial licence). Prices not recorded here."
+        }
+      ]
+    },
+    {
+      "job": "Remote guests",
+      "tools": [
+        {
+          "name": "Cleanfeed",
+          "kind": "hosted",
+          "url": "https://cleanfeed.net/",
+          "licence": "Proprietary",
+          "price_note": "Lite free (2 guests, no multitrack). Pro from USD 12 a month for personal use, USD 36 for business, as the page read on 2026-11-04 (the page's text was partly garbled when read). Cinema USD 2,500 a year for the first seat."
+        },
+        {
+          "name": "Studio Link",
+          "kind": "open source",
+          "url": "https://www.studio-link.de/",
+          "licence": "MIT for its app repository; the site says 'Freemium Open Source'",
+          "price_note": "Free app; paid accounts about 1 EUR per registered client a month (1-10 EUR a month including VAT), as the German price page read on 2026-11-04."
+        },
+        {
+          "name": "VDO.Ninja",
+          "kind": "open source",
+          "url": "https://vdo.ninja/",
+          "licence": "AGPL-3.0",
+          "price_note": "Free hosted service (its site: 100% free, no sign-in); the interface can be deployed on your own server."
+        }
+      ]
+    },
+    {
+      "job": "Callers and phone lines",
+      "tools": [
+        {
+          "name": "Telos VX Enterprise (phone hybrid system)",
+          "kind": "proprietary",
+          "url": "https://www.telosalliance.com/Telos/VX-Enterprise",
+          "licence": "Proprietary",
+          "price_note": "Not published on the page; ask Telos or a dealer."
+        },
+        {
+          "name": "Comrex Opal (browser guest gateway)",
+          "kind": "proprietary",
+          "url": "https://www.comrex.com/products/opal-audio-gateway/",
+          "licence": "Proprietary hardware",
+          "price_note": "Not published on the page; ask a dealer."
+        },
+        {
+          "name": "Discord as a call-in room",
+          "kind": "hosted",
+          "url": "https://discord.com/",
+          "licence": "Proprietary",
+          "price_note": "Not researched for this report."
+        }
+      ]
+    },
+    {
+      "job": "Hosted station platforms",
+      "tools": [
+        {
+          "name": "Radio.co",
+          "kind": "hosted",
+          "url": "https://radio.co/pricing",
+          "licence": "Proprietary",
+          "price_note": "USD 35 (Lite), 59 (Standard), 139 (Plus), 199 (Premium) a month; 14-day trial. Read 2026-11-04."
+        },
+        {
+          "name": "Live365",
+          "kind": "hosted",
+          "url": "https://live365.com/broadcaster/pricing",
+          "licence": "Proprietary",
+          "price_note": "USD 65 to 1,099 a month (Broadcast 1 to 5), 14-day trial; overage USD 0.07 per listened hour. Read 2026-11-04."
+        },
+        {
+          "name": "Zeno.FM",
+          "kind": "hosted",
+          "url": "https://help.zeno.fm/en/article/plans-and-pricing-6f0z0h",
+          "licence": "Proprietary",
+          "price_note": "USD 35 (Starter), 60 (Prime), 280 (Premier) a month; no free streaming for new accounts since January 2025 (its help page). Read 2026-11-04."
+        }
+      ]
+    },
+    {
+      "job": "Do it yourself",
+      "tools": [
+        {
+          "name": "Liquidsoap",
+          "kind": "open source",
+          "url": "https://www.liquidsoap.info/",
+          "licence": "GPL-2.0",
+          "price_note": "Free; you write and maintain the scripts."
+        },
+        {
+          "name": "Icecast",
+          "kind": "open source",
+          "url": "https://icecast.org/",
+          "licence": "GPL-2.0",
+          "price_note": "Free; you run and configure it."
+        }
+      ]
+    },
+    {
+      "job": "Chat",
+      "tools": [
+        {
+          "name": "Rocket.Chat",
+          "kind": "open source",
+          "url": "https://www.rocket.chat/pricing",
+          "licence": "MIT, except the ee/ directories under Rocket.Chat's own enterprise licence",
+          "price_note": "Community edition free to self-host; paid plans on its pricing page (not recorded here)."
+        }
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "capability": "Live multi-person room with a separate mix-minus for each person",
+      "weavesignal": {
+        "v": "yes",
+        "note": "Presenters, guests and callers join a WebRTC room (LiveKit); the desk gives each person a mix of the show without their own voice. A two-person conversation over two real networks is not yet proved by ear (one-person run only)."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "no",
+          "note": "Its Web DJ lets one DJ broadcast from a browser; no multi-guest room is described.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "no",
+          "note": "Live input is an Icecast-style source such as Mixxx; no guest room is described.",
+          "source": "https://libretime.org/docs/user-manual/live-broadcast/"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "not verified",
+          "note": "Its site describes playout, logs and live assist; remote guests are not mentioned.",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Cleanfeed",
+          "v": "partial",
+          "note": "Several guests in one session who hear one another; Cleanfeed's blog says mix-minus is handled for guests. Reported, not read on a product page. Hosted, not on your server.",
+          "source": "https://blog.cleanfeed.net/?p=1139"
+        },
+        {
+          "tool": "Studio Link",
+          "v": "partial",
+          "note": "Guests install an app; the DAW plug-in does automatic N-1 routing. Suits recording and a studio mixer.",
+          "source": "https://www.studio-link.de/"
+        },
+        {
+          "tool": "VDO.Ninja",
+          "v": "partial",
+          "note": "Group rooms with a director; its docs describe monitor mixes and excluding the director's audio, not a per-person programme return.",
+          "source": "https://docs.vdo.ninja/readme/why-use-vdo-ninja-over-other-solutions"
+        },
+        {
+          "tool": "Telos VX",
+          "v": "yes",
+          "note": "Broadcast phone hybrid system with mix-minus into the console (Livewire); callers by SIP, not a browser.",
+          "source": "https://www.telosalliance.com/Telos/VX-Enterprise"
+        }
+      ]
+    },
+    {
+      "capability": "Browser callers from the station's own page, with a screener",
+      "weavesignal": {
+        "v": "yes",
+        "note": "Call-in from the player page: no phone number, consent to record, proof of work instead of a CAPTCHA, each caller in a private booth; a screener talks to callers off air and sends them to the desk."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "no",
+          "note": "Listener requests exist (songs); no call-in or screener is described.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "Cleanfeed",
+          "v": "not verified",
+          "note": "Guests join by invitation link; a public call-in page with a screener is not described on the pages read.",
+          "source": "https://cleanfeed.net/faq"
+        },
+        {
+          "tool": "Comrex Opal",
+          "v": "partial",
+          "note": "Guests click a link and use a browser (Opus), two connections at once; a hardware gateway and no screening described.",
+          "source": "https://www.comrex.com/products/opal-audio-gateway/"
+        },
+        {
+          "tool": "Telos VX",
+          "v": "yes",
+          "note": "Screening: XScreen call-screening software from Broadcast Bionics is provided at no cost, per Telos.",
+          "source": "https://www.telosalliance.com/Telos/VX-Enterprise"
+        },
+        {
+          "tool": "Discord as a call-in room",
+          "v": "no",
+          "note": "Inference: no consent-to-record step, no per-caller mix-minus, no screener; everyone is in one call.",
+          "source": "https://discord.com/"
+        }
+      ]
+    },
+    {
+      "capability": "Scheduling and automation",
+      "weavesignal": {
+        "v": "yes",
+        "note": "Schedule with clocks, rotation, separation and the US statutory rule; the week grid and editors are in the studio app."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Playlists on a schedule; 0.24.0 (2026-10-25) added grouped playlists (clockwheels) and a request queue.",
+          "source": "https://github.com/AzuraCast/AzuraCast/blob/main/CHANGELOG.md"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "yes",
+          "note": "Imports media and schedules shows and podcasts automatically.",
+          "source": "https://libretime.org/"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "yes",
+          "note": "Automation, scheduling, voicetracking and customisable logs; works with third-party traffic and music schedulers.",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "yes",
+          "note": "Calendar-style scheduler; track requests and voice tracking on Standard and above.",
+          "source": "https://radio.co/pricing"
+        },
+        {
+          "tool": "Zeno.FM",
+          "v": "partial",
+          "note": "AutoDJ on every plan; automation software on Prime and Premier.",
+          "source": "https://help.zeno.fm/en/article/plans-and-pricing-6f0z0h"
+        }
+      ]
+    },
+    {
+      "capability": "Dead-air fallback",
+      "weavesignal": {
+        "v": "yes",
+        "note": "The listener process plays fallback files, then a shipped default loop, then silence, so listeners stay connected when the desk or playout stops."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Liquidsoap runs as an 'always-playing' AutoDJ and takes over when a live DJ leaves.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "not verified",
+          "note": "The pages read do not describe a fallback.",
+          "source": "https://libretime.org/"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "not verified",
+          "note": "Not described on the home page.",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Liquidsoap + Icecast",
+          "v": "partial",
+          "note": "Possible with a few lines of Liquidsoap that you write; nothing ships ready.",
+          "source": "https://www.liquidsoap.info/"
+        },
+        {
+          "tool": "Zeno.FM",
+          "v": "partial",
+          "note": "AutoDJ plays a playlist when you are offline.",
+          "source": "https://zeno.fm/"
+        }
+      ]
+    },
+    {
+      "capability": "Profanity delay with a dump button",
+      "weavesignal": {
+        "v": "yes",
+        "note": "A profanity delay and Dump on the desk, with a keyboard chord."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "not verified",
+          "note": "No profanity delay found in its documentation or changelog excerpts.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "not verified",
+          "note": "Not found on the pages read.",
+          "source": "https://libretime.org/"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "not verified",
+          "note": "Not found on the home page.",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "not verified",
+          "note": "Not found on its pricing page.",
+          "source": "https://radio.co/pricing"
+        }
+      ]
+    },
+    {
+      "capability": "Icecast- or SHOUTcast-compatible output",
+      "weavesignal": {
+        "v": "partial",
+        "note": "An Icecast-compatible HTTP stream: Ogg Opus, plus one optional MP3 stream. No ICY (in-stream) titles; now-playing is served by the API. Shipped Icecast 2.5.0 relay image. SHOUTcast is not mentioned in its docs."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Icecast-KH built in; SHOUTcast 2 DNAS can be installed separately (non-free); remote relays to other Icecast or SHOUTcast servers.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "yes",
+          "note": "Compatible with Icecast and SHOUTcast, per its live-broadcast page.",
+          "source": "https://libretime.org/docs/user-manual/live-broadcast/"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "partial",
+          "note": "Streams through the separate GlassCoder encoder (HLS, Icecast, SHOUTcast), per its site.",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "partial",
+          "note": "Hosted stream and players; Icecast or SHOUTcast are not named on the pricing page.",
+          "source": "https://radio.co/pricing"
+        },
+        {
+          "tool": "Liquidsoap + Icecast",
+          "v": "yes",
+          "note": "This is what AzuraCast and WeaveSignal are built from.",
+          "source": "https://www.liquidsoap.info/"
+        }
+      ]
+    },
+    {
+      "capability": "Listing in internet-radio directories",
+      "weavesignal": {
+        "v": "partial",
+        "note": "A setting asks directories to list the stream (off by default) and sends the public flag only. No TuneIn, radio-browser or Xiph helper is documented. TuneIn needs the MP3 stream."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Documents TuneIn AIR, Radio.de and GetMeRadio web hooks, Icecast YP (Xiph) and radio-browser.info headers.",
+          "source": "https://www.azuracast.com/docs/user-guide/promoting-your-station/"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "yes",
+          "note": "Stations can be listed; each directory has its own submission using your stream URL.",
+          "source": "https://radio.co/pricing"
+        },
+        {
+          "tool": "Live365",
+          "v": "yes",
+          "note": "Distribution on TuneIn and iHeartRadio is part of the service (iHeart subject to approval).",
+          "source": "https://live365.com/broadcaster/pricing"
+        },
+        {
+          "tool": "Zeno.FM",
+          "v": "yes",
+          "note": "Zeno.FM distribution is on every plan.",
+          "source": "https://help.zeno.fm/en/article/plans-and-pricing-6f0z0h"
+        }
+      ]
+    },
+    {
+      "capability": "HLS and video",
+      "weavesignal": {
+        "v": "yes",
+        "note": "HLS with video (AV1 in CMAF), edge images and content steering for a self-run pool."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "partial",
+          "note": "HLS audio streams since 0.17.0 (2022); no video described.",
+          "source": "https://github.com/AzuraCast/AzuraCast/blob/main/CHANGELOG.md"
+        },
+        {
+          "tool": "Zeno.FM",
+          "v": "partial",
+          "note": "HLS streaming on Prime and Premier; video not described.",
+          "source": "https://help.zeno.fm/en/article/plans-and-pricing-6f0z0h"
+        },
+        {
+          "tool": "VDO.Ninja",
+          "v": "yes",
+          "note": "Video-first: peer-to-peer video into OBS, with an optional server route.",
+          "source": "https://docs.vdo.ninja/readme/why-use-vdo-ninja-over-other-solutions"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "no",
+          "note": "Only Mixcloud's video for live shows is mentioned on its pricing page.",
+          "source": "https://radio.co/pricing"
+        }
+      ]
+    },
+    {
+      "capability": "Live chat for listeners",
+      "weavesignal": {
+        "v": "yes",
+        "note": "Built-in chat with moderation lanes for the screener and retention set by jurisdiction. Replaces a separate chat widget; an existing Rocket.Chat is not bridged."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "not verified",
+          "note": "A listener chat is not in its documented feature list; not searched further.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "Rocket.Chat",
+          "v": "yes",
+          "note": "A general chat platform you could embed or link beside any station; separate login and moderation from the station's.",
+          "source": "https://github.com/RocketChat/Rocket.Chat/blob/develop/LICENSE"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "not verified",
+          "note": "Not described on its pricing page.",
+          "source": "https://radio.co/pricing"
+        }
+      ]
+    },
+    {
+      "capability": "Podcast feeds from the station's shows",
+      "weavesignal": {
+        "v": "partial",
+        "note": "Show cards and podcast feeds with seasons that fill in their own episodes; files are attached through the API, and publishing a recording from the studio app is not in release one."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Podcast hosting with RSS feeds, public pages and optional OP3 analytics, per its changelog.",
+          "source": "https://github.com/AzuraCast/AzuraCast/blob/main/CHANGELOG.md"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "partial",
+          "note": "Subscribes to and imports other people's podcasts; publishing your own feed is not described.",
+          "source": "https://libretime.org/docs/user-manual/podcasts/"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "yes",
+          "note": "Podcasts through the Podcast.co integration.",
+          "source": "https://radio.co/pricing"
+        },
+        {
+          "tool": "Zeno.FM",
+          "v": "yes",
+          "note": "Podcast hosting; up to 3 on Starter, 50 on Prime, 250 on Premier.",
+          "source": "https://help.zeno.fm/en/article/plans-and-pricing-6f0z0h"
+        }
+      ]
+    },
+    {
+      "capability": "Several stations on one install, and a mature web admin",
+      "weavesignal": {
+        "v": "no",
+        "note": "One station per installation; no multi-station admin."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "One installation can host multiple stations, with users, roles, per-station permissions and backups.",
+          "source": "https://www.azuracast.com/"
+        },
+        {
+          "tool": "Zeno.FM",
+          "v": "yes",
+          "note": "Plans cover 1, 3 or 5 stations.",
+          "source": "https://help.zeno.fm/en/article/plans-and-pricing-6f0z0h"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "not verified",
+          "note": "Plans list user seats (2 to unlimited), not stations; multi-station is not described on the page.",
+          "source": "https://radio.co/pricing"
+        }
+      ]
+    },
+    {
+      "capability": "Self-hosted",
+      "weavesignal": {
+        "v": "yes",
+        "note": "Self-hosted only (Compose, Quadlets, a Cloudron package); no hosted service."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Docker on your own server.",
+          "source": "https://github.com/AzuraCast/AzuraCast"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "yes",
+          "note": "Installed on your own server.",
+          "source": "https://libretime.org/"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "yes",
+          "note": "Linux software you install.",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Cleanfeed",
+          "v": "no",
+          "note": "Hosted service only, as far as the pages read show.",
+          "source": "https://cleanfeed.net/"
+        },
+        {
+          "tool": "Radio.co",
+          "v": "no",
+          "note": "Hosted.",
+          "source": "https://radio.co/pricing"
+        },
+        {
+          "tool": "Live365",
+          "v": "no",
+          "note": "Hosted.",
+          "source": "https://live365.com/broadcaster/internet-radio-hosting"
+        }
+      ]
+    },
+    {
+      "capability": "Maturity and user base",
+      "weavesignal": {
+        "v": "no",
+        "note": "1.0.0 released 2026-11-04. No user base yet; 13 hours of unattended playout measured so far, not 24."
+      },
+      "others": [
+        {
+          "tool": "AzuraCast",
+          "v": "yes",
+          "note": "Many stations run it (its docs); about 4,100 GitHub stars; 0.24.0 on 2026-10-25. Its docs still say it is in beta.",
+          "source": "https://www.azuracast.com/docs/"
+        },
+        {
+          "tool": "LibreTime",
+          "v": "partial",
+          "note": "A community fork of Airtime; 4.5.0 (2025-07-16); about 940 GitHub stars.",
+          "source": "https://github.com/libretime/libretime"
+        },
+        {
+          "tool": "Rivendell",
+          "v": "yes",
+          "note": "Designed by broadcasters; v4.5.0 (2026-08-26).",
+          "source": "https://rivendellaudio.org/"
+        },
+        {
+          "tool": "Cleanfeed",
+          "v": "yes",
+          "note": "Used by broadcasters and podcasters; reviews on its home page are the company's own selection.",
+          "source": "https://cleanfeed.net/"
+        },
+        {
+          "tool": "Live365",
+          "v": "yes",
+          "note": "Runs its own network and hosting.",
+          "source": "https://live365.com/broadcaster/internet-radio-hosting"
+        }
+      ]
+    }
+  ],
+  "choose_other_if": [
+    {
+      "tool": "AzuraCast",
+      "when": "You mainly play music or pre-recorded shows, want one web admin for several stations, or want years of community knowledge. Add Cleanfeed or a similar tool for guests."
+    },
+    {
+      "tool": "LibreTime",
+      "when": "You are moving from Airtime or want an AM/FM-style scheduling and library tool with AGPL licensing."
+    },
+    {
+      "tool": "Rivendell",
+      "when": "You run a broadcast studio on Linux with touchscreen live assist, voicetracking and traffic-system integration, and feed an encoder separately."
+    },
+    {
+      "tool": "Radio.co, Live365 or Zeno.FM",
+      "when": "You do not want to run a server. Live365 also sells music licensing cover for the USA, Canada and Mexico; check what your plan includes."
+    },
+    {
+      "tool": "Cleanfeed",
+      "when": "You only need a guest link with very good audio and a simple interface, and you already have a way to stream."
+    },
+    {
+      "tool": "Studio Link or VDO.Ninja",
+      "when": "You want remote guests into a DAW or OBS and a studio mixer, and you do not need a call-in page or a screener."
+    },
+    {
+      "tool": "Telos VX or another phone hybrid",
+      "when": "Callers must ring a real telephone number, or your studio already runs a broadcast console and a PBX."
+    },
+    {
+      "tool": "Liquidsoap + Icecast by hand",
+      "when": "You want total control, have an engineer, and will write and maintain the scripts yourself."
+    },
+    {
+      "tool": "Your existing chat (for example Rocket.Chat)",
+      "when": "Your community already lives there; WeaveSignal's chat is separate, with its own login and moderation."
+    }
+  ]
+}

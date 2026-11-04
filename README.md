@@ -14,7 +14,7 @@ podcast feeds and a public API come with it.
 
 **Release one, 1.0.0.** It runs a station on a Linux server with the Compose bundle, or on Cloudron, with the studio
 app on Linux or Windows. It has known limits, and some parts of the plan are left for later; both are listed on
-[What release one does, and what it leaves out](https://weavesignal.top/reference/release-one-status/).
+[What release one does, and what it leaves out](https://weavesignal.top/docs/reference/release-one-status/).
 
 ## Install
 
@@ -22,12 +22,12 @@ The documentation is at **<https://weavesignal.top>**.
 
 | To | Read |
 |---|---|
-| Run a first show, start to finish | [Run a first show at desk B](https://weavesignal.top/tutorials/first-show/) |
-| Install a station on a Linux server | [Install a station with weavesignal.sh](https://weavesignal.top/how-to/install-with-weavesignal-sh/) |
-| Put it on the internet with a certificate | [Publish a station from the Compose bundle](https://weavesignal.top/how-to/publish-with-compose/) |
-| Install it on Cloudron | [Install on Cloudron](https://weavesignal.top/how-to/install-on-cloudron/) |
-| Install the studio app | [On Linux](https://weavesignal.top/how-to/install-studio-linux/), [on Windows](https://weavesignal.top/how-to/install-studio-windows/) |
-| See which ports it uses | [Ports](https://weavesignal.top/reference/ports/) |
+| Run a first show, start to finish | [Run a first show](https://weavesignal.top/docs/tutorials/first-show/) |
+| Install a station on a Linux server | [Install a station with weavesignal.sh](https://weavesignal.top/docs/how-to/install-with-weavesignal-sh/) |
+| Put it on the internet with a certificate | [Publish a station from the Compose bundle](https://weavesignal.top/docs/how-to/publish-with-compose/) |
+| Install it on Cloudron | [Install on Cloudron](https://weavesignal.top/docs/how-to/install-on-cloudron/) |
+| Install the studio app | [On Linux](https://weavesignal.top/docs/how-to/install-studio-linux/), [on Windows](https://weavesignal.top/docs/how-to/install-studio-windows/) |
+| See which ports it uses | [Ports](https://weavesignal.top/docs/reference/ports/) |
 
 The install script pulls the published server image (`forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0`); you can build your own from this
 repository instead. The studio app's packages are at <https://weavesignal.top/updates/1.0.0/> and on the

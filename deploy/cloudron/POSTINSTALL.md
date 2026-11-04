@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
-Your station is installed. The guide is at https://weavesignal.top/how-to/install-on-cloudron/.
+Your station is installed. The guide is at https://weavesignal.top/docs/how-to/install-on-cloudron/.
 
 * The station's settings are in `/app/data/weavesignal.env`, and its generated secrets (the
   station identifier, LiveKit's key, the control plane's admin token, the listener password,

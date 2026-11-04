@@ -1,0 +1,33 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The status strip under the hero (ADR-0211): the release, and what is proven, early and not yet,
+// from "What release one does, and what it leaves out" and the changelog's known limits. Keep it
+// current at each release.
+import Agpl from './Agpl.astro';
+---
+
+<section class="status" aria-labelledby="status-h">
+  <div class="wrap">
+    <div class="version">
+      <strong id="status-h">1.0.0</strong>
+      <span>4 November 2026</span>
+      <span class="more"><a href="/docs/reference/release-one-status/">The full status</a></span>
+    </div>
+    <dl>
+      <div>
+        <dt>Proven</dt>
+        <dd>A real caller rang a public station from a phone and went to air. A station streamed for 13 hours unattended on a server of its own. A guest's return arrives 69–77 ms after the voice on one machine.</dd>
+      </div>
+      <div>
+        <dt>Early</dt>
+        <dd>Two people talking over two real networks is measured, not yet judged by ear. Video has run against stand-ins, not a studio. The Windows installer is built, unsigned, and has not been run on Windows.</dd>
+      </div>
+      <div>
+        <dt>Not yet</dt>
+        <dd>A 24-hour unattended run. Callers from a telephone number. WHIP for remote DJs and the presenter kit. A macOS build. The Cloudron app store listing.</dd>
+      </div>
+    </dl>
+    <Agpl />
+  </div>
+</section>

@@ -1,0 +1,69 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The signal line: one voice from a caller to a listener, with the times as measured (the
+// architecture page's "Two latencies"). Horizontal on a wide screen, a vertical line on a phone.
+---
+
+<section class="signal" aria-labelledby="signal-h">
+  <div class="wrap">
+    <h2 id="signal-h">Two latencies, on purpose</h2>
+    <p class="lead">The people talking must hear each other at once. Listeners can be seconds behind, and are: that is what lets a player start at once, ride out a poor network, and gives the presenter a delay to dump into. One voice travels like this.</p>
+    <div class="line">
+      <div class="node" data-live>
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>A caller's phone</h3>
+          <p>Niall presses Call the studio on the station's page. His browser joins the room; no app, no phone number.</p>
+        </div>
+      </div>
+      <div class="node" data-live>
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>The room</h3>
+          <p>LiveKit carries every voice over WebRTC, with a relay for networks that block it.</p>
+        </div>
+      </div>
+      <div class="node" data-live>
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>The desk</h3>
+          <p>Mixes the programme and sends each person their own mix back: everyone but themselves.</p>
+          <p class="t">69–77 ms on one machine; about 0.25 s each way across the internet</p>
+        </div>
+      </div>
+      <div class="node">
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>The delay</h3>
+          <p>The programme is held before it leaves the studio, so Dump can throw a few seconds away.</p>
+          <p class="t">8 s by default</p>
+        </div>
+      </div>
+      <div class="node" data-auto>
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>Playout</h3>
+          <p>Takes the desk while it is on air, and holds the air itself between shows.</p>
+        </div>
+      </div>
+      <div class="node" data-auto>
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>The listener process</h3>
+          <p>Encodes the stream once and keeps a cushion for every player, so a restart disconnects nobody.</p>
+        </div>
+      </div>
+      <div class="node">
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <h3>A listener's player</h3>
+          <p>Ogg Opus, an optional MP3 stream, or HLS with video.</p>
+          <p class="t">12–23 s behind the room, measured in rehearsal</p>
+        </div>
+      </div>
+      <div class="span" data-cols="1-3"><strong>The conversation.</strong> Everyone in the room hears everyone else through the desk, close enough to interrupt.</div>
+      <div class="span" data-cols="4-7"><strong>The listeners.</strong> Seconds behind, by design; a playout or desk restart does not disconnect them.</div>
+    </div>
+  </div>
+</section>
