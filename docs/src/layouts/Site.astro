@@ -17,6 +17,7 @@ const { title, description, path } = Astro.props;
 const site = 'https://weavesignal.top';
 const canonical = `${site}${path}`;
 const pages = [
+  ['/features/', 'Features'],
   ['/compare/', 'Compare'],
   ['/faq/', 'Questions'],
   ['/run/', 'Run your own station'],
@@ -100,6 +101,7 @@ const pages = [
         <div>
           <h2>On this site</h2>
           <ul>
+            <li><a href="/features/">What it does</a>, and <a href="/features/#next">what comes next</a></li>
             <li><a href="/compare/">Compared with the stack it replaces</a></li>
             <li><a href="/faq/">Questions</a></li>
             <li><a href="/run/">Run your own station</a></li>

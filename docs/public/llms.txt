@@ -4,7 +4,8 @@
 
 ## The website
 
-- [Home](/): what it is, the demo station, the status of 1.0.0, who uses what, the two latencies, a short comparison, how to run it, eight questions
+- [Home](/): what it is, the demo station, the status of 1.0.0, the eight strongest features, who uses what, the two latencies, a short comparison, how to run it, eight questions
+- [Features](/features/): what 1.0.0 does for a station, in eight groups with the page that explains each, and what is planned and not in 1.0.0
 - [Compare](/compare/): WeaveSignal against the stack of tools a station combines today, by job, with sources and the date read
 - [Questions](/faq/): cost, hardware, players and relays, macOS, packaging, chat, AzuraCast, readiness, telephones, hosting, help, versioning
 - [Run your own station](/run/): the one-line script, Cloudron and Quadlets, and the studio app's downloads

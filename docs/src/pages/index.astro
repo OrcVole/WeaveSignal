@@ -1,7 +1,7 @@
 ---
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-// The home page (ADR-0211): what it is, hear it, the status of 1.0.0, who uses what, the parts
+// The home page (ADR-0211): what it is, hear it, the status of 1.0.0, what it does, who uses what, the parts
 // in plain words, the two latencies, the stack it replaces, how to run it, eight questions.
 import Site from '../layouts/Site.astro';
 import Demo from '../components/site/Demo.astro';
@@ -10,11 +10,13 @@ import Status from '../components/site/Status.astro';
 import Signal from '../components/site/Signal.astro';
 import Clip from '../components/site/Clip.astro';
 import { questions } from '../data/faq';
+import { leadFeatures } from '../data/features';
 import screener from '../assets/screens/reference-screener-queue.png';
 import player from '../assets/screens/reference-public-pages-player.png';
 import week from '../assets/screens/reference-calendar-week.png';
 
 const home = questions.filter((q) => q.home);
+const features = leadFeatures();
 ---
 
 <Site
@@ -41,6 +43,23 @@ const home = questions.filter((q) => q.home);
   </section>
 
   <Status />
+
+  <section class="section" aria-labelledby="features-h">
+    <div class="wrap">
+      <h2 id="features-h">What it does</h2>
+      <p class="lead">Eight of the reasons a station would switch, in one line each. <a href="/features/">The features page</a> has every feature, what it does for the station, the page that explains it, and what comes next.</p>
+      <div class="feat-grid">
+        {features.map((f) => (
+          <div>
+            <h3>{f.name}</h3>
+            <p>{f.home}</p>
+            <a class="link" href={`/features/#${f.id}`} aria-label={`More: ${f.name}`}>More</a>
+          </div>
+        ))}
+      </div>
+      <p class="lead" style="margin-top:2rem"><a href="/features/">All the features</a>, and <a href="/features/#next">what is planned and not in 1.0.0</a>.</p>
+    </div>
+  </section>
 
   <section class="section" aria-labelledby="who-h">
     <div class="wrap">

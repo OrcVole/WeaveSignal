@@ -1,0 +1,190 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// What WeaveSignal can do (src/data/features.ts): the strongest differences first, then every
+// feature grouped by what a station cares about, each with its reason and its documentation
+// page, with the demo video's moments beside the features they show; last, what is planned and
+// not in 1.0.0, kept apart and labelled.
+import Site from '../layouts/Site.astro';
+import Clip from '../components/site/Clip.astro';
+import Frame from '../components/site/Frame.astro';
+import { groups, next, leadFeatures } from '../data/features';
+import type { ImageMetadata } from 'astro';
+import stage from '../assets/screens/how-to-take-a-caller-on-air.png';
+import screener from '../assets/screens/reference-screener-queue.png';
+import onAir from '../assets/screens/how-to-present-at-desk-b-on-air-and-muted.png';
+import playoutDown from '../assets/screens/tutorial-first-show-playout-down.png';
+import week from '../assets/screens/reference-calendar-week.png';
+import player from '../assets/screens/reference-public-pages-player.png';
+import chat from '../assets/screens/reference-chat-player.png';
+import poster from '../assets/screens/reference-cards-poster-editor.png';
+import retention from '../assets/screens/how-to-set-retention-jurisdiction.png';
+import desk from '../assets/screens/reference-desk-window.png';
+import carts from '../assets/screens/reference-carts-wall-cued-and-ducked.png';
+
+// The screenshots the data names, with what each shows. A phone-width page is marked so it is
+// not stretched.
+const shots: Record<string, { src: ImageMetadata; alt: string; size?: 'phone' }> = {
+  guest: {
+    src: stage,
+    alt: "The desk's stage with the ON AIR lamp lit: Eilidh Fraser-MacLeod the presenter, Gregor Stewart and Kirsty Wilson as guests, and Niall Anderson, a caller, on air with the screener's line under his name.",
+  },
+  screener: {
+    src: screener,
+    size: 'phone',
+    alt: "The screener's queue: four callers waiting, one marked BANNED BEFORE; below, Dougal's card with one line for the presenter, the consent record, and the Send to desk, To queue and Drop keys.",
+  },
+  dumped: {
+    src: stage,
+    alt: 'The desk with the profanity delay showing 7.6 of 8.0 s held and a Dump key beside it, three people and a caller on air.',
+  },
+  'on-air': {
+    src: onAir,
+    alt: 'The stage with Finlay on air beside Eilidh and the guests, and Kirsty muted: her tile says MUTED and is off the programme.',
+  },
+  'playout-down': {
+    src: playoutDown,
+    alt: 'The desk with the lamp saying PLAYOUT DOWN, the room still alive, and a toast with the Restart playout button.',
+  },
+  week: {
+    src: week,
+    alt: "The studio app's Schedule tab showing a week: automation blocks for the daytime and evening playlists, live shows such as Kettle Breakfast, The Long Lunch and Kettle Drive, one marked CONFLICT, and the current time line on Tuesday.",
+  },
+  player: {
+    src: player,
+    size: 'phone',
+    alt: "The listener's page on a phone: Kettle FM with its ON AIR lamp, The Morning Kettle with Rory Bruce live now, a Listen live button, and a Talk to the studio panel with a Call the studio button.",
+  },
+  chat: {
+    src: chat,
+    size: 'phone',
+    alt: 'The chat on the player page at phone width: three messages, one of them held with Waiting for a moderator, and the rules above the composer, with slow mode on.',
+  },
+  poster: {
+    src: poster,
+    size: 'phone',
+    alt: 'The card editor with the Poster layout drawn for Saturday Night Kettle: a dark plane, the show name large, the people as discs.',
+  },
+  retention: {
+    src: retention,
+    alt: 'Settings, Retention: the jurisdiction chosen, with what the station keeps explained.',
+  },
+  desk: {
+    src: desk,
+    alt: 'The desk as the studio app shows it with a show running: the clock and rundown on the left, the stage in the middle with the ON AIR lamp, and listeners, the picture and the carts on the right.',
+  },
+  carts: {
+    src: carts,
+    alt: 'The cart wall with a bed looping and ducked under the open microphone, another cart cued in your headphones, and both listed under Sounding.',
+  },
+};
+
+// The media beside a group: each feature's clip, then each screenshot once.
+const mediaOf = (g: (typeof groups)[number]) => {
+  const seen = new Set<string>();
+  return g.features.flatMap((f) => {
+    const out: { kind: 'clip' | 'shot'; key: string; feature: typeof f }[] = [];
+    if (f.clip && !seen.has(`clip:${f.clip}`)) {
+      seen.add(`clip:${f.clip}`);
+      out.push({ kind: 'clip', key: f.clip, feature: f });
+    } else if (f.shot && !seen.has(`shot:${f.shot}`)) {
+      seen.add(`shot:${f.shot}`);
+      out.push({ kind: 'shot', key: f.shot, feature: f });
+    }
+    return out;
+  });
+};
+const count = groups.reduce((n, g) => n + g.features.length, 0);
+const lead = leadFeatures();
+---
+
+<Site
+  title="Features — WeaveSignal"
+  description="What WeaveSignal 1.0.0 can do for a station, by what a station cares about: live shows with guests, screened callers, staying on air, playout and the schedule, listeners, shows and podcasts, running it, and the studio app; and what is planned, apart."
+  path="/features/"
+>
+  <div class="wrap page-title">
+    <h1>What WeaveSignal does</h1>
+    <p class="lead">{count} features in 1.0.0, grouped by what a station cares about, each with the reason it is there and the page that explains it. The clips are moments from <a href="/#hero-h">the demo video</a>, played only when pressed. <a href="#next">What comes next</a> is at the end, apart, and nothing there is in 1.0.0.</p>
+  </div>
+
+  <section class="section" aria-labelledby="first-h">
+    <div class="wrap">
+      <h2 id="first-h">The reasons to switch</h2>
+      <p class="lead">What a station gets from WeaveSignal that a playout suite with a guest link and a chat widget beside it does not.</p>
+      <ol class="first">
+        {lead.map((f) => (
+          <li>
+            <a href={`#${f.id}`}>{f.name}</a>
+            <span>{f.home}</span>
+          </li>
+        ))}
+      </ol>
+      <nav class="groups-nav" aria-label="The groups">
+        <p>On this page</p>
+        <ul>
+          {groups.map((g) => (
+            <li><a href={`#${g.id}`}>{g.title}</a></li>
+          ))}
+          <li><a href="#next">Coming next</a></li>
+        </ul>
+      </nav>
+    </div>
+  </section>
+
+  {groups.map((g) => {
+    const media = mediaOf(g);
+    return (
+      <section class="section" id={g.id} aria-labelledby={`${g.id}-h`}>
+        <div class="wrap">
+          <h2 id={`${g.id}-h`}>{g.title}</h2>
+          <p class="lead">{g.lead}</p>
+          <div class="feat-group" data-media={media.length ? 'yes' : 'no'}>
+            <div class="feat-list">
+              {g.features.map((f) => (
+                <article class="feat" id={f.id}>
+                  <h3>{f.name}</h3>
+                  <p>{f.what}</p>
+                  <p class="feat-link"><a href={f.href}>{f.link}</a></p>
+                </article>
+              ))}
+            </div>
+            {media.length > 0 && (
+              <div class="feat-media">
+                {media.map((m) =>
+                  m.kind === 'clip' ? (
+                    <Clip
+                      prefix="moment"
+                      name={m.key}
+                      src={shots[m.feature.shot ?? 'guest'].src}
+                      alt={shots[m.feature.shot ?? 'guest'].alt}
+                      caption={`${m.feature.name}: a moment from the demo video, with sound and captions. Kettle FM and its people are sample data.`}
+                    />
+                  ) : (
+                    <Frame src={shots[m.key].src} alt={shots[m.key].alt} size={shots[m.key].size} caption={`${m.feature.name} (sample data).`} />
+                  ),
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  })}
+
+  <section class="section next" id="next" aria-labelledby="next-h">
+    <div class="wrap">
+      <h2 id="next-h">Coming next: not in 1.0.0</h2>
+      <p class="lead">These are planned and not built. Each says what a station does today instead. <a href="/docs/reference/release-one-status/#not-in-release-one">The full list of what 1.0.0 leaves out</a> is in the documentation, and a key in the studio app whose feature is planned says so in a note and does nothing to the room.</p>
+      <dl class="planned">
+        {next.map((p) => (
+          <div id={p.id}>
+            <dt>{p.name} <span class="not-yet">planned</span></dt>
+            <dd>{p.what}</dd>
+            <dd class="today">{p.today} <a href={p.href}>{p.link}</a></dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  </section>
+</Site>

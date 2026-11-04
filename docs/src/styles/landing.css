@@ -982,3 +982,183 @@ td .note {
 .page-title .lead {
   margin-top: 0.75rem;
 }
+
+/* Features: the reasons to switch, then each group as a list with the moments beside it. */
+.first {
+  display: grid;
+  gap: 0.9rem 2.5rem;
+  padding: 0;
+  margin: 0;
+  counter-reset: first;
+  list-style: none;
+}
+.first li {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.15rem 0;
+  max-width: 44rem;
+  counter-increment: first;
+}
+.first li::before {
+  content: counter(first);
+  grid-row: 1 / 3;
+  font-family: var(--mono);
+  color: var(--muted);
+  padding-top: 0.15rem;
+}
+.first li a {
+  font-weight: 600;
+  font-size: 1.0625rem;
+}
+.first li span {
+  color: var(--ink-2);
+  font-size: 1rem;
+}
+.groups-nav {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.9375rem;
+}
+.groups-nav p {
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.groups-nav ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+}
+.feat-group {
+  display: grid;
+  gap: 2rem;
+  align-items: start;
+}
+.feat-list {
+  display: grid;
+  gap: 0;
+  max-width: var(--measure);
+}
+.feat {
+  padding-block: 1.1rem;
+  border-top: 1px solid var(--hairline);
+  scroll-margin-top: 1rem;
+}
+.feat h3 {
+  margin-bottom: 0.35rem;
+}
+.feat p {
+  color: var(--ink-2);
+  font-size: 1rem;
+}
+.feat .feat-link {
+  margin-top: 0.4rem;
+  font-size: 0.9375rem;
+}
+.feat-media {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: start;
+}
+.feat-media > .frame:not([data-size='phone']) {
+  grid-column: 1 / -1;
+}
+@media (min-width: 72rem) {
+  .feat-group[data-media='yes'] {
+    grid-template-columns: minmax(0, 6fr) minmax(0, 6fr);
+    gap: 3rem;
+  }
+  .feat-media {
+    position: sticky;
+    top: 1.5rem;
+  }
+  .first {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 100rem) {
+  .feat-group[data-media='yes'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+
+/* Coming next: apart, on the surface, every item marked planned. */
+.next {
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+}
+.planned {
+  display: grid;
+  gap: 1.5rem 3rem;
+}
+.planned > div {
+  max-width: 44rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+  scroll-margin-top: 1rem;
+}
+.planned dt {
+  font-weight: 600;
+  font-size: 1.1875rem;
+}
+.planned dd {
+  margin: 0.35rem 0 0;
+  color: var(--ink-2);
+}
+.planned .today {
+  font-size: 0.9375rem;
+}
+.not-yet {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--ink);
+  border: 1px solid var(--axis);
+  border-radius: 999px;
+  padding: 0.05rem 0.6rem;
+  margin-inline-start: 0.5rem;
+  vertical-align: 0.15em;
+}
+@media (min-width: 72rem) {
+  .planned {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The home page's short list: the strongest features, each with its line and its place on
+   /features/. */
+.feat-grid {
+  display: grid;
+  gap: 1.5rem 2.5rem;
+}
+.feat-grid > div {
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+}
+.feat-grid h3 {
+  font-size: 1.0625rem;
+  margin-bottom: 0.35rem;
+}
+.feat-grid p {
+  color: var(--ink-2);
+  font-size: 1rem;
+}
+.feat-grid .link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-size: 0.9375rem;
+}
+@media (min-width: 48rem) {
+  .feat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 72rem) {
+  .feat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

@@ -73,6 +73,7 @@ export default defineConfig({
           label: 'The website',
           items: [
             { label: 'Home', link: '/' },
+            { label: 'Features', link: '/features/' },
             { label: 'Compare', link: '/compare/' },
             { label: 'Questions', link: '/faq/' },
             { label: 'Run your own station', link: '/run/' },

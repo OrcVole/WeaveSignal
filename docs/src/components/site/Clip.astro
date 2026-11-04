@@ -1,8 +1,11 @@
 ---
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-// A short clip of one moment (public/media/clip-<name>.webm with its captions) when both files
-// are there at build time, otherwise the screenshot given; played only when pressed.
+// A short clip of one moment (public/media/<prefix>-<name>.webm with its captions; the prefix
+// is "clip" for a clip cut for one page and "moment" for a moment from the demo video) when both
+// files are there at build time, otherwise the screenshot given; played only when pressed, with
+// its poster frame when one is there. The clips are 1920 × 1080, so the frame keeps its shape
+// before the file loads.
 import { existsSync } from 'node:fs';
 import Frame from './Frame.astro';
 import type { ImageMetadata } from 'astro';
@@ -13,19 +16,21 @@ interface Props {
   alt: string;
   caption: string;
   size?: 'wide' | 'phone';
+  prefix?: 'clip' | 'moment';
 }
-const { name, src, alt, caption, size = 'wide' } = Astro.props;
+const { name, src, alt, caption, size = 'wide', prefix = 'clip' } = Astro.props;
 const media = new URL('../../../public/media/', import.meta.url).pathname;
-const clip = existsSync(`${media}clip-${name}.webm`) && existsSync(`${media}clip-${name}.vtt`);
-const poster = existsSync(`${media}clip-${name}.jpg`) ? `/media/clip-${name}.jpg` : undefined;
+const file = `${prefix}-${name}`;
+const clip = existsSync(`${media}${file}.webm`) && existsSync(`${media}${file}.vtt`);
+const poster = existsSync(`${media}${file}.jpg`) ? `/media/${file}.jpg` : undefined;
 ---
 
 {
   clip ? (
     <figure class="frame" data-size={size}>
-      <video controls preload="none" poster={poster} playsinline>
-        <source src={`/media/clip-${name}.webm`} type="video/webm" />
-        <track kind="captions" src={`/media/clip-${name}.vtt`} srclang="en" label="English" default />
+      <video controls preload={poster ? 'none' : 'metadata'} poster={poster} playsinline width="1920" height="1080">
+        <source src={`/media/${file}.webm`} type="video/webm" />
+        <track kind="captions" src={`/media/${file}.vtt`} srclang="en" label="English" default />
         <p>Your browser cannot play this clip.</p>
       </video>
       <figcaption>{caption}</figcaption>
