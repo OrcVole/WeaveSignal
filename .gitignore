@@ -30,3 +30,6 @@ spike/talkshow/voices/
 /tests/screens/run/
 # Python byte code
 __pycache__/
+
+# The demo video and its clips (tests/demo-video/ makes them); copied in at deploy, too large for git.
+/docs/public/media/

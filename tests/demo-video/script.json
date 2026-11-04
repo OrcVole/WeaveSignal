@@ -1,0 +1,742 @@
+{
+  "title": "WeaveSignal: one morning on Kettle FM",
+  "station": "Kettle FM",
+  "show": "The Morning Kettle",
+  "notes": [
+    "Kettle FM is not a real station; every name is from the seeds (ADR-0071).",
+    "Voices are designed (OmniVoice voice design: gender, age, pitch, accent), never cloned from a person: design.mojo makes one reference per character from its description and seed, and synth.sh reads every line in that designed voice through VoiceLab's tts-serve with the same seed.",
+    "Steps run in order. A line waits for itself to end unless `async`; `gap` is the pause after a step in seconds. run.mjs writes the time every step really happened to target/demo-video/run/timeline.json, and the edit reads that, not these nominal gaps."
+  ],
+  "say_as": {
+    "Eilidh": "Ailey",
+    "Fraser-MacLeod": "Fraser McCloud",
+    "Niall": "Neil",
+    "WeaveSignal": "Weave Signal"
+  },
+  "heard_as": {
+    "Eilidh": [
+      "eilidh",
+      "ailey",
+      "ailie",
+      "eilie",
+      "aili",
+      "aly",
+      "ally",
+      "eily",
+      "haley",
+      "hailey",
+      "kaylee",
+      "eili",
+      "alie"
+    ],
+    "Fraser-MacLeod": [
+      "fraser-macleod",
+      "fraser macleod",
+      "fraser mccloud",
+      "fraser-mccloud",
+      "frazer mccloud",
+      "fraser mcleod"
+    ],
+    "Niall": [
+      "niall",
+      "neil",
+      "neal",
+      "neill"
+    ],
+    "Shona": [
+      "shona",
+      "shauna"
+    ],
+    "Finlay": [
+      "finlay",
+      "finley"
+    ],
+    "Gregor": [
+      "gregor",
+      "gregory"
+    ],
+    "Jessie": [
+      "jessie",
+      "jesse",
+      "jessy",
+      "j esse"
+    ],
+    "WeaveSignal": [
+      "weavesignal",
+      "weave signal",
+      "weave-signal"
+    ]
+  },
+  "cast": {
+    "eilidh": {
+      "name": "Eilidh Fraser-MacLeod",
+      "role": "Presenter, The Morning Kettle",
+      "where": "the desk, in the studio app",
+      "join": "invite:presenter",
+      "voice": "female, middle-aged, moderate pitch, british accent",
+      "seed": 101
+    },
+    "gregor": {
+      "name": "Gregor Stewart",
+      "role": "Guest, local historian",
+      "where": "at home, from an invite link",
+      "join": "invite:guest",
+      "voice": "male, elderly, low pitch, british accent",
+      "seed": 202
+    },
+    "shona": {
+      "name": "Shona Campbell",
+      "role": "Telephonist (the screener)",
+      "where": "the Screener tab",
+      "join": "token:screener",
+      "voice": "female, young adult, high pitch, british accent",
+      "seed": 303
+    },
+    "niall": {
+      "name": "Niall Anderson",
+      "role": "Caller, on his phone",
+      "where": "the station's player page",
+      "join": "call-in",
+      "voice": "male, young adult, high pitch, british accent",
+      "seed": 404,
+      "effect": "phone"
+    },
+    "jessie": {
+      "name": "Jessie Brown",
+      "role": "Caller, a nurse on nights",
+      "where": "the station's player page",
+      "join": "call-in",
+      "voice": "female, middle-aged, very low pitch, british accent",
+      "seed": 537,
+      "effect": "phone"
+    },
+    "finlay": {
+      "name": "Finlay Grant",
+      "role": "Next show's DJ, Steeped",
+      "where": "at home, standing by",
+      "join": "invite:dj",
+      "voice": "male, middle-aged, moderate pitch, british accent",
+      "seed": 606
+    }
+  },
+  "design_text": "The kettle is on and the morning is bright. Here is what is happening across the city today, from the harbour all the way up to the hills.",
+  "intro": [
+    {
+      "id": "i-eilidh",
+      "who": "eilidh",
+      "text": "I'm Eilidh. I present The Morning Kettle, and I run the whole desk from the keyboard."
+    },
+    {
+      "id": "i-gregor",
+      "who": "gregor",
+      "text": "I'm Gregor, a local historian. I'm today's guest, and I joined from a link."
+    },
+    {
+      "id": "i-shona",
+      "who": "shona",
+      "text": "I'm Shona. I answer the phones and decide who gets on air."
+    },
+    {
+      "id": "i-niall",
+      "who": "niall",
+      "text": "I'm Niall. I'm ringing in from my phone, straight from the station's page."
+    },
+    {
+      "id": "i-jessie",
+      "who": "jessie",
+      "text": "I'm Jessie. I'm ringing in too, and I'm about to say something I shouldn't."
+    },
+    {
+      "id": "i-finlay",
+      "who": "finlay",
+      "text": "I'm Finlay. I'm on after Eilidh, standing by from home."
+    }
+  ],
+  "outro": {
+    "id": "o-eilidh",
+    "who": "eilidh",
+    "text": "WeaveSignal. A whole radio studio, in one installation on your own server."
+  },
+  "moments": [
+    {
+      "id": "m1-open",
+      "title": "On air",
+      "caption": "One key puts the presenter on air; the lamp says ON AIR only when listeners can hear.",
+      "steps": [
+        {
+          "show": "desk",
+          "gap": 1.2
+        },
+        {
+          "key": "1",
+          "page": "desk",
+          "gap": 1.0,
+          "until": "eilidh_on_air"
+        },
+        {
+          "key": "Control+3",
+          "page": "desk",
+          "gap": 0.8
+        },
+        {
+          "key": "Control+F4",
+          "page": "desk",
+          "gap": 0.7
+        },
+        {
+          "key": "1",
+          "page": "desk",
+          "gap": 1.8,
+          "note": "the steel jingle"
+        },
+        {
+          "key": "d",
+          "page": "desk",
+          "gap": 0.6,
+          "note": "the wholesome bed, looping"
+        },
+        {
+          "line": "l-open",
+          "who": "eilidh",
+          "text": "Good morning, and welcome to The Morning Kettle on Kettle FM. I'm Eilidh Fraser-MacLeod. The kettle's on, the phones are open, and this morning it's all about Leith Walk.",
+          "gap": 4.6,
+          "async": true
+        },
+        {
+          "key": "Control+1",
+          "page": "desk",
+          "gap": 0,
+          "note": "back to the desk while she talks: the lamp says ON AIR"
+        },
+        {
+          "wait_line": "l-open",
+          "gap": 0.5
+        },
+        {
+          "key": "Control+3",
+          "page": "desk",
+          "gap": 0.6
+        },
+        {
+          "key": "d",
+          "page": "desk",
+          "gap": 0.6,
+          "note": "the bed fades"
+        },
+        {
+          "key": "Control+1",
+          "page": "desk",
+          "gap": 0.4
+        }
+      ]
+    },
+    {
+      "id": "m2-guest",
+      "title": "A guest joins from a link",
+      "caption": "No account, no app: an invite link and one button.",
+      "steps": [
+        {
+          "line": "l-intro-gregor",
+          "who": "eilidh",
+          "text": "My guest this morning is the local historian Gregor Stewart, who's joining us from home with nothing but a link. Gregor, are you there?",
+          "async": true
+        },
+        {
+          "show": "gregor",
+          "gap": 2.5
+        },
+        {
+          "tap": "Join the studio",
+          "page": "gregor",
+          "until": "gregor_on_air",
+          "gap": 0.3
+        },
+        {
+          "show": "desk",
+          "wait_line": "l-intro-gregor",
+          "gap": 0.4
+        },
+        {
+          "line": "l-gregor-here",
+          "who": "gregor",
+          "text": "I'm here, Eilidh. No account, no app. I just pressed the button in the email.",
+          "gap": 0.4
+        },
+        {
+          "overlay": "mixminus",
+          "gap": 0
+        },
+        {
+          "line": "l-photo",
+          "who": "eilidh",
+          "text": "Now, Leith Walk. You've brought a photograph.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-tram",
+          "who": "gregor",
+          "text": "I have. Nineteen fifty-six, the last tram down Leith Walk, and a crowd of folk waving it goodbye. Fifty years later, we spent a fortune putting them back.",
+          "gap": 0.4
+        },
+        {
+          "overlay": null,
+          "gap": 0
+        },
+        {
+          "line": "l-phones",
+          "who": "eilidh",
+          "text": "And the phones have lit up already. Here's a wee bit of music while Shona answers them.",
+          "gap": 0.3
+        },
+        {
+          "key": "Control+3",
+          "page": "desk",
+          "gap": 0.6
+        },
+        {
+          "key": "d",
+          "page": "desk",
+          "gap": 0.6
+        },
+        {
+          "key": "Control+1",
+          "page": "desk",
+          "gap": 0.5
+        }
+      ]
+    },
+    {
+      "id": "m3-call",
+      "title": "A listener calls in",
+      "caption": "From the station's own page on a phone: no number to dial. Consent to record comes first.",
+      "steps": [
+        {
+          "show": "niall",
+          "gap": 0.8
+        },
+        {
+          "tap": "Call the studio",
+          "page": "niall",
+          "gap": 0.8
+        },
+        {
+          "fill": "#f-name",
+          "text": "Niall Anderson",
+          "page": "niall",
+          "gap": 0.4
+        },
+        {
+          "fill": "#f-topic",
+          "text": "Leith Walk bus lanes",
+          "page": "niall",
+          "gap": 0.6
+        },
+        {
+          "tap": "#f-consent",
+          "page": "niall",
+          "gap": 0.8
+        },
+        {
+          "tap": "submit",
+          "page": "niall",
+          "until": "niall_waiting",
+          "gap": 1.2
+        },
+        {
+          "show": "shona",
+          "gap": 1.5
+        }
+      ]
+    },
+    {
+      "id": "m4-screen",
+      "title": "The telephonist screens the call",
+      "caption": "Shona talks to Niall in his own booth, off air, and writes the line Eilidh will see.",
+      "steps": [
+        {
+          "key": "caller:niall",
+          "page": "shona",
+          "gap": 0.6
+        },
+        {
+          "hold": "t",
+          "page": "shona",
+          "until": "niall_screening",
+          "gap": 0.4
+        },
+        {
+          "line": "l-s1",
+          "who": "shona",
+          "text": "Kettle FM, you're through to Shona. Who's this?",
+          "gap": 0.3
+        },
+        {
+          "line": "l-n1",
+          "who": "niall",
+          "text": "Niall Anderson, from Leith. It's about the bus lanes on Leith Walk.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-s2",
+          "who": "shona",
+          "text": "Have you rung us before, Niall?",
+          "gap": 0.3
+        },
+        {
+          "line": "l-n2",
+          "who": "niall",
+          "text": "Three weeks running. Nobody's let me on yet.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-s3",
+          "who": "shona",
+          "text": "You're on next. Keep it short, and turn your radio down.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-n3",
+          "who": "niall",
+          "text": "Will do. Cheers, Shona.",
+          "gap": 0.4
+        },
+        {
+          "release": "t",
+          "page": "shona",
+          "gap": 0.5
+        },
+        {
+          "click": "#f-line",
+          "page": "shona",
+          "gap": 0.3
+        },
+        {
+          "type": "Leith Walk bus lanes",
+          "page": "shona",
+          "gap": 0.3
+        },
+        {
+          "key": "Escape",
+          "page": "shona",
+          "gap": 0.3
+        },
+        {
+          "click": "#f-note",
+          "page": "shona",
+          "gap": 0.3
+        },
+        {
+          "type": "Has rung three weeks running",
+          "page": "shona",
+          "gap": 0.3
+        },
+        {
+          "key": "Escape",
+          "page": "shona",
+          "gap": 0.6
+        },
+        {
+          "key": "p",
+          "page": "shona",
+          "until": "niall_ready",
+          "gap": 1.0
+        }
+      ]
+    },
+    {
+      "id": "m5-air",
+      "title": "Cue, then air",
+      "caption": "Cued, Niall is in Eilidh's headphones only. One more key and he is on air, with Shona's line on his tile.",
+      "steps": [
+        {
+          "show": "desk",
+          "gap": 1.5
+        },
+        {
+          "key": "cue:niall",
+          "page": "desk",
+          "until": "niall_cued",
+          "gap": 0.6
+        },
+        {
+          "hold": "talk:niall",
+          "page": "desk",
+          "gap": 0.3
+        },
+        {
+          "line": "l-e-cue",
+          "who": "eilidh",
+          "text": "Niall, it's Eilidh. You're on in a moment.",
+          "gap": 0.2
+        },
+        {
+          "line": "l-n-cue",
+          "who": "niall",
+          "text": "Right you are.",
+          "gap": 0.3
+        },
+        {
+          "release": "talk:niall",
+          "page": "desk",
+          "gap": 0.4
+        },
+        {
+          "key": "Control+3",
+          "page": "desk",
+          "gap": 0.5
+        },
+        {
+          "key": "Space",
+          "page": "desk",
+          "gap": 0.6,
+          "note": "fades the bed"
+        },
+        {
+          "key": "Control+1",
+          "page": "desk",
+          "gap": 0.5
+        },
+        {
+          "key": "on:niall",
+          "page": "desk",
+          "until": "niall_on_air",
+          "gap": 0.4
+        },
+        {
+          "background": [
+            {
+              "tap": "Call the studio",
+              "page": "jessie",
+              "gap": 0.5
+            },
+            {
+              "fill": "#f-name",
+              "text": "Jessie Brown",
+              "page": "jessie",
+              "gap": 0.3
+            },
+            {
+              "fill": "#f-topic",
+              "text": "No night bus from the Infirmary",
+              "page": "jessie",
+              "gap": 0.3
+            },
+            {
+              "tap": "#f-consent",
+              "page": "jessie",
+              "gap": 0.3
+            },
+            {
+              "tap": "submit",
+              "page": "jessie",
+              "until": "jessie_waiting",
+              "gap": 1.0
+            },
+            {
+              "key": "caller:jessie",
+              "page": "shona",
+              "gap": 0.5
+            },
+            {
+              "hold": "t",
+              "page": "shona",
+              "until": "jessie_screening",
+              "gap": 1.5
+            },
+            {
+              "release": "t",
+              "page": "shona",
+              "gap": 0.4
+            },
+            {
+              "click": "#f-line",
+              "page": "shona",
+              "gap": 0.2
+            },
+            {
+              "type": "No night bus from the Infirmary",
+              "page": "shona",
+              "gap": 0.2
+            },
+            {
+              "key": "Escape",
+              "page": "shona",
+              "gap": 0.4
+            },
+            {
+              "key": "p",
+              "page": "shona",
+              "until": "jessie_ready",
+              "gap": 0.5
+            }
+          ],
+          "note": "off camera: Jessie calls in and Shona sends her to the desk while Niall is on air"
+        },
+        {
+          "line": "l-e-n",
+          "who": "eilidh",
+          "text": "Niall Anderson in Leith, good morning. You've been trying to get through for a while.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-n-air",
+          "who": "niall",
+          "text": "Three weeks, Eilidh. The bus lanes on Leith Walk stop right where the buses need them most. At half past eight you can walk into town faster than the bus.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-g-n",
+          "who": "gregor",
+          "text": "Funny. They said the very same about the trams in nineteen fifty-six.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-e-bye",
+          "who": "eilidh",
+          "text": "Thanks, Niall. Keep ringing.",
+          "gap": 0.4
+        },
+        {
+          "key": "Control+d",
+          "page": "desk",
+          "gap": 0.3
+        },
+        {
+          "key": "Control+d",
+          "page": "desk",
+          "until": "niall_gone",
+          "gap": 0.6
+        }
+      ]
+    },
+    {
+      "id": "m6-dump",
+      "title": "The dump",
+      "caption": "Listeners are eight seconds behind. Two presses of Del throw those seconds away.",
+      "steps": [
+        {
+          "key": "cue:jessie",
+          "page": "desk",
+          "until": "jessie_cued",
+          "gap": 0.5
+        },
+        {
+          "key": "on:jessie",
+          "page": "desk",
+          "until": "jessie_on_air",
+          "gap": 0.3
+        },
+        {
+          "line": "l-e-j",
+          "who": "eilidh",
+          "text": "Jessie Brown is on the line from the Infirmary. Jessie, go ahead.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-j",
+          "who": "jessie",
+          "text": "Eilidh, I'm a nurse on nights, and there's no bus home after ten past eleven. It's a bloody disgrace, and whoever planned it is a total arse.",
+          "gap": 0.9,
+          "swear": "arse"
+        },
+        {
+          "key": "Delete",
+          "page": "desk",
+          "gap": 0.5
+        },
+        {
+          "key": "Delete",
+          "page": "desk",
+          "until": "dumped",
+          "gap": 0.4
+        },
+        {
+          "line": "l-e-sorry",
+          "who": "eilidh",
+          "text": "Jessie, I'll stop you there. Sorry about the language, folks. You never heard it, and that's the point.",
+          "gap": 0.3
+        },
+        {
+          "key": "Control+d",
+          "page": "desk",
+          "gap": 0.3
+        },
+        {
+          "key": "Control+d",
+          "page": "desk",
+          "until": "jessie_gone",
+          "gap": 1.0
+        }
+      ]
+    },
+    {
+      "id": "m8-down",
+      "title": "Playout down, the room alive",
+      "caption": "Playout is stopped on purpose. The desk says so at once: PLAYOUT DOWN, and every live voice says OPEN.",
+      "steps": [
+        {
+          "stack": "down",
+          "until": "playout_down",
+          "gap": 1.5
+        },
+        {
+          "line": "l-e-down",
+          "who": "eilidh",
+          "text": "Gregor, the desk says playout's down. Listeners can't hear us, but we can still hear each other.",
+          "gap": 0.3
+        },
+        {
+          "line": "l-g-down",
+          "who": "gregor",
+          "text": "Just like the trams. Gone, but we're still talking about them.",
+          "gap": 0.6
+        },
+        {
+          "stack": "up",
+          "until": "playout_up",
+          "gap": 1.2
+        },
+        {
+          "line": "l-e-back",
+          "who": "eilidh",
+          "text": "And we're back.",
+          "gap": 0.8
+        }
+      ]
+    },
+    {
+      "id": "m7-end",
+      "title": "The show ends",
+      "caption": "Automation takes the air: the lamp says AUTO.",
+      "steps": [
+        {
+          "line": "l-e-end",
+          "who": "eilidh",
+          "text": "That's The Morning Kettle. Thanks to Gregor, to Niall and Jessie, and to Shona on the phones. Finlay Grant is on next with Steeped.",
+          "gap": 0.6
+        },
+        {
+          "mode": "auto",
+          "until": "auto",
+          "gap": 4.0
+        }
+      ]
+    }
+  ],
+  "dump_caption": "The studio heard it. Listeners did not.",
+  "outro_card": {
+    "url": "weavesignal.top",
+    "line": "One installation on your own server.",
+    "routes": [
+      "Cloudron",
+      "the weavesignal.sh script",
+      "Podman Quadlets"
+    ],
+    "licence": "Free software · AGPL-3.0"
+  },
+  "reseeded": {
+    "_": "lines Whisper misheard at the character's seed, made again at this one (the voice stays the designed reference)",
+    "o-eilidh": 104,
+    "l-j": 538
+  }
+}

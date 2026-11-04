@@ -25,6 +25,7 @@ path = [
   "docs/pnpm-lock.yaml",
   "playout/*.json",
   "docs/openapi/*.json",
+  "tests/demo-video/script.json",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"

@@ -81,7 +81,7 @@
                 "memoryLimit": 1610612736,
                 "minBoxVersion": "10.0.0",
                 "postInstallMessage": "<!-- SPDX-License-Identifier: AGPL-3.0-only -->\n<!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->\nYour station is installed. The guide is at https://weavesignal.top/docs/how-to/install-on-cloudron/.\n\n* The station's settings are in `/app/data/weavesignal.env`, and its generated secrets (the\n  station identifier, LiveKit's key, the control plane's admin token, the listener password,\n  and the keys that hash chatters' and staff's email addresses) are in `/app/data/secrets.env`.\n  Keep the email keys: a new one finds none of the accounts made before. Open them with the File Manager; restart the app after an edit.\n* The listener stream is at `https://<listener domain>/programme.opus`. It is in no directory\n  and open to anyone with the address; set `LISTENERS_AUTH=on` in `weavesignal.env` to ask for\n  the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`.\n* The player page, with call-in and the live chat, is at `https://<public domain>/`; podcast\n  feeds, show cards and episode files are served there too. The chat's sign-in codes are sent\n  through Cloudron's mail (`MAIL_MODE` in `weavesignal.env`).\n* Staff: in the studio app, choose **Use the station key instead** with `CONTROL_ADMIN_TOKEN`,\n  add yourself as an admin under **Settings → Staff**, then sign in as yourself. Each member\n  of staff then gets their own account there.\n* Room tokens: `POST /api/v1/room/tokens` with a staff sign-in or `CONTROL_ADMIN_TOKEN` as the bearer.\n* The public ports (room media over UDP, TURN over TLS, and the optional TURN over UDP and ICE\n  over TCP) must be open in the server's firewall and any cloud firewall.\n<sso>\n* The station's own domain is behind Cloudron's login; the listener, room and public domains\n  are not, and are protected by the listener password, by room tokens, and by serving only\n  the public routes.\n</sso>\n",
-                "changelog": "- **WeaveSignal, release one**, the first public version. The app id is\n  `top.weavesignal.cloudronapp`; the 0.x versions below were private test builds under another\n  id, so install 1.0.0 fresh.\n- **The listener stream is open by default** (`LISTENERS_AUTH=off`), unlisted, as in the\n  Compose bundle; set it to `on` to ask for a password.\n- **A caller's return is no longer choppy**: the desk stamps each output block from its place in\n  the mix, not from the clock when it is encoded (0.0 % concealed, from 30–50 %).\n- The edge passes only its own `Cache-Control`; the unused `hls_origin` port is retired.\n",
+                "changelog": "- **WeaveSignal, release one**, the first public version (app id `top.weavesignal.cloudronapp`).\n- **The listener stream is open by default** (`LISTENERS_AUTH=off`), unlisted, as in the Compose bundle; set it to `on` to ask for a password.\n- **A caller's return is no longer choppy**: the desk stamps each output block from its place in the mix, not from the clock when it is encoded (0.0 % concealed, from 30–50 %).\n- The edge passes only its own `Cache-Control`; the unused `hls_origin` port is retired.\n",
                 "tags": [
                     "media",
                     "radio",
@@ -98,8 +98,8 @@
                 ],
                 "dockerImage": "forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.0"
             },
-            "creationDate": "Wed, 04 Nov 2026 15:39:08 GMT",
-            "ts": "Wed, 04 Nov 2026 15:39:08 GMT",
+            "creationDate": "Wed, 04 Nov 2026 16:21:58 GMT",
+            "ts": "Wed, 04 Nov 2026 16:21:58 GMT",
             "publishState": "published"
         }
     }

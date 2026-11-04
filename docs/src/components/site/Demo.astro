@@ -17,13 +17,13 @@ const video = files.every((f) => existsSync(media + f));
 {
   video ? (
     <figure class="frame">
-      <video controls preload="none" poster="/media/poster.jpg" playsinline width="1440" height="900">
+      <video controls preload="none" poster="/media/poster.jpg" playsinline width="1920" height="1080">
         <source src="/media/demo.webm" type="video/webm" />
         <source src="/media/demo.mp4" type="video/mp4" />
         <track kind="captions" src="/media/demo.vtt" srclang="en" label="English" default />
         <p>Your browser cannot play this video. <a href="/media/demo.mp4">Download it</a> instead.</p>
       </video>
-      <figcaption>One minute of a show going to air, with sound: a caller is screened, cued in the presenter's headphones, taken to air, and playout takes over when the show ends. Kettle FM and its people are sample data.</figcaption>
+      <figcaption>Three and a half minutes of a show, with sound: the cast introduce themselves, a guest joins, a caller is screened, cued in the presenter's headphones and taken to air, a swear is dumped before listeners hear it, playout falls over and comes back, and automation takes the air when the show ends. Kettle FM and its people are sample data; every voice is designed, not cloned from anyone. Music bed "Wholesome" by Kevin MacLeod (incompetech.com), CC BY 4.0; jingle by Kenney (CC0). <a href="/media/CREDITS.txt">All credits</a>.</figcaption>
     </figure>
   ) : (
     <Frame
