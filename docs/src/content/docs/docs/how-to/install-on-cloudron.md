@@ -8,7 +8,7 @@ sidebar:
   order: 31
 ---
 
-> **Package 1.0.0, amd64.** It is not in Cloudron's app store yet (ADR-0077), so it is installed with Cloudron's command-line tool from its published image.
+> **Package 1.0.0, amd64.** Listed on ca.cloudron.io, the community app catalogue: <https://ca.cloudron.io/app/top.weavesignal.cloudronapp>.
 > The package's source is in the repository, in `deploy/cloudron/`.
 
 One Cloudron app holds the whole server (ADR-0022): the control plane, the chat, the desk, Liquidsoap 2.5 for playout, the listener process with `icecast.server`, LiveKit with its built-in TURN, the public pages, and nginx in front of them.
@@ -17,17 +17,25 @@ The app's id is `top.weavesignal.cloudronapp`.
 
 ## Before you start
 
-- A Cloudron at version 10.0 or later, and the Cloudron command-line tool logged in to it.
-- The package's folder, `deploy/cloudron/` in the repository: the command-line tool reads the package's `CloudronManifest.json` from the folder it runs in.
+- A Cloudron at version 10.0 or later.
 - **A server that is not overloaded.** On a heavily shared server the listener stream ran dry even with a 3 s cushion ([Memory and CPU](/docs/reference/resources/#what-this-means-for-a-host)). A busy Cloudron is fine for checking that the station works; a station on air gets a server of its own.
 - If the server has IPv6, read [IPv6 and TURN](#ipv6-and-turn) first.
 
 ## Install
 
-From `deploy/cloudron/`:
+1. In your Cloudron's dashboard, open **App Store** and choose **Community apps**.
+2. Paste the catalogue address:
+
+   ```text
+   https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/branch/main/deploy/cloudron/CloudronVersions.json
+   ```
+
+3. Choose **Install**. Updates arrive through the same catalogue.
+
+Or from the command line, with the Cloudron tool logged in:
 
 ```sh
-cloudron install --image forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.0
+cloudron install --versions-url https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/branch/main/deploy/cloudron/CloudronVersions.json --location studio.example.com
 ```
 
 Cloudron asks for four domains and the public ports:

@@ -9,6 +9,12 @@ import { join } from 'node:path';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+// Visit counting (operator, 2026-11-04): a cookieless Umami script, only when the deploy sets
+// PUBLIC_UMAMI_SRC and PUBLIC_UMAMI_WEBSITE_ID, so the source names no analytics host.
+const umami = process.env.PUBLIC_UMAMI_SRC && process.env.PUBLIC_UMAMI_WEBSITE_ID
+  ? [{ tag: 'script', attrs: { defer: true, src: process.env.PUBLIC_UMAMI_SRC, 'data-website-id': process.env.PUBLIC_UMAMI_WEBSITE_ID } }]
+  : [];
+
 // Every documentation page's old address (/<kind>/<slug>/) mapped to its new one (/docs/<kind>/<slug>/),
 // read from the content folder when the configuration loads, so a page added later is covered.
 function docsRedirects() {
@@ -55,6 +61,7 @@ export default defineConfig({
         { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
         { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
         { tag: 'meta', attrs: { property: 'og:image:alt', content: "The studio app's desk: ON AIR for The Morning Kettle on Kettle FM (sample data), three people on air, two standing by." } },
+        ...umami,
       ],
       // The licence line under every page (ADR-0081).
       components: {

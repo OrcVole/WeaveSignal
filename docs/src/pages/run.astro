@@ -41,12 +41,10 @@ deploy/compose/weavesignal.sh</code></pre>
         <div class="route">
           <span class="platform">Cloudron 10.0 or later, amd64</span>
           <h3>Cloudron</h3>
-          <pre><code>git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git
-cd weavesignal/deploy/cloudron
-cloudron install --image forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.0</code></pre>
-          <p>Cloudron is a self-hosting platform that runs apps on your own server with backups, updates and a login in front of them. WeaveSignal's package is not in Cloudron's app store yet, so it is installed with Cloudron's command-line tool from the published image; Cloudron asks for the four domains and the public ports as it installs.</p>
+          <pre><code>https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/branch/main/deploy/cloudron/CloudronVersions.json</code></pre>
+          <p>Cloudron is a self-hosting platform that runs apps on your own server with backups, updates and a login in front of them. WeaveSignal is <a href="https://ca.cloudron.io/app/top.weavesignal.cloudronapp">listed on ca.cloudron.io</a>: in your Cloudron's dashboard open App Store, choose <strong>Community apps</strong>, paste the address above and install. Cloudron asks for the four domains and the public ports, then keeps the app updated from the same catalogue. From the command line it is <code>cloudron install --versions-url</code> with the same address.</p>
           <ul>
-            <li>The Cloudron command-line tool, logged in to your Cloudron.</li>
+            <li>Paste and click: no command line needed.</li>
             <li>PostgreSQL is Cloudron's addon; sign-in codes go through Cloudron's mail.</li>
             <li>1.5 GiB of memory is the package's limit; a server with IPv6 should read the guide's TURN note first.</li>
           </ul>

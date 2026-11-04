@@ -58,6 +58,9 @@ const pages = [
         document.documentElement.dataset.theme = t;
       })();
     </script>
+    {import.meta.env.PUBLIC_UMAMI_SRC && import.meta.env.PUBLIC_UMAMI_WEBSITE_ID && (
+      <script is:inline defer src={import.meta.env.PUBLIC_UMAMI_SRC} data-website-id={import.meta.env.PUBLIC_UMAMI_WEBSITE_ID}></script>
+    )}
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -112,7 +115,7 @@ const pages = [
         </div>
         <div class="licence">
           <Agpl />
-          <p>Kettle FM, its shows and its people are sample data, from the Tartan National Names list; no real station or person is shown. Text and images on this site are CC BY-SA 4.0; code samples are AGPL-3.0-only, as the code is: <a href="/docs/reference/licence/">which licence covers what</a>.</p>
+          <p>Kettle FM, its shows and its people are sample data, from the Tartan National Names list; no real station or person is shown. Text and images on this site are CC BY-SA 4.0; code samples are AGPL-3.0-only, as the code is: <a href="/docs/reference/licence/">which licence covers what</a>. Visits are counted without cookies or personal data (<a href="/faq/#privacy">how</a>).</p>
         </div>
       </div>
     </footer>

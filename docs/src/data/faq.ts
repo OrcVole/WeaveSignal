@@ -113,6 +113,13 @@ export const questions: Question[] = [
     ],
   },
   {
+    id: 'privacy',
+    q: 'Does this website track me?',
+    a: [
+      'It counts visits with Umami, which sets no cookies and keeps nothing that identifies you: which pages are read, where visitors came from, and their country, browser and kind of device, as totals. There is nothing to consent to and no banner. The figures are the project\'s own, on a server it runs, and are never shared.',
+    ],
+  },
+  {
     id: 'versioning',
     q: 'What does the version number promise?',
     a: [
