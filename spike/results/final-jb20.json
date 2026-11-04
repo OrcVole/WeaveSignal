@@ -1,0 +1,148 @@
+{
+ "seconds": 110.0,
+ "jitterbuffer_ms": 20,
+ "video": false,
+ "streams": {
+  "recvA": {
+   "onsets": 55,
+   "classes": {
+    "A": 55,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 53,
+    "p50": 67.6,
+    "p95": 70.8,
+    "min": 66.6,
+    "max": 71.4
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     71.4,
+     67.5,
+     67.3,
+     67.6,
+     67.6
+    ]
+   }
+  },
+  "recvB": {
+   "onsets": 36,
+   "classes": {
+    "A": 0,
+    "B": 36
+   },
+   "latency_ms_B": {
+    "n": 34,
+    "p50": 67.6,
+    "p95": 70.7,
+    "min": 65.5,
+    "max": 72.5
+   }
+  },
+  "programme": {
+   "onsets": 73,
+   "classes": {
+    "A": 54,
+    "B": 19
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 78.0,
+    "p95": 82.0,
+    "min": 77.1,
+    "max": 84.6
+   },
+   "latency_ms_B": {
+    "n": 17,
+    "p50": 78.0,
+    "p95": 81.3,
+    "min": 76.0,
+    "max": 81.3
+   },
+   "marker_latency_ms": {
+    "n": 4,
+    "values": [
+     82.1,
+     77.8,
+     78.1,
+     77.8
+    ]
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 55,
+   "classes": {
+    "A": 55,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 53,
+    "p50": 78.0,
+    "p95": 80.5,
+    "min": 77.0,
+    "max": 82.5
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     79.4,
+     77.8,
+     78.0,
+     77.9,
+     78.0
+    ]
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 134.9,
+    "p95": 136.5,
+    "min": 133.7,
+    "max": 140.5
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     134.9,
+     136.1,
+     134.8,
+     135.0,
+     134.9
+    ]
+   }
+  },
+  "listener": {
+   "onsets": 49,
+   "classes": {
+    "A": 36,
+    "B": 13
+   },
+   "latency_ms_A": {
+    "n": 34,
+    "p50": 970.0,
+    "p95": 971.0,
+    "min": 969.6,
+    "max": 977.4
+   },
+   "marker_latency_ms": {
+    "n": 2,
+    "values": [
+     14969.9,
+     14970.0
+    ]
+   }
+  }
+ },
+ "mixminusB_peak_dbfs": -0.4,
+ "mixminusB_leak_3k_vs_1k_db": -45.5,
+ "programme_3k_vs_1k_db_reference": -3.8,
+ "sent_peak_dbfs": -1.9
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="113" height="48" viewBox="0 0 113 48" role="img" aria-label="Talk">
+<!-- WeaveSignal state TALK (lamp, dark). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="1.0" y="1.0" width="111" height="46" rx="12" style="fill:#00846f;stroke:transparent" stroke-width="2"/>
+<g transform="translate(14 14.0) scale(1.4285714285714286)" style="color:#ffffff"><path d="M2 2.5h10a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H6.5L3 12.5V9.5H2a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z" fill="currentColor"/></g>
+<text x="42" y="31.2" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="20" font-weight="800" letter-spacing="1.60" style="fill:#ffffff">TALK</text>
+</svg>

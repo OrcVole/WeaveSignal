@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="101" height="48" viewBox="0 0 101 48" role="img" aria-label="Cue">
+<!-- WeaveSignal state CUE (lamp, dark). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="1.0" y="1.0" width="99" height="46" rx="12" style="fill:#8053ff;stroke:transparent" stroke-width="2"/>
+<g transform="translate(14 14.0) scale(1.4285714285714286)" style="color:#ffffff"><circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2" fill="currentColor"/></g>
+<text x="42" y="31.2" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="20" font-weight="800" letter-spacing="1.60" style="fill:#ffffff">CUE</text>
+</svg>

@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The studio window: core events, and the station commands main.rs registers (requests to the station go out from Rust with its key, ADR-0121).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

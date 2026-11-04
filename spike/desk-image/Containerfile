@@ -1,0 +1,83 @@
+# WeaveSignal desk spike: GStreamer 1.28.8 (Fedora 44) + gst-plugins-rs webrtc
+# (LiveKit + WHIP, with WeaveSignal's patches in patches/) + the SRT plugin from gst-plugins-bad 1.28.8.
+#
+# Build:  podman build -t localhost/weavesignal-desk-spike:dev .
+# Sources: Fedora 44 packages, gstreamer.freedesktop.org tarball (sha256 pinned),
+#          gitlab.freedesktop.org gst-plugins-rs at a release tag, crates.io.
+
+ARG GST_VERSION=1.28.8
+ARG GST_BAD_SHA256=670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104
+ARG GST_RS_TAG=0.15.4+fixup
+# The commit the tag names (the tag is annotated; this is what it points at): a moved tag fails the build.
+ARG GST_RS_COMMIT=c164a6696fcb0408f72a108e5f35ec25eb047464
+
+########################################################################
+FROM docker.io/library/fedora:44 AS builder
+ARG GST_VERSION
+ARG GST_BAD_SHA256
+ARG GST_RS_TAG
+ARG GST_RS_COMMIT
+
+RUN dnf -y install --setopt=install_weak_deps=False \
+        gcc gcc-c++ make cmake meson ninja-build pkgconf-pkg-config git xz \
+        rust cargo cargo-c openssl-devel glib2-devel \
+        gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel \
+        srt-devel \
+    && dnf clean all
+
+# --- SRT plugin only, from the upstream gst-plugins-bad tarball -----------
+WORKDIR /src
+RUN curl -fsSLO https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-${GST_VERSION}.tar.xz \
+    && echo "${GST_BAD_SHA256}  gst-plugins-bad-${GST_VERSION}.tar.xz" | sha256sum -c - \
+    && tar xf gst-plugins-bad-${GST_VERSION}.tar.xz \
+    && cd gst-plugins-bad-${GST_VERSION} \
+    && meson setup build --prefix=/usr --libdir=lib64 --buildtype=release \
+         -Dauto_features=disabled -Dsrt=enabled \
+         -Dtools=disabled -Dexamples=disabled -Dtests=disabled -Ddoc=disabled \
+         -Dintrospection=disabled -Dnls=disabled -Dorc=disabled \
+    && ninja -C build ext/srt/libgstsrt.so \
+    && install -D -m 0755 build/ext/srt/libgstsrt.so /out/usr/lib64/gstreamer-1.0/libgstsrt.so
+
+# --- gst-plugins-rs webrtc plugin with LiveKit (defaults keep WHIP/WHEP/Janus)
+# WeaveSignal's patches (patches/): the signaller's `allowed-subscribers`, so the desk's mix-minus
+# publishers limit who may hear them (ADR-0118).
+COPY patches/ /src/patches/
+RUN git clone --depth 1 --branch "${GST_RS_TAG}" \
+        https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git /src/gst-plugins-rs \
+    && { [ "$(git -C /src/gst-plugins-rs rev-parse HEAD)" = "${GST_RS_COMMIT}" ] \
+         || { echo "gst-plugins-rs tag ${GST_RS_TAG} no longer names commit ${GST_RS_COMMIT}: check the new commit, then move both pins" >&2; exit 1; }; } \
+    && cd /src/gst-plugins-rs && git apply --verbose /src/patches/*.patch
+WORKDIR /src/gst-plugins-rs
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/src/gst-plugins-rs/target \
+    cargo cinstall --locked -p gst-plugin-webrtc --features livekit --release \
+        --prefix /usr --libdir /usr/lib64 --destdir /stage \
+    && install -D -m 0755 /stage/usr/lib64/gstreamer-1.0/libgstrswebrtc.so \
+         /out/usr/lib64/gstreamer-1.0/libgstrswebrtc.so
+
+########################################################################
+FROM docker.io/library/fedora:44
+ARG GST_VERSION
+ARG GST_RS_TAG
+LABEL org.opencontainers.image.title="weavesignal-desk-spike" \
+      org.opencontainers.image.description="Throwaway WeaveSignal desk spike: GStreamer ${GST_VERSION}, gst-plugins-rs ${GST_RS_TAG} webrtc (livekit, whip), SRT" \
+      org.opencontainers.image.licenses="LGPL-2.1-or-later AND MPL-2.0"
+
+RUN dnf -y install --setopt=install_weak_deps=False \
+        gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free \
+        gstreamer1-plugins-base-tools libnice-gstreamer1 srt-libs opus ca-certificates \
+        python3 python3-gobject python3-gstreamer1 python3-numpy \
+    && dnf clean all
+
+COPY --from=builder /out/usr/lib64/gstreamer-1.0/ /usr/lib64/gstreamer-1.0/
+
+# Smoke test at build time, then drop the registry so a GPU run rescans nvcodec.
+RUN for e in livekitwebrtcsrc livekitwebrtcsink whipclientsink srtsink srtsrc matroskamux \
+             audiomixer opusenc opusdec webrtcbin audiotestsrc level; do \
+        gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
+    done \
+    && python3 -c "import gi, numpy; gi.require_version('Gst','1.0'); from gi.repository import Gst; Gst.init(None); assert Gst.ElementFactory.find('livekitwebrtcsrc')" \
+    && rm -rf /root/.cache/gstreamer-1.0
+
+CMD ["gst-inspect-1.0", "--version"]

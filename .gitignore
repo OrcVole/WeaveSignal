@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+spike/interview/
+spike/results/*.wav
+spike/talkshow/music/
+spike/talkshow/out/
+spike/talkshow/voices/
+
+# Build output
+/target/
+# The documentation site
+/docs/node_modules/
+/docs/dist/
+/docs/.astro/
+# Local settings with secrets
+*.local.toml
+/tests/room/run/
+/tests/m2/run/
+/tests/m3/run/
+/deploy/compose/.env
+/tests/carts/run/
+/deploy/cloudron/.test-local/
+/tests/edges/run/
+/tests/edges/run-tls/
+/tests/chat/run/
+/tests/playout/run/
+# Packages built by `just package-desktop`
+/dist/
+/tests/install/run/
+/tests/screens/run/
+# Python byte code
+__pycache__/

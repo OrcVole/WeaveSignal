@@ -1,0 +1,39 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The state vocabulary page (reference/states): each chip and lamp is drawn for one theme, with
+   its word as live text in that theme's ink, so it is shown on that theme's own surface whatever
+   theme the reader's site is in. The surfaces are the design system's --surface in each theme. */
+.rs-sw {
+  display: inline-block;
+  width: max-content;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  line-height: 0;
+  border: 1px solid var(--sl-color-hairline);
+}
+.rs-sw img {
+  display: block;
+  margin: 0;
+  /* the drawing's own size: a table cell must not shrink it, or the word is clipped */
+  max-width: none;
+}
+.rs-dark {
+  background: #1a1b26;
+}
+.rs-light {
+  background: #fcfcfb;
+}
+.rs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  line-height: 0;
+  margin-block: 0.5rem;
+}
+.rs-pair {
+  width: max-content;
+  display: grid;
+  gap: 0.4rem;
+  justify-items: start;
+}

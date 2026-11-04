@@ -1,0 +1,120 @@
+webrtcbin webrtcbin0 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin0 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin1 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin1 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin2 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin2 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+
+(python3:1): webrtcsink-WARNING **: 13:03:51.663: The `rtpgccbwe` element is not available not doing any congestion control: BoolError { message: "Failed to find element factory with name 'rtpgccbwe' for creating element", filename: "/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gstreamer-0.25.4/src/element_factory.rs", function: "gstreamer::element_factory::ElementBuilder<'_>::build::{{closure}}", line: 244 }
+
+(python3:1): webrtcsink-WARNING **: 13:03:51.664: The `rtpgccbwe` element is not available not doing any congestion control: BoolError { message: "Failed to find element factory with name 'rtpgccbwe' for creating element", filename: "/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gstreamer-0.25.4/src/element_factory.rs", function: "gstreamer::element_factory::ElementBuilder<'_>::build::{{closure}}", line: 244 }
+
+(python3:1): webrtcsink-WARNING **: 13:03:51.664: The `rtpgccbwe` element is not available not doing any congestion control: BoolError { message: "Failed to find element factory with name 'rtpgccbwe' for creating element", filename: "/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gstreamer-0.25.4/src/element_factory.rs", function: "gstreamer::element_factory::ElementBuilder<'_>::build::{{closure}}", line: 244 }
+rtpjitterbuffer rtpjitterbuffer0 latency set to 50 ms
+[12888.218] desk-B: linked audio_0 -> ['sink:recvB', 'prog']
+rtpjitterbuffer rtpjitterbuffer1 latency set to 50 ms
+[12888.878] desk-A: linked audio_0 -> ['sink:recvA', 'prog', 'mmB']
+rtpjitterbuffer rtpjitterbuffer2 latency set to 50 ms
+[12889.017] B-ear: linked audio_0 -> ['sink:mixminusB_at_B']
+{
+ "seconds": 60.0,
+ "jitterbuffer_ms": 50,
+ "video": false,
+ "streams": {
+  "recvA": {
+   "onsets": 29,
+   "classes": {
+    "A": 29,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 27,
+    "p50": 97.6,
+    "p95": 97.9,
+    "min": 97.4,
+    "max": 97.9
+   }
+  },
+  "recvB": {
+   "onsets": 19,
+   "classes": {
+    "A": 0,
+    "B": 19
+   },
+   "latency_ms_B": {
+    "n": 17,
+    "p50": 97.6,
+    "p95": 98.0,
+    "min": 97.4,
+    "max": 98.0
+   }
+  },
+  "programme": {
+   "onsets": 39,
+   "classes": {
+    "A": 29,
+    "B": 10
+   },
+   "latency_ms_A": {
+    "n": 27,
+    "p50": 108.0,
+    "p95": 108.2,
+    "min": 107.8,
+    "max": 108.2
+   },
+   "latency_ms_B": {
+    "n": 8,
+    "p50": 108.1,
+    "p95": 108.3,
+    "min": 107.8,
+    "max": 108.3
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 29,
+   "classes": {
+    "A": 29,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 27,
+    "p50": 108.0,
+    "p95": 108.3,
+    "min": 107.8,
+    "max": 108.4
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 29,
+   "classes": {
+    "A": 29,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 27,
+    "p50": 164.9,
+    "p95": 165.3,
+    "min": 164.8,
+    "max": 165.4
+   }
+  },
+  "listener": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  }
+ },
+ "mixminusB_peak_dbfs": -1.1,
+ "sent_peak_dbfs": -1.9
+}

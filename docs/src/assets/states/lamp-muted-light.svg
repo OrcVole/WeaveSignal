@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="139" height="48" viewBox="0 0 139 48" role="img" aria-label="Muted">
+<!-- WeaveSignal state MUTED (lamp, light). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="1.0" y="1.0" width="137" height="46" rx="12" style="fill:transparent;stroke:#6b7089" stroke-width="2"/>
+<g transform="translate(14 14.0) scale(1.4285714285714286)" style="color:#6b7089"><circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.3 10.7 10.7 3.3" stroke="currentColor" stroke-width="1.5"/></g>
+<text x="42" y="31.2" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="20" font-weight="800" letter-spacing="1.60" style="fill:#6b7089">MUTED</text>
+</svg>

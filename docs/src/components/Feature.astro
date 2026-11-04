@@ -1,0 +1,39 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// One section of the landing page: a kicker, a heading and prose in the default slot, with pictures
+// in the "media" slot beside them (stacked on a phone) and a full-width row in the "below" slot. `layout` says what kind: a wide screenshot,
+// phone-width ones, or none; `side` puts the pictures on the left on a wide screen.
+interface Props {
+  id: string;
+  kicker: string;
+  title: string;
+  layout?: 'wide' | 'phones' | 'none';
+  side?: 'left' | 'right';
+  level?: 2 | 3;
+}
+const { id, kicker, title, layout = 'wide', side = 'right', level = 2 } = Astro.props;
+const Heading = level === 3 ? 'h3' : 'h2';
+---
+
+<section class="ws-feature not-content" data-media={layout} data-side={side} aria-labelledby={id}>
+  <div class="ws-feature-copy">
+    <p class="ws-kicker">{kicker}</p>
+    <Heading id={id}>{title}</Heading>
+    <slot />
+  </div>
+  {
+    layout !== 'none' && (
+      <div class="ws-feature-media">
+        <slot name="media" />
+      </div>
+    )
+  }
+  {
+    Astro.slots.has('below') && (
+      <div class="ws-feature-below">
+        <slot name="below" />
+      </div>
+    )
+  }
+</section>

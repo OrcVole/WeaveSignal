@@ -1,0 +1,185 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The Schedule tab (calendar.md; ADR-0021, ADR-0045, ADR-0055), copied from the decided design
+   page (Library/design/weavesignal-design-calendar.html) and nested under .schedule; the page
+   stays the source. The grid itself is drawn by Event Calendar behind the adapter
+   (schedule/calendar/), so its own class names (.ec-*) are restyled here to the tokens, and
+   every block's inner markup (.ev) is ours. */
+.schedule { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--plane); }
+
+/* toolbar */
+.schedule .toolbar { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline); flex-wrap: wrap; }
+.schedule .toolbar .range { font-size: var(--fs-16); font-weight: 600; margin: 0 var(--s-2); white-space: nowrap; }
+.schedule .toolbar .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: var(--r-2); overflow: hidden; }
+.schedule .toolbar .seg button { appearance: none; border: 0; background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-13); font-weight: 600; padding: 0 var(--s-3); min-height: 2rem; cursor: pointer; border-right: 1px solid var(--axis); }
+.schedule .toolbar .seg button:last-child { border-right: 0; }
+.schedule .toolbar .seg button[aria-pressed='true'] { background: var(--surface-3); color: var(--ink); }
+.schedule .toolbar .btn { min-height: 2rem; }
+.schedule .toolbar .tz { font-size: var(--fs-13); color: var(--muted); white-space: nowrap; }
+.schedule .toolbar .legend { display: flex; gap: var(--s-3); align-items: center; font-size: var(--fs-12); color: var(--ink-2); margin-left: auto; flex-wrap: wrap; }
+.schedule .toolbar .legend span { display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; }
+.schedule .toolbar .legend svg { width: 12px; height: 12px; }
+.schedule .toolbar .legend .past { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--axis); background: var(--surface-2); opacity: 0.6; border-radius: 2px; }
+.schedule .toolbar .load { font-size: var(--fs-13); color: var(--muted); }
+
+/* the body: calendar plus editor */
+.schedule .body { display: grid; grid-template-columns: minmax(0, 1fr) 26rem; min-height: 0; }
+.schedule .cal { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; border-right: 1px solid var(--hairline); position: relative; }
+.schedule .cal .corner { position: absolute; left: 0; top: 0; width: 3.75rem; height: 3rem; z-index: 2; }
+.schedule .cal .empty { padding: var(--s-4); color: var(--muted); font-size: var(--fs-13); }
+.schedule .cal .grid-host { min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr); }
+
+/* Event Calendar restyled to the tokens */
+.schedule .ec { color-scheme: inherit; --ec-bg-color: transparent; --ec-text-color: var(--ink-2); --ec-border-color: var(--hairline); --ec-today-bg-color: transparent; --ec-highlight-color: color-mix(in srgb, var(--accent) 5%, transparent); --ec-event-bg-color: transparent; --ec-event-text-color: var(--ink-2); --ec-bg-event-color: transparent; --ec-bg-event-opacity: 1; --ec-event-col-gap: 0.25rem; --ec-now-indicator-color: var(--live-onair); font-size: var(--fs-12); font-family: var(--font-ui); }
+.schedule .ec .ec-header { background: var(--surface); border-bottom: 1px solid var(--hairline); }
+.schedule .ec .ec-header .ec-col-head, .schedule .ec .ec-header .ec-sidebar { border-color: var(--hairline); }
+.schedule .ec .ec-col-head { padding: var(--s-2); min-height: 3rem; line-height: var(--lh-label); font-size: var(--fs-13); color: var(--ink-2); text-align: left; }
+.schedule .ec .ec-col-head time { display: grid; }
+.schedule .ec .ec-col-head b { display: block; color: var(--ink); font-weight: 600; font-size: var(--fs-14); }
+.schedule .ec .ec-col-head .today-word { color: var(--accent); font-weight: 600; font-size: var(--fs-12); }
+.schedule .ec .ec-col-head .dst { display: block; font-size: var(--fs-12); color: var(--muted); }
+.schedule .ec .ec-header .ec-highlight { box-shadow: inset 0 -3px 0 var(--accent); }
+.schedule .ec .ec-sidebar { font-family: var(--font-mono); font-size: var(--fs-12); color: var(--muted); font-variant-numeric: tabular-nums; }
+.schedule .ec .ec-time, .schedule .ec .ec-line { border-color: var(--grid); }
+.schedule .ec .ec-day { border-color: var(--hairline); }
+.schedule .ec .ec-body .ec-highlight { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.schedule .ec .ec-event { padding: 0; border-radius: var(--r-1); box-shadow: none; background: transparent; color: inherit; overflow: hidden; }
+.schedule .ec .ec-event:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.schedule .ec .ec-event-body { height: 100%; display: block; }
+.schedule .ec .ec-event-title { display: contents; font: inherit; }
+.schedule .ec .ec-event-time { display: none; }
+.schedule .ec .ec-draggable { cursor: grab; }
+.schedule .ec .ec-bg-event.now-line { background: transparent; border-top: 2px solid var(--live-onair); z-index: 3; overflow: visible; opacity: 1; pointer-events: none; }
+.schedule .ec .ec-bg-event.now-line::before { content: ''; position: absolute; left: -5px; top: -6px; width: 10px; height: 10px; border-radius: 50%; background: var(--live-onair); }
+.schedule .ec .ec-bg-event.now-line .now-label { position: absolute; left: var(--s-2); top: -1rem; font-family: var(--font-mono); font-size: var(--fs-12); color: var(--live-onair); background: var(--plane); padding: 0 var(--s-1); font-variant-numeric: tabular-nums; display: block; line-height: 1.1; }
+
+/* a block: a show instance (the same markup whichever library places it). The library's own
+   element carries .ev (the frame: band, surface, border); our .evb inside it is the column. */
+.ev { height: 100%; min-width: 0; border-radius: var(--r-1); background: var(--surface); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); padding: 0; overflow: hidden; font-size: var(--fs-12); line-height: var(--lh-label); color: var(--ink-2); cursor: pointer; text-align: left; font-family: var(--font-ui); box-shadow: var(--e-1); box-sizing: border-box; }
+.ev:hover { background: var(--surface-2); }
+.ev .evb { display: flex; flex-direction: column; gap: 1px; height: 100%; padding: 3px var(--s-2) 3px var(--s-2); overflow: hidden; min-width: 0; }
+.ev .evb > *, .ev .rest > * { flex: none; min-width: 0; }
+.ev .rest { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
+.ev .t { display: flex; justify-content: space-between; gap: var(--s-1); font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; min-width: 0; overflow: hidden; }
+.ev .t .rep { font-family: var(--font-ui); display: inline-flex; align-items: center; gap: 2px; }
+.ev .t .rep svg { width: 11px; height: 11px; }
+.ev b { color: var(--ink); font-weight: 600; font-size: var(--fs-13); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ev .kind { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: var(--fs-12); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; color: var(--ink-2); }
+.ev .kind svg { width: 11px; height: 11px; }
+.ev .who { color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ev .ep { color: var(--ink-2); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev .ep.studio { color: var(--muted); }
+.ev.auto { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--surface-3) 70%, transparent) 6px 7px), var(--plane); border-left-color: var(--deemph); color: var(--muted); box-shadow: none; }
+.ev.auto b { color: var(--ink-2); font-weight: 500; }
+.ev.auto .kind { color: var(--muted); }
+.ev.rule { background: transparent; border-style: dashed; border-left-style: solid; box-shadow: none; }
+.ev.rule b { color: var(--ink-2); }
+.ev.past { background: color-mix(in srgb, var(--surface) 70%, var(--plane)); border-left-color: color-mix(in srgb, var(--show-colour, var(--deemph)) 55%, var(--plane)); box-shadow: none; }
+.ev.auto.past { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--surface-3) 45%, transparent) 6px 7px), var(--plane); }
+.ev.sel { background: var(--surface-2); border-color: var(--accent); border-left-color: var(--show-colour, var(--deemph)); box-shadow: inset 0 0 0 1px var(--accent), var(--e-2); }
+.ev .flag { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 1px 3px; width: max-content; max-width: 100%; margin-top: 2px; line-height: 1.2; }
+.ev .flag svg { width: 11px; height: 11px; color: var(--status-warning); }
+.ev .flag.moved { border-color: var(--accent); }
+.ev .flag.moved svg { color: var(--accent); }
+.ev .flag.onair { border-color: var(--live-onair); background: var(--live-onair); color: var(--live-onair-ink); }
+.ev .flag.onair svg { color: var(--live-onair-ink); }
+
+/* the editor column */
+.schedule .editor { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; background: var(--surface); }
+.schedule .editor .head { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); display: grid; gap: var(--s-1); }
+.schedule .editor .head .crumbs { font-size: var(--fs-12); color: var(--muted); display: flex; gap: var(--s-1); flex-wrap: wrap; }
+.schedule .editor .head .crumbs b { color: var(--ink-2); font-weight: 600; }
+.schedule .editor .head h2 { font-size: var(--fs-16); }
+.schedule .editor .head .when { font-size: var(--fs-13); color: var(--ink-2); display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+.schedule .editor .levels { display: flex; gap: 2px; margin-top: var(--s-1); }
+.schedule .editor .levels button { appearance: none; border: 1px solid var(--axis); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-12); font-weight: 600; padding: 0 var(--s-2); min-height: var(--target); cursor: pointer; border-radius: var(--r-1); }
+.schedule .editor .levels button[aria-selected='true'] { background: var(--surface-3); color: var(--ink); border-color: var(--ink-2); }
+.schedule .editor .fields { overflow-y: auto; padding: var(--s-3) var(--s-4); display: grid; gap: var(--s-3); align-content: start; }
+.schedule .field { display: grid; gap: 3px; padding-left: var(--s-3); border-left: 3px solid var(--axis); }
+.schedule .field.inh { border-left-style: dotted; }
+.schedule .field.set { border-left-color: var(--accent); }
+.schedule .field.frozen { border-left-color: var(--muted); }
+.schedule .field .lab { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; flex-wrap: wrap; }
+.schedule .field .lab .src { text-transform: none; letter-spacing: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); height: 1.375rem; font-size: var(--fs-12); color: var(--ink-2); }
+.schedule .field.inh .lab .src { border-style: dotted; }
+.schedule .field.set .lab .src { border-color: var(--accent); color: var(--ink); }
+.schedule .field .lab .src svg { width: 10px; height: 10px; }
+/* field actions are 28 px buttons in ink on --surface-2 (review finding 11) */
+.schedule .field .lab .act { margin-left: auto; text-transform: none; letter-spacing: 0; font: inherit; font-size: var(--fs-12); font-weight: 600; color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-2); cursor: pointer; padding: 0 var(--s-2); min-height: 1.75rem; display: inline-flex; align-items: center; }
+.schedule .field .lab .act + .act { margin-left: 0; }
+.schedule .field .lab .act:hover { background: var(--surface-3); }
+.schedule .field .val { font-size: var(--fs-14); color: var(--ink); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-1); padding: var(--s-1) var(--s-2); min-height: 2rem; display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.schedule .field.inh .val { color: var(--ink-2); background: transparent; border-style: dotted; }
+.schedule .field .val.multi { padding-bottom: var(--s-2); align-items: flex-start; line-height: var(--lh-label); }
+.schedule .field input, .schedule .field textarea, .schedule .field select { font: inherit; font-size: var(--fs-14); color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-1); padding: var(--s-1) var(--s-2); min-height: 2rem; width: 100%; box-sizing: border-box; }
+.schedule .field textarea { min-height: 4rem; resize: vertical; line-height: var(--lh-label); }
+.schedule .field input[type='number'] { width: 6rem; }
+.schedule .field .row { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+.schedule .field .row input { width: auto; flex: 1; }
+.schedule .field .chip { display: inline-flex; align-items: center; gap: var(--s-1); border: 1px solid var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); height: 1.5rem; font-size: var(--fs-12); color: var(--ink); background: var(--surface); }
+.schedule .field .chip .ini { width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--surface-3); color: var(--ink-2); font-size: var(--fs-12); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; letter-spacing: -0.02em; }
+.schedule .field .hint { font-size: var(--fs-12); color: var(--muted); line-height: var(--lh-label); }
+.schedule .field .hint b { color: var(--ink-2); font-weight: 600; }
+.schedule .field .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: var(--r-1); overflow: hidden; }
+.schedule .field .seg span, .schedule .field .seg button { appearance: none; border: 0; background: transparent; padding: 0 var(--s-2); min-height: 1.5rem; display: inline-flex; align-items: center; font: inherit; font-size: var(--fs-12); font-weight: 600; color: var(--muted); border-right: 1px solid var(--axis); cursor: pointer; }
+.schedule .field .seg span:last-child, .schedule .field .seg button:last-child { border-right: 0; }
+.schedule .field .seg [aria-current='true'], .schedule .field .seg [aria-pressed='true'] { background: var(--surface-3); color: var(--ink); }
+.schedule .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-1); width: 100%; }
+.schedule .swatches button { appearance: none; border: 2px solid transparent; border-radius: var(--r-1); min-height: var(--target); display: grid; place-items: center; font: inherit; font-size: var(--fs-12); font-weight: 700; cursor: pointer; background: var(--surface); color: var(--ink); }
+.schedule .swatches button i { display: block; width: 100%; height: 6px; border-radius: 3px; background: var(--sw); }
+.schedule .swatches button[aria-pressed='true'] { border-color: var(--accent); }
+.schedule .editor .foot { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--hairline); display: grid; gap: var(--s-2); }
+.schedule .editor .foot .r { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.schedule .editor .foot .btn { min-height: 2.25rem; }
+.schedule .editor .foot .btn small { font-weight: 400; color: inherit; opacity: 0.8; }
+.schedule .editor .caption { font-size: var(--fs-13); color: var(--muted); line-height: var(--lh-label); }
+.schedule .editor .caption b { color: var(--ink-2); }
+.schedule .frozen-note { display: flex; gap: var(--s-2); align-items: flex-start; padding: var(--s-2) var(--s-3); border: 1.5px solid var(--axis); border-radius: var(--r-2); font-size: var(--fs-13); color: var(--ink-2); }
+.schedule .frozen-note svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--muted); }
+.schedule .frozen-note b { color: var(--ink); }
+.schedule .field .correct { display: grid; gap: var(--s-2); width: 100%; }
+.schedule .field .correct label { display: grid; gap: var(--s-1); font-size: var(--fs-12); font-weight: 600; color: var(--muted); }
+.schedule .field .correction { display: grid; gap: 2px; width: 100%; padding-top: var(--s-1); font-size: var(--fs-13); color: var(--ink-2); }
+.schedule .field .correction b { color: var(--ink); }
+.schedule .problem { display: flex; gap: var(--s-2); align-items: flex-start; padding: var(--s-2) var(--s-3); border: 1.5px solid var(--status-warning); border-radius: var(--r-2); font-size: var(--fs-13); color: var(--ink); }
+.schedule .problem svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--status-warning); }
+.schedule .problem.serious { border-color: var(--status-critical); }
+.schedule .problem.serious svg { color: var(--status-critical); }
+.schedule .problem.good { border-color: var(--status-good); }
+.schedule .problem.good svg { color: var(--status-good); }
+.schedule .editor .nothing { padding: var(--s-4); color: var(--muted); font-size: var(--fs-13); line-height: var(--lh-body); display: grid; gap: var(--s-3); align-content: start; }
+.schedule .editor .nothing b { color: var(--ink-2); }
+
+/* the log editor: a generated hour with its rule checks */
+.schedule .log { display: grid; gap: 2px; }
+.schedule .log .item { display: grid; grid-template-columns: 3.25rem minmax(0, 1fr) auto; gap: var(--s-1) var(--s-2); align-items: start; padding: var(--s-2) var(--s-2); border: 1px solid var(--hairline); border-radius: var(--r-1); background: var(--surface-2); font-size: var(--fs-13); }
+.schedule .log .item .at { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--fs-12); padding-top: 2px; }
+.schedule .log .item .what b { color: var(--ink); font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule .log .item .what span { color: var(--ink-2); font-size: var(--fs-12); }
+.schedule .log .item .meta { font-size: var(--fs-12); color: var(--muted); white-space: nowrap; font-family: var(--font-mono); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.schedule .log .item .breaches { grid-column: 2 / -1; display: flex; gap: var(--s-1); flex-wrap: wrap; }
+.schedule .log .item .breaches .state { height: 1.5rem; font-size: var(--fs-12); text-transform: none; letter-spacing: 0; font-weight: 600; }
+.schedule .log .item .acts { grid-column: 2 / -1; display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
+.schedule .log .item .acts select { font: inherit; font-size: var(--fs-13); color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: var(--r-1); min-height: 1.75rem; max-width: 100%; }
+.schedule .log .item.played { opacity: 0.7; }
+.schedule .log .item.cart .what b::before { content: 'cart · '; color: var(--muted); font-weight: 500; }
+.schedule .log .item .refusal { grid-column: 1 / -1; }
+
+/* the card editor */
+.schedule .card-preview { display: grid; gap: var(--s-2); }
+.schedule .card-preview img { width: 100%; height: auto; border-radius: var(--r-1); border: 1px solid var(--hairline); background: var(--surface-2); display: block; aspect-ratio: 1200 / 630; }
+.schedule .card-preview .alt { font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-body); }
+.schedule .card-preview .alt b { color: var(--muted); font-weight: 600; font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; display: block; margin-bottom: 2px; }
+.schedule .card-preview .path { font-family: var(--font-mono); font-size: var(--fs-12); color: var(--muted); }
+.schedule .card-preview .outputs { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
+/* The show's slate picture (ADR-0200, calendar.show-still): the preview sits on the slate's own
+   colour, the desk's SLATE_BG (crates/desk/src/video.rs), not a theme colour, so both themes show
+   the picture as the stream does; the file input is hidden and Choose… opens it. */
+.schedule .still-preview { display: grid; gap: var(--s-2); }
+.schedule .still-preview img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; display: block; border-radius: var(--r-1); border: 1px solid var(--hairline); background: #15171c; }
+.schedule .still-preview .status { font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-label); }
+.schedule .still-preview.none .status { color: var(--muted); }
+.schedule .still-preview .problem b { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) { .ev { transition: none; } }
+@media (max-width: 1100px) { .schedule .body { grid-template-columns: 1fr; } }

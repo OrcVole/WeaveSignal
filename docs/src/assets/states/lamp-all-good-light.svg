@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="148" height="48" viewBox="0 0 148 48" role="img" aria-label="All Good">
+<!-- WeaveSignal state ALL GOOD (lamp, light). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="1.0" y="1.0" width="146" height="46" rx="12" style="fill:transparent;stroke:#0ca30c" stroke-width="2"/>
+<g transform="translate(14 14.0) scale(1.4285714285714286)" style="color:#0ca30c"><circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.2 7.2l1.9 1.9 3.8-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+<text x="42" y="29.8" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="16" font-weight="800" letter-spacing="0.64" style="fill:#1a1b26">ALL GOOD</text>
+</svg>

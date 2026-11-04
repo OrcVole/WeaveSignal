@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+[package]
+name = "weavesignal-control"
+description = "WeaveSignal's control plane (Axum)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "weavesignal-control"
+path = "src/main.rs"
+
+[dependencies]
+weavesignal-media = { path = "../media" }
+weavesignal-model.workspace = true
+weavesignal-proto.workspace = true
+weavesignal-cards.workspace = true
+weavesignal-feeds.workspace = true
+jiff.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+serde.workspace = true
+utoipa.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "fs"] }
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+toml.workspace = true
+tower-http = { workspace = true, features = ["fs"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+flate2 = "1.1.10"
+# Webhook deliveries (ADR-0195) go to https addresses: the control plane's only use of TLS.
+ureq = { workspace = true, features = ["rustls"] }
+url = "2.5.8"
+uuid.workspace = true
+
+[dev-dependencies]
+sqlx.workspace = true
+opus-decoder = "0.1.1"
+http-body-util.workspace = true
+tower.workspace = true
+png = "0.18.1"
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// A master lamp as the documentation draws it (src/assets/states, from the design system's
+// section 3): the dark drawing in the dark theme, the light one in the light theme, and a
+// sentence under it.
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  dark: ImageMetadata;
+  light: ImageMetadata;
+  alt: string;
+}
+const { dark, light, alt } = Astro.props;
+---
+
+<div class="ws-lamp">
+  <img src={dark.src} width={dark.width} height={dark.height} {alt} class="light:sl-hidden" />
+  <img src={light.src} width={light.width} height={light.height} {alt} class="dark:sl-hidden" />
+  <span><slot /></span>
+</div>

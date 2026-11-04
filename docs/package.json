@@ -1,0 +1,17 @@
+{
+  "name": "weavesignal-docs",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only AND CC-BY-SA-4.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.42.7",
+    "astro": "7.4.2",
+    "sharp": "0.35.5"
+  },
+  "packageManager": "pnpm@10.30.2"
+}

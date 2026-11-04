@@ -1,0 +1,183 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# WeaveSignal control plane settings. `weavesignal-control sample-config` prints this file with a
+# fresh station identifier. Secrets are not kept here: the database URL comes from the
+# WEAVESIGNAL_DATABASE_URL environment variable.
+
+[station]
+# The station's identifier (ADR-0047). Keep it for the station's life.
+id = "00000000-0000-0000-0000-000000000000"
+name = "Kettle FM"
+
+[listen]
+# The address internal services bind. Loopback: the reverse proxy is the one public listener.
+internal = "127.0.0.1"
+
+# Every listening port is a setting (ADR-0075). Each line shows the default and the suggested
+# alternatives; any free port may be used. `weavesignal-control check-ports` checks them all.
+[ports]
+proxy_https = 443      # tcp, public: the reverse proxy. Or 8443.
+proxy_http = 80        # tcp, public: redirects and plain-HTTP listener streams. Or 8080.
+control = 7310         # tcp, loopback: the control plane's API. Or 17310, 27310.
+chat = 7311            # tcp, loopback: the chat service. Or 17311, 27311.
+listeners = 7312       # tcp, loopback: icecast.server's listener streams. Or 17312, 27312.
+srt_ingest = 7313      # udp, loopback: the programme; the desk listens, Liquidsoap connects. Or 17313, 27313.
+playout_feed = 7315    # tcp, loopback: playout's programme to the listener process (and 7316). Or 17315, 27315.
+desk_feed = 7317       # tcp, loopback: playout's programme back to the desk, the video's sound (ADR-0172). Or 17317, 27317.
+livekit_http = 7880    # tcp, loopback: LiveKit's signalling, behind the proxy. Or 17880, 27880.
+livekit_media = 7882   # udp, public: LiveKit's one media port. Or a port in 52000-60000 (not 50000-51000, Cloudron's TURN relays), or 443.
+livekit_tcp = 7881     # tcp, public: LiveKit's ICE over TCP. Or 17881, 27881.
+turn_udp = 3478        # udp, public: TURN. Or 3479, 13478 (Cloudron's own TURN may hold 3478).
+turn_tls = 5349        # tcp, public: TURN over TLS, on by default (ADR-0080). Or 443 where the proxy does not hold it, or 15349.
+
+# The live room. LiveKit's API secret comes from WEAVESIGNAL_LIVEKIT_API_SECRET, never this file.
+[room]
+public_url = "wss://station.example"   # LiveKit as browsers reach it, through the proxy (the client adds /rtc)
+api_key = "weavesignal"
+api_url = "http://127.0.0.1:7880"   # LiveKit's server API on this machine (drops a caller)
+name = "studio"
+desk_identity = "desk"   # the desk's identities; nobody else may join under this prefix
+token_ttl_s = 600        # a room token can be used to join for 10 minutes (at most 4 hours)
+
+# The desk's control socket (ADR-0088): the studio app's desk and screener drive the desk
+# through the control plane. Leave `socket` out and the app says the desk is not set up.
+[desk]
+# socket = "/run/weavesignal/desk.sock"
+poll_ms = 250            # how often the desk is asked for its status
+
+# Playout's control socket (Liquidsoap's server socket, `control_socket` in its data): the cart
+# wall fires through it. Leave `socket` out and the app says playout is not set up.
+[playout]
+# socket = "/run/weavesignal-playout/playout.sock"
+poll_ms = 250            # how often playout is asked what is sounding
+
+# The cart wall. The media worker (this program, `media-worker`) turns each upload into FLAC in
+# `media_dir`, which playout reads too (its `carts.dir`), and stores the gain that brings it to
+# the loudness target.
+[carts]
+media_dir = "/var/lib/weavesignal/carts"
+loudness_lufs = -23.0    # EBU R128, as the desk's meters
+ceiling_dbtp = -1.0      # a cart's gain never pushes its true peak above this
+max_upload_mb = 64
+max_seconds = 600
+worker_timeout_s = 120
+# demo_pack = "/opt/weavesignal/carts-demo"   # loaded as the banks when the station has none
+
+# The show on air and what is coming up, until the schedule arrives (M4); callers banned
+# before, until accounts and the moderation log arrive (M6).
+[studio]
+show = ""
+rundown = []             # [[studio.rundown]] at = "14:00", title = "News", detail = "...", hard_post = true, key = "F2"
+banned = []              # [[studio.banned]] identity = "...", date = "2026-09-12", reason = "..."
+listener_delay_ms = 15000  # how far behind listeners hear; shown as a setting until measured (ADR-0103)
+
+# The video slate's still (ADR-0010): a picture uploaded in the studio, made into a clean PNG by
+# the media worker, which the desk (its `video.still_file`) shows on the slate.
+[video]
+still_file = "/var/lib/weavesignal/carts/stills/slate.png"
+still_max_upload_mb = 24
+still_max_width = 1280    # the picture is fitted inside this, never enlarged
+still_max_height = 720
+# demo_still = "/opt/weavesignal/stills-demo/kettle-fm.png"   # the station's, once, when it has none (ADR-0200)
+
+# Joining from a browser (M3): the player page's call-in and the station's invite links.
+[join]
+stream_url = ""                  # the listener stream as the player reaches it, through the proxy
+call_in = true                   # the player page offers "call in" (ADR-0006)
+# What a caller agrees to before they can call: {station} becomes the station's name, {kept} how
+# long its recordings are kept (from the Jurisdiction setting), {contact} the line below. Changing
+# the words changes their version, and the consent log keeps the words each caller agreed to.
+consent_text = "You'll be live on {station}, and we may keep your call in our archive and podcast {kept}. To have it taken down, contact {contact}."
+consent_contact = ""             # an email address or a link; call-in stays closed until it is set
+call_pass_ttl_s = 14400          # a caller's pass: the wait, the call and a rejoin (4 hours)
+invite_ttl_s = 14400             # an invite link works for 4 hours unless it asks for less (at most a day)
+calls_per_address_per_hour = 6
+calls_per_minute = 30
+forwarded_for = false            # true only behind the station's own proxy, which sets X-Forwarded-For
+# Call-in's challenge (ADR-0006): a proof of work the caller's browser does while they type, in
+# place of a CAPTCHA; nothing to see or solve. Each bit doubles the work; 0 turns it off.
+challenge_bits = 18              # about 260,000 hashes: well under a second on a recent phone
+challenge_bits_busy = 21         # while the station's minute is at least half used (a flood)
+challenge_ttl_s = 1800           # a lobby left open longer fetches a new challenge
+
+# The public pages (the player with call-in, the invite page, the echo test): the directory of
+# apps/web's build, served at / with their caching and Content-Security-Policy. Unset, only the
+# API is served. The server image has them at /opt/weavesignal/web.
+[web]
+# dir = "/opt/weavesignal/web"
+# Search engines (ADR-0133). false: every response says `X-Robots-Tag: noindex`, the pages carry
+# a robots meta tag and /robots.txt disallows everything. true: the public address (the player,
+# feeds, cards) may be listed; the API, the invite page and the echo test never are.
+listed = false
+
+# Show cards and podcast feeds (M8). Every card prints the station's address (ADR-0056), and
+# the feeds, the card images and the episode files are reached under it: /feeds/<show>.xml,
+# /cards/ and /media/episodes/. Leave `public_url` empty and cards and feeds are off.
+[publishing]
+public_url = ""                  # "https://" and the station's public host
+place = ""                       # where the station is, printed on the cards
+zone = "Europe/London"           # air times on cards, and the series' weekly rule
+language = "en-gb"
+owner_name = ""                  # the feeds' owner; empty, the station's name
+owner_email = ""                 # for itunes:owner and podcast:locked; empty, neither is written
+copyright = ""
+category = "Music"               # Apple's podcast category
+subcategory = ""
+locked = true                    # podcast:locked: other platforms may not import the feeds
+cards_dir = "/var/lib/weavesignal/show-cards"   # not the cart wall's `carts.media_dir`
+episodes_dir = "/var/lib/weavesignal/episodes"
+
+[log]
+# "json" (one object per line) or "pretty". RUST_LOG overrides the filter.
+format = "json"
+filter = "info"
+
+# Retention (ADRs 0113-0116). How long each kind of record is kept is the station's setting
+# (the Jurisdiction drop-down in the studio app's Settings; No retention until chosen). Here:
+# where recordings' files live, and how often the sweeper deletes what has expired and is not
+# held.
+[retention]
+recordings_dir = "/var/lib/weavesignal/recordings"
+sweep_every_s = 3600
+
+# HLS content steering among the station's edges (M7, ADR-0051): the multivariant playlist names
+# /api/v1/steering in EXT-X-CONTENT-STEERING, and each viewer is given the healthy edges in an
+# order of their own, by weight, keeping their edge from one reload to the next. With no edges,
+# steering is off. Bunny (ADR-0017) or the origin can sit after the pool with `weight = 0`.
+[steering]
+ttl_s = 300              # how long a player keeps its manifest; the specification recommends 300
+check_every_s = 5        # each edge's health check
+check_timeout_ms = 2000
+down_after = 2           # failed checks in a row before an edge leaves the order; one pass brings it back
+clone_from = "."         # the pathway the playlist declares; edges with a `host` are sent as its clones
+edges = []
+# [[steering.edges]]
+# pathway = "edge-1"                                  # letters, digits, ".", "-", "_"
+# host = "edge-1.edges.example"                       # replaces the playlist's host for this edge
+# weight = 1                                          # its share of new viewers; 0 = after the pool
+# check_url = "http://edge-1.edges.example/health"    # plain HTTP; empty, never checked
+
+# Staff sign-in codes by email (ADR-0127). Off: staff sign in with a password only, which works
+# everywhere. "command" pipes each email to a sendmail-compatible program; "outbox" writes each to
+# a file in `outbox_dir` (development and tests). With mail on, the control plane will not start
+# without WEAVESIGNAL_CONTROL_EMAIL_KEY (at least 32 characters, e.g. `openssl rand -hex 32`; it
+# keys the hash of staff email addresses, which are never stored; keep it with the database's
+# backups). An admin then sets each person's address under Settings, Staff.
+[mail]
+mode = "off"
+from = "weavesignal@station.example"
+command = ["/usr/sbin/sendmail", "-t", "-i"]
+outbox_dir = "/var/lib/weavesignal/staff-outbox"
+
+# The public API (ADR-0195). Limits per minute (0 turns one off): requests from one address to the
+# open routes (now-playing and /api/v1/public/), requests with one API token, and now-playing
+# streams one address may hold open. An address is the proxy's last X-Forwarded-For entry, counted
+# only with `join.forwarded_for = true`. Webhooks must be https on a public address unless
+# `webhooks_allow_private` is on (an integration on the station's own network). API tokens and
+# webhook secrets are keyed by WEAVESIGNAL_CONTROL_TOKEN_KEY (at least 32 characters), or, unset, by a
+# key derived from the station key; changing the key revokes every token.
+[api]
+public_per_minute = 120
+token_per_minute = 600
+streams_per_address = 4
+webhooks_allow_private = false

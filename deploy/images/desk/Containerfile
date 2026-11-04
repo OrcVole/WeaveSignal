@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The desk's build-and-run image, derived from spike 01's desk image:
+# GStreamer 1.28.8 (Fedora 44), gst-plugins-rs 0.15.4+fixup's webrtc plugin with LiveKit,
+# and the SRT plugin from gst-plugins-bad 1.28.8 against libsrt 1.5.7
+# (spike/desk-image/Containerfile builds the base). This adds the development files and
+# Fedora's Rust so the desk builds and runs in one image, and, for the video path (M5), three
+# more plugins from the same gst-plugins-rs tag: isobmff (`cmafmux`), hlssink3 (`hlscmafsink`)
+# and dav1d (`dav1ddec`, a fast AV1 decoder for guests' cameras). FFmpeg is here for the
+# tests only (VMAF scoring); the server image does not carry it.
+#
+# Build:  just desk-image
+# A GPU run (NVENC):  podman run --device nvidia.com/gpu=all --security-opt label=disable ...
+# The release image (GStreamer built from source, a slim runtime stage) replaces this later.
+
+ARG BASE=localhost/weavesignal-desk-spike:dev
+ARG GST_RS_TAG=0.15.4+fixup
+# The commit the tag names (the tag is annotated; this is what it points at): a moved tag fails the build.
+ARG GST_RS_COMMIT=c164a6696fcb0408f72a108e5f35ec25eb047464
+
+########################################################################
+FROM docker.io/library/fedora:44 AS plugins
+ARG GST_RS_TAG
+ARG GST_RS_COMMIT
+RUN dnf -y install --setopt=install_weak_deps=False \
+        gcc pkgconf-pkg-config git rust cargo cargo-c \
+        glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel libdav1d-devel \
+    && dnf clean all
+RUN git clone --depth 1 --branch "${GST_RS_TAG}" \
+        https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs.git /src/gst-plugins-rs \
+    && { [ "$(git -C /src/gst-plugins-rs rev-parse HEAD)" = "${GST_RS_COMMIT}" ] \
+         || { echo "gst-plugins-rs tag ${GST_RS_TAG} no longer names commit ${GST_RS_COMMIT}: check the new commit, then move both pins" >&2; exit 1; }; }
+WORKDIR /src/gst-plugins-rs
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/src/gst-plugins-rs/target \
+    cargo cinstall --locked -p gst-plugin-isobmff -p gst-plugin-hlssink3 -p gst-plugin-dav1d --release \
+        --prefix /usr --libdir /usr/lib64 --destdir /stage \
+    && mkdir -p /out \
+    && for p in isobmff hlssink3 dav1d; do \
+         install -D -m 0755 /stage/usr/lib64/gstreamer-1.0/libgst$p.so /out/libgst$p.so; \
+       done
+
+########################################################################
+FROM ${BASE}
+
+COPY --from=plugins /out/ /usr/lib64/gstreamer-1.0/
+
+RUN dnf -y install --setopt=install_weak_deps=False \
+        gcc pkgconf-pkg-config rust cargo clippy rustfmt \
+        glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel \
+        libdav1d ffmpeg-free procps-ng \
+    && dnf clean all \
+    && for e in livekitwebrtcsrc livekitwebrtcsink srtsink matroskamux audiomixer opusenc \
+                audiotestsrc souphttpsrc oggdemux opusdec \
+                cmafmux hlscmafsink dav1ddec av1dec av1parse svtav1enc vp8dec vp8enc \
+                textoverlay videotestsrc videoscale videoconvert jpegenc; do \
+         gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
+       done \
+    && rm -rf /root/.cache/gstreamer-1.0
+
+LABEL org.opencontainers.image.title="weavesignal-desk-dev" \
+      org.opencontainers.image.description="WeaveSignal desk build and run image (GStreamer 1.28.8, gst-plugins-rs 0.15.4 webrtc with LiveKit, isobmff, hlssink3, dav1d; SRT)"
+CMD ["cargo", "--version"]

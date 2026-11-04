@@ -1,0 +1,95 @@
+{
+ "seconds": 30.0,
+ "jitterbuffer_ms": 50,
+ "video": true,
+ "streams": {
+  "recvA": {
+   "onsets": 7,
+   "classes": {
+    "A": 7,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 5,
+    "p50": 97.6,
+    "p95": 97.8,
+    "min": 97.5,
+    "max": 97.8
+   }
+  },
+  "recvB": {
+   "onsets": 4,
+   "classes": {
+    "A": 0,
+    "B": 4
+   },
+   "latency_ms_B": {
+    "n": 2,
+    "p50": 97.8,
+    "p95": 97.8,
+    "min": 97.7,
+    "max": 97.8
+   }
+  },
+  "programme": {
+   "onsets": 8,
+   "classes": {
+    "A": 4,
+    "B": 4
+   },
+   "latency_ms_A": {
+    "n": 2,
+    "p50": 108.2,
+    "p95": 108.2,
+    "min": 108.2,
+    "max": 108.2
+   },
+   "latency_ms_B": {
+    "n": 2,
+    "p50": 108.2,
+    "p95": 108.2,
+    "min": 108.0,
+    "max": 108.2
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 7,
+   "classes": {
+    "A": 7,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 5,
+    "p50": 108.3,
+    "p95": 108.4,
+    "min": 108.1,
+    "max": 108.4
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 7,
+   "classes": {
+    "A": 7,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 5,
+    "p50": 165.0,
+    "p95": 165.5,
+    "min": 165.0,
+    "max": 165.5
+   }
+  },
+  "listener": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  }
+ },
+ "mixminusB_peak_dbfs": -0.8,
+ "mixminusB_leak_3k_vs_1k_db": -46.4,
+ "programme_3k_vs_1k_db_reference": -4.4,
+ "sent_peak_dbfs": -1.9
+}

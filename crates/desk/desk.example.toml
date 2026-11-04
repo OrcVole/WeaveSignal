@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# WeaveSignal desk settings. LiveKit's API secret comes from WEAVESIGNAL_LIVEKIT_API_SECRET.
+# The desk finds the people in the room itself: each joins with a token from the control
+# plane that carries their role (presenter, dj, guest, caller, screener or producer).
+
+[livekit]
+url = "ws://127.0.0.1:7880"   # ports.livekit_http, on the server
+api_key = "devkey"
+room = "studio"
+
+[desk]
+identity = "desk"             # the desk's identities: desk-in-<person>-<n>, desk-mm-<person>
+jitter_buffer_ms = 50         # measured in spike 01; LiveKit's 200 ms default doubles a guest's delay
+mix_buffer_ms = 20            # one mixing pass per block for every bus; one Opus frame (10 or 20)
+input_prebuffer_ms = 50       # the longest the mix waits for a late voice before going without it
+workers = 0                   # threads encoding the returns; 0: one per core, at most four
+realtime = true               # ask for real-time scheduling for the mix and the encoders
+return_opus_bitrate = 128000
+
+[programme]
+srt_bind = "127.0.0.1"        # the desk listens for Liquidsoap here; loopback only (ADR-0049)
+srt_port = 7313               # ports.srt_ingest
+srt_latency_ms = 20
+opus_bitrate = 96000
+queue_ms = 500
+
+# The profanity delay toward playout; Dump empties it and it builds back up (slower playback
+# through pauses, a few per cent slow otherwise). 0 turns it off.
+[programme.delay]
+target_ms = 8000
+quiet_db = -50.0
+rebuild_slowdown = 0.02
+
+# The limiter on the programme and on every mix-minus.
+[programme.limiter]
+ceiling_db = -1.0
+lookahead_ms = 1.5
+release_ms = 120.0
+
+[room]
+api_url = ""                  # LiveKit's server API; empty: livekit.url with ws turned into http
+poll_ms = 500
+leave_grace_ms = 30000        # a person who left keeps their mix-minus this long
+link_timeout_ms = 8000        # a subscription with no audio by then is made again
+
+[control]
+socket = "/run/weavesignal/desk.sock"   # on air, talkback, carts, status; leave out to turn it off
+
+# The cart wall's players: eight for one-shots and sweepers, two for beds (ADR-0117).
+[carts]
+dir = "/var/lib/weavesignal/carts"   # the media worker's FLAC files (control plane: carts.media_dir)
+ahead_ms = 1000               # decoded ahead of each sounding cart; a bed loops inside it
+start_wait_ms = 500           # the longest a fire waits for a cart's first audio
+
+# Each role's input chain. Presenters and DJs default to this one (the spike's live run);
+# other roles have none. An empty table turns a role's processing off.
+[inputs.presenter]
+makeup_db = 5.6
+
+# First in the chain: below -34 dBFS (the presenter not speaking) the microphone is turned
+# down, so the guests' voices leaking from the presenter's headphones stay out of the
+# programme (the second live run heard them come back 0.3 s late).
+[inputs.presenter.expander]
+threshold_db = -34.0
+ratio = 3.0                   # 1:3 below the threshold
+knee_db = 6.0
+range_db = 18.0               # never more than 18 dB down
+attack_ms = 1.0
+release_ms = 150.0
+
+[inputs.presenter.compressor]
+threshold_db = -14.0
+ratio = 2.5
+knee_db = 6.0
+attack_ms = 5.0
+release_ms = 120.0
+
+[inputs.presenter.leveller]   # steers the gain slowly toward the guests' speech level
+target_db = -25.0
+gate_db = -38.0
+min_db = -6.0
+max_db = 18.0
+step_db = 0.5
+
+[inputs.presenter.limiter]
+ceiling_db = -1.0
+lookahead_ms = 1.5
+release_ms = 120.0
+
+# The video path (ADR-0009): off by default. Cameras in the room are cut to as they speak (the
+# vision mixer follows the audio); with nobody on air on camera, the slate. The picture goes
+# through the profanity delay with the sound, is encoded AV1 and written as CMAF HLS for the
+# player; the live picture goes back into the room for the people on the show (ADR-0028).
+[video]
+enabled = false
+encoder = "auto"              # auto: NVENC if this machine has it, else SVT-AV1 on the CPU
+rungs = ["480p20"]            # ADR-0027; lower: "360p20", "240p15" (best first)
+nvenc_sessions = 12           # GeForce: 12 per machine, shared with everything else
+camera_codecs = ["VP8", "AV1", "VP9"]
+lag_ms = 100                  # a frame is composed this far behind the clock
+stale_ms = 1000               # a camera without a new picture this long counts as off
+lower_third_ms = 6000         # the name under a person cut to; 0: none
+station = "WeaveSignal"         # on the slate until now-playing arrives
+still_file = "/var/lib/weavesignal/carts/stills/slate.png"  # the slate's picture, watched; the control plane writes it
+
+[video.switch]
+speaking_lufs = -45.0         # louder than this, a voice is speaking
+margin_db = 3.0               # a new speaker must be this much louder than the shot
+switch_after_ms = 600         # for this long
+min_shot_ms = 2000            # the shortest shot
+
+[video.hls]
+dir = "/var/lib/weavesignal/hls"   # the control plane serves it at /hls/
+segment_ms = 2000
+playlist_segments = 6
+keep_segments = 12
+opus_bitrate = 96000
+
+[video.room]
+publish = true                # the live programme picture into the room, VP8
+thumbnails = true             # with the other cameras along the bottom
+
+# Playout's output back to the desk (ADR-0172): the video stream's sound is the desk's delayed
+# programme while someone is on air, and what listeners hear from playout otherwise. Playout
+# sends it as PCM in WAV over loopback (Icecast's source protocol), with the listener process's
+# source password in WEAVESIGNAL_PLAYOUT_FEED_PASSWORD; the desk listens.
+[video.playout_feed]
+enabled = true
+bind = "127.0.0.1"
+port = 7317                   # ports.desk_feed (ADR-0075)
+cushion_ms = 200              # the feed is placed this far ahead of the mixing pass
+crossfade_ms = 300            # each switch between the desk and the feed
+off_air_hold_ms = 3000        # the desk stays this long after the last person goes off air
+absent_ms = 500               # no feed for this long: the desk's programme instead

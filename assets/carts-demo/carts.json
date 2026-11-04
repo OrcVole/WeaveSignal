@@ -1,0 +1,660 @@
+{
+  "banks": {
+    "1": "Reactions and comedy",
+    "2": "Quiz, alerts and phones",
+    "3": "Transitions and effects",
+    "4": "Idents, Scotland, beds and time"
+  },
+  "carts": [
+    {
+      "id": "applause-1",
+      "label": "Applause after a concert",
+      "file": "applause-1.opus",
+      "duration_s": 12.01,
+      "category": "applause",
+      "suggested": {
+        "bank": 1,
+        "slot": 1
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "applause-2",
+      "label": "Applause, short",
+      "file": "applause-2.opus",
+      "duration_s": 10.73,
+      "category": "applause",
+      "suggested": {
+        "bank": 1,
+        "slot": 2
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "cheer-1",
+      "label": "Crowd hurray",
+      "file": "cheer-1.opus",
+      "duration_s": 3.5,
+      "category": "cheer",
+      "suggested": {
+        "bank": 1,
+        "slot": 3
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "cheer-2",
+      "label": "Clapping and hurray",
+      "file": "cheer-2.opus",
+      "duration_s": 11.59,
+      "category": "cheer",
+      "suggested": {
+        "bank": 1,
+        "slot": 4
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "cheer-3",
+      "label": "Crowd ooh-aah",
+      "file": "cheer-3.opus",
+      "duration_s": 4.53,
+      "category": "cheer",
+      "suggested": {
+        "bank": 1,
+        "slot": 5
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "laugh-1",
+      "label": "Audience laugh, short",
+      "file": "laugh-1.opus",
+      "duration_s": 2.46,
+      "category": "laugh",
+      "suggested": {
+        "bank": 1,
+        "slot": 6
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "laugh-2",
+      "label": "Audience laughter",
+      "file": "laugh-2.opus",
+      "duration_s": 6.93,
+      "category": "laugh",
+      "suggested": {
+        "bank": 1,
+        "slot": 7
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "laugh-3",
+      "label": "Laughter and clapping",
+      "file": "laugh-3.opus",
+      "duration_s": 9.89,
+      "category": "laugh",
+      "suggested": {
+        "bank": 1,
+        "slot": 8
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "laugh-4",
+      "label": "Cartoon laugh",
+      "file": "laugh-4.opus",
+      "duration_s": 6.48,
+      "category": "laugh",
+      "suggested": {
+        "bank": 1,
+        "slot": 9
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "rimshot-1",
+      "label": "Rimshot, ba-dum",
+      "file": "rimshot-1.opus",
+      "duration_s": 0.73,
+      "category": "rimshot",
+      "suggested": {
+        "bank": 1,
+        "slot": 10
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "rimshot-2",
+      "label": "Rimshot, bu-doo",
+      "file": "rimshot-2.opus",
+      "duration_s": 0.78,
+      "category": "rimshot",
+      "suggested": {
+        "bank": 1,
+        "slot": 11
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "rimshot-3",
+      "label": "Rimshot and cymbal, ba-dum-tss",
+      "file": "rimshot-3.opus",
+      "duration_s": 1.54,
+      "category": "rimshot",
+      "suggested": {
+        "bank": 1,
+        "slot": 12
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "boing-1",
+      "label": "Boing",
+      "file": "boing-1.opus",
+      "duration_s": 3.62,
+      "category": "comedy",
+      "suggested": {
+        "bank": 1,
+        "slot": 13
+      },
+      "loop": false,
+      "licence": "CC BY 4.0"
+    },
+    {
+      "id": "sad-trombone-1",
+      "label": "Sad trombone",
+      "file": "sad-trombone-1.opus",
+      "duration_s": 3.78,
+      "category": "comedy",
+      "suggested": {
+        "bank": 1,
+        "slot": 14
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "ding-1",
+      "label": "Right answer, bright ding",
+      "file": "ding-1.opus",
+      "duration_s": 1.03,
+      "category": "ding",
+      "suggested": {
+        "bank": 2,
+        "slot": 1
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "ding-2",
+      "label": "Right answer, confirmation",
+      "file": "ding-2.opus",
+      "duration_s": 0.55,
+      "category": "ding",
+      "suggested": {
+        "bank": 2,
+        "slot": 2
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "ding-3",
+      "label": "Doorbell ding-dong",
+      "file": "ding-3.opus",
+      "duration_s": 3.31,
+      "category": "ding",
+      "suggested": {
+        "bank": 2,
+        "slot": 3
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "buzzer-1",
+      "label": "Wrong answer buzzer",
+      "file": "buzzer-1.opus",
+      "duration_s": 1.56,
+      "category": "buzzer",
+      "suggested": {
+        "bank": 2,
+        "slot": 4
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "buzzer-2",
+      "label": "Wrong answer, error tone",
+      "file": "buzzer-2.opus",
+      "duration_s": 0.41,
+      "category": "buzzer",
+      "suggested": {
+        "bank": 2,
+        "slot": 5
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "bleep-1",
+      "label": "Censor bleep, 1 kHz",
+      "file": "bleep-1.opus",
+      "duration_s": 0.9,
+      "category": "bleep",
+      "suggested": {
+        "bank": 2,
+        "slot": 6
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "foghorn-1",
+      "label": "Foghorn, lighthouse diaphone",
+      "file": "foghorn-1.opus",
+      "duration_s": 5.01,
+      "category": "foghorn",
+      "suggested": {
+        "bank": 2,
+        "slot": 7
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "foghorn-2",
+      "label": "Foghorn, fog signal",
+      "file": "foghorn-2.opus",
+      "duration_s": 6.01,
+      "category": "foghorn",
+      "suggested": {
+        "bank": 2,
+        "slot": 8
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "foghorn-3",
+      "label": "Ship horn, cruise ship",
+      "file": "foghorn-3.opus",
+      "duration_s": 7.0,
+      "category": "foghorn",
+      "suggested": {
+        "bank": 2,
+        "slot": 9
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "airhorn-1",
+      "label": "Air horn, chime horn blast",
+      "file": "airhorn-1.opus",
+      "duration_s": 3.51,
+      "category": "airhorn",
+      "suggested": {
+        "bank": 2,
+        "slot": 10
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "airhorn-2",
+      "label": "Air horn, short blast",
+      "file": "airhorn-2.opus",
+      "duration_s": 2.01,
+      "category": "airhorn",
+      "suggested": {
+        "bank": 2,
+        "slot": 11
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "phone-ring-1",
+      "label": "Old telephone ringing",
+      "file": "phone-ring-1.opus",
+      "duration_s": 1.16,
+      "category": "phone",
+      "suggested": {
+        "bank": 2,
+        "slot": 12
+      },
+      "loop": false,
+      "licence": "CC BY 4.0"
+    },
+    {
+      "id": "phone-ring-2",
+      "label": "Modern phone ringtone",
+      "file": "phone-ring-2.opus",
+      "duration_s": 9.51,
+      "category": "phone",
+      "suggested": {
+        "bank": 2,
+        "slot": 13
+      },
+      "loop": false,
+      "licence": "CC BY 4.0"
+    },
+    {
+      "id": "drumroll-1",
+      "label": "Drum roll",
+      "file": "drumroll-1.opus",
+      "duration_s": 3.82,
+      "category": "drumroll",
+      "suggested": {
+        "bank": 3,
+        "slot": 1
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "drumroll-2",
+      "label": "Drum roll, 4 seconds",
+      "file": "drumroll-2.opus",
+      "duration_s": 4.78,
+      "category": "drumroll",
+      "suggested": {
+        "bank": 3,
+        "slot": 2
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "whoosh-1",
+      "label": "Whoosh sweeper",
+      "file": "whoosh-1.opus",
+      "duration_s": 5.25,
+      "category": "whoosh",
+      "suggested": {
+        "bank": 3,
+        "slot": 3
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "gong-1",
+      "label": "Gong",
+      "file": "gong-1.opus",
+      "duration_s": 8.0,
+      "category": "gong",
+      "suggested": {
+        "bank": 3,
+        "slot": 4
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "gong-2",
+      "label": "Gong, short",
+      "file": "gong-2.opus",
+      "duration_s": 5.59,
+      "category": "gong",
+      "suggested": {
+        "bank": 3,
+        "slot": 5
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "fanfare-1",
+      "label": "Ceremonial fanfare, concert band",
+      "file": "fanfare-1.opus",
+      "duration_s": 14.26,
+      "category": "fanfare",
+      "suggested": {
+        "bank": 3,
+        "slot": 6
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "fanfare-2",
+      "label": "Fanfare, finale",
+      "file": "fanfare-2.opus",
+      "duration_s": 16.01,
+      "category": "fanfare",
+      "suggested": {
+        "bank": 3,
+        "slot": 7
+      },
+      "loop": false,
+      "licence": "CC BY 4.0"
+    },
+    {
+      "id": "jingle-1",
+      "label": "Upbeat jingle, steel",
+      "file": "jingle-1.opus",
+      "duration_s": 1.56,
+      "category": "jingle",
+      "suggested": {
+        "bank": 4,
+        "slot": 1
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "jingle-2",
+      "label": "Comedy jingle, sax",
+      "file": "jingle-2.opus",
+      "duration_s": 1.08,
+      "category": "jingle",
+      "suggested": {
+        "bank": 4,
+        "slot": 2
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "jingle-3",
+      "label": "Game-show jingle, 8-bit",
+      "file": "jingle-3.opus",
+      "duration_s": 1.75,
+      "category": "jingle",
+      "suggested": {
+        "bank": 4,
+        "slot": 3
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "jingle-4",
+      "label": "Cheeky jingle, pizzicato",
+      "file": "jingle-4.opus",
+      "duration_s": 1.15,
+      "category": "jingle",
+      "suggested": {
+        "bank": 4,
+        "slot": 4
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "jingle-5",
+      "label": "Winner hit, brass",
+      "file": "jingle-5.opus",
+      "duration_s": 1.17,
+      "category": "jingle",
+      "suggested": {
+        "bank": 4,
+        "slot": 5
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "news-sting-1",
+      "label": "News sting",
+      "file": "news-sting-1.opus",
+      "duration_s": 7.59,
+      "category": "news",
+      "suggested": {
+        "bank": 4,
+        "slot": 6
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "news-sting-2",
+      "label": "Light sting",
+      "file": "news-sting-2.opus",
+      "duration_s": 8.51,
+      "category": "news",
+      "suggested": {
+        "bank": 4,
+        "slot": 7
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "bagpipe-1",
+      "label": "Highland bagpipe (electronic chanter)",
+      "file": "bagpipe-1.opus",
+      "duration_s": 9.01,
+      "category": "scottish",
+      "suggested": {
+        "bank": 4,
+        "slot": 8
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "bagpipe-2",
+      "label": "Pipe band, Scotland the Brave",
+      "file": "bagpipe-2.opus",
+      "duration_s": 12.01,
+      "category": "scottish",
+      "suggested": {
+        "bank": 4,
+        "slot": 9
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "thunder-1",
+      "label": "Thunder storm",
+      "file": "thunder-1.opus",
+      "duration_s": 14.01,
+      "category": "weather",
+      "suggested": {
+        "bank": 4,
+        "slot": 10
+      },
+      "loop": false,
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "rain-1",
+      "label": "Rain bed (loop)",
+      "file": "rain-1.opus",
+      "duration_s": 30.01,
+      "category": "weather",
+      "suggested": {
+        "bank": 4,
+        "slot": 11
+      },
+      "loop": true,
+      "licence": "Public domain"
+    },
+    {
+      "id": "tick-1",
+      "label": "Clock tick",
+      "file": "tick-1.opus",
+      "duration_s": 5.13,
+      "category": "time",
+      "suggested": {
+        "bank": 4,
+        "slot": 12
+      },
+      "loop": false,
+      "licence": "CC0 1.0"
+    },
+    {
+      "id": "tick-2",
+      "label": "Clock ticking, old",
+      "file": "tick-2.opus",
+      "duration_s": 6.01,
+      "category": "time",
+      "suggested": {
+        "bank": 4,
+        "slot": 13
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "pips-1",
+      "label": "Time signal pips",
+      "file": "pips-1.opus",
+      "duration_s": 5.57,
+      "category": "time",
+      "suggested": {
+        "bank": 4,
+        "slot": 14
+      },
+      "loop": false,
+      "licence": "Public domain"
+    },
+    {
+      "id": "bed-1",
+      "label": "Music bed, wholesome (loop)",
+      "file": "bed-1.opus",
+      "duration_s": 40.01,
+      "category": "bed",
+      "suggested": {
+        "bank": 4,
+        "slot": 15
+      },
+      "loop": true,
+      "licence": "CC BY 4.0"
+    },
+    {
+      "id": "bed-2",
+      "label": "Music bed, chill (loop)",
+      "file": "bed-2.opus",
+      "duration_s": 40.01,
+      "category": "bed",
+      "suggested": {
+        "bank": 4,
+        "slot": 16
+      },
+      "loop": true,
+      "licence": "CC BY 3.0"
+    }
+  ]
+}

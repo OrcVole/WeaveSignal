@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+[package]
+name = "weavesignal-chat"
+description = "WeaveSignal's live chat (Axum, ADR-0031): rooms per station, light accounts, moderation and the legal toolset"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "weavesignal-chat"
+path = "src/main.rs"
+
+# The 4,000-socket load test (ADR-0031): a measurement, not part of `ci`.
+[[bin]]
+name = "weavesignal-chat-load"
+path = "src/bin/load.rs"
+
+[dependencies]
+weavesignal-model.workspace = true
+weavesignal-proto.workspace = true
+anyhow.workspace = true
+axum = { workspace = true, features = ["ws"] }
+clap.workspace = true
+hmac.workspace = true
+futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
+rustrict = "0.7.39"
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+sqlx = { workspace = true, features = ["json", "ipnetwork"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "fs"] }
+tokio-tungstenite = "0.29.0"
+toml.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+tower.workspace = true
+
+[lints]
+workspace = true

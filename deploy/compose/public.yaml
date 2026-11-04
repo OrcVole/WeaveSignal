@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The public route (M10, ADR-0022): a reverse proxy in front of the bundle, with a certificate
+# for the station's name, and LiveKit's TURN over TLS (ADR-0059, ADR-0080) using the same
+# certificate. Opt-in: `weavesignal.sh --public station.example` writes the settings this file
+# reads and runs the bundle with it. By hand:
+#
+#   podman compose -f compose.yaml -f public.yaml up -d
+#
+# Caddy rather than nginx: it asks the certificate authority for the station's certificate and
+# renews it by itself, so the only things to set are the name and the two web ports. nginx would
+# need a second program (certbot or acme.sh), a reload hook and a shared directory; for this
+# route's one name that is more to get wrong. Caddy's own storage also puts the certificate and
+# key at a fixed path, which LiveKit reads for TURN over TLS.
+#
+# One name serves everything (the control plane bearer-checks its own API, so no login proxy is
+# needed):
+#   /rtc, /rtc/*          LiveKit's signalling (a browser's join); its server API (/twirp) is
+#                         never published
+#   /api/v1/chat/*        the chat (its socket included)
+#   /programme.opus       the listener process's mount, read only; its /status.json and admin
+#                         pages are never published, nor are the playout feed or the ports above
+#                         it and above the listener port
+#   everything else       the control plane: the pages, /api/, /health, /hls/, feeds and cards
+# Plain HTTP serves the mount (players that cannot do TLS) and redirects the rest to HTTPS.
+#
+# Every port is a setting (ADR-0075): PROXY_HTTP_PORT and PROXY_HTTPS_PORT (80 and 443; a
+# certificate authority reaches only those, so any other pair needs 80 and 443 forwarded to
+# them), TURN_TLS_PORT (5349), and optionally TURN_UDP_PORT and LIVEKIT_TCP_PORT (0, off).
+
+services:
+  proxy:
+    image: docker.io/library/caddy:2.11.7
+    network_mode: host
+    configs:
+      - source: proxy
+        target: /etc/caddy/Caddyfile
+    volumes:
+      # Certificates, keys and the local CA: LiveKit reads them from here too.
+      - proxy-data:/data
+      - proxy-config:/config
+    # Healthy once the certificate exists: LiveKit starts only then, so TURN over TLS has what it
+    # needs. When the authority refuses (the name does not reach this machine, port 80 or 443 is
+    # blocked) it never turns healthy and `up` fails with that said, rather than a room that
+    # quietly lacks TURN over TLS.
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /data/caddy/certificates/${TURN_CERT_DIR:-local}/${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN (weavesignal.sh --public does)}/${PUBLIC_DOMAIN}.crt && test -s /data/caddy/certificates/${TURN_CERT_DIR:-local}/${PUBLIC_DOMAIN}/${PUBLIC_DOMAIN}.key"]
+      interval: 3s
+      timeout: 3s
+      retries: 100
+      start_period: 5s
+    restart: unless-stopped
+
+  livekit:
+    volumes:
+      - proxy-data:/caddy-data:ro
+    depends_on:
+      proxy:
+        condition: service_healthy
+
+volumes:
+  proxy-data:
+  proxy-config:
+
+configs:
+  proxy:
+    content: |
+      {
+      	# No admin API: with host networking it would listen on the machine's loopback.
+      	admin off
+      	http_port ${PROXY_HTTP_PORT:-80}
+      	https_port ${PROXY_HTTPS_PORT:-443}
+      	# One authority, so the certificate's path under /data is fixed (LiveKit reads it).
+      	acme_ca https://acme-v02.api.letsencrypt.org/directory
+      	${PROXY_ACME_EMAIL:-}
+      	${PROXY_LOCAL_CERTS:-}
+      }
+
+      # Plain HTTP: the mount for players that cannot do TLS, a redirect for everything else.
+      # (The certificate authority's HTTP challenge is answered before these routes.)
+      http://${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN} {
+      	handle /programme.opus {
+      		@write not method GET HEAD
+      		respond @write 405
+      		reverse_proxy 127.0.0.1:${LISTENERS_PORT:-7312} {
+      			header_up -Icy-MetaData
+      			flush_interval -1
+      		}
+      	}
+      	handle {
+      		redir ${PUBLIC_ORIGIN:-https://${PUBLIC_DOMAIN}}{uri} permanent
+      	}
+      }
+
+      ${PUBLIC_DOMAIN} {
+      	header -Server
+      	# Browsers come back over HTTPS only (a year; not the name's subdomains). A browser
+      	# ignores it over a certificate it does not trust, so PUBLIC_TLS=internal is unaffected.
+      	header Strict-Transport-Security max-age=31536000
+
+      	# LiveKit's signalling and the join's validation call. Media goes to its UDP port.
+      	@rtc path /rtc /rtc/*
+      	handle @rtc {
+      		reverse_proxy 127.0.0.1:${LIVEKIT_HTTP_PORT:-7880} {
+      			flush_interval -1
+      		}
+      	}
+
+      	# The chat. The one address the services count is the connection's own; a client's own
+      	# X-Forwarded-For is never passed on (call-in's and the chat's limits take the header's
+      	# last entry, the one the station's proxy added).
+      	handle /api/v1/chat/* {
+      		reverse_proxy 127.0.0.1:${CHAT_PORT:-7311} {
+      			header_up X-Forwarded-For {remote_host}
+      			flush_interval -1
+      		}
+      	}
+
+      	# The listener stream: only the mount, read only. A client asking for ICY metadata would
+      	# get blocks spliced into the Ogg stream (bench 02), so the request header is dropped.
+      	handle /programme.opus {
+      		@write not method GET HEAD
+      		respond @write 405
+      		reverse_proxy 127.0.0.1:${LISTENERS_PORT:-7312} {
+      			header_up -Icy-MetaData
+      			flush_interval -1
+      		}
+      	}
+
+      	# The control plane: pages, API (its event streams are server-sent events, unbuffered),
+      	# health, HLS, feeds and cards. Uploads: carts to 64 MB, library tracks to 200 MB.
+      	handle {
+      		request_body {
+      			max_size 200MB
+      		}
+      		reverse_proxy 127.0.0.1:${CONTROL_PORT:-7310} {
+      			header_up X-Forwarded-For {remote_host}
+      			flush_interval -1
+      		}
+      	}
+      }

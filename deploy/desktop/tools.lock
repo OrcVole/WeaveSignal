@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+#
+# The tools the Tauri 2.12.4 bundler (tauri-bundler 2.10.4) downloads while it builds a package,
+# pinned. build.sh runs fetch-tools.sh, which downloads each file named here for the platform
+# being built, checks its SHA-256 and puts it in the bundler's tool cache; the bundler then finds
+# it and downloads nothing. A file whose checksum differs is refused, never used.
+#
+# Columns: SHA-256, platform (linux or windows), path in the tool cache, URL.
+# To move a pin (a new Tauri CLI, linuxdeploy or NSIS plugin), read the new URLs in the bundler's
+# source (src/bundle/linux/appimage/linuxdeploy.rs, src/bundle/windows/nsis/mod.rs), download the
+# files, and write their checksums here, in the same commit as the CLI's version.
+#
+# linuxdeploy-plugin-appimage: the bundler would fetch the moving "continuous" build, but only
+# when its cache lacks the file; this pins the plugin's fixed release 1-alpha-20250213-1 (commit
+# a96502d) in its place, so "continuous" is never fetched. The bundler treats the plugin as
+# optional, so a build can drop its line and use linuxdeploy's built-in copy.
+# nsis_tauri_utils.dll: on a Linux host the bundler finds no NSIS.exe in its NSIS directory,
+# deletes the directory and downloads the DLL again, checked against its own SHA-1 pin (the same
+# file, v0.5.3). This line's SHA-256 is a second check of that file, not the copy the bundler uses.
+# The bundler overwrites three bytes of the linuxdeploy AppImage in the cache on every build, so
+# fetch-tools.sh keeps the verified originals apart and copies them in afresh each time.
+f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f linux AppRun-x86_64 https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62 linux linuxdeploy-07333c6-x86_64.AppImage https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage
+992d502a248e14ab185448ddf6f6e7d25558cb84d4623c354c3af350c25fccb3 linux linuxdeploy-plugin-appimage.AppImage https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-appimage-x86_64.AppImage
+5ba143b5db4a87d32d6e7802e033330aae56cbceabe0d1e3ba41948385ad4709 windows NSIS/Plugins/x86-unicode/additional/nsis_tauri_utils.dll https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll

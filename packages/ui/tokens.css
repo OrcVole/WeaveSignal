@@ -1,0 +1,72 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+   WeaveSignal design tokens, copied from the decided desk B design page (weavesignal-design-desk-b.html,
+   proposal of 2026-10-24 with the operator's decisions of 2026-10-25) in the project folder's
+   Library/design/. Dark is the default; the theme is an explicit toggle, data-theme="light" on
+   <html>, and never follows the operating system (ADR-0065). OPEN is the white lamp,
+   --live-open and --live-open-ink (ADR-0079). AUTO is --mode-auto (ADR-0183). The design system page is the source: change the
+   tokens there first, then here. */
+:root {
+  color-scheme: dark;
+  /* chrome */
+  --plane: #13141c; --surface: #1a1b26; --surface-2: #1f2130; --surface-3: #292b3d;
+  --ink: #c0caf5; --ink-2: #a9b1d6; --muted: #7982a9;
+  --hairline: rgba(192, 202, 245, 0.12); --grid: #272a3d; --axis: #3b3f57;
+  --accent: #7aa2f7; --accent-ink: #13141c; --deemph: #4b5070;
+  /* live states: what the presenter is doing */
+  --live-onair: #d63b58; --live-onair-ink: #ffffff;   /* the only red fill on the desk */
+  --live-cue: #8053ff;   --live-cue-ink: #ffffff;     /* your headphones */
+  --live-talk: #00846f;  --live-talk-ink: #ffffff;    /* your voice to one person */
+  --live-open: #e2e7f9;  --live-open-ink: #13141c;    /* open: the room hears you, listeners do not; the white lamp */
+  --live-off: var(--muted);                            /* muted, standby: achromatic, hollow */
+  /* mode: what holds the air when the desk does not (ADR-0183); a family of one, hollow only */
+  --mode-auto: #86d797;
+  /* status: the station's health, reserved, always glyph + word, never a filled lamp */
+  --status-good: #0ca30c; --status-warning: #fab219; --status-serious: #ec835a; --status-critical: #d03b3b;
+  --status-ink-on-warning: #0b0b0b; --status-ink-on-serious: #0b0b0b; --status-ink-on-critical: #ffffff;
+  /* meter */
+  --meter-fill: var(--ink-2); --meter-track: var(--surface-3); --meter-over: var(--status-warning); --meter-target: var(--ink);
+  /* cart identity: twelve slots, assigned in order, never cycled; a thirteenth bank takes --deemph */
+  --cart-1: #3987e5; --cart-2: #267618; --cart-3: #df5d93; --cart-4: #935c19; --cart-5: #a73e93; --cart-6: #a29027;
+  --cart-7: #6b55c7; --cart-8: #c23c45; --cart-9: #ac72e3; --cart-10: #e36826; --cart-11: #1b6d9c; --cart-12: #2da88c;
+  /* type */
+  --font-ui: system-ui, "Segoe UI", Cantarell, "Noto Sans", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "Fira Code", "Cascadia Mono", "Liberation Mono", Menlo, monospace;
+  --fs-12: 0.75rem; --fs-13: 0.8125rem; --fs-14: 0.875rem; --fs-16: 1rem; --fs-20: 1.25rem; --fs-24: 1.5rem;
+  --fs-32: 2rem; --fs-56: 3.5rem;
+  --lh-tight: 1.1; --lh-label: 1.3; --lh-body: 1.55;
+  --tracking-caps: 0.08em;
+  /* space: 4 px base */
+  --s-1: 0.25rem; --s-2: 0.5rem; --s-3: 0.75rem; --s-4: 1rem; --s-5: 1.5rem; --s-6: 2rem; --s-7: 3rem;
+  /* radii */
+  --r-1: 4px; --r-2: 8px; --r-3: 12px; --r-pill: 999px;
+  /* elevation: hairline first, shadow second */
+  --e-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --e-2: 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.30);
+  --e-3: 0 4px 12px rgba(0, 0, 0, 0.40), 0 24px 56px rgba(0, 0, 0, 0.45);
+  /* motion */
+  --t-press: 80ms; --t-state: 160ms; --t-panel: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  /* focus and targets */
+  --focus-ring: 2px solid var(--accent); --focus-offset: 2px;
+  --target: 24px; --target-touch: 44px;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --plane: #f4f5fa; --surface: #fcfcfb; --surface-2: #eef0f6; --surface-3: #e3e6ef;
+  --ink: #1a1b26; --ink-2: #4b4f66; --muted: #6b7089;
+  --hairline: rgba(26, 27, 38, 0.10); --grid: #e1e0d9; --axis: #c3c2b7;
+  --accent: #0072cf; --accent-ink: #ffffff; --deemph: #b9bcc9;
+  --live-cue: #5800cb;
+  --live-open: #1a1b26;  --live-open-ink: #f4f5fa;
+  --mode-auto: #004b1e;
+  --status-warning: #906600; --status-serious: #e26500; --status-ink-on-warning: #ffffff;
+  --cart-1: #2a78d6; --cart-2: #8f175d; --cart-3: #2ba835; --cart-4: #405d12; --cart-5: #9c41b6; --cart-6: #a05119;
+  --cart-7: #5830b0; --cart-8: #ac8b26; --cart-9: #155a8d; --cart-10: #d16adb; --cart-11: #f4632e; --cart-12: #cf3b78;
+  --e-1: 0 1px 2px rgba(26, 27, 38, 0.10);
+  --e-2: 0 2px 6px rgba(26, 27, 38, 0.08), 0 8px 24px rgba(26, 27, 38, 0.10);
+  --e-3: 0 4px 12px rgba(26, 27, 38, 0.10), 0 24px 56px rgba(26, 27, 38, 0.16);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-press: 0ms; --t-state: 0ms; --t-panel: 0ms; }
+}

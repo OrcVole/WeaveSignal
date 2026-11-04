@@ -1,0 +1,113 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The chat's shared pieces on the public pages: the dialogs (a sheet from the bottom on a phone,
+   a centred panel on a wider screen), grouped choices, and multi-line fields. Tokens only. */
+dialog.sheet {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--e-3);
+  padding: 0;
+  width: min(32rem, calc(100vw - 2 * var(--s-4)));
+  max-height: calc(100dvh - 2 * var(--s-4));
+  overflow-y: auto;
+}
+dialog.sheet::backdrop {
+  background: color-mix(in srgb, var(--plane) 70%, transparent);
+}
+@media (max-width: 40rem) {
+  dialog.sheet {
+    margin: auto 0 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: var(--r-3) var(--r-3) 0 0;
+    max-height: 92dvh;
+  }
+}
+dialog.sheet .inner {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4);
+}
+dialog.sheet h2 {
+  font-size: var(--fs-20);
+}
+dialog.sheet h2:focus {
+  outline: none;
+}
+dialog.sheet h2:focus-visible {
+  outline: var(--focus-ring);
+}
+.quote {
+  margin: 0;
+  display: grid;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--axis);
+  background: var(--surface-2);
+  border-radius: var(--r-1);
+}
+.quote .said {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+fieldset.group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+fieldset.group legend {
+  font-weight: 650;
+  padding: 0;
+  margin-bottom: var(--s-1);
+}
+fieldset.group .check {
+  padding-top: var(--s-2);
+}
+.field textarea,
+.field input[type='email'] {
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-2);
+  border: 1px solid var(--axis);
+  background: var(--plane);
+  font-size: var(--fs-16);
+  line-height: var(--lh-body);
+  width: 100%;
+  min-height: var(--target-touch);
+}
+.field textarea {
+  resize: vertical;
+}
+.field textarea:focus-visible,
+.field input[type='email']:focus-visible {
+  outline-offset: 0;
+}
+details.settings > div,
+details.rules > div {
+  gap: var(--s-3);
+}
+/* A disclosure needs a visible affordance: web.css's summary is a flex row without a marker. */
+details.disclose summary {
+  gap: var(--s-2);
+  font-weight: 650;
+  color: var(--ink);
+}
+details.disclose summary::-webkit-details-marker {
+  display: none;
+}
+details.disclose summary::before {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--t-press) var(--ease-out);
+  flex: none;
+}
+details.disclose[open] summary::before {
+  transform: rotate(45deg);
+}

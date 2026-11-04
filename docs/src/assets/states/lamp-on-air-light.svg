@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="141" height="48" viewBox="0 0 141 48" role="img" aria-label="On Air">
+<!-- WeaveSignal state ON AIR (lamp, light). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="1.0" y="3.0" width="139" height="46" rx="12" fill="rgba(0,0,0,0.3)"/><rect x="1.0" y="1.0" width="139" height="46" rx="12" style="fill:#d63b58;stroke:transparent" stroke-width="2"/>
+<g transform="translate(14 14.0) scale(1.4285714285714286)" style="color:#ffffff"><rect x="1" y="3" width="12" height="8" rx="2" fill="currentColor"/></g>
+<text x="42" y="31.2" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="20" font-weight="800" letter-spacing="1.60" style="fill:#ffffff">ON AIR</text>
+</svg>

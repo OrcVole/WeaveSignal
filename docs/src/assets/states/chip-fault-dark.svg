@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="82" height="28" viewBox="0 0 82 28" role="img" aria-label="Fault">
+<!-- WeaveSignal state FAULT (chip, dark). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="0.75" y="0.75" width="80.5" height="26.5" rx="4" style="fill:transparent;stroke:#d03b3b" stroke-width="1.5"/>
+<g transform="translate(9.5 7.0) scale(1.0)" style="color:#d03b3b"><path d="M7 1.5 13 12.5H1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 5v3.2" stroke="currentColor" stroke-width="1.6"/><circle cx="7" cy="10.3" r="0.9" fill="currentColor"/></g>
+<text x="27.5" y="18.7" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="13" font-weight="700" letter-spacing="0.52" style="fill:#c0caf5">FAULT</text>
+</svg>

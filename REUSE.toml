@@ -1,0 +1,388 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Licence and copyright for files that cannot carry a comment header (lock files, JSON, and
+# documentation pages whose YAML frontmatter must come first), in the REUSE format.
+# The licence texts are in LICENSES/.
+#
+# The code is AGPL-3.0-only (ADR-0073). The documentation's text and images are CC BY-SA 4.0;
+# code samples and snippets inside the documentation pages stay AGPL-3.0-only, as the code is
+# (ADR-0081). The documentation site's own code (its configuration and components) is code.
+version = 1
+
+[[annotations]]
+path = [
+  "Cargo.lock",
+  "deploy/cloudron/CloudronManifest.json",
+  "apps/studio/package.json",
+  "apps/studio/pnpm-lock.yaml",
+  "apps/studio/tsconfig.json",
+  "apps/studio/src-tauri/tauri.conf.json",
+  "apps/studio/src-tauri/capabilities/*.json",
+  "apps/web/package.json",
+  "apps/web/pnpm-lock.yaml",
+  "apps/web/tsconfig.json",
+  "docs/package.json",
+  "docs/pnpm-lock.yaml",
+  "playout/*.json",
+  "docs/openapi/*.json",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+[[annotations]]
+path = [
+  "docs/public/llms.txt",
+  "docs/src/content/docs/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "CC-BY-SA-4.0 AND AGPL-3.0-only"
+
+# Screenshots of the running interface for the documentation (ADR-0081), written by tests/docs-shots/shoot.mjs.
+[[annotations]]
+path = ["docs/src/assets/screens/*.png"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# The state chips and master lamps drawn for the documentation (ADR-0081): our own drawings,
+# exported from the design system's section 3, one dark and one light file per chip and lamp.
+# BANNED BEFORE still borrows FAULT's triangle until the operator picks its own.
+[[annotations]]
+path = ["docs/src/assets/states/*.svg"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# Two state glyphs are third-party icons (operator, 2026-11-02), set inside our CC BY-SA frame:
+# DESK BUSY is Reicon's "hand", LINK DEGRADED is with icons' "signal-blueprint", both MIT.
+[[annotations]]
+path = ["docs/src/assets/states/*-desk-busy-*.svg"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 The WeaveSignal contributors", "2025 REICON"]
+SPDX-License-Identifier = "CC-BY-SA-4.0 AND MIT"
+
+[[annotations]]
+path = ["docs/src/assets/states/*-link-degraded-*.svg"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 The WeaveSignal contributors", "2026 with icons contributors"]
+SPDX-License-Identifier = "CC-BY-SA-4.0 AND MIT"
+
+# WeaveSignal's icon (ADR-0094): Boxicons' "broadcast" glyph (boxicons-core, MIT), as published
+# and composed on the app's dark surface; the PNG and ICO sizes are generated from it with
+# `tauri icon`.
+[[annotations]]
+path = [
+  "packages/ui/icon/*.svg",
+  "apps/studio/src-tauri/icons/*",
+  "deploy/cloudron/logo.png",
+  "docs/public/favicon.svg",
+  "docs/src/assets/weavesignal-app-icon.svg",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Boxicons"
+SPDX-License-Identifier = "MIT"
+
+# The default loop (assets/default-loop, ADR-0130): synthesised by make.sh from sine tones, our
+# own work, given to the public domain so a station can keep, change or replace it freely. The
+# script that makes it is code and carries its own AGPL-3.0-only header.
+[[annotations]]
+path = ["assets/default-loop/default-loop.flac"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+# Demo slate pictures (assets/stills-demo, ADR-0200): one third-party icon each, centred on the
+# design system's surface by WeaveSignal; each keeps its icon's licence. The SVG sources carry
+# their own headers; the PNGs are rendered from them. The table is assets/stills-demo/README.md.
+[[annotations]]
+path = ["assets/stills-demo/README.md"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+[[annotations]]
+path = ["assets/stills-demo/kettle-fm.png"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["2026 The WeaveSignal contributors", "Pictogrammers"]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["assets/stills-demo/night-show.png"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["2026 The WeaveSignal contributors", "Vjacheslav Trushkin"]
+SPDX-License-Identifier = "MIT"
+
+# Cart demo sounds (assets/carts-demo): each file keeps its source's author and licence, as cut and
+# re-encoded here; the credits are in assets/carts-demo/CREDITS.md and NOTICES.md.
+[[annotations]]
+path = ["assets/carts-demo/carts.json", "assets/carts-demo/CREDITS.md", "assets/carts-demo/index.html"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+[[annotations]]
+path = ["assets/carts-demo/applause-1.opus", "assets/carts-demo/ding-3.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Amada44"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/applause-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "thore"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/cheer-1.opus", "assets/carts-demo/cheer-2.opus", "assets/carts-demo/cheer-3.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "starlite"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/laugh-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "lonemonk (via Freesound, sound 72842)"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/carts-demo/laugh-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "lonemonk (via Freesound, sound 72843)"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/carts-demo/laugh-3.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "lonemonk (via Freesound, sound 72844)"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/carts-demo/laugh-4.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "JohnsonBrandEditing"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/rimshot-1.opus", "assets/carts-demo/rimshot-2.opus", "assets/carts-demo/rimshot-3.opus", "assets/carts-demo/drumroll-2.opus", "assets/carts-demo/news-sting-1.opus", "assets/carts-demo/news-sting-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Kevin MacLeod (incompetech.com)"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/carts-demo/boing-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "cfork"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/sad-trombone-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Joe Lamb"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/carts-demo/ding-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Rafael Tavares Juliani"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/ding-2.opus", "assets/carts-demo/buzzer-2.opus", "assets/carts-demo/jingle-1.opus", "assets/carts-demo/jingle-2.opus", "assets/carts-demo/jingle-3.opus", "assets/carts-demo/jingle-4.opus", "assets/carts-demo/jingle-5.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Kenney Vleugels (Kenney.nl)"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/buzzer-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "David Pride"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/bleep-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Denelson83 (English Wikipedia)"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/foghorn-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Elwood P. Dowd"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/foghorn-2.opus", "assets/carts-demo/foghorn-3.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Tvabutzku1234"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/airhorn-1.opus", "assets/carts-demo/airhorn-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "HarveyHenkelmann"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/phone-ring-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Work With Sounds / Technical Museum of Slovenia"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/phone-ring-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "zero-project"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/drumroll-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Iwan Sounds and DIY"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/whoosh-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "pyranostudios"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/gong-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "stephan"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/gong-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "PDSounds (pdsounds.org)"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/fanfare-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "United States Air Force Heritage of America Band (US federal government work)"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/fanfare-2.opus", "assets/carts-demo/bed-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Kevin MacLeod (incompetech.com)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/bagpipe-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Tomanic"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/bagpipe-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "United States Air Force Reserve Pipe Band (US federal government work)"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/thunder-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "RHumphries"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/carts-demo/rain-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "ezwa"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/tick-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Marble Toast"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/tick-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "natalie"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/pips-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "AlexJ (English Wikipedia)"
+SPDX-License-Identifier = "LicenseRef-Public-Domain"
+
+[[annotations]]
+path = ["assets/carts-demo/bed-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Antti Luode"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+# Show cards (M8, ADR-0053): the bundled faces, unmodified from the Noto Project's releases
+# (Noto Sans 2.015, Noto Sans Arabic 2.013, Noto Sans Mono 2.014); recorded in NOTICES.md.
+[[annotations]]
+path = ["crates/cards/fonts/*.ttf"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2022 The Noto Project Authors"
+SPDX-License-Identifier = "OFL-1.1"
+
+# The cards' golden images: WeaveSignal's own renders of the design's specimens.
+[[annotations]]
+path = ["crates/cards/tests/golden/*.png"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# The media worker's test picture for stills: a flat grey square WeaveSignal made.
+[[annotations]]
+path = ["crates/media/tests/*.jpg"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# Podcast feeds (M8): the Podcasting 2.0 namespace's taxonomy and schema, unmodified from
+# Podcastindex-org/podcast-namespace at commit d4036dc (2026-10-10), CC0-1.0.
+[[annotations]]
+path = ["crates/feeds/data/taxonomy.json", "crates/feeds/tests/podcast-namespace/*.xsd"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Podcast Index and the podcast-namespace contributors"
+SPDX-License-Identifier = "CC0-1.0"
+
+# One second of a 440 Hz tone, made with ffmpeg for the episode-tag tests.
+[[annotations]]
+path = ["crates/feeds/tests/fixtures/*"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# Spike 01's harness, results and the talk-show fixture's scripts (spike/): measurements and
+# test fixtures, our own, AGPL-3.0-only as the code is. A file's own header wins (closest).
+[[annotations]]
+path = ["spike/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# Patches to gst-plugins-rs (spike/desk-image/patches), applied when the webrtc plugin is built:
+# they change MPL-2.0 code and stay under its licence.
+[[annotations]]
+path = ["spike/desk-image/patches/*.patch"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "MPL-2.0"
+
+# The database migrations carry their licence line but no copyright line, and cannot gain one:
+# sqlx checksums each applied migration, and an edited file stops an existing station starting.
+[[annotations]]
+path = ["crates/model/migrations/*.sql"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+# LiveKit's JavaScript client as published, unmodified, for the spike's test page (NOTICES.md).
+[[annotations]]
+path = ["spike/harness/web/livekit-client.umd.js"]
+precedence = "override"
+SPDX-FileCopyrightText = "LiveKit, Inc."
+SPDX-License-Identifier = "Apache-2.0"

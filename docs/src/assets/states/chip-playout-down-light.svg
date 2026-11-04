@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="155" height="28" viewBox="0 0 155 28" role="img" aria-label="Playout Down">
+<!-- WeaveSignal state PLAYOUT DOWN (chip, light). Drawn for docs/reference/design/design-system.md section 3, exported 2026-11-02. Licence CC BY-SA 4.0 (ADR-0081). The word is live text in the system face; the geometry is desk B's. -->
+<rect x="0.75" y="0.75" width="153.5" height="26.5" rx="4" style="fill:transparent;stroke:#e26500" stroke-width="1.5"/>
+<g transform="translate(9.5 7.0) scale(1.0)" style="color:#e26500"><rect x="1.5" y="1.5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2 12 12 2" stroke="currentColor" stroke-width="1.5"/></g>
+<text x="27.5" y="18.7" font-family="system-ui, 'Segoe UI', Cantarell, 'Noto Sans', Roboto, 'Helvetica Neue', sans-serif" font-size="13" font-weight="700" letter-spacing="0.52" style="fill:#1a1b26">PLAYOUT DOWN</text>
+</svg>

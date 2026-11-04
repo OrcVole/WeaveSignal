@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The M1 server image: weavesignal-desk, weavesignal-control and weavesignal-chat (M6), with M5's video path, built in the desk's build image and
+# run on spike 01's GStreamer image (GStreamer 1.28.8, gst-plugins-rs 0.15.4 webrtc with
+# LiveKit, the SRT plugin against libsrt 1.5.7). The Compose bundle runs both from it.
+# The release images (GStreamer from source, slim runtime stages, amd64 and arm64) are M10's.
+#
+# Build, from the repository's root:
+#   podman build -t localhost/weavesignal-server:m1 -f deploy/images/server/Containerfile .
+
+ARG BUILD=localhost/weavesignal-desk-dev:m5
+ARG RUNTIME=localhost/weavesignal-desk-spike:dev
+ARG NODE=docker.io/library/node:24.22.1-bookworm-slim
+
+# The public pages (apps/web): the player with call-in, the invite page, the echo test. The
+# control plane serves the build from /opt/weavesignal/web (`web.dir`).
+FROM ${NODE} AS web
+# pnpm, pinned: the tarball of an exact version is fetched, checked against its SHA-256 and
+# unpacked from the checked file: no second trip to the registry, which once hung `npm install`
+# for over half an hour (2026-11-02).
+ARG PNPM_VERSION=10.30.2
+ARG PNPM_SHA256=56121a083f0044fe06951ec2470978303f396ac62c549d68eb449c9467dfa0cf
+RUN cd /tmp && npm pack "pnpm@${PNPM_VERSION}" --silent \
+    && echo "${PNPM_SHA256}  pnpm-${PNPM_VERSION}.tgz" | sha256sum -c - \
+    && mkdir -p /usr/local/lib/pnpm \
+    && tar -xzf "pnpm-${PNPM_VERSION}.tgz" -C /usr/local/lib/pnpm --strip-components=1 \
+    && ln -sf /usr/local/lib/pnpm/bin/pnpm.cjs /usr/local/bin/pnpm \
+    && rm -f "/tmp/pnpm-${PNPM_VERSION}.tgz" \
+    && pnpm --version
+WORKDIR /src
+COPY packages/ui packages/ui
+COPY apps/studio/src/lib/Glyphs.svelte apps/studio/src/lib/Mark.svelte apps/studio/src/lib/
+COPY apps/web apps/web
+RUN cd apps/web && pnpm install --frozen-lockfile && pnpm build
+
+FROM ${BUILD} AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+# A workspace member; cargo reads its manifest even when only the server's crates are built.
+COPY apps/studio/src-tauri apps/studio/src-tauri
+RUN cargo build --release --locked -p weavesignal-desk -p weavesignal-control -p weavesignal-chat --bin weavesignal-desk --bin weavesignal-control --bin weavesignal-chat \
+    && install -D -m 0755 target/release/weavesignal-desk /out/usr/local/bin/weavesignal-desk \
+    && install -D -m 0755 target/release/weavesignal-control /out/usr/local/bin/weavesignal-control \
+    && install -D -m 0755 target/release/weavesignal-chat /out/usr/local/bin/weavesignal-chat
+
+FROM ${RUNTIME}
+COPY --from=build /out/ /
+# The video path (M5): cmafmux, hlscmafsink and dav1ddec, built in the desk's build image from
+# the same gst-plugins-rs tag as the webrtc plugin; dav1d's library; fonts for the slate.
+COPY --from=build /usr/lib64/gstreamer-1.0/libgstisobmff.so /usr/lib64/gstreamer-1.0/libgsthlssink3.so \
+     /usr/lib64/gstreamer-1.0/libgstdav1d.so /usr/lib64/gstreamer-1.0/
+RUN dnf -y install --setopt=install_weak_deps=False libdav1d google-noto-sans-vf-fonts \
+    && dnf clean all \
+    && for e in cmafmux hlscmafsink dav1ddec svtav1enc textoverlay; do \
+         gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
+       done \
+    && rm -rf /root/.cache/gstreamer-1.0
+# The placeholder cart pack (ADR-0020), loaded as the demo banks when a station has none.
+COPY assets/carts-demo /opt/weavesignal/carts-demo
+# The demo station's slate pictures (ADR-0200): video.demo_still points at the kettle.
+COPY assets/stills-demo/kettle-fm.png assets/stills-demo/night-show.png /opt/weavesignal/stills-demo/
+COPY --from=web /src/apps/web/dist /opt/weavesignal/web
+RUN useradd --system --home-dir /var/lib/weavesignal --create-home weavesignal \
+    && install -d -o weavesignal -m 0700 /run/weavesignal \
+    && install -d -o weavesignal -g weavesignal -m 0700 /run/weavesignal-playout \
+    && install -d -o weavesignal -g weavesignal -m 0755 /var/lib/weavesignal/carts /var/lib/weavesignal/hls \
+    && install -d -o weavesignal -g weavesignal -m 0700 /run/weavesignal-listeners \
+    && install -d -o weavesignal -g weavesignal -m 0755 /var/lib/weavesignal/library /var/lib/weavesignal/fallback /var/lib/weavesignal/recordings/logger \
+       /var/lib/weavesignal/show-cards /var/lib/weavesignal/episodes \
+    && install -o weavesignal -g weavesignal -m 0600 /dev/null /run/weavesignal-playout/.keep \
+    && install -o weavesignal -g weavesignal -m 0600 /dev/null /run/weavesignal-listeners/.keep
+# The two socket volumes are made from this image (the control plane mounts them first) and so
+# start with a .keep file. Without it, Liquidsoap removes its socket on a clean stop and leaves
+# the volume empty, and on its next start Podman copies the Liquidsoap image's missing
+# directory up into the volume as root, mode 1755: Liquidsoap (uid 999) then fails to bind its
+# socket on every start (`compose stop` and `start` of playout, 2026-11-03; `nocopy` on the
+# mount did not help, a file in the volume did).
+USER weavesignal
+LABEL org.opencontainers.image.title="weavesignal-server" \
+      org.opencontainers.image.description="WeaveSignal M1: the desk, the control plane, the chat and the public pages" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+CMD ["weavesignal-control", "--help"]

@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The edge images (M7, ADR-0051): two targets from one file, each one process.
+#
+#   hls    nginx as a pull-through cache of the station's HLS (bench 02's configuration):
+#          playlists cached 1 s, segments 60 s, proxy_cache_lock so a cold start or a new
+#          segment reaches the origin once per edge, whatever the audience.
+#   relay  Icecast 2.5.0 relaying the station's listener mounts, with
+#          relay-shoutcast-metadata off (ADR-0052: icecast.server splices ICY blocks into Ogg
+#          when asked, and a relay that asks passes nothing), and nginx as the encrypted hop
+#          (ADR-0162): Icecast's relay cannot use TLS, so nginx on loopback fetches from the
+#          station's HTTPS address and Icecast relays from nginx.
+#
+# Neither holds a secret of the station's: both pull what any listener can (see the
+# entrypoints for their settings). Build, from the repository's root:
+#   just edge-image
+# or
+#   podman build --target hls   -t localhost/weavesignal-edge:m1  deploy/images/edge
+#   podman build --target relay -t localhost/weavesignal-relay:m1 deploy/images/edge
+
+ARG ALPINE=docker.io/library/alpine:3.24
+
+FROM ${ALPINE} AS hls
+# Alpine 3.24's nginx 1.30 (bench 02 ran 1.30.5); the stable branch, so a rebuild takes its
+# security fixes.
+RUN apk add --no-cache nginx~1.30 \
+    && install -d -o nginx -g nginx /var/cache/weavesignal-edge /run/nginx
+COPY hls.sh /usr/local/bin/weavesignal-edge
+LABEL org.opencontainers.image.title="weavesignal-edge" \
+      org.opencontainers.image.description="WeaveSignal's HLS edge: an nginx pull-through cache" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+STOPSIGNAL SIGQUIT
+ENTRYPOINT ["/usr/local/bin/weavesignal-edge"]
+
+FROM ${ALPINE} AS relay
+# Icecast 2.5.0, the version ADR-0011 names as the fallback listener server. Configured
+# here, never patched: Icecast is GPL-2.0 only and none of its code is in this repository.
+# nginx 1.30 (as the hls stage) is the TLS client for the hop: it is already the edge image's
+# server, speaks HTTP to Icecast and HTTPS to the station, checks the station's certificate and
+# streams without buffering; ca-certificates-bundle is the roots it checks against.
+RUN apk add --no-cache icecast~2.5 nginx~1.30 ca-certificates-bundle \
+    && install -d -o icecast -g icecast /run/weavesignal-relay
+COPY relay.sh /usr/local/bin/weavesignal-relay
+USER icecast
+LABEL org.opencontainers.image.title="weavesignal-relay" \
+      org.opencontainers.image.description="WeaveSignal's audio edge: an Icecast 2.5 relay behind an nginx TLS hop" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+ENTRYPOINT ["/usr/local/bin/weavesignal-relay"]

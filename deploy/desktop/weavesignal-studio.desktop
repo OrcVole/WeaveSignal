@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The studio app's menu entry in the .deb and .rpm (a Tauri bundler template); the AppImage
+# carries it too, and its AppRun runs this Exec line (traced, M10). WebKitGTK's
+# DMA-BUF renderer crashes the window on native Wayland (Gdk Error 71, M2), and the code
+# forbids `unsafe`, so cannot set it itself: the launcher turns the renderer off.
+[Desktop Entry]
+Categories={{categories}}
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 {{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application

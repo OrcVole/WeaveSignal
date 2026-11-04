@@ -1,0 +1,187 @@
+webrtcbin webrtcbin0 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin0 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin1 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin1 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin2 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+webrtcbin webrtcbin2 latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+rtpbin rtpbin latency set to 50 ms
+
+(python3:1): webrtcsink-WARNING **: 13:10:38.709: The `rtpgccbwe` element is not available not doing any congestion control: BoolError { message: "Failed to find element factory with name 'rtpgccbwe' for creating element", filename: "/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gstreamer-0.25.4/src/element_factory.rs", function: "gstreamer::element_factory::ElementBuilder<'_>::build::{{closure}}", line: 244 }
+
+(python3:1): webrtcsink-WARNING **: 13:10:38.709: The `rtpgccbwe` element is not available not doing any congestion control: BoolError { message: "Failed to find element factory with name 'rtpgccbwe' for creating element", filename: "/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gstreamer-0.25.4/src/element_factory.rs", function: "gstreamer::element_factory::ElementBuilder<'_>::build::{{closure}}", line: 244 }
+
+(python3:1): webrtcsink-WARNING **: 13:10:38.709: The `rtpgccbwe` element is not available not doing any congestion control: BoolError { message: "Failed to find element factory with name 'rtpgccbwe' for creating element", filename: "/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gstreamer-0.25.4/src/element_factory.rs", function: "gstreamer::element_factory::ElementBuilder<'_>::build::{{closure}}", line: 244 }
+rtpjitterbuffer rtpjitterbuffer0 latency set to 50 ms
+rtpjitterbuffer rtpjitterbuffer1 latency set to 50 ms
+rtpjitterbuffer rtpjitterbuffer2 latency set to 50 ms
+[13295.265] B-ear: linked audio_0 -> ['sink:mixminusB_at_B']
+[13295.265] desk-B: linked audio_0 -> ['sink:recvB', 'prog']
+[13295.266] desk-A: linked audio_0 -> ['sink:recvA', 'prog', 'mmB']
+[13329.926] listener started
+
+(python3:1): GStreamer-CRITICAL **: 13:11:15.438: gst_event_set_seqnum: assertion 'seqnum != GST_SEQNUM_INVALID' failed
+
+(python3:1): GStreamer-CRITICAL **: 13:12:28.779: gst_event_set_seqnum: assertion 'seqnum != GST_SEQNUM_INVALID' failed
+{
+ "seconds": 110.0,
+ "jitterbuffer_ms": 50,
+ "video": true,
+ "streams": {
+  "recvA": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 97.6,
+    "p95": 97.9,
+    "min": 97.3,
+    "max": 97.9
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     97.5,
+     97.6,
+     97.6,
+     97.5,
+     97.9
+    ]
+   }
+  },
+  "recvB": {
+   "onsets": 36,
+   "classes": {
+    "A": 0,
+    "B": 36
+   },
+   "latency_ms_B": {
+    "n": 34,
+    "p50": 97.7,
+    "p95": 98.1,
+    "min": 97.4,
+    "max": 98.1
+   }
+  },
+  "programme": {
+   "onsets": 72,
+   "classes": {
+    "A": 39,
+    "B": 33
+   },
+   "latency_ms_A": {
+    "n": 37,
+    "p50": 108.4,
+    "p95": 108.7,
+    "min": 108.1,
+    "max": 108.8
+   },
+   "latency_ms_B": {
+    "n": 31,
+    "p50": 108.4,
+    "p95": 108.6,
+    "min": 108.1,
+    "max": 108.7
+   },
+   "marker_latency_ms": {
+    "n": 4,
+    "values": [
+     108.2,
+     108.2,
+     108.4,
+     108.5
+    ]
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 108.4,
+    "p95": 108.7,
+    "min": 108.1,
+    "max": 108.7
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     108.3,
+     108.4,
+     108.2,
+     108.2,
+     108.7
+    ]
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 165.2,
+    "p95": 165.6,
+    "min": 165.0,
+    "max": 165.6
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     165.6,
+     165.1,
+     165.1,
+     165.1,
+     165.2
+    ]
+   }
+  },
+  "listener": {
+   "onsets": 50,
+   "classes": {
+    "A": 27,
+    "B": 23
+   },
+   "latency_ms_A": {
+    "n": 25,
+    "p50": 1798.2,
+    "p95": 1798.5,
+    "min": 1797.9,
+    "max": 1798.9
+   },
+   "latency_ms_B": {
+    "n": 21,
+    "p50": 798.1,
+    "p95": 798.6,
+    "min": 797.3,
+    "max": 798.8
+   },
+   "marker_latency_ms": {
+    "n": 2,
+    "values": [
+     15798.1,
+     15798.4
+    ]
+   }
+  }
+ },
+ "mixminusB_peak_dbfs": -1.0,
+ "mixminusB_leak_3k_vs_1k_db": -46.6,
+ "programme_3k_vs_1k_db_reference": -3.8,
+ "sent_peak_dbfs": -1.9
+}

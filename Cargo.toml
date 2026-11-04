@@ -1,0 +1,125 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+
+[workspace]
+resolver = "3"
+members = [
+  "crates/control",
+  "crates/chat",
+  "crates/model",
+  "crates/proto",
+  "crates/mixer",
+  "crates/media",
+  "crates/desk",
+  "crates/cards",
+  "crates/feeds",
+  "apps/studio/src-tauri",
+]
+# The desk links GStreamer; a host without its development files builds it in the
+# container (`just desk-build`). The studio app links WebKitGTK (`just studio-check`).
+# Plain `cargo build` builds everything else.
+default-members = ["crates/control", "crates/chat", "crates/model", "crates/proto", "crates/mixer", "crates/media", "crates/cards", "crates/feeds"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-only"
+publish = false
+
+# Versions read from crates.io on 2026-10-25. Cargo.lock is committed and pins every
+# crate exactly; a caret on a 0.x version also holds the minor, as the house stack
+# asks for Axum (0.7 to 0.8 broke the API). Read the changelog before moving a minor.
+[workspace.dependencies]
+weavesignal-model = { path = "crates/model" }
+weavesignal-proto = { path = "crates/proto" }
+weavesignal-mixer = { path = "crates/mixer" }
+axum = "0.8.9"
+# The public API's description (ADR-0195), read from crates.io on 2026-11-02: derives on the types the
+# routes send and take, a `#[utoipa::path]` on each handler. utoipa-axum is not used (the routers are
+# built with `.route()` and merged by hand).
+utoipa = { version = "6.0.0", features = ["uuid", "jiff_0_2"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync", "io-util"] }
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["trace"] }
+http-body-util = "0.1.5"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+uuid = { version = "1.29.0", features = ["serde", "v4"] }
+gstreamer = { version = "0.25.4", features = ["v1_28"] }
+gstreamer-app = { version = "0.25.2", features = ["v1_28"] }
+ctrlc = { version = "3.5.2", features = ["termination"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "uuid"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+base64 = "0.23.1"
+hmac = "0.13.0"
+sha2 = "0.11.1"
+# Staff passwords (ADR-0127): Argon2id, pure Rust (RustCrypto), read from crates.io on 2026-11-01.
+argon2 = "0.6.0"
+ureq = { version = "3.5.0", default-features = false, features = ["json"] }
+thread-priority = "3.1.1"
+# Show cards and podcast feeds (M8), read from crates.io on 2026-10-26. resvg 0.49.0 fixes
+# right-to-left text positioning (#1145), which the cards' one right-to-left name needs; lofty
+# 0.25.5 fixes the Ogg corruption report 08 warned of (lofty issue 729).
+weavesignal-cards = { path = "crates/cards" }
+weavesignal-feeds = { path = "crates/feeds" }
+resvg = { version = "0.49.0", default-features = false, features = ["text"] }
+# jiff: the schedule's clocks run in the station's time zone (M4); the database is bundled, so a
+# slim image without tzdata still knows every zone.
+jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
+quick-xml = "0.42.0"
+lofty = "0.25.5"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+
+# opus-decoder 0.1.1 shifts a u8 collapse mask by up to 15 bits (celt/vq.rs:118), which panics
+# with overflow checks on (debug and test builds) on real files such as the demo pack's; a
+# release build wraps. Debug builds match release here until it is fixed upstream; the worker
+# is its own process, so a panic there could only ever fail one import.
+[profile.dev.package.opus-decoder]
+overflow-checks = false
+
+# The show cards' 3,000-pixel square takes seconds to rasterise and compress in an unoptimised
+# build; the drawing and PNG crates are optimised in debug and test builds too, so the gates
+# stay quick. Release builds are unaffected.
+[profile.dev.package.tiny-skia]
+opt-level = 3
+[profile.dev.package.tiny-skia-path]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.usvg]
+opt-level = 3
+[profile.dev.package.resvg]
+opt-level = 3
+[profile.dev.package.harfrust]
+opt-level = 3
+[profile.dev.package.skrifa]
+opt-level = 3
+[profile.dev.package.read-fonts]
+opt-level = 3
+
+# Staff passwords (ADR-0127): Argon2id at its default cost takes seconds unoptimised, so the
+# tests and debug builds optimise it as release builds do.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

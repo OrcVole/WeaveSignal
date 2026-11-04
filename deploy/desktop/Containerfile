@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+#
+# The studio app's Linux build image (M10). The packages are built on the oldest distribution
+# they support, because a binary needs a C library at least as new as the one it was built
+# against, and the AppImage carries the build machine's own WebKitGTK, GLib and the rest: built
+# on Fedora 44 (glibc 2.43) the AppImage ran on nothing older (M10, measured). The floor is
+# Ubuntu 24.04 LTS (glibc 2.39, WebKitGTK 4.1; ADR-0126): packages built here install on Debian
+# 13, Ubuntu 24.04 and 26.04, and Fedora 43 and 44 (`just package-desktop-test`). The .deb and
+# .rpm use the system's own libraries, so on 26.04 they run on its newer GTK, GStreamer and
+# libsoup; a feature that needs a newer library is detected at run time, never required.
+#
+# Build:  just desktop-image
+# Everything this image downloads is pinned: rustup and the Tauri CLI's source by SHA-256, the
+# Rust toolchain by version. The Tauri bundler's own downloads are pinned by deploy/desktop/tools.lock.
+# The interface is built on the host (`pnpm build`); this image runs the pinned Tauri CLI's
+# Rust build and its bundlers only, so it holds no Node.
+
+FROM docker.io/library/ubuntu:24.04
+ARG RUST_VERSION=1.98.1
+ARG TAURI_CLI_VERSION=2.12.4
+ARG TAURI_CLI_SHA256=9966558da94fd1c9485d0d78f12233bea5fd4235826fb78e930fe7a26910b956
+ARG RUSTUP_VERSION=1.29.2
+ARG RUSTUP_INIT_SHA256=5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4
+ENV DEBIAN_FRONTEND=noninteractive \
+    RUSTUP_HOME=/opt/rustup \
+    CARGO_HOME=/opt/cargo \
+    PATH=/opt/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates curl file pkg-config patchelf xdg-utils \
+        libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# rustup, pinned: the installer binary of an exact version, checked against its SHA-256, then
+# the workspace's Rust. (Not `curl sh.rustup.rs | sh`, which runs whatever is current.) rustup
+# checks each toolchain component it downloads against the channel manifest's hashes.
+RUN set -eu; [ "$(uname -m)" = x86_64 ] || { echo "this image builds on x86_64 only"; exit 1; }; \
+    curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/rustup-init \
+        "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+    && echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}" \
+    && rm /tmp/rustup-init \
+    && rustc --version
+
+# The same Tauri CLI the studio app's package.json pins: its source from crates.io, checked
+# against its SHA-256, built with the lock file inside the crate (--locked), whose own checksums
+# pin every dependency.
+RUN curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/tauri-cli.crate \
+        "https://static.crates.io/crates/tauri-cli/tauri-cli-${TAURI_CLI_VERSION}.crate" \
+    && echo "${TAURI_CLI_SHA256}  /tmp/tauri-cli.crate" | sha256sum -c - \
+    && tar -xzf /tmp/tauri-cli.crate -C /tmp \
+    && cargo install --locked --path "/tmp/tauri-cli-${TAURI_CLI_VERSION}" \
+    && rm -rf /tmp/tauri-cli* /opt/cargo/registry /opt/cargo/git \
+    && cargo tauri --version
+
+LABEL org.opencontainers.image.title="weavesignal-desktop-build" \
+      org.opencontainers.image.description="WeaveSignal studio app: Linux package build image (Ubuntu 24.04, WebKitGTK 4.1, Tauri CLI)" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+CMD ["cargo", "tauri", "--version"]

@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The estate's house Markdown style (Documentation/STYLE.md, CONTRACT Article 9), copied rather
+// than extended: `extends` would inherit the estate's `globs`. Run from this folder:
+//   pnpm dlx markdownlint-cli2@0.23.2
+// One rule differs, and the reason sits here beside the files (CONTRACT 9.6): Starlight renders
+// each page's H1 from its frontmatter `title`, so a body H1 would print the title twice. The
+// page's layout supplies the H1, as a blog's does; MD041 is therefore off for these pages.
+{
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD009": { "br_spaces": 2 },
+    "MD003": { "style": "atx" },
+    "MD025": { "front_matter_title": "" },
+    "MD041": false,
+    "MD024": { "siblings_only": true },
+    "MD004": { "style": "dash" },
+    "MD007": { "indent": 2 },
+    "MD029": false,
+    "MD046": { "style": "fenced" },
+    "MD048": { "style": "backtick" },
+    "MD035": { "style": "---" },
+    "MD055": { "style": "leading_and_trailing" },
+    "MD060": false,
+    "MD033": { "allowed_elements": ["br", "kbd", "sub", "sup", "details", "summary"] },
+    "MD049": { "style": "asterisk" },
+    "MD050": { "style": "asterisk" },
+    "MD012": { "maximum": 1 }
+  },
+  "globs": ["src/content/docs/**/*.md"]
+}

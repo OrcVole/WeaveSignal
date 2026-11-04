@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+[package]
+name = "weavesignal-desk"
+description = "WeaveSignal's desk: a hidden room participant that mixes the programme and a mix-minus per participant (gstreamer-rs)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "weavesignal-desk"
+path = "src/main.rs"
+
+[dependencies]
+weavesignal-mixer.workspace = true
+weavesignal-proto.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+gstreamer.workspace = true
+gstreamer-app.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thread-priority.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq.workspace = true
+# The slate's still (ADR-0010): the media worker's PNG, decoded here. Pure Rust.
+png = "0.18.1"
+# The camera thumbnails go to the control plane as base64 JPEG.
+base64.workspace = true
+
+[lints]
+workspace = true

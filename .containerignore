@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+target/
+docs/node_modules/
+docs/dist/
+# spike/ stays out, but for the GStreamer patches the images apply (ADR-0118).
+spike/*
+!spike/desk-image
+spike/desk-image/*
+!spike/desk-image/patches
+tests/room/run/
+apps/*/node_modules/
+apps/web/dist/
+apps/studio/dist/
+tests/m3/run/

@@ -1,0 +1,50 @@
+{
+ "seconds": 12.0,
+ "jitterbuffer_ms": 50,
+ "video": false,
+ "streams": {
+  "recvA": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  },
+  "recvB": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  },
+  "programme": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  },
+  "listener": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  }
+ },
+ "sent_peak_dbfs": -90.3
+}

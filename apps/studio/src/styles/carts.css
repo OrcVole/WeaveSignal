@@ -1,0 +1,89 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The cart wall (Library/design/weavesignal-design-cart-wall.html): the design page's own layout,
+   nested under .cartwall. A wall cart is `.pad` here (the page's `.cart`), because `.cart` is
+   the design system's compact cart, which the desk's glance uses. */
+.cartwall {
+  height: 100%; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: var(--plane);
+
+  .wallpanel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+
+  /* bank strip */
+  .banks { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline); flex-wrap: wrap; }
+  .banklist { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+  .bank { appearance: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: var(--s-2); min-height: 2.25rem; padding: 0 var(--s-3) 0 0; border-radius: var(--r-2); border: 1px solid var(--axis); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-14); overflow: hidden; }
+  .bank .band { width: 6px; align-self: stretch; background: var(--bank-colour, var(--deemph)); }
+  .bank b { font-weight: 600; color: var(--ink); }
+  .bank .count { font-size: var(--fs-12); color: var(--muted); font-family: var(--font-mono); }
+  .bank[aria-pressed="true"] { background: var(--surface-3); border-color: var(--ink-2); color: var(--ink); }
+  .bank.none { border-style: dashed; background: transparent; }
+  .bank.none b { color: var(--ink-2); font-weight: 400; }
+  .banks .right { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+  .banks .right b { color: var(--ink); font-weight: 600; }
+
+  /* the grid: six wide, four deep, the left hand of the keyboard */
+  .wall { padding: var(--s-4); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); gap: var(--s-3); min-height: 0; }
+  .pad { position: relative; min-height: 0; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-2); display: grid; grid-template-rows: auto 1fr auto; padding: var(--s-3) var(--s-3) var(--s-2); gap: var(--s-1); text-align: left; color: var(--ink); cursor: pointer; font: inherit; box-shadow: var(--e-1); overflow: hidden; transition: border-color var(--t-state) var(--ease-out), background var(--t-state) var(--ease-out); }
+  .pad::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--cart-colour, var(--deemph)); }
+  .pad:hover { background: var(--surface-2); }
+  .pad .top { display: flex; justify-content: space-between; align-items: center; gap: var(--s-2); margin-top: 3px; }
+  .pad .top kbd { min-width: 2.1rem; height: 1.75rem; font-size: var(--fs-14); font-weight: 600; }
+  .pad .mode { font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; }
+  .pad .mode svg { width: 12px; height: 12px; }
+  .pad .label { font-weight: 600; font-size: clamp(0.95rem, 1.05vw, 1.4rem); line-height: 1.2; align-self: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-wrap: balance; }
+  .pad .label small { display: block; font-weight: 400; color: var(--ink-2); font-size: 0.8em; margin-top: 2px; }
+  .pad .foot { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s-2); font-family: var(--font-mono); font-size: clamp(0.8125rem, 0.9vw, 1.1rem); color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.25rem; }
+  .pad .foot .left { display: grid; line-height: 1.25; min-width: 0; }
+  .pad .foot .word { font-family: var(--font-ui); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .pad .foot .ramp { font-family: var(--font-ui); font-size: var(--fs-12); color: var(--ink-2); }
+  .pad .ring { width: clamp(2rem, 2.4vw, 3rem); height: clamp(2rem, 2.4vw, 3rem); flex: none; }
+  .pad .ring circle { fill: none; stroke-width: 3.5; }
+  .pad .ring .bg { stroke: var(--surface-3); }
+  .pad .ring .fg { stroke: var(--ink); stroke-linecap: butt; transform: rotate(-90deg); transform-origin: 50% 50%; }
+  .pad .ring text { font-family: var(--font-mono); font-size: 12px; fill: var(--ink-2); text-anchor: middle; dominant-baseline: central; }
+
+  .pad.playing, .pad.ending, .pad.stopping { border-color: var(--ink-2); background: var(--surface-2); }
+  .pad.playing .foot b, .pad.ending .foot b, .pad.stopping .foot b { color: var(--ink); font-weight: 700; font-size: 1.25em; }
+  .pad.playing .foot .word { color: var(--ink-2); }
+  .pad.ending .foot b, .pad.ending .foot .word { color: var(--status-warning); }
+  .pad.ending .ring .fg { stroke: var(--status-warning); }
+  .pad.stopping .ring .fg { stroke: var(--muted); }
+  /* Cued: the violet border and CUE chip of the state vocabulary; in the headphones, not on air. */
+  .pad.cued { border-color: var(--live-cue); }
+  .pad.cued .state { height: 1.5rem; font-size: var(--fs-12); padding: 0 var(--s-2) 0 var(--s-1); }
+  .pad.cued .foot b { font-weight: 700; }
+  .pad.cued .ring .fg { stroke: var(--live-cue); }
+  .pad.missing { border-style: dashed; border-color: var(--status-critical); box-shadow: none; cursor: not-allowed; }
+  .pad.missing .label { color: var(--muted); }
+  .pad.missing .top kbd { opacity: 0.45; text-decoration: line-through; }
+  .pad.missing .state { height: 1.5rem; font-size: var(--fs-12); padding: 0 var(--s-2) 0 var(--s-1); }
+  .pad.missing .fix { font-family: var(--font-ui); font-size: var(--fs-13); color: var(--ink-2); }
+  .pad.empty { border-style: dashed; color: var(--muted); box-shadow: none; background: transparent; }
+  .pad.empty::before { display: none; }
+  .pad.empty .label { font-weight: 400; font-size: var(--fs-13); color: var(--muted); }
+  .pad.empty:hover { background: var(--surface); }
+  .pad .duck { font-family: var(--font-ui); font-size: var(--fs-12); color: var(--ink-2); display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pad .duck svg { width: 12px; height: 12px; color: var(--live-onair); flex: none; }
+
+  /* bottom strip: what is sounding, and the keys */
+  .now { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-2) var(--s-4); border-top: 1px solid var(--hairline); background: var(--surface); min-height: 3.25rem; flex-wrap: wrap; }
+  .now .sounding { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+  .now .item { display: inline-flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) 0 0; border: 1px solid var(--hairline); border-radius: var(--r-2); background: var(--surface-2); min-height: 2.25rem; overflow: hidden; font-size: var(--fs-13); }
+  .now .item .band { width: 5px; align-self: stretch; background: var(--cart-colour); }
+  .now .item b { font-weight: 600; }
+  .now .item .t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .now .item.ending .t { color: var(--status-warning); font-weight: 700; }
+  .now .keys { margin-left: auto; display: flex; gap: var(--s-4); font-size: var(--fs-13); color: var(--ink-2); flex-wrap: wrap; align-items: center; }
+  .now .keys > span { display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; }
+  .now .quiet { color: var(--muted); }
+
+  /* Contrast held to WCAG AA in both themes (checked in the build): the page's muted grey is
+     4.48:1 on the light plane and 4.28:1 on the light raised surface, so the empty slot's words
+     and the mode word on a playing or hovered cart take the second ink instead. */
+  .pad.empty .label, .pad.empty .mode { color: var(--ink-2); }
+  .pad.playing .mode, .pad.ending .mode, .pad.stopping .mode, .pad:hover .mode { color: var(--ink-2); }
+  .pad.playing .foot .word { color: var(--ink-2); }
+
+  @media (prefers-reduced-motion: reduce) { .pad { transition: none; } }
+  @media (max-width: 1000px) { & { overflow: auto; height: auto; } .wall { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: none; } .wall .pad { min-height: 8rem; } }
+}

@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# Two local edges in front of the bundle (M7, ADR-0051): each an HLS edge (nginx pull-through
+# cache) with an audio relay (Icecast 2.5) beside it, as one edge machine of a self-run pool
+# would run them. On the station's own machine they add no capacity; they are here to try the
+# pool, the relays and content steering before renting machines. Run with the bundle:
+#
+#   just edge-image
+#   podman compose -f compose.yaml -f edges.yaml up -d
+#
+# then add the edges to the control plane's [steering] settings (control.example.toml) and
+# point the HLS origin's multivariant playlist at /api/v1/steering. The HLS origin is the
+# control plane, which serves the desk's HLS at /hls/ with video on (VIDEO=true); without it
+# there is no HLS to pass on and the relays are what works. Each edge's /health asks the
+# control plane's /health (ADR-0160).
+#
+# Every port is a setting (ADR-0075). A steered player replaces the host name of the
+# playlist's addresses and keeps the port (RFC 8216bis 7.3; hls.js 1.7.3), so each edge
+# serves on the control plane's port at its own loopback address, 127.0.0.2 and 127.0.0.3
+# (the control plane binds 127.0.0.1 only). Until 2026-11-03 they used a port reserved for an HLS
+# origin of its own that was never built (7314, `hls_origin`, since retired): both edges answered 502
+# (EDGE1_ADDR, EDGE2_ADDR), which a player on this machine reaches; the relays sit on
+# 7323-7324. On a real edge machine the edge is the public listener on the station's port. The
+# relays pull the listener process's mount on loopback, without the station's source
+# password: a relay is a listener (deploy/images/edge/relay.sh).
+
+services:
+  edge-1:
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0}
+    network_mode: host
+    environment:
+      EDGE_ORIGIN: http://127.0.0.1:${CONTROL_PORT:-7310}
+      EDGE_HTTP_PORT: ${CONTROL_PORT:-7310}
+      EDGE_BIND: ${EDGE1_ADDR:-127.0.0.2}
+      EDGE_RELAY: 127.0.0.1:${RELAY1_PORT:-7323}
+    tmpfs:
+      - /var/cache/weavesignal-edge
+    restart: unless-stopped
+
+  relay-1:
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0}
+    network_mode: host
+    environment:
+      RELAY_ORIGIN_HOST: 127.0.0.1
+      # The station is on this machine's loopback, plain HTTP: no hop to encrypt (ADR-0162).
+      RELAY_ORIGIN_SCHEME: http
+      RELAY_ORIGIN_PORT: ${LISTENERS_PORT:-7312}
+      RELAY_MOUNTS: /programme.opus
+      RELAY_PORT: ${RELAY1_PORT:-7323}
+      RELAY_BIND: 127.0.0.1
+    depends_on: [listeners]
+    restart: unless-stopped
+
+  edge-2:
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0}
+    network_mode: host
+    environment:
+      EDGE_ORIGIN: http://127.0.0.1:${CONTROL_PORT:-7310}
+      EDGE_HTTP_PORT: ${CONTROL_PORT:-7310}
+      EDGE_BIND: ${EDGE2_ADDR:-127.0.0.3}
+      EDGE_RELAY: 127.0.0.1:${RELAY2_PORT:-7324}
+    tmpfs:
+      - /var/cache/weavesignal-edge
+    restart: unless-stopped
+
+  relay-2:
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0}
+    network_mode: host
+    environment:
+      RELAY_ORIGIN_HOST: 127.0.0.1
+      RELAY_ORIGIN_SCHEME: http
+      RELAY_ORIGIN_PORT: ${LISTENERS_PORT:-7312}
+      RELAY_MOUNTS: /programme.opus
+      RELAY_PORT: ${RELAY2_PORT:-7324}
+      RELAY_BIND: 127.0.0.1
+    depends_on: [listeners]
+    restart: unless-stopped

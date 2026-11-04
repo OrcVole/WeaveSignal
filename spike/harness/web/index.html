@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike 01 echo test</title>
+<style>
+  :root { --bg: #fafaf7; --fg: #1d1d1b; --muted: #6b6b66; --line: #d9d9d2; --ok: #1f7a4d; --warn: #a05a00; --accent: #3b5bdb; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececE6; --muted: #9a9a92; --line: #33332f; --ok: #5ccf94; --warn: #f0a640; --accent: #8ea6ff; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { margin: 4px 0 12px; color: var(--muted); max-width: 70ch; }
+  button { font: inherit; padding: 8px 16px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 16px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  .meter { width: 280px; height: 12px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: var(--ok); transition: width 60ms linear; }
+  #log { font: 13px/1.4 ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 8px; }
+</style>
+</head>
+<body>
+<h1>Spike 01: echo test</h1>
+<p>Wear headphones. Press Join and allow the microphone. You will hear the desk's mix-minus for you: participant A's clicks, and anyone else in the room, but never your own voice. Talk for a minute and listen for any trace of yourself coming back (echo), a hollow or phasey sound, or a lag on the clicks.</p>
+<p>The browser's own echo cancelling is switched off on purpose, so anything you hear of yourself is the desk's fault, not hidden by the browser.</p>
+<div class="row"><button id="join">Join</button><button id="leave" disabled>Leave</button><span id="state">Not connected</span></div>
+<div class="row"><span>Your microphone</span><div class="meter"><div id="mic"></div></div></div>
+<div class="row"><span>What the desk sends you</span><div class="meter"><div id="ret"></div></div></div>
+<div id="log"></div>
+<script src="livekit-client.umd.js"></script>
+<script>
+const { Room, RoomEvent, Track, createLocalAudioTrack } = LivekitClient;
+const params = new URLSearchParams(location.hash.slice(1));
+const url = params.get("url") || "ws://127.0.0.1:7880", token = params.get("token");
+const log = (m) => { document.getElementById("log").textContent += new Date().toISOString().slice(11, 23) + "  " + m + "\n"; };
+let room, ctx;
+function meter(stream, el) {
+  ctx = ctx || new AudioContext();
+  const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+  const d = new Float32Array(an.fftSize);
+  (function tick() { an.getFloatTimeDomainData(d); let p = 0; for (const v of d) p = Math.max(p, Math.abs(v)); el.style.width = Math.min(100, p * 140) + "%"; requestAnimationFrame(tick); })();
+}
+document.getElementById("join").onclick = async () => {
+  if (!token) { log("No token in the address. Ask the agent for the full link."); return; }
+  room = new Room({ adaptiveStream: false });
+  room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+    log("subscribed to " + participant.identity + " " + track.kind);
+    if (track.kind === Track.Kind.Audio && participant.identity === "desk-mmH") {
+      const el = track.attach(); document.body.appendChild(el); meter(new MediaStream([track.mediaStreamTrack]), document.getElementById("ret"));
+    } else { track.detach(); }
+  });
+  room.on(RoomEvent.Disconnected, () => { document.getElementById("state").textContent = "Disconnected"; });
+  await room.connect(url, token, { autoSubscribe: true });
+  document.getElementById("state").textContent = "Connected as " + room.localParticipant.identity;
+  const mic = await createLocalAudioTrack({ echoCancellation: false, noiseSuppression: false, autoGainControl: false });
+  await room.localParticipant.publishTrack(mic);
+  meter(new MediaStream([mic.mediaStreamTrack]), document.getElementById("mic"));
+  log("publishing microphone; only desk-mmH is played back");
+  document.getElementById("join").disabled = true; document.getElementById("leave").disabled = false;
+};
+document.getElementById("leave").onclick = async () => { await room?.disconnect(); document.getElementById("join").disabled = false; document.getElementById("leave").disabled = true; };
+</script>
+</body>
+</html>

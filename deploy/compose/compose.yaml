@@ -1,0 +1,375 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# WeaveSignal's M1 stack on one machine, every listener on loopback: LiveKit, the desk, playout
+# and the listener process (Liquidsoap 2.5, two processes: playout feeds the listener process,
+# which holds the mount and its fallback), the control plane, the chat and PostgreSQL. It is
+# the loopback stack the tests run, as a bundle. The public route (a reverse proxy with
+# certificates, TURN over TLS) is the opt-in overlay public.yaml, which `weavesignal.sh --public
+# <domain>` turns on (ADR-0022).
+#
+#   cp .env.example .env    # then fill in every secret
+#   podman build -t localhost/weavesignal-server:m1 -f ../images/server/Containerfile ../..
+#   podman compose up -d    # or docker compose
+#
+# Every port is a setting (ADR-0075): each one below comes from .env. Host networking keeps
+# the loopback binds exact; PostgreSQL listens on a Unix socket only, so it takes no port.
+
+name: weavesignal
+
+x-liquidsoap: &liquidsoap
+  image: docker.io/savonet/liquidsoap:v2.5.0-rc1
+  network_mode: host
+  # The scripts are bind-mounted from the repository; on SELinux hosts the container would
+  # otherwise be refused them.
+  security_opt: [label=disable]
+  entrypoint: ["/usr/bin/liquidsoap"]
+  environment:
+    WEAVESIGNAL_PLAYOUT_DATA: /etc/weavesignal/playout.json
+    WEAVESIGNAL_LISTENERS_SOURCE_PASSWORD: ${LISTENERS_SOURCE_PASSWORD:?set LISTENERS_SOURCE_PASSWORD in .env}
+  volumes:
+    - ../../playout:/opt/weavesignal/playout:ro
+  configs:
+    - source: playout
+      target: /etc/weavesignal/playout.json
+  restart: unless-stopped
+
+services:
+  livekit:
+    image: docker.io/livekit/livekit-server:v1.13.10
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env}"
+    configs:
+      - source: livekit
+        target: /etc/livekit.yaml
+    restart: unless-stopped
+
+  listeners:
+    <<: *liquidsoap
+    command: ["/opt/weavesignal/playout/listeners.liq"]
+    # The control plane's user: its socket (0600) is the control plane's to open, and the
+    # logger's files are the control plane's to delete when retention says so.
+    user: "999:999"
+    volumes:
+      - ../../playout:/opt/weavesignal/playout:ro
+      - listeners-control:/run/weavesignal-listeners
+      - recordings:/var/lib/weavesignal/recordings
+      - fallback-media:/var/lib/weavesignal/fallback:ro
+      # The default loop, played until the station adds fallback files of its own (ADR-0130).
+      - ../../assets/default-loop:/opt/weavesignal/assets/default-loop:ro
+    depends_on: [control]
+
+  playout:
+    <<: *liquidsoap
+    command: ["/opt/weavesignal/playout/weavesignal.liq"]
+    # The control plane's user, so its control socket (0600) is the control plane's to open;
+    # the volume takes its owner from the server image, so the control plane is made first.
+    user: "999:999"
+    volumes:
+      - ../../playout:/opt/weavesignal/playout:ro
+      - playout-control:/run/weavesignal-playout
+      - library-media:/var/lib/weavesignal/library:ro
+      - fallback-media:/var/lib/weavesignal/fallback:ro
+      - ../../assets/default-loop:/opt/weavesignal/assets/default-loop:ro
+      # The wall's carts sound in the desk; a clock's scheduled carts (idents) play here.
+      - carts-media:/var/lib/weavesignal/carts:ro
+    depends_on: [listeners, control]
+
+  desk:
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0}
+    network_mode: host
+    command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
+    environment:
+      WEAVESIGNAL_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      # The password playout sends with its feed back to the desk (video on, ADR-0172).
+      WEAVESIGNAL_PLAYOUT_FEED_PASSWORD: ${LISTENERS_SOURCE_PASSWORD}
+      RUST_LOG: ${RUST_LOG:-info}
+    configs:
+      - source: desk
+        target: /etc/weavesignal/desk.toml
+    volumes:
+      - desk-control:/run/weavesignal
+      # The cart files the media worker wrote: the desk decodes and plays them (ADR-0117).
+      - carts-media:/var/lib/weavesignal/carts:ro
+      # The CMAF HLS the desk writes with video on; the control plane serves it at /hls/.
+      - hls-media:/var/lib/weavesignal/hls
+    depends_on: [livekit]
+    # The desk stops on a fatal pipeline error and is started again here; playout connects
+    # to it again within about a second (`just test-playout`).
+    restart: unless-stopped
+
+  postgres:
+    image: docker.io/library/postgres:18
+    network_mode: host
+    command: ["postgres", "-c", "listen_addresses="]
+    environment:
+      POSTGRES_USER: weavesignal
+      POSTGRES_DB: weavesignal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - postgres-socket:/var/run/postgresql
+    # Healthy once the station's database answers: during first start the image runs a
+    # temporary server on the same socket before the database exists.
+    healthcheck:
+      test: ["CMD", "psql", "-U", "weavesignal", "-d", "weavesignal", "-c", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  control:
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0}
+    network_mode: host
+    command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
+    environment:
+      WEAVESIGNAL_DATABASE_URL: postgres://weavesignal@localhost/weavesignal?host=/var/run/postgresql
+      WEAVESIGNAL_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      WEAVESIGNAL_CONTROL_ADMIN_TOKEN: ${CONTROL_ADMIN_TOKEN:-}
+      # Keys the hash of staff email addresses and sign-in codes (ADR-0127); with MAIL_MODE on,
+      # the control plane will not start without it (weavesignal.sh makes one).
+      WEAVESIGNAL_CONTROL_EMAIL_KEY: ${CONTROL_EMAIL_KEY:-}
+      WEAVESIGNAL_CONTROL_TOKEN_KEY: ${CONTROL_TOKEN_KEY:-}
+    configs:
+      - source: control
+        target: /etc/weavesignal/control.toml
+    volumes:
+      - postgres-socket:/var/run/postgresql
+      # The desk's control socket, so the studio app drives the desk through the control plane.
+      - desk-control:/run/weavesignal
+      - playout-control:/run/weavesignal-playout
+      - listeners-control:/run/weavesignal-listeners
+      - carts-media:/var/lib/weavesignal/carts
+      - library-media:/var/lib/weavesignal/library
+      - recordings:/var/lib/weavesignal/recordings
+      - hls-media:/var/lib/weavesignal/hls:ro
+      - show-cards:/var/lib/weavesignal/show-cards
+      - episodes-media:/var/lib/weavesignal/episodes
+    depends_on:
+      desk:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The live chat (M6, ADR-0031): its own process on the station's database, following the
+  # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
+  # station sets [mail] (MAIL_MODE).
+  chat:
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0}
+    network_mode: host
+    command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
+    environment:
+      WEAVESIGNAL_DATABASE_URL: postgres://weavesignal@localhost/weavesignal?host=/var/run/postgresql
+      WEAVESIGNAL_CONTROL_ADMIN_TOKEN: ${CONTROL_ADMIN_TOKEN:-}
+      # Keys the hash of chatters' email addresses (ADR-0125). The chat refuses to start without
+      # it (at least 32 characters), so an empty value stops the chat with that said in its log.
+      WEAVESIGNAL_CHAT_EMAIL_KEY: ${CHAT_EMAIL_KEY:?set CHAT_EMAIL_KEY in .env (weavesignal.sh makes one)}
+    configs:
+      - source: chat
+        target: /etc/weavesignal/chat.toml
+    volumes:
+      - postgres-socket:/var/run/postgresql
+    depends_on:
+      control:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  postgres-socket:
+  desk-control:
+  # Playout's control socket.
+  playout-control:
+  # The cart files the media worker wrote: the control plane writes, the desk reads.
+  carts-media:
+  # The listener process's socket: the control plane turns the legal logger on and off.
+  listeners-control:
+  # The music library (the media worker's FLAC): the control plane writes, playout reads.
+  library-media:
+  # The station's fallback files, played while playout or the desk is away.
+  fallback-media:
+  # Recordings retention keeps and sweeps: the listener process writes the logger's hours.
+  recordings:
+  # The desk's CMAF HLS (video on): the desk writes, the control plane serves.
+  hls-media:
+  # Show cards the control plane draws, and the published episode files: served at /cards/ and
+  # /media/episodes/ while the station has a public address (PUBLIC_ORIGIN, the public route).
+  show-cards:
+  episodes-media:
+
+configs:
+  livekit:
+    content: |
+      # Loopback and one UDP media port (ADR-0023). In this file's own defaults ICE over TCP and
+      # TURN are off; the public route (public.yaml, weavesignal.sh --public) turns them on through
+      # the settings named here. A setting left unset keeps the loopback value.
+      port: ${LIVEKIT_HTTP_PORT:-7880}
+      bind_addresses: ["127.0.0.1"]
+      rtc:
+        udp_port: ${LIVEKIT_MEDIA_PORT:-7882}
+        tcp_port: ${LIVEKIT_TCP_PORT:-0}
+        use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-false}
+        node_ip: ${LIVEKIT_NODE_IP-127.0.0.1}
+      # TURN over TLS (ADR-0059, ADR-0080) with the proxy's certificate for the station's name,
+      # read from the proxy's data volume (public.yaml mounts it at /caddy-data). LiveKit reads
+      # the certificate once, when it starts. LiveKit's TURN refuses relay to private and loopback
+      # addresses, its own included, unless listed in allow_restricted_peer_cidrs (a node_ip
+      # behind NAT needs its address there).
+      turn:
+        enabled: ${TURN_ENABLED:-false}
+        domain: "${PUBLIC_DOMAIN:-}"
+        tls_port: ${TURN_TLS_PORT:-5349}
+        udp_port: ${TURN_UDP_PORT:-0}
+        external_tls: false
+        cert_file: /caddy-data/caddy/certificates/${TURN_CERT_DIR:-local}/${PUBLIC_DOMAIN:-none}/${PUBLIC_DOMAIN:-none}.crt
+        key_file: /caddy-data/caddy/certificates/${TURN_CERT_DIR:-local}/${PUBLIC_DOMAIN:-none}/${PUBLIC_DOMAIN:-none}.key
+        allow_restricted_peer_cidrs: [${TURN_ALLOW_CIDRS:-}]
+      # What the desk decodes and the pages publish (0004 §4): no H.264 or H.265.
+      room:
+        enabled_codecs:
+          - mime: audio/opus
+          - mime: audio/red
+          - mime: video/vp8
+          - mime: video/vp9
+          - mime: video/av1
+      logging:
+        level: info
+
+  playout:
+    content: |
+      {
+        "station_id": "${STATION_ID:?set STATION_ID in .env}",
+        "srt": { "host": "127.0.0.1", "port": ${SRT_INGEST_PORT:-7313} },
+        "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": ${LISTENERS_PORT:-7312}, "mount": "programme.opus", "feed_port": ${PLAYOUT_FEED_PORT:-7315}, "feed_buffer_s": ${FEED_BUFFER_S:-0.5}, "directory": ${DIRECTORY_LISTING:-false}, "compat": { "enabled": ${COMPAT_STREAM:-false}, "mount": "${COMPAT_MOUNT:-programme.mp3}", "bitrate": ${COMPAT_BITRATE:-128} }, "control_socket": "/run/weavesignal-listeners/listeners.sock" },
+        "desk_feed": { "host": "127.0.0.1", "port": ${DESK_FEED_PORT:-7317}, "enabled": ${VIDEO:-false} },
+        "control_socket": "/run/weavesignal-playout/playout.sock",
+        "carts": { "dir": "/var/lib/weavesignal/carts" },
+        "library": { "dir": "/var/lib/weavesignal/library" },
+        "fallback": { "dir": "/var/lib/weavesignal/fallback", "default_file": "/opt/weavesignal/assets/default-loop/default-loop.flac" },
+        "processing": { "enabled": ${PROCESSING:-true}, "target_lufs": ${PROCESSING_TARGET_LUFS:--16}, "max_gain_db": ${PROCESSING_MAX_GAIN_DB:-6} },
+        "logger": { "dir": "/var/lib/weavesignal/recordings/logger" }
+      }
+
+  desk:
+    content: |
+      [livekit]
+      url = "ws://127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}"
+      api_key = "${LIVEKIT_API_KEY}"
+      room = "${ROOM:-studio}"
+
+      [programme]
+      srt_bind = "127.0.0.1"
+      srt_port = ${SRT_INGEST_PORT:-7313}
+
+      [control]
+      socket = "/run/weavesignal/desk.sock"
+
+      [carts]
+      dir = "/var/lib/weavesignal/carts"
+
+      # Video (ADR-0009): off unless VIDEO=true. NVENC needs the GPU handed to the desk's
+      # container (devices: nvidia.com/gpu=all); without it, SVT-AV1 on the CPU.
+      [video]
+      enabled = ${VIDEO:-false}
+      station = "${STATION_NAME:-Kettle FM}"
+
+      [video.hls]
+      dir = "/var/lib/weavesignal/hls"
+
+      # Playout's output back to the desk: the video's sound while nobody is live (ADR-0172).
+      [video.playout_feed]
+      port = ${DESK_FEED_PORT:-7317}
+
+  control:
+    content: |
+      [station]
+      id = "${STATION_ID}"
+      name = "${STATION_NAME:-Kettle FM}"
+
+      [ports]
+      control = ${CONTROL_PORT:-7310}
+      chat = ${CHAT_PORT:-7311}
+      listeners = ${LISTENERS_PORT:-7312}
+      playout_feed = ${PLAYOUT_FEED_PORT:-7315}
+      desk_feed = ${DESK_FEED_PORT:-7317}
+      srt_ingest = ${SRT_INGEST_PORT:-7313}
+      livekit_http = ${LIVEKIT_HTTP_PORT:-7880}
+      livekit_media = ${LIVEKIT_MEDIA_PORT:-7882}
+      proxy_http = ${PROXY_HTTP_PORT:-80}
+      proxy_https = ${PROXY_HTTPS_PORT:-443}
+      # The join pages put this port into the TURN address LiveKit reports (it always says 443).
+      turn_tls = ${TURN_TLS_PORT:-5349}
+
+      [room]
+      # As browsers reach LiveKit: through the proxy on the public route.
+      public_url = "${ROOM_PUBLIC_URL:-ws://127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}}"
+      api_url = "http://127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}"
+      api_key = "${LIVEKIT_API_KEY}"
+      name = "${ROOM:-studio}"
+
+      [desk]
+      socket = "/run/weavesignal/desk.sock"
+
+      [playout]
+      socket = "/run/weavesignal-playout/playout.sock"
+      listeners_socket = "/run/weavesignal-listeners/listeners.sock"
+      library_dir = "/var/lib/weavesignal/library"
+
+      [carts]
+      media_dir = "/var/lib/weavesignal/carts"
+      demo_pack = "/opt/weavesignal/carts-demo"
+
+      # The demo station's slate picture (ADR-0200), given once when the station has none;
+      # weavesignal.sh sets it only for a station left with the demo name.
+      [video]
+      demo_still = "${DEMO_STILL:-}"
+
+      # The public pages, from the image (M3): the player with call-in at /, invites at /join/.
+      # `listed` is whether search engines may list the public address (ADR-0133).
+      [web]
+      dir = "/opt/weavesignal/web"
+      listed = ${SEARCH_LISTING:-false}
+
+      # Show cards and podcast feeds (M8): every card prints the station's address and the feeds
+      # are reached under it, so they are off until the station is public (weavesignal.sh --public).
+      [publishing]
+      public_url = "${PUBLIC_ORIGIN:-}"
+
+      # How a caller asks for their call to be taken down: an email address or a link, said in
+      # the consent words. Call-in stays closed until it is set (ADR-0124).
+      [join]
+      consent_contact = "${CONSENT_CONTACT:-}"
+      # The player's Listen live: the listener process on loopback, or through the proxy.
+      stream_url = "${STREAM_URL:-http://127.0.0.1:${LISTENERS_PORT:-7312}/programme.opus}"
+      # True only behind the station's own proxy, which sets X-Forwarded-For (otherwise every
+      # caller shares the proxy's address and the per-address call-in limit caps the station).
+      forwarded_for = ${FORWARDED_FOR:-false}
+
+      # Staff sign-in by an emailed code (ADR-0127), beside the password: on when the station
+      # can send email, as for the chat's codes (MAIL_MODE, MAIL_FROM).
+      [mail]
+      mode = "${MAIL_MODE:-off}"
+      from = "${MAIL_FROM:-chat@station.example}"
+
+  chat:
+    content: |
+      [station]
+      id = "${STATION_ID}"
+      name = "${STATION_NAME:-Kettle FM}"
+
+      [listen]
+      address = "127.0.0.1"
+      port = ${CHAT_PORT:-7311}
+      forwarded_for = ${FORWARDED_FOR:-false}
+
+      [control]
+      url = "http://127.0.0.1:${CONTROL_PORT:-7310}"
+
+      [mail]
+      mode = "${MAIL_MODE:-off}"
+      from = "${MAIL_FROM:-chat@station.example}"

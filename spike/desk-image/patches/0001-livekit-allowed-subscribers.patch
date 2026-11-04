@@ -1,0 +1,101 @@
+livekit signaller: an `allowed-subscribers` property for producers
+
+A producer that sets it sends the server a SubscriptionPermission right after joining and
+before it publishes: only the named identities may subscribe to its tracks (LiveKit still
+lets recorder-granted participants through). Unset, nothing is sent and anyone may subscribe,
+as before. WeaveSignal's desk sets it on each mix-minus publisher so a return reaches only the
+person it is for (ADR-0118). WeaveSignal carries this patch; it is not offered upstream.
+
+diff --git a/net/webrtc/src/livekit_signaller/imp.rs b/net/webrtc/src/livekit_signaller/imp.rs
+index 0cc10fd..adcad17 100644
+--- a/net/webrtc/src/livekit_signaller/imp.rs
++++ b/net/webrtc/src/livekit_signaller/imp.rs
+@@ -44,6 +44,7 @@ struct Settings {
+     role: WebRTCSignallerRole,
+     producer_peer_id: Option<String>,
+     excluded_produder_peer_ids: Vec<String>,
++    allowed_subscribers: Option<Vec<String>>,
+     timeout: u32,
+     room_timeout: u32,
+ }
+@@ -61,6 +62,7 @@ impl Default for Settings {
+             role: WebRTCSignallerRole::default(),
+             producer_peer_id: None,
+             excluded_produder_peer_ids: vec![],
++            allowed_subscribers: None,
+             timeout: DEFAULT_TRACK_PUBLISH_TIMEOUT,
+             room_timeout: 0,
+         }
+@@ -832,6 +834,29 @@ impl SignallableImpl for Signaller {
+                 connection.last_participant_lost_at = None;
+             }
+             *imp.connection.lock().unwrap() = Some(connection);
++
++            // A producer that names its subscribers tells the server before it publishes, so
++            // no one else is ever sent its tracks.
++            let allowed = imp.settings.lock().unwrap().allowed_subscribers.clone();
++            if let (false, Some(allowed)) = (imp.is_subscriber(), allowed) {
++                let permission = proto::SubscriptionPermission {
++                    all_participants: false,
++                    track_permissions: allowed
++                        .into_iter()
++                        .map(|identity| proto::TrackPermission {
++                            participant_identity: identity,
++                            all_tracks: true,
++                            ..Default::default()
++                        })
++                        .collect(),
++                };
++                imp.require_signal_client()
++                    .send(proto::signal_request::Message::SubscriptionPermission(
++                        permission,
++                    ))
++                    .await;
++            }
++
+             imp.start_room_timeout_task();
+             imp.obj().notify("connection-state");
+ 
+@@ -1061,6 +1086,12 @@ impl ObjectImpl for Signaller {
+                     .flags(glib::ParamFlags::READWRITE)
+                     .element_spec(&glib::ParamSpecString::builder("producer-peer-id").build())
+                     .build(),
++                gst::ParamSpecArray::builder("allowed-subscribers")
++                    .nick("Allowed subscribers")
++                    .blurb("Identities that may subscribe to a producer's tracks; once set, even empty, no one else may")
++                    .element_spec(&glib::ParamSpecString::builder("identity").build())
++                    .mutable_ready()
++                    .build(),
+                 glib::ParamSpecEnum::builder::<ConnectionState>("connection-state")
+                     .nick("Connection State")
+                     .blurb("Connection State with the LiveKit server")
+@@ -1120,6 +1151,18 @@ impl ObjectImpl for Signaller {
+                     .map(|id| id.to_string())
+                     .collect::<Vec<String>>()
+             }
++            "allowed-subscribers" => {
++                settings.allowed_subscribers = Some(
++                    value
++                        .get::<gst::ArrayRef>()
++                        .expect("type checked upstream")
++                        .as_slice()
++                        .iter()
++                        .filter_map(|id| id.get::<&str>().ok())
++                        .map(|id| id.to_string())
++                        .collect::<Vec<String>>(),
++                )
++            }
+             "room-timeout" => {
+                 let val = value.get().unwrap();
+                 if settings.room_timeout != val {
+@@ -1167,6 +1210,10 @@ impl ObjectImpl for Signaller {
+             "excluded-producer-peer-ids" => {
+                 gst::Array::new(&settings.excluded_produder_peer_ids).to_value()
+             }
++            "allowed-subscribers" => {
++                gst::Array::new(settings.allowed_subscribers.as_deref().unwrap_or_default())
++                    .to_value()
++            }
+             "connection-state" => {
+                 drop(settings);
+                 let connection = self.connection.lock().unwrap();

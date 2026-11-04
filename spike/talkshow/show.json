@@ -1,0 +1,530 @@
+{
+ "title": "The Blether, a synthetic talk show for WeaveSignal tests",
+ "station": "Kettle FM (fictional)",
+ "note": "Voices: consented personal-use clones (N, Trevor, Drukhi) and ODC-By VCTK speakers. Music is copyrighted. Never stream this publicly (ADR-0078). In the live run the operator takes the host's lines and the others wait for the host to finish.",
+ "sample_rate": 48000,
+ "channels": 2,
+ "cast": {
+  "host": {
+   "name": "Eilidh Fraser-MacLeod",
+   "role": "presenter, slot 1 (the operator in the live run)",
+   "voice": "voicelab:N",
+   "participant": "host"
+  },
+  "guest": {
+   "name": "Gregor Stewart",
+   "role": "guest in a browser, slot 2: chair of the Loch Ness and Lesser Lochs Phenomena Society, on a caravan site at Drumnadrochit",
+   "voice": "voicelab:Trevor",
+   "participant": "guest-gregor"
+  },
+  "caller": {
+   "name": "Dougal Thomson",
+   "role": "caller, slot 4: thinks his wife is an alien",
+   "voice": "voicelab:Drukhi",
+   "participant": "caller-dougal"
+  },
+  "farmer": {
+   "name": "Seamus Boyd",
+   "role": "caller, slot 3: a farmer near Ballymena whose Highland cows stand in rings",
+   "voice": "clone of a Northern Irish VCTK speaker (ODC-By)",
+   "participant": "caller-seamus"
+  },
+  "screener": {
+   "name": "Moira",
+   "role": "screener; heard by the callers only, never on air",
+   "voice": "clone of a Scottish VCTK speaker (ODC-By)",
+   "participant": "screener-moira"
+  },
+  "news": {
+   "name": "Isla Campbell",
+   "role": "newsreader, a playout element",
+   "voice": "clone of a Scottish VCTK speaker (ODC-By)",
+   "participant": "playout"
+  },
+  "dj": {
+   "name": "Finlay Grant",
+   "role": "remote DJ by WHIP, slot 5, next show Steeped, broadcasting from Newcastle",
+   "voice": "clone of a north-east England VCTK speaker if one exists, else designed 'male, young adult, british accent'",
+   "participant": "dj-finlay"
+  }
+ },
+ "music": {
+  "ident": {
+   "file": "AIsearch.opus",
+   "in": 0.0,
+   "out": 12.0,
+   "use": "station ident and bed"
+  },
+  "track1": {
+   "file": "Isaac_Blues_-_Incredible_the_jimi_Hendrix_of_keyboard____ym7G9z.mp4",
+   "in": 0.0,
+   "out": 75.0,
+   "use": "first record, cart F3"
+  },
+  "track2": {
+   "file": "Swig______-_This_shit_hit_me_in_the_fucking_soul_man_cmM1xZ.mp4",
+   "in": 0.0,
+   "out": 60.0,
+   "use": "the caller's request"
+  },
+  "sting": {
+   "file": "FKfbXq7ShSIKCZBo.mp4",
+   "in": 0.0,
+   "out": 6.0,
+   "use": "news sting, cart F2"
+  },
+  "track3": {
+   "file": "YTDown_YouTube_Bush-Glycerine-Live-at-Woodstock-99_Media_uHlN1Hy1bR4_001_480p.mp4",
+   "in": 0.0,
+   "out": 90.0,
+   "use": "Finlay's first record after the handover"
+  }
+ },
+ "cues": [
+  {
+   "kind": "music",
+   "music": "ident",
+   "gap": 0.0,
+   "bed": true,
+   "feature": "playout: the station ident; the desk outputs from its first moment"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Good afternoon and welcome to The Blether on Kettle FM. Today's question: are they among us? We've got UFOs, we've got Nessie, and we've got cows. Trust me on the cows.",
+   "gap": -8.0,
+   "route": "air",
+   "feature": "the presenter over a ducked bed"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Joining me from a caravan site at Drumnadrochit, the chair of the Loch Ness and Lesser Lochs Phenomena Society, Gregor Stewart. Gregor, can you hear me?",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "Loud and clear, Eilidh. Apologies if the signal drops. The caravan is on a slope and I think it's moving.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "a browser guest joins; his own mix-minus"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Gregor, the big question first. Have you seen her?",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "Seven times. Twice from the shore, once from a pedalo, and four times in the reflection of a kettle, which the society counts as half a sighting each.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "So, five sightings.",
+   "gap": -1.0,
+   "route": "air",
+   "feature": "cross-talk: both speak at once; tests echo and the mix-minus"
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "Five sightings, yes, and a very shiny kettle.",
+   "gap": -0.5,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Now, you've got a theory about stone circles.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "I do. Callanish, the Ring of Brodgar, all of them. They're landing pads, Eilidh. Ancient ones. And crop circles? Crop circles are just the parking tickets.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Parking tickets.",
+   "gap": 0.6,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "You leave your saucer in a field in Wiltshire for more than two hours, you get a very intricate fine.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "On that note, here's something that cannot possibly be human. Isaac Blues.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "a cart fired on its key"
+  },
+  {
+   "kind": "music",
+   "music": "track1",
+   "gap": 0.3,
+   "bed": false,
+   "feature": "playout: a record from the cart wall; the room stays live under it"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Isaac Blues. Gregor, you were humming along the whole way through. I could hear you.",
+   "gap": 0.6,
+   "route": "air",
+   "feature": "the guest heard in the room while the record plays, not on air"
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "That wasn't me. That was the caravan.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Right, the phones are busy. Let's go to line one.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "the presenter takes the call the screener has ready"
+  },
+  {
+   "kind": "speech",
+   "who": "screener",
+   "text": "Dougal, you're on after Eilidh finishes this link. Keep it clean, love, and turn your radio down.",
+   "gap": -40.0,
+   "route": "caller-only",
+   "feature": "the screener talks to the caller only, under the record: never on air",
+   "after": 13
+  },
+  {
+   "kind": "speech",
+   "who": "caller",
+   "text": "Aye, it's off. I'll have to keep my voice down, mind. She's in the kitchen.",
+   "gap": 0.4,
+   "route": "caller-only",
+   "feature": "the caller answers the screener, still off air"
+  },
+  {
+   "kind": "event",
+   "what": "caller to air",
+   "gap": 0.3,
+   "feature": "the screener sends Dougal to the desk; the presenter opens his slot",
+   "after": 16
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Dougal Thomson, you're on The Blether.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "caller",
+   "text": "Hiya, Eilidh. I'm going to come straight out with it. I think my wife is an alien.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Right. Okay. What makes you say that?",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "caller",
+   "text": "She hums at the microwave, and the microwave hums back. She ate a Tunnock's teacake last night with the foil still on. And she's started sleeping on the ceiling. Well, near the ceiling. On top of the wardrobe. I'm not making this shit up, Eilidh.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "a profanity on air: the producer presses Dump within the 8 second delay"
+  },
+  {
+   "kind": "event",
+   "what": "dump",
+   "gap": 0.0,
+   "feature": "the profanity delay dumped; listeners lose about 8 seconds, the room is untouched"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Dougal, language, please, it's the afternoon. Have you tried just asking her?",
+   "gap": 0.8,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "caller",
+   "text": "I did. She said, don't be daft, Dougal. Which is exactly what an alien would say.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "Classic deflection. Textbook.",
+   "gap": 0.3,
+   "route": "air",
+   "feature": "a second voice joins the caller's line: the guest hears the caller in his own mix"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Dougal, here's my advice. Be very, very nice to her. If she is an alien, you want to be on the right side of the invasion. And if she isn't, you're still married, so be nice anyway. This one's for you.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "music",
+   "music": "track2",
+   "gap": 0.4,
+   "bed": false,
+   "feature": "playout: the request"
+  },
+  {
+   "kind": "speech",
+   "who": "screener",
+   "text": "Seamus, you're next. Keep it short, she's got the news at the top of the hour.",
+   "gap": -20.0,
+   "route": "caller-only",
+   "feature": "the screener and the second caller, off air"
+  },
+  {
+   "kind": "speech",
+   "who": "farmer",
+   "text": "Grand, grand. I'll be quick.",
+   "gap": 0.4,
+   "route": "caller-only",
+   "feature": ""
+  },
+  {
+   "kind": "event",
+   "what": "caller to air",
+   "gap": 0.3,
+   "feature": "Seamus's slot opens after the record",
+   "after": 29
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Seamus Boyd, calling from near Ballymena. Seamus, what's happening on your farm?",
+   "gap": 0.5,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "farmer",
+   "text": "Well, Eilidh, I keep Highland cows. Twelve of them. And every morning, every single morning, they're standing in a perfect circle. Facing outwards.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Facing outwards.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "farmer",
+   "text": "Facing outwards. And the grass in the middle is flattened in the shape of a bigger cow.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "That's the stone circle connection right there. Bovine geometry. They're marking a landing site.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Or, and hear me out, they're keeping warm.",
+   "gap": -0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "farmer",
+   "text": "Facing outwards, Eilidh? No. They're guarding something.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Seamus, if anything lands, you phone us first. It's coming up to two o'clock. Here's the news with Isla Campbell.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "the hard post at 14:00, back-timed"
+  },
+  {
+   "kind": "music",
+   "music": "sting",
+   "gap": 0.2,
+   "bed": false,
+   "feature": "playout: the news sting on F2"
+  },
+  {
+   "kind": "speech",
+   "who": "news",
+   "text": "Kettle FM news at two. Police in Inverness have asked a man who has reported the Loch Ness Monster four times this week to stop phoning them, and to phone Kettle FM instead.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "playout: a scheduled element, the newsreader"
+  },
+  {
+   "kind": "speech",
+   "who": "news",
+   "text": "And the weather. Clear skies tonight across the Highlands, ideal for spotting satellites, planets, and anything else that may be watching. Cows are advised to stay indoors.",
+   "gap": 0.6,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "event",
+   "what": "playout down",
+   "gap": 0.5,
+   "feature": "playout stops: strips say OPEN, the lamp says PLAYOUT DOWN, listeners hear the fallback; the room keeps talking"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Gregor, I've just lost the news feed on my screen.",
+   "gap": 0.5,
+   "route": "air",
+   "feature": "the room stays live while playout is down"
+  },
+  {
+   "kind": "speech",
+   "who": "guest",
+   "text": "Don't panic. But that is exactly how it starts.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "We're on the fallback, folks, bear with us. And, we're back.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "Restart playout: ON AIR returns when listeners hear the programme"
+  },
+  {
+   "kind": "event",
+   "what": "playout restored",
+   "gap": 0.0,
+   "feature": "playout restarted with Ctrl+R"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Waiting in the wings for Steeped at five past, broadcasting from Newcastle, Finlay Grant. Finlay, you're in the room.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "the overlap handover: the remote DJ joins before his slot"
+  },
+  {
+   "kind": "speech",
+   "who": "dj",
+   "text": "Howay, Eilidh! I've been listening in. For the record, the only thing in the sky over Newcastle tonight is a seagull with a chip.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "the remote DJ talks over the overlap window"
+  },
+  {
+   "kind": "speech",
+   "who": "host",
+   "text": "Finlay, it's all yours. Gregor, thank you, mind the slope. I'm Eilidh Fraser-MacLeod, and this was The Blether.",
+   "gap": 0.3,
+   "route": "air",
+   "feature": ""
+  },
+  {
+   "kind": "event",
+   "what": "handover",
+   "gap": 0.2,
+   "feature": "one action passes the programme to Finlay; the presenter's slot leaves the stage"
+  },
+  {
+   "kind": "speech",
+   "who": "dj",
+   "text": "Cheers, Eilidh. This is Steeped on Kettle FM, and we start loud. From Woodstock ninety-nine, this is Bush.",
+   "gap": 0.4,
+   "route": "air",
+   "feature": "the remote DJ is now the programme"
+  },
+  {
+   "kind": "music",
+   "music": "track3",
+   "gap": 0.3,
+   "bed": false,
+   "feature": "playout: the remote DJ's first record"
+  }
+ ],
+ "say_as": {
+  "Eilidh": "Ay-lee",
+  "MacLeod": "MacLoud",
+  "Drumnadrochit": "Drum-nuh-drockit",
+  "Seamus": "Shay-mus",
+  "Isla": "Eye-la",
+  "Brodgar": "Brod-gar",
+  "Callanish": "Calla-nish",
+  "Ballymena": "Bally-meena",
+  "Howay": "Ha-way",
+  "Tunnock's": "Tunnocks",
+  "Steeped": "Steeped"
+ },
+ "seeds": {
+  "default": 11,
+  "7": 37,
+  "21": 37,
+  "39": 37
+ }
+}

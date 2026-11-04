@@ -1,0 +1,153 @@
+{
+ "seconds": 110.0,
+ "jitterbuffer_ms": 50,
+ "video": false,
+ "streams": {
+  "recvA": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 97.6,
+    "p95": 98.0,
+    "min": 97.4,
+    "max": 98.1
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     97.7,
+     97.7,
+     97.4,
+     97.9,
+     97.6
+    ]
+   }
+  },
+  "recvB": {
+   "onsets": 36,
+   "classes": {
+    "A": 0,
+    "B": 36
+   },
+   "latency_ms_B": {
+    "n": 34,
+    "p50": 97.7,
+    "p95": 98.0,
+    "min": 97.4,
+    "max": 98.0
+   }
+  },
+  "programme": {
+   "onsets": 72,
+   "classes": {
+    "A": 36,
+    "B": 36
+   },
+   "latency_ms_A": {
+    "n": 34,
+    "p50": 108.1,
+    "p95": 108.4,
+    "min": 107.9,
+    "max": 108.4
+   },
+   "latency_ms_B": {
+    "n": 34,
+    "p50": 108.0,
+    "p95": 108.3,
+    "min": 107.3,
+    "max": 108.3
+   },
+   "marker_latency_ms": {
+    "n": 4,
+    "values": [
+     108.1,
+     108.2,
+     108.1,
+     108.2
+    ]
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 108.1,
+    "p95": 108.4,
+    "min": 107.9,
+    "max": 108.6
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     108.4,
+     108.1,
+     107.9,
+     108.2,
+     108.1
+    ]
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 54,
+   "classes": {
+    "A": 54,
+    "B": 0
+   },
+   "latency_ms_A": {
+    "n": 52,
+    "p50": 164.9,
+    "p95": 165.2,
+    "min": 164.0,
+    "max": 165.3
+   },
+   "marker_latency_ms": {
+    "n": 5,
+    "values": [
+     164.9,
+     164.9,
+     164.9,
+     164.9,
+     165.1
+    ]
+   }
+  },
+  "listener": {
+   "onsets": 49,
+   "classes": {
+    "A": 25,
+    "B": 24
+   },
+   "latency_ms_A": {
+    "n": 23,
+    "p50": 1397.3,
+    "p95": 1397.4,
+    "min": 1396.7,
+    "max": 1397.5
+   },
+   "latency_ms_B": {
+    "n": 22,
+    "p50": 397.2,
+    "p95": 397.3,
+    "min": 396.9,
+    "max": 397.6
+   },
+   "marker_latency_ms": {
+    "n": 2,
+    "values": [
+     15397.2,
+     15397.2
+    ]
+   }
+  }
+ },
+ "mixminusB_peak_dbfs": 0.0,
+ "sent_peak_dbfs": -1.9
+}

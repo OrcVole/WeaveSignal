@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+[package]
+name = "weavesignal-model"
+description = "WeaveSignal's data model and migrations; every row carries a station identifier (ADR-0047)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+utoipa.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+sqlx.workspace = true
+# Shows, series and episodes (M8, migration 0007): the schedule rule's dates in the station's zone.
+jiff.workspace = true
+# Staff accounts (migration 0012, ADR-0127): passwords as Argon2id, session tokens as SHA-256.
+argon2.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

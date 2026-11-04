@@ -1,0 +1,86 @@
+{
+  "manifestVersion": 2,
+  "id": "top.weavesignal.cloudronapp",
+  "title": "WeaveSignal",
+  "author": "The WeaveSignal contributors",
+  "tagline": "An internet radio and video studio: a live room with callers, the desk, playout, streams and chat",
+  "description": "file://DESCRIPTION.md",
+  "version": "1.0.0",
+  "upstreamVersion": "1.0.0",
+  "website": "https://weavesignal.top",
+  "contactEmail": "info@weavesignal.top",
+  "packagerName": "The WeaveSignal contributors",
+  "packagerUrl": "https://weavesignal.top",
+  "documentationUrl": "https://weavesignal.top/how-to/install-on-cloudron/",
+  "icon": "file://logo.png",
+  "healthCheckPath": "/health",
+  "httpPort": 8000,
+  "httpPorts": {
+    "LISTENERS_DOMAIN": {
+      "title": "Listener stream",
+      "description": "The listener stream (Ogg Opus), served by icecast.server behind this domain. It is not listed in any directory.",
+      "containerPort": 8001,
+      "defaultValue": "weavesignal-listen"
+    },
+    "ROOM_DOMAIN": {
+      "title": "Live room signalling",
+      "description": "LiveKit's signalling for presenters, guests and callers (WebSocket). Room access needs a short-lived token from the station.",
+      "containerPort": 8002,
+      "defaultValue": "weavesignal-room"
+    },
+    "PUBLIC_DOMAIN": {
+      "title": "Public pages",
+      "description": "The station's public pages, outside Cloudron's login: the player with call-in and the live chat, invited guests' join page, the echo test, podcast feeds, show cards and episode files. The app's own domain stays for the studio.",
+      "containerPort": 8003,
+      "defaultValue": "weavesignal-public"
+    }
+  },
+  "udpPorts": {
+    "LIVEKIT_MEDIA_PORT": {
+      "title": "Live room media (UDP)",
+      "description": "LiveKit's one WebRTC media port (ADR-0023). Default 7882; a port in 52000-60000 or 443/udp are alternatives, and any free UDP port may be used. Avoid 50000-51000, Cloudron's own TURN relay range.",
+      "defaultValue": 7882
+    },
+    "TURN_UDP_PORT": {
+      "title": "TURN over UDP",
+      "description": "LiveKit's built-in TURN over UDP. Off by default: guests who cannot use the media port use TURN over TLS. Cloudron's own TURN holds 3478, so 3479 or 13478; any free UDP port may be used.",
+      "defaultValue": 3479,
+      "enabledByDefault": false
+    }
+  },
+  "tcpPorts": {
+    "TURN_TLS_PORT": {
+      "title": "TURN over TLS",
+      "description": "LiveKit's built-in TURN over TLS, for guests on networks that block UDP and for GrapheneOS's browser (ADR-0059). On Cloudron the default is 15349, because Cloudron's own TURN holds 5349 (ADR-0106); any free TCP port may be used.",
+      "defaultValue": 15349
+    },
+    "LIVEKIT_TCP_PORT": {
+      "title": "Live room media over TCP",
+      "description": "LiveKit's ICE over TCP, a fallback when UDP is blocked. Off by default: TURN over TLS covers the same guests. Default 7881; any free TCP port may be used.",
+      "defaultValue": 7881,
+      "enabledByDefault": false
+    }
+  },
+  "addons": {
+    "localstorage": {},
+    "postgresql": {},
+    "sendmail": {},
+    "tls": {},
+    "proxyAuth": {
+      "path": "!/health",
+      "supportsBearerAuth": true
+    }
+  },
+  "optionalSso": true,
+  "memoryLimit": 1610612736,
+  "minBoxVersion": "9.2.0",
+  "postInstallMessage": "file://POSTINSTALL.md",
+  "changelog": "file://CHANGELOG.md",
+  "tags": [
+    "media",
+    "radio",
+    "streaming",
+    "video",
+    "chat"
+  ]
+}

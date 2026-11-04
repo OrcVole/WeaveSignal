@@ -1,0 +1,193 @@
+{
+ "seconds": 15.0,
+ "jitterbuffer_ms": 50,
+ "video": false,
+ "streams": {
+  "recvA": {
+   "onsets": 30,
+   "classes": {
+    "A": 16,
+    "B": 14
+   },
+   "latency_ms_A": {
+    "n": 14,
+    "p50": 97.9,
+    "p95": 173.1,
+    "min": 92.6,
+    "max": 173.1
+   },
+   "latency_ms_B": {
+    "n": 5,
+    "p50": 818.1,
+    "p95": 1671.0,
+    "min": 290.4,
+    "max": 1671.0
+   },
+   "marker_latency_ms": {
+    "n": 11,
+    "values": [
+     97.9,
+     97.7,
+     97.9,
+     97.8,
+     97.9,
+     92.6,
+     173.1,
+     98.1,
+     99.1,
+     98.0,
+     97.7
+    ]
+   }
+  },
+  "recvB": {
+   "onsets": 4,
+   "classes": {
+    "A": 0,
+    "B": 4
+   },
+   "latency_ms_B": {
+    "n": 2,
+    "p50": 97.5,
+    "p95": 97.5,
+    "min": 97.5,
+    "max": 97.5
+   }
+  },
+  "programme": {
+   "onsets": 33,
+   "classes": {
+    "A": 16,
+    "B": 17
+   },
+   "latency_ms_A": {
+    "n": 14,
+    "p50": 114.6,
+    "p95": 184.6,
+    "min": 105.8,
+    "max": 184.6
+   },
+   "latency_ms_B": {
+    "n": 8,
+    "p50": 736.8,
+    "p95": 1679.8,
+    "min": 113.8,
+    "max": 1679.8
+   },
+   "marker_latency_ms": {
+    "n": 11,
+    "values": [
+     106.3,
+     109.1,
+     114.6,
+     114.5,
+     114.5,
+     105.8,
+     184.6,
+     115.1,
+     116.2,
+     105.8,
+     114.7
+    ]
+   }
+  },
+  "mixminusB_at_desk": {
+   "onsets": 30,
+   "classes": {
+    "A": 16,
+    "B": 14
+   },
+   "latency_ms_A": {
+    "n": 14,
+    "p50": 114.5,
+    "p95": 179.7,
+    "min": 99.5,
+    "max": 179.7
+   },
+   "latency_ms_B": {
+    "n": 5,
+    "p50": 834.7,
+    "p95": 1677.9,
+    "min": 307.1,
+    "max": 1677.9
+   },
+   "marker_latency_ms": {
+    "n": 11,
+    "values": [
+     104.7,
+     104.6,
+     114.7,
+     114.5,
+     114.5,
+     99.5,
+     179.7,
+     115.1,
+     116.1,
+     104.9,
+     114.5
+    ]
+   }
+  },
+  "mixminusB_at_B": {
+   "onsets": 29,
+   "classes": {
+    "A": 16,
+    "B": 13
+   },
+   "latency_ms_A": {
+    "n": 14,
+    "p50": 163.7,
+    "p95": 241.6,
+    "min": 7.1,
+    "max": 241.6
+   },
+   "latency_ms_B": {
+    "n": 5,
+    "p50": 886.7,
+    "p95": 1737.0,
+    "min": 360.0,
+    "max": 1737.0
+   },
+   "marker_latency_ms": {
+    "n": 11,
+    "values": [
+     163.4,
+     166.0,
+     158.7,
+     165.6,
+     165.2,
+     162.6,
+     241.6,
+     166.6,
+     167.3,
+     163.3,
+     166.2
+    ]
+   }
+  },
+  "listener": {
+   "onsets": 0,
+   "classes": {
+    "A": 0,
+    "B": 0
+   }
+  }
+ },
+ "mixminusB_peak_dbfs": -4.7,
+ "mixminusB_leak_3k_vs_1k_db": -4.8,
+ "programme_3k_vs_1k_db_reference": 13.6,
+ "sent_peak_dbfs": -4.6,
+ "turns": [
+  {
+   "clip": "q01.s16",
+   "start": 3.32,
+   "end": 12.88,
+   "answered": true,
+   "next_after_s": 1.23
+  },
+  {
+   "clip": "q02.s16",
+   "start": 14.11
+  }
+ ]
+}
