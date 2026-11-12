@@ -3,7 +3,7 @@ title: "Start on the count-in, and take turns"
 description: "How the producer or screener counts a presenter in without listeners hearing, and how to leave room for the delay when talking with remote guests."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-06
 sidebar:
   order: 4
 ---
@@ -37,5 +37,4 @@ On loopback the delay is under a tenth of a second; over the internet, in a test
 - Do not talk over a remote guest to hurry them: they hear you late, and both of you stop.
 - To hand over, finish your sentence, then pause.
 
-The DJ overlap handover, in which an incoming DJ joins, is cued before the slot and takes the programme with one key (`⇧⏎`, ADR-0074), is [planned](/docs/reference/release-one-status/#not-in-release-one).
-In 1.0.0 the key only shows a note: cue the incoming DJ with their slot's cue key, put them on air with its digit, and take the outgoing DJ off with theirs.
+When the next show is another DJ's, hand over with an overlap: [Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/).

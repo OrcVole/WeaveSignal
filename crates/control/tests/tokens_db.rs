@@ -103,6 +103,7 @@ async fn plane(
         staff: staff.clone(),
         publishing,
         zone: Arc::new(StationZone::new("Europe/London")),
+        live: None,
     })));
     Plane {
         app: layer(app, staff.clone()),

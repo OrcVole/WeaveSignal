@@ -83,6 +83,12 @@ A show without a picture of its own gets the station's on the slate.
 
 ![The Slate picture field with a picture chosen: its preview, its size, and Replace and Remove.](../../../../../assets/screens/reference-calendar-show-still.png)
 
+## `calendar.show-presenter`
+
+The **Presenter** fields on the show level (ADR-0214, ADR-0219): the **on-air name** and **takedown contact** the consent words name while this show is on air (the contact first, then the station's own as the host; empty, the station's alone), the **channel links**, one per line, and whether the show plays **commercial music** (a reminder that a UK webcast of it needs PPL and PRS for Music licences; it blocks nothing).
+They are the same answers a presenter gives in their own setup ([Set up your show](/docs/how-to/set-up-your-show/)), and the show's weekly rule is the usual time that setup asks for.
+A save that leaves these fields out keeps them, so an older studio build or an integration never wipes a presenter's details.
+
 ## `calendar.aired-episode`
 
 ![An aired episode: every field read-only, marked as aired, with the note that it is frozen.](../../../../../assets/screens/reference-calendar-aired-episode.png)

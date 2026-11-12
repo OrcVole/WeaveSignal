@@ -83,6 +83,13 @@ still_max_height = 720
 # Joining from a browser (M3): the player page's call-in and the station's invite links.
 [join]
 stream_url = ""                  # the listener stream as the player reaches it, through the proxy
+stream_kbps = 96                 # the Opus stream's rate (the listener process's listeners.bitrate, ADR-0233)
+# The MP3 streams the player offers beside it (ADR-0232), each at stream_url's address with its
+# own mount, as the listener process's listeners.compat and listeners.compat_high say:
+# mp3 = [
+#   { enabled = true, mount = "programme.mp3", kbps = 128 },
+#   { enabled = true, mount = "programme-high.mp3", kbps = 320 },
+# ]
 call_in = true                   # the player page offers "call in" (ADR-0006)
 # What a caller agrees to before they can call: {station} becomes the station's name, {kept} how
 # long its recordings are kept (from the Jurisdiction setting), {contact} the line below. Changing
@@ -109,6 +116,17 @@ challenge_ttl_s = 1800           # a lobby left open longer fetches a new challe
 # a robots meta tag and /robots.txt disallows everything. true: the public address (the player,
 # feeds, cards) may be listed; the API, the invite page and the echo test never are.
 listed = false
+
+# The station's setup page (ADR-0237), served with the public pages at /setup/ and open only to
+# an admin (the station key, or an admin's sign-in). What it stores is in the database: the
+# station's name and takedown contact, which then win over `station.name` and
+# `join.consent_contact` here, and the look (accent colour, brand icon, banner). Nothing needs
+# setting for that. The two settings below are for a package whose own proxy asks listeners for a
+# password (the Cloudron package): the page writes its answer to `overrides_file`, the package's
+# start script reads it at the next start, and `stream_auth` tells the page what is in force.
+[setup]
+# overrides_file = "/app/data/setup.env"
+# stream_auth = false
 
 # Show cards and podcast feeds (M8). Every card prints the station's address (ADR-0056), and
 # the feeds, the card images and the episode files are reached under it: /feeds/<show>.xml,

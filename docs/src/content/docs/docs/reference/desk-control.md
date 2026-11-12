@@ -29,6 +29,7 @@ An operator on the server can use it directly.
 | `{"op": "cart_fire", …}`, `cart_stop`, `cart_stop_all`, `cart_plays` | fire, fade and list carts, and read their play events: see [Carts in the desk](/docs/reference/desk-carts/) |
 | `{"op": "picture", "mode": "auto"}`, `caption`, `now_playing`, `thumbs` | the picture's mode, a caption over it, the slate's text, a small JPEG of each camera (video on; with video off they answer the code `video_off`): see [Video in the desk](/docs/reference/desk-video/) |
 | `{"op": "mode", "mode": "auto"}` | the station's mode, `live` or `auto` (any other word answers `invalid`): see [The station's mode](#the-stations-mode) |
+| `{"op": "rtmp", "set": "…", "destinations": [{"name": …, "url": …, "key": …, "profile": "compatible", "enabled": true}]}` | RTMP out's destinations, with their keys, from the control plane (video on); the status's `video.rtmp` reports each one, never its key: see [RTMP out](/docs/reference/rtmp-out/#status) |
 
 A request that succeeds answers `{"ok": true}`, or `ok: true` with what it asked for (`status`, `dump`, the cart words, `thumbs`).
 A request for someone the desk does not know answers `{"ok": false, "error": "…"}`, as does a line that is not a request; some errors also carry a `code`, such as `invalid` or `video_off`.

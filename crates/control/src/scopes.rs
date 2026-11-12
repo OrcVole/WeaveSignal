@@ -195,6 +195,9 @@ pub const NEVER: &[&str] = &[
     "/api/v1/pass/events",
     "/api/v1/pass/leave",
     "/api/v1/playout/settings",
+    // The outgoing Icecast source (ADR-0226) shows the remote server's address and starts a
+    // stream to it: a staff session's, never a token's.
+    "/api/v1/icecast-out",
     "/api/v1/people",
     "/api/v1/people/{id}/erase",
     "/api/v1/now-playing",
@@ -209,6 +212,15 @@ pub const NEVER: &[&str] = &[
     "/api/v1/staff/{id}",
     "/api/v1/staff/{id}/password",
     "/api/v1/staff/{id}/email",
+    // The setup page and the station's look (ADR-0237): an admin's, never a token's; reading
+    // the look is open to everyone.
+    "/api/v1/setup",
+    "/api/v1/setup/finish",
+    "/api/v1/setup/stream-password",
+    "/api/v1/branding",
+    "/api/v1/branding/accent",
+    "/api/v1/branding/icon",
+    "/api/v1/branding/banner",
     "/api/v1/retention",
     "/api/v1/retention/preview",
     "/api/v1/retention/sweep",
@@ -230,6 +242,11 @@ pub const NEVER: &[&str] = &[
     "/api/v1/public/station",
     "/api/v1/public/schedule",
     "/api/v1/public/episodes",
+    // rtmp-out: RTMP out's destinations hold stream keys: an admin's, never a token's.
+    "/api/v1/rtmp",
+    "/api/v1/rtmp/destinations",
+    "/api/v1/rtmp/destinations/{id}",
+    "/api/v1/rtmp/destinations/{id}/enabled",
 ];
 
 /// The scope a route needs, for a method and the route as registered (`MatchedPath`).
@@ -280,6 +297,7 @@ mod tests {
             ("tokens.rs", include_str!("tokens.rs")),
             ("webhooks.rs", include_str!("webhooks.rs")),
             ("open.rs", include_str!("open.rs")),
+            ("rtmp.rs", include_str!("rtmp.rs")),
         ];
         let mut unplaced = Vec::new();
         let mut seen = 0;

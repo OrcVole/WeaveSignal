@@ -11,6 +11,7 @@ import {
   CLOSE_SIGNED_OUT,
   CLOSE_SLOW,
   applyEvent,
+  withAvatar,
   type ClientFrame,
   type Me,
   type MessageKind,
@@ -21,6 +22,7 @@ import {
   type Statement,
 } from '../../../../../packages/ui/chat.ts';
 import { chatBackoff, heldCopy, positionAfter, socketUrl } from './model.ts';
+import { attach as attachApi } from './api.ts';
 
 export type Link = 'connecting' | 'open' | 'reconnecting';
 
@@ -76,6 +78,9 @@ export class ChatClient {
   session = $state<string | null>(null);
   /** The socket has been welcomed at least once since the page loaded. */
   everOpen = $state(false);
+  /** Pictures this page attached, by attachment id: a preview from the file itself while the
+   *  station decides (the station serves a waiting one only to its author, with the bearer). */
+  previews = $state<Record<string, string>>({});
 
   /** New room messages as they arrive live (not history), for announcements. */
   onNew: ((m: Msg) => void) | null = null;
@@ -137,6 +142,25 @@ export class ChatClient {
       this.#pending.set(nonce, { body, kind, reply_to: replyTo, resolve });
       this.#send(frame);
     });
+  }
+
+  /** Post a message with a picture or document (ADR-0262). It waits for the station, shown to
+   *  this chatter as waiting; a picture keeps a preview from the file chosen, on this page only. */
+  async attach(file: File, body: string, replyTo: Msg['reply_to'], playhead_ms: number | undefined): Promise<AckResult> {
+    if (!this.session || !this.me) return { state: 'refused', words: 'Sign in to post.', retry_ms: null, code: 'signed_out' };
+    const nonce = `${Date.now().toString(36)}-${++this.#seq}`;
+    try {
+      const r = await attachApi(this.session, file, { nonce, name: file.name, body, reply_to: replyTo?.id, playhead_ms });
+      if (r.attachment.kind === 'picture') this.previews[r.attachment.id] = URL.createObjectURL(file);
+      if (!this.held.some((m) => m.id === r.id) && !this.list.some((m) => m.id === r.id)) {
+        const author = { id: this.me.id, name: this.me.name, standing: this.me.standing, guest: false, avatar: this.me.avatar ?? null };
+        this.held = [...this.held, { ...heldCopy(r.id, body, 'chat', author, replyTo, Date.now() + this.skewMs), attachment: r.attachment }];
+      }
+      return { state: 'held', id: r.id };
+    } catch (e) {
+      const status = (e as { status?: number }).status ?? 0;
+      return { state: 'refused', words: e instanceof Error ? e.message : String(e), retry_ms: status === 429 ? 5_000 : null, code: null };
+    }
   }
 
   react(id: number, emoji: string): void {
@@ -258,6 +282,7 @@ export class ChatClient {
       case 'pin':
       case 'feature':
       case 'react':
+      case 'avatar':
         this.#public(f);
         this.#pos = positionAfter(this.#pos, f);
         return;
@@ -287,6 +312,12 @@ export class ChatClient {
         return;
       }
       case 'mine':
+        // A message with a picture or document waits for the station (ADR-0262): it shows in the
+        // room as the chatter's own, waiting, not in the lane to the studio.
+        if (f.m.attachment) {
+          if (!this.held.some((m) => m.id === f.m.id) && !this.list.some((m) => m.id === f.m.id)) this.held = [...this.held, f.m];
+          return;
+        }
         this.#lane({ id: `m-${f.m.id}`, at_ms: f.m.server_ms, from: 'you', mine: true, body: f.m.body, invite: false });
         return;
       case 'released': {
@@ -327,6 +358,12 @@ export class ChatClient {
       this.featured = { m: f.m, at: Date.now() };
     } else if (f.t === 'react' && this.pinned?.id === f.id) {
       this.pinned = { ...this.pinned, reactions: f.reactions };
+    } else if (f.t === 'avatar') {
+      // Every copy of that chatter's messages takes the new avatar (ADR-0235).
+      const mine = (m: Msg) => (m.author.id === f.account ? withAvatar(m, f.avatar) : m);
+      this.held = this.held.map(mine);
+      if (this.pinned) this.pinned = mine(this.pinned);
+      if (this.featured) this.featured = { ...this.featured, m: mine(this.featured.m) };
     }
   }
 
@@ -339,7 +376,7 @@ export class ChatClient {
       return;
     }
     if (f.state === 'held' && f.id !== null && p.kind !== 'studio' && this.me) {
-      const author = { id: this.me.id, name: this.me.name, standing: this.me.standing, guest: this.me.kind === 'guest' };
+      const author = { id: this.me.id, name: this.me.name, standing: this.me.standing, guest: this.me.kind === 'guest', avatar: this.me.avatar ?? null };
       if (!this.list.some((m) => m.id === f.id)) {
         this.held = [...this.held, heldCopy(f.id, p.body, p.kind, author, p.reply_to, Date.now() + this.skewMs)];
       }

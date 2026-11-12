@@ -76,7 +76,9 @@ pub(crate) struct Inner {
 }
 
 pub struct Hub {
-    station: String,
+    /// The station's name and takedown contact in force (ADR-0237): the setup page's, else the
+    /// settings file's. The studio's view and every route that says either read it here.
+    pub live: Arc<crate::setup::Live>,
     pub desk: DeskClient,
     pub room: Option<RoomAdmin>,
     /// Playout, the cart settings and the database, for the cart wall.
@@ -120,7 +122,7 @@ impl Hub {
         let view = studio.view(station, None, error.clone(), now_ms());
         let (tx, _) = watch::channel(Arc::new(view));
         Arc::new(Hub {
-            station: station.to_owned(),
+            live: Arc::new(crate::setup::Live::new(station)),
             desk,
             room,
             carts,
@@ -146,9 +148,16 @@ impl Hub {
         self.tx.borrow().clone()
     }
 
+    /// Publish the studio's view again after something outside the studio changed it: the
+    /// station's name, set on the setup page (ADR-0237).
+    pub fn republish(&self) {
+        let inner = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        self.publish(&inner);
+    }
+
     fn publish(&self, inner: &Inner) {
         let mut v = inner.studio.view(
-            &self.station,
+            &self.live.name(),
             inner.desk.as_ref(),
             inner.desk_error.clone(),
             now_ms(),

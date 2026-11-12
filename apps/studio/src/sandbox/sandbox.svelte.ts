@@ -2,20 +2,27 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The sandbox's link (ADR-0212): `sandboxFetch` answers the studio app's requests in the page,
 // from the simulated station, as the control plane would; the clock drives the station and the
-// sound. Only a sandbox build reaches this module (`api.ts` imports it behind the build's mode).
+// sound. The page's hash picks the scenario (ADR-0222: `#alone`, `#queue`...; none is the
+// show), and choosing another reloads the page, so every scenario starts from a fresh station
+// and a fresh sound. Only a sandbox build reaches this module (`api.ts` imports it behind the
+// build's mode).
 
 import type { Catalogue } from '../../../../packages/ui/carts.ts';
 import type { Me } from '../lib/api.ts';
 import { catalogueFrom, Refusal, Station, type PackCart } from './station.ts';
 import { Sound, type Hear } from './sound.ts';
+import { scenarioFor, type Lever } from './scenarios/index.ts';
 import pack from '../../../../assets/carts-demo/carts.json';
 
 const catalogue: Catalogue = catalogueFrom(pack as { banks: Record<string, string>; carts: PackCart[] });
-export const station = new Station(Date.now(), catalogue);
-// For the browser test (tests/sandbox/drive.mjs) and the curious: the simulated station.
+/** The scenario the page opened on. */
+export const scenario = scenarioFor(location.hash.replace(/^#/, ''));
+export const station = new Station(Date.now(), catalogue, scenario);
+// For the browser tests (tests/sandbox/) and the curious: the simulated station.
 (globalThis as { __kettle?: Station }).__kettle = station;
 
-/** What the guide shows: whether the sound has started, and which path is heard. */
+/** What the guide shows: whether the sound has started, which path is heard, and whether the
+ *  chooser is open over a running scenario. */
 export const sandbox = $state({
   started: false,
   loading: false,
@@ -23,6 +30,8 @@ export const sandbox = $state({
   /** Moves with the station, so the guide's steps follow it. */
   version: 0,
   error: '' as string,
+  /** The chooser is open (over the start card, or over a scenario that runs). */
+  chooser: false,
 });
 
 let sound: Sound | null = null;
@@ -34,9 +43,11 @@ export async function begin(): Promise<void> {
   try {
     sound ??= new Sound();
     await sound.resume();
-    await sound.preload(catalogue);
+    await sound.preload(catalogue, station.lines);
     station.onLine = (sp) => void sound?.say(sp, station);
+    station.begin(Date.now());
     sandbox.started = true;
+    push();
   } catch (e) {
     sandbox.error = e instanceof Error ? e.message : String(e);
   } finally {
@@ -49,6 +60,16 @@ export function hear(h: Hear): void {
   sound?.setHear(h);
 }
 
+/** Open another scenario, or the chooser (no id): a fresh page, a fresh station. */
+export function choose(id: string | null): void {
+  const hash = id ? `#${id}` : '';
+  if (location.hash === hash) location.reload();
+  else {
+    location.hash = hash;
+    location.reload();
+  }
+}
+
 export function pullPlayout(): void {
   station.setPlayout(false, Date.now());
   setTimeout(() => station.setPlayout(true, Date.now()), 15_000);
@@ -58,6 +79,28 @@ export function pullPlayout(): void {
 export function endShow(): void {
   station.endShow(Date.now());
   push();
+}
+
+/** The microphone of the browser tab the DJ speaks through (the guide's stand-in panel). */
+export function setMic(on: boolean): void {
+  station.setMic(on, Date.now());
+  push();
+}
+
+/** A guide step's button. */
+export function pull(lever: Lever): void {
+  switch (lever) {
+    case 'pull-playout':
+      return pullPlayout();
+    case 'end-show':
+      return endShow();
+    case 'go-live':
+      station.setMode('live', Date.now());
+      return push();
+    case 'go-auto':
+      station.setMode('auto', Date.now());
+      return push();
+  }
 }
 
 // ---- the clock ----
@@ -98,10 +141,11 @@ setInterval(() => {
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
+/** Who the studio app runs as: the chair the scenario puts you in, with an admin's keys. */
 const ME: Me = {
   kind: 'staff',
   role: 'admin',
-  account: { id: 'eilidh', username: 'eilidh', name: 'Eilidh Fraser-MacLeod', role: 'admin', disabled_ms: null, created_ms: Date.UTC(2026, 9, 1), has_email: false },
+  account: { id: scenario.you.identity, username: scenario.you.identity, name: scenario.you.name, role: 'admin', disabled_ms: null, created_ms: Date.UTC(2026, 9, 1), has_email: false },
 };
 
 const NOT_HERE = 'Not in the sandbox: this part needs a real station (weavesignal.top/run/ says how to run one)';
@@ -142,6 +186,16 @@ export const sandboxFetch: typeof fetch = async (input, init) => {
     '/api/v1/chat/modes': (b, n) => station.chat(b, n),
     '/api/v1/passes/end': (b, n) => station.endPass(b, n),
   };
+  if (method === 'POST' && path === '/api/v1/invites') {
+    try {
+      const invite = station.makeInvite((await body(init)) as { role?: unknown; name?: unknown }, now);
+      push();
+      return json(201, invite);
+    } catch (e) {
+      if (e instanceof Refusal) return json(e.status, { error: e.message });
+      return json(400, { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
   const run = method === 'POST' ? commands[path] : undefined;
   if (run) {
     try {

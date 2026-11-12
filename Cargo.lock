@@ -546,6 +546,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
+name = "byteorder-lite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
+
+[[package]]
 name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2545,6 +2551,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "image-webp"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
+dependencies = [
+ "byteorder-lite",
+ "quick-error",
+]
+
+[[package]]
 name = "imagesize"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2745,6 +2761,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
 
 [[package]]
 name = "js-sys"
@@ -3959,6 +3981,12 @@ checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "quick-error"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
 name = "quick-xml"
@@ -6665,7 +6693,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-cards"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "jiff",
  "resvg",
@@ -6677,14 +6705,16 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-chat"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "crc32fast",
  "futures-util",
  "hmac",
  "http-body-util",
+ "png",
  "rustrict",
  "serde",
  "serde_json",
@@ -6700,13 +6730,15 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "uuid",
+ "weavesignal-control",
+ "weavesignal-media",
  "weavesignal-model",
  "weavesignal-proto",
 ]
 
 [[package]]
 name = "weavesignal-control"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -6717,6 +6749,7 @@ dependencies = [
  "jiff",
  "opus-decoder",
  "png",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -6742,7 +6775,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-desk"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6765,7 +6798,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-feeds"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "jiff",
  "lofty",
@@ -6781,10 +6814,12 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-media"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ebur128",
  "flacenc",
+ "image-webp",
+ "jpeg-encoder",
  "landlock",
  "ogg",
  "opus-decoder",
@@ -6800,7 +6835,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-mixer"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6809,7 +6844,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-model"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "argon2",
  "jiff",
@@ -6825,7 +6860,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-proto"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "base64 0.23.1",
  "hmac",
@@ -6838,7 +6873,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-studio"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "base64 0.22.1",
  "keyring",

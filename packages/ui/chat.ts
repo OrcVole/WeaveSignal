@@ -24,18 +24,34 @@
 // POST /api/v1/chat/guest                {name, age_ok, terms_version} → SignedIn (only where guests are on)
 // POST /api/v1/chat/notices              NoticeRequest (someone without an account, DSA Art. 16) → 201 {id}
 // GET  /api/v1/chat/socket               the WebSocket
+// GET  /api/v1/chat/avatars/{id}         a chatter's own picture, once staff approved it (image/png);
+//                                        404 for one still held, refused or removed (ADR-0235)
+// GET  /api/v1/chat/pictures/{id}        a picture posted in the chat, once approved and while its
+//                                        message shows (PNG or JPEG, inline); /thumb its thumbnail
+// GET  /api/v1/chat/files/{id}           a document posted in the chat, the same; always a download
+//                                        (Content-Disposition: attachment) under the station's own name
+//   Each takes a bearer too: the author sees their own waiting, staff and moderators any (ADR-0262).
 //
 // ---- a chatter's own (session bearer) ----
 // GET  /api/v1/chat/me                   → {me: Me, statements: Statement[]}
 // POST /api/v1/chat/signout              → 204
 // POST /api/v1/chat/reports              ReportRequest → 201 {id}
 // POST /api/v1/chat/statements/{id}/review {text}          → 201 {id}
+// PUT  /api/v1/chat/me/avatar/stock      {id: string | null}  → {me}: one of the shipped avatars, or none
+// PUT  /api/v1/chat/me/avatar            the picture itself (PNG or JPEG) as the body → 202 {me}; it is
+//                                        held until staff approve it (not for guests)
+// GET  /api/v1/chat/me/avatar            the chatter's own picture: the one held, else the approved one
+// DELETE /api/v1/chat/me/avatar          → {me}: their own picture is deleted, held or approved
+// POST /api/v1/chat/attachments?name=&body=&nonce=&reply_to=  the file itself as the body (a trusted
+//                                        chatter, the switch on) → 202 {id, state: 'held', attachment};
+//                                        held until staff or a moderator approve it (ADR-0262)
 //
 // ---- the studio (admin bearer, or a moderator's session) ----
 // POST /api/v1/chat/staff/session        {name, role?}  → SignedIn (a staff session for the socket)
 // POST /api/v1/chat/mod                  ModCommand     → 200 {ok: true, done: string}
 // GET  /api/v1/chat/mod/log?limit=100    → {log: LogEntry[]}
 // GET  /api/v1/chat/mod/accounts/{id}    → AccountDetail: the last 50 messages, restrictions, statements
+// GET  /api/v1/chat/mod/avatars/{id}     any uploaded picture, a held one included (staff only)
 // ---- station admin (admin bearer) ----
 // GET  /api/v1/chat/admin/settings       → StationChatSettings;  PUT the same shape
 // GET  /api/v1/chat/admin/accounts/{id}/export → the account's data as JSON (a download)
@@ -53,11 +69,17 @@ export interface Position {
   offset: number;
 }
 
+/** A chatter's avatar as everyone sees it (ADR-0235): one of the shipped set (`avatars.ts`), or
+ *  their own picture once staff approved it (`GET /api/v1/chat/avatars/{id}`). */
+export type Avatar = { kind: 'stock'; id: string } | { kind: 'upload'; id: string };
+
 export interface Author {
   id: string;
   name: string;
   standing: Standing;
   guest: boolean;
+  /** Null or absent: the plain default, their initial. */
+  avatar?: Avatar | null;
 }
 
 export interface Msg {
@@ -75,6 +97,37 @@ export interface Msg {
   featured: boolean;
   /** [emoji, count] in the fixed order of REACTIONS. */
   reactions: [string, number][];
+  /** A picture or document the message carries (ADR-0262). */
+  attachment?: Attachment | null;
+}
+
+/** A picture or document posted in the chat (ADR-0262). The type is the one the station found in
+ *  its bytes; the name is the chatter's and is shown as text only. */
+export interface Attachment {
+  id: string;
+  kind: 'picture' | 'document';
+  name: string;
+  mime: string;
+  /** The type in words: "PDF", "OpenDocument text", "PNG". */
+  label: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+  thumb_width?: number;
+  thumb_height?: number;
+}
+
+/** Where a posted attachment is served: the picture, its thumbnail, or the document's download. */
+export function attachmentUrl(a: Pick<Attachment, 'id' | 'kind'>, which: 'full' | 'thumb' = 'full'): string {
+  if (a.kind === 'document') return `/api/v1/chat/files/${a.id}`;
+  return which === 'thumb' ? `/api/v1/chat/pictures/${a.id}/thumb` : `/api/v1/chat/pictures/${a.id}`;
+}
+
+/** A file's size in words: "840 bytes", "12 KB", "2.4 MB". */
+export function sizeWords(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** The reactions a chatter can add (custom emoji come later). */
@@ -96,6 +149,24 @@ export interface RoomRules {
   min_age_minutes: number;
   max_chars: number;
   hold_ms: number;
+  /** When chatters may post (ADR-0234). */
+  hours: ChatHours;
+  /** Chatters may upload a picture of their own now (ADR-0259), the studio's switch. */
+  avatar_uploads?: boolean;
+  /** Trusted chatters may attach a picture or document now (ADR-0262), the studio's switch. */
+  attachments?: boolean;
+}
+
+/** The chat's hours (ADR-0234): always open, or during scheduled shows only. */
+export interface ChatHours {
+  /** The station opens the chat during shows only. */
+  shows_only: boolean;
+  /** Chatters may post now; the station's staff always may. */
+  open: boolean;
+  /** While closed: when the next scheduled show starts (epoch ms), or null when none is. */
+  opens_at_ms: number | null;
+  /** The station's time zone (IANA), to say that time in. */
+  zone: string;
 }
 
 export interface Me {
@@ -107,6 +178,12 @@ export interface Me {
   timed_out_until_ms: number | null;
   banned: boolean;
   moderator: boolean;
+  /** What everyone else sees beside their messages. */
+  avatar?: Avatar | null;
+  /** The shipped avatar they chose, shown while no picture of their own is approved. */
+  avatar_stock?: string | null;
+  /** Their own picture waiting for staff: only they see it (`GET /api/v1/chat/me/avatar`). */
+  avatar_held?: string | null;
 }
 
 /** A statement of reasons (DSA Article 17). */
@@ -138,6 +215,7 @@ export interface AccountRef {
   guest: boolean;
   /** 'banned', 'timed out until 20:24', or null. */
   restricted: string | null;
+  avatar?: Avatar | null;
 }
 
 /** One thing that needs a moderator: a report (one item per message, counted), a notice from
@@ -158,6 +236,10 @@ export interface Item {
   /** The automated step involved ('rustrict'), named in the statement. */
   automated: string | null;
   status: 'open' | 'actioned' | 'dismissed' | 'acknowledged' | 'escalated';
+  /** A report about the account's picture (ADR-0260): its id while it is still the one showing. */
+  picture?: string | null;
+  /** A report about a posted picture or document (ADR-0262): its id while it is still showing. */
+  attachment?: string | null;
 }
 
 export interface StudioMsg {
@@ -168,10 +250,27 @@ export interface StudioMsg {
   invited_ms: number | null;
 }
 
+/** An uploaded picture waiting for staff (ADR-0235); its file is at
+ *  `GET /api/v1/chat/mod/avatars/{id}`. Pictures and documents posted in the chat wait in the
+ *  same queue (ADR-0262): `kind` says which, with the attachment and its message; their files are
+ *  at `attachmentUrl`, with a bearer. */
+export interface HeldAvatar {
+  id: string;
+  account: AccountRef;
+  uploaded_ms: number;
+  bytes: number;
+  /** Absent from a chat service older than 1.0.1, which queued avatars only. */
+  kind?: 'avatar' | 'picture' | 'document';
+  attachment?: Attachment;
+  message?: { id: number; body: string };
+}
+
 export interface ModSnapshot {
   items: Item[];
   held: Held[];
   studio: StudioMsg[];
+  /** Pictures waiting for approval, oldest first; empty for a moderator who is not staff. */
+  avatars?: HeldAvatar[];
 }
 
 // ---- socket frames ----
@@ -185,7 +284,8 @@ export type ClientFrame =
 export type AckState = 'visible' | 'held' | 'refused';
 
 /** Refusal codes: banned, timed_out, accounts_only, guests_off, too_new, empty, too_long,
- *  replies_off, staff_only, links, too_fast, slow, repeat, run, signed_out, unknown_reply. */
+ *  replies_off, staff_only, closed (between shows, ADR-0234), links, too_fast, slow, repeat, run,
+ *  signed_out, unknown_reply. */
 export type RefusalCode = string;
 
 export type ServerFrame =
@@ -213,6 +313,8 @@ export type ServerFrame =
   | { t: 'pin'; offset: number; m: Msg | null }
   | { t: 'feature'; offset: number; m: Msg }
   | { t: 'react'; offset: number; id: number; reactions: [string, number][] }
+  /** A chatter's avatar changed: every message of theirs on the page takes it. */
+  | { t: 'avatar'; offset: number; account: string; avatar: Avatar | null }
   | { t: 'count'; n: number }
   | { t: 'rules'; rules: RoomRules; show: string; listener_delay_ms: number }
   | { t: 'ack'; nonce: string; id: number | null; state: AckState; code: RefusalCode | null; words: string | null; retry_ms: number | null }
@@ -225,6 +327,8 @@ export type ServerFrame =
   | { t: 'rejected'; ids: number[] }
   | { t: 'mod_held'; h: Held }
   | { t: 'mod_unheld'; ids: number[] }
+  | { t: 'mod_avatar'; a: HeldAvatar }
+  | { t: 'mod_avatar_done'; id: string }
   | { t: 'mod_item'; item: Item }
   | { t: 'mod_item_done'; id: string; status: string; by: string }
   | { t: 'mod_studio'; s: StudioMsg }
@@ -240,7 +344,7 @@ export const CLOSE_SIGNED_OUT = 4001;
 
 /** Report reasons, with the screener's keys in the statement dialog (A S T I M E) and the
  *  extra one only chatters and notices use. */
-export type Reason = 'abuse' | 'spam' | 'off_topic' | 'illegal' | 'intimate_image' | 'threat_to_life' | 'child_safety' | 'other';
+export type Reason = 'abuse' | 'spam' | 'off_topic' | 'illegal' | 'intimate_image' | 'threat_to_life' | 'child_safety' | 'other' | 'suspected_csam';
 
 export interface ChatInfo {
   station: string;
@@ -258,6 +362,12 @@ export interface ChatInfo {
   mode_words: string;
   /** How long messages, reports and logs are kept, in a sentence each. */
   retention: { messages: string; moderation: string; addresses: string };
+  /** Avatars (ADR-0235): whether a signed-in chatter may upload a picture, and its limits.
+   *  Absent from a chat service older than 1.0.1. */
+  avatars?: { uploads: boolean; max_upload_kb: number; side: number };
+  /** Pictures and documents in the chat (ADR-0262): whether trusted chatters may attach now, the
+   *  caps, and what the file chooser offers (the station checks the bytes, not this). */
+  attachments?: { uploads: boolean; max_picture_kb: number; max_document_kb: number; accept: string };
 }
 
 export interface SignedIn {
@@ -268,6 +378,10 @@ export interface SignedIn {
 export interface ReportRequest {
   message_id?: number;
   account_id?: string;
+  /** With `account_id`: report their picture, which must be the one showing (ADR-0260). */
+  avatar_id?: string;
+  /** With `message_id`: report the picture or document the message carries (ADR-0262). */
+  attachment_id?: string;
   reason: Reason;
   detail?: string;
 }
@@ -304,6 +418,17 @@ export type ModCommand =
   | { op: 'post'; body: string; kind?: 'chat' | 'announcement'; pin?: boolean }
   | { op: 'standing'; account: string; standing: Exclude<Standing, 'staff'> }
   | { op: 'reply'; id: number; body: string }
+  /** Staff only: everyone sees the waiting picture from now on. */
+  | { op: 'avatar_approve'; avatar: string }
+  /** Staff only: the waiting picture is deleted and its owner told why. */
+  | { op: 'avatar_refuse'; avatar: string; reason: Reason; note?: string }
+  /** Delete a kept picture at once, with why; one kept as evidence needs `confirm_evidence` (ADR-0257). */
+  | { op: 'avatar_delete'; avatar: string; why: string; confirm_evidence?: boolean }
+  /** An approved picture is taken down and its owner told why. */
+  | { op: 'avatar_remove'; account: string; reason: Reason; note?: string; report?: string }
+  /** A posted picture or document that was shown is taken down with its message, its author
+   *  told why (ADR-0262). `avatar_approve` and `avatar_refuse` decide a waiting one. */
+  | { op: 'attachment_remove'; attachment: string; reason: Reason; note?: string; report?: string }
   | { op: 'pass'; id: number }
   | { op: 'invite'; id: number };
 
@@ -369,9 +494,16 @@ export function applyEvent(list: Msg[], f: ServerFrame, cap = 500): Msg[] {
       return list.map((m) => (m.id === f.m.id ? f.m : m));
     case 'pin':
       return list.map((m) => ({ ...m, pinned: f.m !== null && m.id === f.m.id }));
+    case 'avatar':
+      return list.some((m) => m.author.id === f.account) ? list.map((m) => (m.author.id === f.account ? withAvatar(m, f.avatar) : m)) : list;
     default:
       return list;
   }
+}
+
+/** A message with its author's avatar changed. */
+export function withAvatar(m: Msg, avatar: Avatar | null): Msg {
+  return { ...m, author: { ...m.author, avatar } };
 }
 
 /** Whether a message mentions a name: `@name`, any case, not inside a longer word. */

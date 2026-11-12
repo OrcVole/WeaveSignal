@@ -29,6 +29,8 @@ RUN cd /tmp && npm pack "pnpm@${PNPM_VERSION}" --silent \
     && pnpm --version
 WORKDIR /src
 COPY packages/ui packages/ui
+# The station's look and setup page take the accent and the shared questions (ADR-0237).
+COPY packages/wizard packages/wizard
 COPY apps/studio/src/lib/Glyphs.svelte apps/studio/src/lib/Mark.svelte apps/studio/src/lib/
 COPY apps/web apps/web
 RUN cd apps/web && pnpm install --frozen-lockfile && pnpm build
@@ -37,6 +39,8 @@ FROM ${BUILD} AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+# The chat builds in the list of shipped avatars the pages draw from (ADR-0235).
+COPY packages/ui/avatars/manifest.json packages/ui/avatars/manifest.json
 # A workspace member; cargo reads its manifest even when only the server's crates are built.
 COPY apps/studio/src-tauri apps/studio/src-tauri
 RUN cargo build --release --locked -p weavesignal-desk -p weavesignal-control -p weavesignal-chat --bin weavesignal-desk --bin weavesignal-control --bin weavesignal-chat \
@@ -46,15 +50,35 @@ RUN cargo build --release --locked -p weavesignal-desk -p weavesignal-control -p
 
 FROM ${RUNTIME}
 COPY --from=build /out/ /
-# The video path (M5): cmafmux, hlscmafsink and dav1ddec, built in the desk's build image from
-# the same gst-plugins-rs tag as the webrtc plugin; dav1d's library; fonts for the slate.
+# The video path (M5): cmafmux, hlscmafsink, dav1ddec and rtpav1depay (a browser's AV1 camera
+# out of RTP), built in the desk's build image from the same gst-plugins-rs tag as the webrtc
+# plugin; dav1d's library; fonts for the slate.
 COPY --from=build /usr/lib64/gstreamer-1.0/libgstisobmff.so /usr/lib64/gstreamer-1.0/libgsthlssink3.so \
-     /usr/lib64/gstreamer-1.0/libgstdav1d.so /usr/lib64/gstreamer-1.0/
+     /usr/lib64/gstreamer-1.0/libgstdav1d.so /usr/lib64/gstreamer-1.0/libgstrsrtp.so /usr/lib64/gstreamer-1.0/
 RUN dnf -y install --setopt=install_weak_deps=False libdav1d google-noto-sans-vf-fonts \
     && dnf clean all \
-    && for e in cmafmux hlscmafsink dav1ddec svtav1enc textoverlay; do \
+    && for e in cmafmux hlscmafsink dav1ddec rtpav1depay svtav1enc textoverlay; do \
          gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
        done \
+    && rm -rf /root/.cache/gstreamer-1.0
+# --- rtmp-out (ADR-0230) ------------------------------------------------------------------
+# RTMP out's `compatible` profile, the exception to the house media rule for RTMP out only:
+# H.264 by OpenH264 (Fedora's GStreamer plugin over Cisco's BSD-2-Clause binary, from the
+# fedora-cisco-openh264 repository; libheif already brought that library) and AAC by VisualOn's
+# vo-aacenc (Apache-2.0) with its plugin from gst-plugins-bad 1.28.8, both built in the desk's
+# build image. fdk-aac is not free software and is never used (ADR-0230): Fedora's
+# fdk-aac-free comes in only as a dependency of gstreamer1-plugins-bad-free, for its fdkaac
+# plugin, so the plugin and the library are removed; nothing else in the image links it.
+COPY --from=build /usr/lib64/gstreamer-1.0/libgstvoaacenc.so /usr/lib64/gstreamer-1.0/
+COPY --from=build /usr/lib64/libvo-aacenc.so.0* /usr/lib64/
+RUN dnf -y install --setopt=install_weak_deps=False gstreamer1-plugin-openh264 \
+    && dnf clean all \
+    && rpm -e --nodeps fdk-aac-free && rm -f /usr/lib64/gstreamer-1.0/libgstfdkaac.so && ldconfig \
+    && { ! ldconfig -p | grep -q libfdk-aac; } \
+    && for e in openh264enc h264parse voaacenc aacparse audioresample rtmp2sink; do \
+         gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
+       done \
+    && { ! gst-inspect-1.0 --exists fdkaacenc; } \
     && rm -rf /root/.cache/gstreamer-1.0
 # The placeholder cart pack (ADR-0020), loaded as the demo banks when a station has none.
 COPY assets/carts-demo /opt/weavesignal/carts-demo
@@ -67,7 +91,7 @@ RUN useradd --system --home-dir /var/lib/weavesignal --create-home weavesignal \
     && install -d -o weavesignal -g weavesignal -m 0755 /var/lib/weavesignal/carts /var/lib/weavesignal/hls \
     && install -d -o weavesignal -g weavesignal -m 0700 /run/weavesignal-listeners \
     && install -d -o weavesignal -g weavesignal -m 0755 /var/lib/weavesignal/library /var/lib/weavesignal/fallback /var/lib/weavesignal/recordings/logger \
-       /var/lib/weavesignal/show-cards /var/lib/weavesignal/episodes \
+       /var/lib/weavesignal/show-cards /var/lib/weavesignal/episodes /var/lib/weavesignal/chat-avatars /var/lib/weavesignal/chat-attachments \
     && install -o weavesignal -g weavesignal -m 0600 /dev/null /run/weavesignal-playout/.keep \
     && install -o weavesignal -g weavesignal -m 0600 /dev/null /run/weavesignal-listeners/.keep
 # The two socket volumes are made from this image (the control plane mounts them first) and so

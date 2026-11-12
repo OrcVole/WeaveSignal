@@ -18,6 +18,8 @@
   import { atToday, delayWords, dur, firstName, hm, hms, listenerDelayMs } from '../lib/format.ts';
   import { cartAt, cartNow } from '../../../../packages/ui/carts.ts';
   import { cdnWarning } from '../lib/audience.ts';
+  import { HANDOVER_KEY, handoverButton, handoverStep } from '../lib/handover.ts';
+  import Invite from './Invite.svelte';
 
   const v = $derived(studio.view);
   /** The desk's picture (M5); null with video off. */
@@ -46,6 +48,9 @@
   const onStage = $derived(sources.filter((s) => s.on_air));
   const offStage = $derived(sources.filter((s) => !s.on_air));
   const openCount = $derived(sources.filter(isOpen).length);
+  /** The handover button (ADR-0074): what ⇧⏎ does next, worked out once for the DJ's tile and
+   *  the rundown's row, so the key and its buttons never differ. Null with nothing to press. */
+  const handover = $derived(v ? handoverButton(handoverStep(sources, v.seats.presenter, studio.handoverTo)) : null);
   const lamp = $derived(
     masterLamp({ deskReachable: !!v?.desk.reachable, playoutConnected: playout.connected, anyOnAir: openCount > 0, mode }),
   );
@@ -64,7 +69,7 @@
   // ---- the clock ----
   const tenth = $derived(Math.floor((now % 1000) / 100));
   const rundown = $derived(
-    (v?.show.rundown ?? []).map((r) => ({ ...r, ms: atToday(r.at, now) })).sort((a, b) => a.ms - b.ms),
+    (v?.show.rundown ?? []).map((r) => ({ ...r, ms: atToday(r.at, now, studio.zone) })).sort((a, b) => a.ms - b.ms),
   );
   const post = $derived(rundown.find((r) => r.hard_post && r.ms > now) ?? null);
   const postFrom = $derived.by(() => {
@@ -182,10 +187,17 @@
         </div>
         <div class="rundown">
           {#each coming as r (r.at + r.title)}
-            <div class="row" class:now={r === current}>
+            <!-- The handover's row (its key is ⇧⏎) carries the button while there is a DJ to press it for. -->
+            {@const hand = r.key === HANDOVER_KEY && handover ? handover : null}
+            <div class="row" class:now={r === current} class:hand={!!hand}>
               <span class="at num">{hm(r.ms)}</span>
               <span class="what"><b>{r.title}</b>{#if r.detail}<span>{r.detail}</span>{/if}</span>
-              {#if r === current && openCount > 0}
+              {#if hand}
+                <!-- The quiet one of the two, outlined (ADR-0240): the DJ's tile carries the accent. -->
+                <button type="button" class="btn" data-handover={hand.kind} onclick={() => run({ type: 'handover' })}
+                  >{hand.label} <kbd>{HANDOVER_KEY}</kbd></button
+                >
+              {:else if r === current && openCount > 0}
                 <StateChip chip={heard ? CHIP.onAir : CHIP.open} />
               {:else if r.key}
                 <span class="small"><kbd>{r.key}</kbd></span>
@@ -321,7 +333,7 @@
 
       <div class="tiles">
         {#each onStage as s (s.identity)}
-          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} />
+          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} />
         {:else}
           <div class="empty">
             <b>{v?.desk.reachable ? 'Nobody is open' : 'No desk'}</b>
@@ -341,9 +353,10 @@
             talk and mute never move it · its keys never change · while playout is down the stage does not change: its
             sources say OPEN (ADR-0062)</span
           >
+          <Invite />
         </div>
         {#each offStage as s (s.identity)}
-          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} />
+          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} />
         {/each}
         <Tile source={null} slot={6} playoutUp={up} playoutForMs={playout.for_ms} {mode} />
       </div>

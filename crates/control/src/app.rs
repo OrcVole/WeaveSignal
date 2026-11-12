@@ -119,7 +119,7 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .layer(DefaultBodyLimit::max(upload_limit))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
-                    admin_first,
+                    staff_first,
                 )),
         )
         // The video slate's still and the cameras' thumbnails (M5, ADR-0010).
@@ -134,6 +134,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(crate::tokens::routes())
         .merge(crate::webhooks::routes())
         .merge(crate::open::station_routes())
+        // rtmp-out: RTMP out's destinations (ADR-0230).
+        .merge(crate::rtmp::routes())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -158,11 +160,12 @@ pub(crate) fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The admin check as middleware, for routes whose extractor reads a large body: a handler's
+/// The staff check as middleware, for routes whose extractor reads a large body: a handler's
 /// own check runs only after `Bytes` has buffered the whole upload (64 or 200 MB), so a
-/// stranger could fill memory before being refused (review 0025, P1). The handler still
-/// checks too.
-pub(crate) async fn admin_first(
+/// stranger could fill memory before being refused (review 0025, P1). It asks only for a
+/// member of staff or the station key; the handler then checks what its route needs (it was
+/// called `admin_first`, which said more than it checked: issue 7).
+pub(crate) async fn staff_first(
     State(state): State<Arc<AppState>>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -174,6 +177,21 @@ pub(crate) async fn admin_first(
 }
 
 impl AppState {
+    /// The station's name in force: the one set on the setup page, else the settings file's
+    /// (ADR-0237).
+    pub fn station_name(&self) -> String {
+        self.hub.live.name()
+    }
+
+    /// The takedown contact in force: the one set on the setup page, else the settings
+    /// file's `join.consent_contact` (ADR-0237).
+    pub fn consent_contact(&self) -> String {
+        self.hub
+            .live
+            .contact_set()
+            .unwrap_or_else(|| self.join.consent_contact.clone())
+    }
+
     /// Who the request comes from, if they may do what the route needs (ADR-0127).
     #[allow(clippy::result_large_err)] // the refusal is the response itself
     pub fn check(
@@ -991,14 +1009,17 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<Health>
     operation_id = "station",
     tag = "station",
     summary = "The station",
-    description = "The station's identifier and name.",
+    description = "The station's identifier and its name in force: the one set on the setup page, else the settings file's (ADR-0237).",
     responses(
         (status = 200, description = "The station.", body = Station),
     ),
     security(()),
 )]
 async fn station(State(state): State<Arc<AppState>>) -> Json<Station> {
-    Json(state.station.clone())
+    Json(Station {
+        id: state.station.id,
+        name: state.station_name(),
+    })
 }
 
 // ---- the description (ADR-0195) ----

@@ -5,7 +5,7 @@
 // (sync to the stream, pause), the composer's checks and the room-rules line, names, times and
 // mentions. The wire types and the shared helpers are packages/ui/chat.ts.
 
-import { dueForViewer, type Msg, type Position, type RoomRules, type ServerFrame, type Statement } from '../../../../../packages/ui/chat.ts';
+import { dueForViewer, type ChatHours, type Me, type Msg, type Position, type RoomRules, type ServerFrame, type Statement } from '../../../../../packages/ui/chat.ts';
 
 /** The socket on the page's own origin: ws: beside http:, wss: beside https:. */
 export function socketUrl(loc: { protocol: string; host: string }): string {
@@ -26,6 +26,7 @@ export function positionAfter(pos: Position | null, f: ServerFrame): Position | 
     case 'pin':
     case 'feature':
     case 'react':
+    case 'avatar':
       return f.offset > pos.offset ? { epoch: pos.epoch, offset: f.offset } : pos;
     default:
       return pos;
@@ -102,6 +103,49 @@ export function postingBlocked(me: { banned: boolean; timed_out_until_ms: number
   return null;
 }
 
+/** Whether the room is read-only for this reader now (ADR-0234, ADR-0253): between shows, for
+ *  anyone but the station's staff and the chatters it made moderators. Reading and signing in
+ *  stay open. */
+export function readOnlyNow(hours: ChatHours | null | undefined, me: { kind: string; standing: string } | null): boolean {
+  if (!hours || hours.open) return false;
+  return !(me && (me.kind === 'staff' || me.standing === 'staff' || me.standing === 'moderator'));
+}
+
+/** Whether the private lane to the studio is closed for this reader now: between shows it stays
+ *  the staff's, a moderator does not have it (ADR-0253). */
+export function studioLaneClosed(hours: ChatHours | null | undefined, me: { kind: string; standing: string } | null): boolean {
+  if (!hours || hours.open) return false;
+  return !(me && (me.kind === 'staff' || me.standing === 'staff'));
+}
+
+/** When the chat opens next, in the station's own time zone: "at 19:00 GMT on Tuesday 11
+ *  November"; "at 19:00 GMT today"; null when no show is scheduled. */
+export function opensWhen(hours: ChatHours, nowMs: number): string | null {
+  if (hours.opens_at_ms === null) return null;
+  const zone = hours.zone || 'UTC';
+  let fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone: zone });
+  try {
+    fmt({}).format(0);
+  } catch {
+    // A zone this browser does not know: say it in UTC rather than not at all.
+    fmt = (o) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone: 'UTC' });
+  }
+  const at = new Date(hours.opens_at_ms);
+  const time = fmt({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' }).format(at);
+  const day = (ms: number) => fmt({ year: 'numeric', month: 'numeric', day: 'numeric' }).format(new Date(ms));
+  if (day(hours.opens_at_ms) === day(nowMs)) return `at ${time} today`;
+  if (day(hours.opens_at_ms) === day(nowMs + 86_400_000)) return `at ${time} tomorrow`;
+  return `at ${time} on ${fmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(at)}`;
+}
+
+/** The read-only room's sentence for the page. */
+export function closedWords(hours: ChatHours, nowMs: number): string {
+  const when = opensWhen(hours, nowMs);
+  return when
+    ? `The chat is open during shows. It's read-only until the next show starts, ${when}.`
+    : "The chat is open during shows. It's read-only until the next show starts; none is scheduled yet.";
+}
+
 /** HH:MM in the reader's own time zone. */
 export function hhmm(ms: number): string {
   const d = new Date(ms);
@@ -168,9 +212,40 @@ export function noticeLocation(m: Pick<Msg, 'id' | 'body' | 'server_ms' | 'autho
   return `Chat message ${m.id} from ${m.author.name} at ${hhmm(m.server_ms)}: "${excerpt}"`;
 }
 
+/** The text of a notice about a chatter's picture, for a reader with no account (ADR-0260). */
+export function pictureNoticeLocation(m: Pick<Msg, 'id' | 'server_ms' | 'author'>): string {
+  const id = m.author.avatar?.kind === 'upload' ? m.author.avatar.id : '';
+  return `The picture beside ${m.author.name}'s chat message ${m.id} at ${hhmm(m.server_ms)} (picture ${id})`;
+}
+
+/** Whether a message's author has a picture of their own showing, which a reader may report
+ *  (ADR-0260). The shipped avatars are the station's, not a chatter's, so there is nothing to
+ *  report in them. */
+export function reportablePicture(m: Pick<Msg, 'author'>): string | null {
+  return m.author.avatar?.kind === 'upload' ? m.author.avatar.id : null;
+}
+
 /** Whether a chatter may still ask for a review of a statement. */
 export function reviewOpen(s: Statement, nowServerMs: number): boolean {
   return !s.review_requested && nowServerMs < s.review_by_ms;
+}
+
+/** Whether this chatter may attach a picture or document now (ADR-0262): the station's switch,
+ *  and a trusted chatter signed in by email (the station checks again). */
+export function canAttach(rules: Pick<RoomRules, 'attachments'> | null | undefined, me: Pick<Me, 'kind' | 'standing'> | null): boolean {
+  if (!rules?.attachments || !me || me.kind !== 'email') return false;
+  return me.standing === 'trusted' || me.standing === 'moderator' || me.standing === 'staff';
+}
+
+/** A file over the station's caps, in words, before it is sent (the station checks again, by its
+ *  bytes); null when it fits. The caps are by kind: a picture's, else a document's. */
+export function attachTooLarge(f: Pick<File, 'size' | 'type'>, caps: { max_picture_kb: number; max_document_kb: number } | undefined): string | null {
+  if (!caps) return null;
+  const picture = f.type.startsWith('image/');
+  const kb = picture ? caps.max_picture_kb : caps.max_document_kb;
+  if (f.size <= kb * 1024) return null;
+  const mb = Math.round((kb / 1024) * 10) / 10;
+  return `That ${picture ? 'picture' : 'document'} is larger than this chat takes (${mb} MB at most).`;
 }
 
 /** A local copy of the chatter's own held message: the server sends held messages to

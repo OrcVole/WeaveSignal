@@ -1,0 +1,28 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
+<!-- A stand-in for a DJ's AzuraCast in tests/playout/run-icecast-out.sh: Icecast 2.5 with one
+     mount that takes a source only with a user name and password, as a streamer account does.
+     The script fills in the port and the password. -->
+<icecast>
+  <limits><clients>20</clients><sources>4</sources></limits>
+  <authentication>
+    <source-password>never-used-by-the-test</source-password>
+    <relay-password>never-used-by-the-test</relay-password>
+    <admin-user>admin</admin-user>
+    <admin-password>admin-test-only</admin-password>
+  </authentication>
+  <hostname>localhost</hostname>
+  <listen-socket><port>@PORT@</port><bind-address>127.0.0.1</bind-address></listen-socket>
+  <mount type="normal">
+    <mount-name>/dj</mount-name>
+    <username>dj</username>
+    <password>@PASSWORD@</password>
+  </mount>
+  <paths>
+    <basedir>/usr/share/icecast</basedir>
+    <logdir>/tmp</logdir>
+    <webroot>/usr/share/icecast/web</webroot>
+    <adminroot>/usr/share/icecast/admin</adminroot>
+  </paths>
+  <logging><accesslog>access.log</accesslog><errorlog>-</errorlog><loglevel>3</loglevel></logging>
+</icecast>

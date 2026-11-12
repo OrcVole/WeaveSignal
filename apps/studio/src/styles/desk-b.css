@@ -63,7 +63,7 @@
   .rundown .row .what span { color: var(--muted); font-size: var(--fs-12); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rundown .row.now .at, .rundown .row.now .what b { color: var(--ink); }
   .rundown .row .btn { font-size: var(--fs-13); min-height: 2rem; padding: 0 var(--s-2); }
-  .rundown .row.hand { grid-template-columns: 3.25rem minmax(0, 1fr); }
+  .rundown .row.hand { grid-template-columns: 3rem minmax(0, 1fr); }   /* the handover's row: its button under the title, the time column as every row's */
   .rundown .row.hand .btn { grid-column: 2; justify-self: start; }
   .playout .q { font-size: var(--fs-13); color: var(--ink-2); display: grid; gap: 2px; }
   .playout .q b { color: var(--ink); font-weight: 600; }
@@ -135,6 +135,11 @@
   .tile .foot { display: flex; gap: var(--s-2); align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .tile .foot .btn { font-size: var(--fs-13); min-height: 1.75rem; }
   .tile .foot .hand { justify-content: space-between; }
+  /* the handover button on the incoming DJ's tile (ADR-0074): in the lines row, under the controls, so the four live buttons keep their offset and it fits a full stage */
+  .tile .lines.has-hand { align-items: center; }
+  .tile .lines .hand { justify-self: start; max-width: 100%; min-width: 0; min-height: 1.5rem; padding: 0 var(--s-1) 0 var(--s-2); font-size: var(--fs-12); gap: var(--s-1); margin: -4px 0; }   /* 24 px tall in a 16 px row: the tile is the same height with it as without */
+  .tile .lines .hand > span { overflow: hidden; text-overflow: ellipsis; }
+  .tile .lines .hand kbd { height: 1.125rem; }
 
   .waiting { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
   .waiting .wh { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: calc(-1 * var(--s-1)); }
@@ -212,9 +217,15 @@
   @media (max-width: 2199px) {
     .delay .arc { display: none; }
   }
-  @media (max-width: 1400px) {
-    & { overflow: auto; }
-    .cols { grid-template-columns: 1fr; }
+  /* A narrow window, or a large text size (A+ is zoom, which a container query sees and a media
+     query does not): one column that scrolls under a status bar that stays, every row as tall as
+     its content, so no panel is squeezed to nothing under the next (the 1.0.1 test run). */
+  @container (max-width: 1400px) {
+    .cols { grid-template-columns: 1fr; overflow: auto; align-content: start; }
+    /* max-content, not auto: the panels may shrink to nothing (min-height: 0, for the full-window
+       layout), so auto rows in a box of fixed height were shared out equally and overlapped */
+    .cols, .col, .col.left, .col.right, .stage, .tiles { grid-template-rows: none; grid-auto-rows: max-content; }
+    .col.right, .col .slot, .col.left > .playout { overflow: visible; }
   }
 
 

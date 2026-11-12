@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.0:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.1:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -235,16 +235,16 @@ export const groups: Group[] = [
       {
         id: 'stream',
         name: 'An Ogg Opus stream, and MP3 when you need it',
-        what: 'An Icecast-compatible stream in Opus, which every current player opens, and an MP3 stream for older players and the directories that need one, off until a station turns it on.',
-        href: '/docs/reference/playout/#the-mp3-compatibility-stream',
-        link: 'The MP3 compatibility stream',
+        what: 'An Icecast-compatible stream in Opus at a rate the station sets, which every current player opens, and MP3 at two rates, 128 kbit/s for speech and 320 for music, for older players and the directories that need one, each off until a station turns it on. The listener chooses on the player page.',
+        href: '/docs/reference/playout/#the-mp3-streams',
+        link: 'The MP3 streams',
         home: 'An Icecast-compatible Ogg Opus stream, an optional MP3 stream, HLS with video, and a player page with the chat on it.',
         shot: 'player',
       },
       {
         id: 'video',
         name: 'Video, when a station turns it on',
-        what: 'Cameras, a vision mixer and a slate with now playing and a still per show, captions, and AV1 in HLS behind the delay, with an audio-only toggle for the viewer. Run against stand-ins so far, not a studio.',
+        what: 'Cameras, a vision mixer and a slate with now playing and a still per show, captions, and AV1 in HLS behind the delay, with an audio-only toggle for the viewer. A guest\'s browser camera has gone through a station to an RTMP server; not yet through a whole show.',
         href: '/docs/reference/desk-video/',
         link: 'Video in the desk',
       },
@@ -259,7 +259,7 @@ export const groups: Group[] = [
       {
         id: 'chat',
         name: 'A chat, moderated from the screener',
-        what: 'Listeners chat on the player page. The screener\'s lanes show what needs them, every removal carries a statement of reasons, the minimum age follows the station\'s jurisdiction, and the chat keeps records only as long as retention says.',
+        what: 'Listeners chat on the player page, each with an avatar: one of the 72 that come with the station, or a picture of their own that staff or a moderator approve first. The screener\'s lanes show what needs them, every removal carries a statement of reasons, the minimum age follows the station\'s jurisdiction, and the chat keeps records only as long as retention says.',
         href: '/docs/how-to/moderate-the-chat/',
         link: 'Moderate the chat',
         shot: 'chat',
@@ -424,9 +424,9 @@ export interface Planned {
 export const next: Planned[] = [
   {
     id: 'dj-handover',
-    name: 'The DJ overlap handover',
-    what: 'Two DJs on air together across the boundary between shows: the incoming DJ joins and is cued before their slot, a window opens on the desk before the post, the two talk to each other on air, and one key passes the programme over (ADR-0074).',
-    today: 'In 1.0.0 the next DJ joins off air like a guest and the presenter puts them on air by hand with their digit; the handover key shows a note.',
+    name: 'A handover window from the schedule',
+    what: 'The desk opens the handover by itself before the post, from the schedule, with the incoming DJ cued and ready (ADR-0231).',
+    today: 'In 1.0.1 the next DJ joins off air, and one key, ⇧⏎, puts them on air beside the presenter and then takes the presenter off; the presenter starts it when they are ready.',
     href: '/docs/reference/keymap/#desk-tab',
     link: 'The desk\'s keys',
   },

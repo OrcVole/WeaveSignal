@@ -116,8 +116,10 @@ function voiceInit() {
   const ac = new AudioContext({ sampleRate: 48000 });
   const dest = ac.createMediaStreamDestination();
   const buffers = {};
-  // A real microphone's room tone, about -66 dBFS: a desk hears a live link even between
-  // lines (a digitally silent track reads as a link that brings no audio).
+  // A real microphone's room tone, about -66 dBFS, playing throughout: with nothing playing
+  // into it, a Web Audio destination gives the track no samples at all, Chromium sends no
+  // packets, and the desk cannot tell that from a dead link (issue 13). Digital silence would
+  // do as well (a ConstantSourceNode at 0 sends a packet every 20 ms); the tone sounds real.
   const tone = ac.createBuffer(1, ac.sampleRate * 3, ac.sampleRate);
   const data = tone.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.0009;
@@ -502,7 +504,7 @@ async function invite(who, role, filmIt) {
   const inv = (await api('POST', '/api/v1/invites', { role, name: script.cast[who].name })).body;
   const name = filmIt ? who : `mic-${who}`;
   const p = await newPage(name, filmIt ? { width: 390, height: 844, phone: true, voice: true, overlay: true } : { width: 1280, height: 800, scale: 1.5, voice: true });
-  await p.page.goto(`${WEB}${inv.link}`);
+  await p.page.goto((/^https?:/.test(inv.link) ? inv.link : `${WEB}${inv.link}`));
   await p.page.getByRole('button', { name: 'Join the studio' }).waitFor({ timeout: 20_000 });
   log('voice', who, await p.page.evaluate((l) => window.__voice.load(l), linesOf(who)), 'lines');
   return { p, identity: JSON.parse(Buffer.from(inv.link.split('.')[1], 'base64url').toString()).id };

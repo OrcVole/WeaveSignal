@@ -3,7 +3,7 @@ title: "The public pages"
 description: "The player with call-in, the invite page and the echo test as the control plane serves them: caching, the Content-Security-Policy, call-in's challenge, what TURN over TLS needs from a station, and what to do when a call does not work."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-10
 sidebar:
   order: 7
 ---
@@ -30,6 +30,9 @@ The invite page for a guest, and the echo test:
 
 ![The echo test page with its Start the echo test button.](../../../../assets/screens/reference-public-pages-echo-test.png)
 
+From 1.0.1 the same build holds the station's **setup page** (`/setup/`), for its admin only: it shows nothing until someone signs in with the station key or as an admin, and it is never listed ([Set up the station and its look](/docs/how-to/set-up-the-station/)).
+The three public pages take the station's accent colour, icon and banner when it has set them ([The station's look](/docs/reference/branding/)).
+
 ## Serving
 
 | What | How |
@@ -45,7 +48,7 @@ The invite page for a guest, and the echo test:
 
 | Header | Value |
 |---|---|
-| `Content-Security-Policy` | `default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' <HLS> <LiveKit>; media-src 'self' blob: <stream>; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'` |
+| `Content-Security-Policy` | `default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' <HLS> <each edge's host>:* <LiveKit>; media-src 'self' blob: <stream>; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'` |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `no-referrer` |
 | `X-Frame-Options` | `DENY` |
@@ -54,7 +57,7 @@ The invite page for a guest, and the echo test:
 
 Every answer the pages give carries these, a 404 or a 405 included; the API's routes do not.
 `<LiveKit>` is the origin of `room.public_url` (its `wss://` form and the matching `https://`, which the room client checks when a connection fails); `<stream>` is the origin of `join.stream_url`; `<HLS>` is the origin of `join.hls_url` when the video is on an edge or a CDN (left out for the default `/hls`).
-`blob:` is the video player's media, played through Media Source Extensions.
+`blob:` in `media-src` is the video player's media, played through Media Source Extensions; in `img-src` it is a chatter's own avatar while it waits for a moderator, fetched with their session and shown from memory.
 No inline script and no `eval` are allowed.
 Inline style attributes are: the shared glyph sprite carries one, and a style attribute cannot run script.
 `just test-m3` checks that no page breaks the policy.
@@ -81,11 +84,20 @@ Before a caller can call, they tick a box under the station's consent words. The
 |---|---|
 | `{station}` | the station's name |
 | `{kept}` | how long programme recordings are kept, from the Jurisdiction setting: "for two years", "for 42 days", "only until the show ends" |
-| `{contact}` | `join.consent_contact`: an email address or a link (`CONSENT_CONTACT` in the Compose bundle and `weavesignal.sh`) |
+| `{contact}` | the show on air's takedown contact, then the station's own as the host: "shona@example.org. This station is hosted by Kettle FM: info@kettle.example" (ADR-0214, ADR-0215); with no show on air, or a show with no contact of its own, the station's alone, from `join.consent_contact` (`CONSENT_CONTACT` in the Compose bundle and `weavesignal.sh`) |
 
-With the default words, call-in stays closed until the station sets `join.consent_contact`.
-A station can write its own words in `join.consent_text`; words that use `{contact}` need the contact too.
+With the default words, call-in stays closed until the station sets `join.consent_contact`: the station's contact is required, a show's is optional.
+A station can write its own words in `join.consent_text`; words that use `{contact}` need the contact too, and words without it have nowhere to put a show's.
 Any change to the words, a new retention period included, changes their version, and a caller who agreed to older words is asked again.
+
+### The show on air
+
+The show on air is decided by the schedule, as the slate's picture is (ADR-0200): the latest episode whose air time holds now, for the episode's length, else its series' or show's slot, else an hour.
+A show's presenter and takedown contact are set in the show editor or by the presenter's own setup ([Set up your show](/docs/how-to/set-up-your-show/)).
+So the words change at a show's boundary as they do at a settings change: the call page reads them again when its consent is refused as out of date (409), and a caller ticks the box once more.
+
+Each call's consent record keeps the show that was on air, the presenter's name and the `{contact}` phrase exactly as the words said it, beside the whole words and their version.
+A later change to the show never rewrites what a caller agreed to.
 
 ## Call-in's challenge
 

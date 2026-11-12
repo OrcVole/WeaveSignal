@@ -112,3 +112,28 @@ describe('dump', () => {
     expect(studio.note).toMatchObject({ tone: 'warning', title: 'Nothing held' });
   });
 });
+
+describe('a held talk key', () => {
+  it('lets go of the talk it opened, even if the presenter’s seat moved meanwhile (ADR-0231)', async () => {
+    vi.mocked(api.desk).mockResolvedValue(view(true));
+    studio.view = view(true);
+    await run({ type: 'talk', slot: 2, held: true });
+    // While G is held the handover takes Eilidh off and the seat goes to Finlay.
+    const after = view(true);
+    after.seats = { ...after.seats, presenter: 'finlay', presenter_name: 'Finlay Grant' };
+    after.sources = [...after.sources, { ...person('finlay', 'Finlay Grant', 'dj'), slot: 5, caller: null }];
+    studio.view = after;
+    vi.mocked(api.desk).mockResolvedValue(after);
+    await run({ type: 'talk', slot: 2, held: false });
+    expect(vi.mocked(api.desk).mock.calls.map((c) => c[0])).toEqual([
+      { op: 'talk_to', identity: 'eilidh', to: 'gregor', on: true },
+      { op: 'talk_to', identity: 'eilidh', to: 'gregor', on: false },
+    ]);
+  });
+
+  it('sends nothing on letting go of a key that opened nothing', async () => {
+    await run({ type: 'talk', slot: 3, held: true });
+    await run({ type: 'talk', slot: 3, held: false });
+    expect(api.desk).not.toHaveBeenCalled();
+  });
+});

@@ -14,53 +14,15 @@
 //   SITE=http://127.0.0.1:27911 PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core node tests/sandbox/drive.mjs
 //
 // OUT (optional) is a folder for a screenshot at each step. Playwright is not a dependency of
-// the repository (see tests/m2/drive.mjs).
-import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
+// the repository (see tests/m2/drive.mjs). The training scenarios are scenarios.mjs's; what the
+// two share is lib.mjs.
+import { open, SITE, check } from './lib.mjs';
 
-const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.PLAYWRIGHT_CORE ?? 'playwright-core');
-const SITE = process.env.SITE ?? 'http://127.0.0.1:27911';
-const OUT = process.env.OUT ?? '';
-if (OUT) mkdirSync(OUT, { recursive: true });
+const d = await open();
+const { page, until, press, hold, snap, st } = d;
 
-const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
-let failed = 0;
-const check = (ok, what) => {
-  log(ok ? 'PASS' : 'FAIL', what);
-  if (!ok) failed++;
-};
-
-const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM, args: ['--autoplay-policy=no-user-gesture-required'] });
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-GB', timezoneId: 'Europe/London' });
-const page = await ctx.newPage();
-const errors = [];
-page.on('pageerror', (e) => errors.push(e.message));
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-page.on('requestfailed', (r) => errors.push(`request failed: ${r.url()}`));
-
-const st = (fn) => page.evaluate(fn);
-async function until(what, fn, ms = 30_000) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (await page.evaluate(fn)) return check(true, what);
-    await page.waitForTimeout(200);
-  }
-  check(false, `${what} (waited ${ms / 1000} s)`);
-}
-let shot = 0;
-const snap = async (name) => OUT && page.screenshot({ path: `${OUT}/${String(++shot).padStart(2, '0')}-${name}.png` });
-const press = async (key) => {
-  await page.keyboard.press(key);
-  await page.waitForTimeout(150);
-};
-const hold = async (key, ms) => {
-  await page.keyboard.down(key);
-  await page.waitForTimeout(ms);
-  await page.keyboard.up(key);
-};
-
-await page.goto(`${SITE}/`);
+// The show is the first scenario (ADR-0222): its hash opens its start card past the chooser.
+await page.goto(`${SITE}/#show`);
 await page.getByRole('button', { name: 'Start with sound' }).waitFor();
 await snap('start');
 await page.getByRole('button', { name: 'Start with sound' }).click();
@@ -124,8 +86,9 @@ await snap('dumped');
 await page.getByRole('button', { name: 'Listeners' }).click();
 await until('Eilidh apologises', () => globalThis.__kettle.speaking?.line.id === 'l-e-sorry', 10_000);
 
-await until('the guide offers to pull the plug', () => !!document.querySelector('[data-panel="sandbox.guide"] button.btn'), 15_000);
-await page.locator('[data-panel="sandbox.guide"] button.btn').click();
+await page.getByRole('button', { name: 'Pull the plug' }).waitFor({ timeout: 15_000 });
+check(true, 'the guide offers to pull the plug');
+await page.getByRole('button', { name: 'Pull the plug' }).click();
 await until('playout is down', () => !globalThis.__kettle.playout);
 await until('the lamp says Playout down', () => /playout down/i.test(document.body.innerText), 5_000);
 await snap('playout-down');
@@ -140,7 +103,5 @@ for (const [key, name] of [['Control+3', 'carts'], ['Control+5', 'schedule'], ['
   await page.waitForTimeout(600);
   await snap(`tab-${name}`);
 }
-check(errors.length === 0, `no page errors${errors.length ? `: ${errors.slice(0, 5).join(' | ')}` : ''}`);
-await browser.close();
-log(failed ? `${failed} failed` : 'all passed');
-process.exit(failed ? 1 : 0);
+check(d.errors.length === 0, `no page errors${d.errors.length ? `: ${d.errors.slice(0, 5).join(' | ')}` : ''}`);
+await d.done();

@@ -193,6 +193,8 @@ export interface Block {
   clock: string | null;
   /** The studio the block is in; the model has none yet. */
   studio: string | null;
+  /** An episode made beforehand and played out (ADR-0188), not presented live. */
+  prerecorded?: boolean;
 }
 
 /** The hour when a slot's instance would have started, for the MOVED chip. */
@@ -233,6 +235,7 @@ export function episodeBlocks(eps: WeekEpisode[], zone: string, now: number): Bl
       moved: movedWords(r.slot, start, zone),
       clock: null,
       studio: null,
+      prerecorded: w.episode.kind === 'prerecorded',
     });
   }
   return markConflicts(out);

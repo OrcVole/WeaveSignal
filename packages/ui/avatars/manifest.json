@@ -1,0 +1,440 @@
+{
+ "set": "Fluent Emoji (Flat)",
+ "source": "https://github.com/microsoft/fluentui-emoji",
+ "commit": "1ffb34c752ecf5d402f04cfb4b392c77f57c54bc",
+ "licence": "MIT",
+ "avatars": [
+  {
+   "id": "badger",
+   "label": "Badger",
+   "group": "animal",
+   "source": "Badger"
+  },
+  {
+   "id": "bat",
+   "label": "Bat",
+   "group": "animal",
+   "source": "Bat"
+  },
+  {
+   "id": "bear",
+   "label": "Bear",
+   "group": "animal",
+   "source": "Bear"
+  },
+  {
+   "id": "beaver",
+   "label": "Beaver",
+   "group": "animal",
+   "source": "Beaver"
+  },
+  {
+   "id": "bison",
+   "label": "Bison",
+   "group": "animal",
+   "source": "Bison"
+  },
+  {
+   "id": "blowfish",
+   "label": "Blowfish",
+   "group": "animal",
+   "source": "Blowfish"
+  },
+  {
+   "id": "butterfly",
+   "label": "Butterfly",
+   "group": "animal",
+   "source": "Butterfly"
+  },
+  {
+   "id": "cat",
+   "label": "Cat",
+   "group": "animal",
+   "source": "Cat face"
+  },
+  {
+   "id": "chick",
+   "label": "Chick",
+   "group": "animal",
+   "source": "Front-facing baby chick"
+  },
+  {
+   "id": "cow",
+   "label": "Cow",
+   "group": "animal",
+   "source": "Cow face"
+  },
+  {
+   "id": "crab",
+   "label": "Crab",
+   "group": "animal",
+   "source": "Crab"
+  },
+  {
+   "id": "crocodile",
+   "label": "Crocodile",
+   "group": "animal",
+   "source": "Crocodile"
+  },
+  {
+   "id": "deer",
+   "label": "Deer",
+   "group": "animal",
+   "source": "Deer"
+  },
+  {
+   "id": "dodo",
+   "label": "Dodo",
+   "group": "animal",
+   "source": "Dodo"
+  },
+  {
+   "id": "dog",
+   "label": "Dog",
+   "group": "animal",
+   "source": "Dog face"
+  },
+  {
+   "id": "dolphin",
+   "label": "Dolphin",
+   "group": "animal",
+   "source": "Dolphin"
+  },
+  {
+   "id": "duck",
+   "label": "Duck",
+   "group": "animal",
+   "source": "Duck"
+  },
+  {
+   "id": "eagle",
+   "label": "Eagle",
+   "group": "animal",
+   "source": "Eagle"
+  },
+  {
+   "id": "elephant",
+   "label": "Elephant",
+   "group": "animal",
+   "source": "Elephant"
+  },
+  {
+   "id": "flamingo",
+   "label": "Flamingo",
+   "group": "animal",
+   "source": "Flamingo"
+  },
+  {
+   "id": "fox",
+   "label": "Fox",
+   "group": "animal",
+   "source": "Fox"
+  },
+  {
+   "id": "frog",
+   "label": "Frog",
+   "group": "animal",
+   "source": "Frog"
+  },
+  {
+   "id": "giraffe",
+   "label": "Giraffe",
+   "group": "animal",
+   "source": "Giraffe"
+  },
+  {
+   "id": "hamster",
+   "label": "Hamster",
+   "group": "animal",
+   "source": "Hamster"
+  },
+  {
+   "id": "hedgehog",
+   "label": "Hedgehog",
+   "group": "animal",
+   "source": "Hedgehog"
+  },
+  {
+   "id": "hippopotamus",
+   "label": "Hippopotamus",
+   "group": "animal",
+   "source": "Hippopotamus"
+  },
+  {
+   "id": "honeybee",
+   "label": "Honeybee",
+   "group": "animal",
+   "source": "Honeybee"
+  },
+  {
+   "id": "horse",
+   "label": "Horse",
+   "group": "animal",
+   "source": "Horse face"
+  },
+  {
+   "id": "kangaroo",
+   "label": "Kangaroo",
+   "group": "animal",
+   "source": "Kangaroo"
+  },
+  {
+   "id": "koala",
+   "label": "Koala",
+   "group": "animal",
+   "source": "Koala"
+  },
+  {
+   "id": "ladybird",
+   "label": "Ladybird",
+   "group": "animal",
+   "source": "Lady beetle"
+  },
+  {
+   "id": "lion",
+   "label": "Lion",
+   "group": "animal",
+   "source": "Lion"
+  },
+  {
+   "id": "llama",
+   "label": "Llama",
+   "group": "animal",
+   "source": "Llama"
+  },
+  {
+   "id": "monkey",
+   "label": "Monkey",
+   "group": "animal",
+   "source": "Monkey face"
+  },
+  {
+   "id": "moose",
+   "label": "Moose",
+   "group": "animal",
+   "source": "Moose"
+  },
+  {
+   "id": "mouse",
+   "label": "Mouse",
+   "group": "animal",
+   "source": "Mouse face"
+  },
+  {
+   "id": "octopus",
+   "label": "Octopus",
+   "group": "animal",
+   "source": "Octopus"
+  },
+  {
+   "id": "orangutan",
+   "label": "Orangutan",
+   "group": "animal",
+   "source": "Orangutan"
+  },
+  {
+   "id": "otter",
+   "label": "Otter",
+   "group": "animal",
+   "source": "Otter"
+  },
+  {
+   "id": "owl",
+   "label": "Owl",
+   "group": "animal",
+   "source": "Owl"
+  },
+  {
+   "id": "panda",
+   "label": "Panda",
+   "group": "animal",
+   "source": "Panda"
+  },
+  {
+   "id": "parrot",
+   "label": "Parrot",
+   "group": "animal",
+   "source": "Parrot"
+  },
+  {
+   "id": "peacock",
+   "label": "Peacock",
+   "group": "animal",
+   "source": "Peacock"
+  },
+  {
+   "id": "penguin",
+   "label": "Penguin",
+   "group": "animal",
+   "source": "Penguin"
+  },
+  {
+   "id": "pig",
+   "label": "Pig",
+   "group": "animal",
+   "source": "Pig face"
+  },
+  {
+   "id": "polar-bear",
+   "label": "Polar bear",
+   "group": "animal",
+   "source": "Polar bear"
+  },
+  {
+   "id": "rabbit",
+   "label": "Rabbit",
+   "group": "animal",
+   "source": "Rabbit face"
+  },
+  {
+   "id": "raccoon",
+   "label": "Raccoon",
+   "group": "animal",
+   "source": "Raccoon"
+  },
+  {
+   "id": "seal",
+   "label": "Seal",
+   "group": "animal",
+   "source": "Seal"
+  },
+  {
+   "id": "shark",
+   "label": "Shark",
+   "group": "animal",
+   "source": "Shark"
+  },
+  {
+   "id": "skunk",
+   "label": "Skunk",
+   "group": "animal",
+   "source": "Skunk"
+  },
+  {
+   "id": "sloth",
+   "label": "Sloth",
+   "group": "animal",
+   "source": "Sloth"
+  },
+  {
+   "id": "snail",
+   "label": "Snail",
+   "group": "animal",
+   "source": "Snail"
+  },
+  {
+   "id": "squid",
+   "label": "Squid",
+   "group": "animal",
+   "source": "Squid"
+  },
+  {
+   "id": "tiger",
+   "label": "Tiger",
+   "group": "animal",
+   "source": "Tiger face"
+  },
+  {
+   "id": "turtle",
+   "label": "Turtle",
+   "group": "animal",
+   "source": "Turtle"
+  },
+  {
+   "id": "whale",
+   "label": "Whale",
+   "group": "animal",
+   "source": "Whale"
+  },
+  {
+   "id": "wolf",
+   "label": "Wolf",
+   "group": "animal",
+   "source": "Wolf"
+  },
+  {
+   "id": "zebra",
+   "label": "Zebra",
+   "group": "animal",
+   "source": "Zebra"
+  },
+  {
+   "id": "alien",
+   "label": "Alien",
+   "group": "monster",
+   "source": "Alien"
+  },
+  {
+   "id": "dragon",
+   "label": "Dragon",
+   "group": "monster",
+   "source": "Dragon"
+  },
+  {
+   "id": "dragon-face",
+   "label": "Dragon face",
+   "group": "monster",
+   "source": "Dragon face"
+  },
+  {
+   "id": "ghost",
+   "label": "Ghost",
+   "group": "monster",
+   "source": "Ghost"
+  },
+  {
+   "id": "goblin",
+   "label": "Goblin",
+   "group": "monster",
+   "source": "Goblin"
+  },
+  {
+   "id": "ogre",
+   "label": "Ogre",
+   "group": "monster",
+   "source": "Ogre"
+  },
+  {
+   "id": "pumpkin",
+   "label": "Pumpkin lantern",
+   "group": "monster",
+   "source": "Jack-o-lantern"
+  },
+  {
+   "id": "robot",
+   "label": "Robot",
+   "group": "monster",
+   "source": "Robot"
+  },
+  {
+   "id": "sauropod",
+   "label": "Sauropod",
+   "group": "monster",
+   "source": "Sauropod"
+  },
+  {
+   "id": "space-invader",
+   "label": "Space invader",
+   "group": "monster",
+   "source": "Alien monster"
+  },
+  {
+   "id": "t-rex",
+   "label": "T. rex",
+   "group": "monster",
+   "source": "T-rex"
+  },
+  {
+   "id": "troll",
+   "label": "Troll",
+   "group": "monster",
+   "source": "Troll"
+  },
+  {
+   "id": "unicorn",
+   "label": "Unicorn",
+   "group": "monster",
+   "source": "Unicorn"
+  }
+ ]
+}

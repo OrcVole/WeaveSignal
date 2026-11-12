@@ -93,6 +93,7 @@ async fn an_aired_show_appears_in_its_feed_with_both_enclosures_and_its_card() {
             ..PublishingConfig::default()
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
+        live: None,
     }));
 
     // A name that cannot fit refuses the save, with the field named, and nothing is kept.
@@ -385,6 +386,7 @@ async fn an_erased_guest_leaves_the_aired_card_and_its_old_files_go() {
             ..PublishingConfig::default()
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
+        live: None,
     }));
     let ok = |(code, body): (StatusCode, serde_json::Value)| {
         assert!(code.is_success(), "{code} {body}");
@@ -577,6 +579,7 @@ async fn staff_correct_an_aired_episode_and_the_feed_keeps_its_id() {
             ..PublishingConfig::default()
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
+        live: None,
     }));
     let ok = |(code, body): (StatusCode, serde_json::Value)| {
         assert!(code.is_success(), "{code} {body}");

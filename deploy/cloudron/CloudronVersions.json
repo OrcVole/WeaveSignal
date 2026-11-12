@@ -101,6 +101,107 @@
             "creationDate": "Wed, 04 Nov 2026 16:21:58 GMT",
             "ts": "Wed, 04 Nov 2026 16:21:58 GMT",
             "publishState": "published"
+        },
+        "1.0.1": {
+            "manifest": {
+                "manifestVersion": 2,
+                "id": "top.weavesignal.cloudronapp",
+                "title": "WeaveSignal",
+                "author": "The WeaveSignal contributors",
+                "tagline": "An internet radio and video studio: a live room with callers, the desk, playout, streams and chat",
+                "description": "<!-- SPDX-License-Identifier: AGPL-3.0-only -->\n<!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->\nWeaveSignal is talk-radio software: presenters, guests and callers meet in a live room, a desk\nmixes the programme with a mix-minus for each person, and playout sends it to listeners.\n\nThis package runs release one's server in one app: the control plane (Rust, Axum), the live\nchat (Rust, Axum), the desk (Rust, GStreamer), Liquidsoap 2.5 for playout and for the listener\nprocess that holds the stream with `icecast.server`, LiveKit with its own TURN, and the\nstation's public pages. It uses Cloudron's PostgreSQL and mail.\n\nThe studio app for presenters and screeners (Linux and Windows) connects to it over https.\nDocumentation: https://weavesignal.top. Source: https://forgejo.weavesignal.top/WeaveSignal/weavesignal.\n",
+                "version": "1.0.1",
+                "upstreamVersion": "1.0.1",
+                "website": "https://weavesignal.top",
+                "contactEmail": "info@weavesignal.top",
+                "packagerName": "The WeaveSignal contributors",
+                "packagerUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal",
+                "packageUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/deploy/cloudron",
+                "documentationUrl": "https://weavesignal.top/docs/how-to/install-on-cloudron/",
+                "icon": "file://logo.png",
+                "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/deploy/cloudron/logo.png",
+                "healthCheckPath": "/health",
+                "httpPort": 8000,
+                "httpPorts": {
+                    "LISTENERS_DOMAIN": {
+                        "title": "Listener stream",
+                        "description": "The listener stream (Ogg Opus), served by icecast.server behind this domain. It is not listed in any directory.",
+                        "containerPort": 8001,
+                        "defaultValue": "weavesignal-listen"
+                    },
+                    "ROOM_DOMAIN": {
+                        "title": "Live room signalling",
+                        "description": "LiveKit's signalling for presenters, guests and callers (WebSocket). Room access needs a short-lived token from the station.",
+                        "containerPort": 8002,
+                        "defaultValue": "weavesignal-room"
+                    },
+                    "PUBLIC_DOMAIN": {
+                        "title": "Public pages",
+                        "description": "The station's public pages, outside Cloudron's login: the player with call-in and the live chat, invited guests' join page, the echo test, podcast feeds, show cards and episode files. The app's own domain stays for the studio.",
+                        "containerPort": 8003,
+                        "defaultValue": "weavesignal-public"
+                    }
+                },
+                "udpPorts": {
+                    "LIVEKIT_MEDIA_PORT": {
+                        "title": "Live room media (UDP)",
+                        "description": "LiveKit's one WebRTC media port (ADR-0023). Default 7882; a port in 52000-60000 or 443/udp are alternatives, and any free UDP port may be used. Avoid 50000-51000, Cloudron's own TURN relay range.",
+                        "defaultValue": 7882
+                    },
+                    "TURN_UDP_PORT": {
+                        "title": "TURN over UDP",
+                        "description": "LiveKit's built-in TURN over UDP. Off by default: guests who cannot use the media port use TURN over TLS. Cloudron's own TURN holds 3478, so 3479 or 13478; any free UDP port may be used.",
+                        "defaultValue": 3479,
+                        "enabledByDefault": false
+                    }
+                },
+                "tcpPorts": {
+                    "TURN_TLS_PORT": {
+                        "title": "TURN over TLS",
+                        "description": "LiveKit's built-in TURN over TLS, for guests on networks that block UDP and for GrapheneOS's browser (ADR-0059). On Cloudron the default is 15349, because Cloudron's own TURN holds 5349 (ADR-0106); any free TCP port may be used.",
+                        "defaultValue": 15349
+                    },
+                    "LIVEKIT_TCP_PORT": {
+                        "title": "Live room media over TCP",
+                        "description": "LiveKit's ICE over TCP, a fallback when UDP is blocked. Off by default: TURN over TLS covers the same guests. Default 7881; any free TCP port may be used.",
+                        "defaultValue": 7881,
+                        "enabledByDefault": false
+                    }
+                },
+                "addons": {
+                    "localstorage": {},
+                    "postgresql": {},
+                    "sendmail": {},
+                    "tls": {},
+                    "proxyAuth": {
+                        "path": "!/health",
+                        "supportsBearerAuth": true
+                    }
+                },
+                "optionalSso": true,
+                "memoryLimit": 2147483648,
+                "minBoxVersion": "10.0.0",
+                "postInstallMessage": "<!-- SPDX-License-Identifier: AGPL-3.0-only -->\n<!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->\nYour station is installed. The guide is at https://weavesignal.top/docs/how-to/install-on-cloudron/.\n\n* **Set the station up** at `https://<this app's domain>/setup/`: sign in with\n  `CONTROL_ADMIN_TOKEN` from `/app/data/secrets.env` and give the station its name, the takedown\n  contact that opens call-in, its jurisdiction and its look (colour, icon, banner). The install\n  wizard at https://weavesignal.top/docs/install-wizard/ makes `weavesignal.env` and the DNS list.\n* The station's settings are in `/app/data/weavesignal.env`, and its generated secrets (the\n  station identifier, LiveKit's key, the control plane's admin token, the listener password,\n  and the keys that hash chatters' and staff's email addresses) are in `/app/data/secrets.env`.\n  Keep the email keys: a new one finds none of the accounts made before. Open them with the File Manager; restart the app after an edit.\n* The listener stream is at `https://<listener domain>/programme.opus`. It is in no directory\n  and open to anyone with the address; set `LISTENERS_AUTH=on` in `weavesignal.env` to ask for\n  the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`.\n* The player page, with call-in and the live chat, is at `https://<public domain>/`; podcast\n  feeds, show cards and episode files are served there too. The chat's sign-in codes are sent\n  through Cloudron's mail (`MAIL_MODE` in `weavesignal.env`).\n* Staff: in the studio app, choose **Use the station key instead** with `CONTROL_ADMIN_TOKEN`,\n  add yourself as an admin under **Settings → Staff**, then sign in as yourself. Each member\n  of staff then gets their own account there.\n* Room tokens: `POST /api/v1/room/tokens` with a staff sign-in or `CONTROL_ADMIN_TOKEN` as the bearer.\n* The public ports (room media over UDP, TURN over TLS, and the optional TURN over UDP and ICE\n  over TCP) must be open in the server's firewall and any cloud firewall.\n<sso>\n* The station's own domain is behind Cloudron's login; the listener, room and public domains\n  are not, and are protected by the listener password, by room tokens, and by serving only\n  the public routes.\n</sso>\n",
+                "changelog": "- **Browser cameras work** with `VIDEO=true`: the image gains gst-plugins-rs's RTP plugin, whose `rtpav1depay` takes a Chromium browser's AV1 camera (without it that guest's voice failed too), and the desk gives cameras a 300 ms jitter buffer and asks for a keyframe after a loss. Tried on a Cloudron install: a Brave camera through the desk's picture to an RTMP destination (Owncast).\n- **nginx serves the station's pages `no-cache`** and `/assets/` with a long cache, so a page open across an update fetches the new one; a page that asks for code the update removed reloads once.\n- **Avatars in the chat** (ADR-0235): chatters choose one of 72 shipped avatars or upload a picture of their own, held until staff approve it on the Screener tab. Two new settings in `weavesignal.env`: `AVATAR_UPLOADS` (true) and `AVATARS_DIR` (`/app/data/chat-avatars`, inside the backups; a place outside `/app/data` is refused). The public domain passes the three new public chat routes (`me/avatar`, `me/avatar/stock`, `avatars/{id}`) with a 3 MB body limit; the staff route for held pictures stays on the station's domain. Migration 0026. Not yet tried on a Cloudron install.\n- **Pictures and documents in the chat** (ADR-0262), off by default. Two new settings in `weavesignal.env`: `CHAT_ATTACHMENTS` (false) and `ATTACHMENTS_DIR` (`/app/data/chat-attachments`, inside the backups; a place outside `/app/data` is refused). The public domain passes the new routes (`attachments`, `pictures/{id}`, `pictures/{id}/thumb`, `files/{id}`), and both domains take a chat request body up to 33 MB (the chat's own limits are lower, route by route). Migrations 0031 and 0032. Not yet tried on a Cloudron install.\n- **The station's setup page** (ADR-0237) at `/setup/` on the app's own domain, for the station key or an admin: the name, the takedown contact, the jurisdiction and the station's look (accent colour, icon, banner), kept in the database, so they win over `STATION_NAME` and `CONSENT_CONTACT` in `weavesignal.env` and need no restart. The public pages' domain passes the three branding routes for reading and answers 404 for `/setup/`.\n- **The stream's password from the setup page**: its answer is written to `/app/data/setup.env` and applies at the next restart. `start.sh` reads `LISTENERS_AUTH` and `LISTENERS_PASSWORD` from it over `weavesignal.env` and `secrets.env`, checks each (`on` or `off`; 8 to 64 letters, digits, `.`, `_`, `~`, `-`) and never sources the file.\n- The post-install note names the setup page and the website's install wizard.\n- **A Night theme in the studio app** (ADR-0270): a third theme beside Dark and Light, warm and with no blue, for presenting late. Nothing changes in the package's settings.\n- **Video in the package** (ADR-0227), off by default. The image gains gst-plugins-rs's `isobmff`, `hlssink3` (the CMAF HLS writer, `hlscmafsink`) and `dav1d` plugins, built at the tag of the WebRTC plugin, the pango plugin for the slate's text (`gstreamer1.0-x`), `libdav1d` and Noto Sans; SVT-AV1 is Ubuntu's `libsvtav1enc2` 2.3.0. The build stage checks every video element.\n- **New setting `VIDEO` in `weavesignal.env`** (false). `VIDEO=true` turns on the desk's video path with the Compose bundle's defaults (the 480p20 rung, 2 s segments), the desk feed (playout's output back to the desk for the video's sound, ADR-0172), the room's codecs (Opus, VP8, VP9, AV1; no H.264) and the control plane serving the desk's HLS, which nginx passes on the public domain at `/hls/`. The join pages then offer the camera check. Restart the app after changing it. It costs memory and CPU: see the install guide.\n- **The slate's picture works on Cloudron**: the control plane wrote it under `/var/lib/weavesignal`, which the package's read-only root does not have; `video.still_file` now points under `/app/data/carts/stills/`, for the control plane and the desk, with video on or off.\n- The HLS is written under `/run/weavesignal/hls`, which is not backed up.\n- **Memory with video on**: the memory gate with three cameras peaked at 1.2 to 1.26 GiB (idle 0.9 GiB), so the gate's rule asks for 1.7 GiB: **`memoryLimit` is now 2 GiB** (from 1.5 GiB). An app installed earlier keeps its limit; raise it in Cloudron before turning `VIDEO` on. The desk used 22 to 26 % of one core with three cameras at one 480p rung.\n- The docs: the install guide's Video section, the Cloudron line in the desk's video reference, and the gate's figures.\n- **Send the programme to another Icecast server** (ADR-0226): `ICECAST_OUT`, `ICECAST_OUT_HOST`, `ICECAST_OUT_PORT`, `ICECAST_OUT_MOUNT`, `ICECAST_OUT_USER`, `ICECAST_OUT_TLS` and `ICECAST_OUT_BITRATE` in `weavesignal.env` (off by default), and the password as `ICECAST_OUT_PASSWORD` in `secrets.env`. Migration 0022 keeps the choice made in the studio's Settings.\n- **Open files: the services' soft limit is lifted from Cloudron's 1,024 to 65,536** (supervisord's `minfds`), so the listener stream is no longer capped below 1,024 listeners. `test-local.sh` starts the container with Cloudron's limits and checks the listener process's.\n- **RTMP out to Rumble, Odysee, PeerTube or any RTMP server** (ADR-0230), with video on; destinations and their stream keys are set in the studio app (Settings, RTMP out). Four new settings in `weavesignal.env`: `VIDEO_CANVAS` (the picture composed; 720p30, 720p25 or 1080p30 lets RTMP send more than 480p20), `RTMP_RUNG` (the picture sent), `RTMP_H264` (`openh264`; the app has no GPU) and `RTMP_VIDEO_KBPS`. H.264 and AAC come from Ubuntu's OpenH264 and vo-aacenc builds, which the image already carried through gstreamer1.0-plugins-bad; the build now checks `openh264enc`, `voaacenc` and `rtmp2sink` load. Migration 0024 keeps the destinations. Tried from a Cloudron install (the test station) against Owncast; not yet against Rumble, Odysee or PeerTube.\n- **The show, the rundown, the banned list and steering can be set** in `/app/data/station.toml` (`[studio]` and `[steering]` only), which the control plane adds to the settings the package writes; before, the desk always said *No show set* on Cloudron.\n- **The listener domain's bare address sends a visitor to the player** on the public domain (302), where it answered 404.\n- **An invite's link is on the public domain**: `POST /api/v1/invites` answered a link relative to the address asked, so an invite made through the studio domain led to Cloudron's login. It is now absolute on `PUBLIC_DOMAIN` (the package's `publishing.public_url`).\n- **The one-key DJ handover** (`⇧⏎`) and an invite button on the desk (ADR-0231).\n- **A show's presenter and takedown contact**, named first in the consent words while the show is on air (ADR-0214, ADR-0215), and a three-step setup on a DJ's first sign-in (ADR-0218). Migration 0023 keeps them.\n- **New settings in `weavesignal.env`**, appended with their defaults: `OPUS_BITRATE` (96; the Opus stream's constant rate, 64 to 256, ADR-0233), `COMPAT_HIGH_STREAM` (false), `COMPAT_HIGH_MOUNT` (`programme-high.mp3`) and `COMPAT_HIGH_BITRATE` (320): a second MP3 stream beside the first (ADR-0232), on the listener domain behind the same password, which nginx passes when it is on; and `CHAT_HOURS` (`always`; `shows` opens the chat while a scheduled show is on air, ADR-0234). `COMPAT_STREAM`, `COMPAT_MOUNT` and `COMPAT_BITRATE` are unchanged: an installed station keeps its one MP3 mount. A rate that is not a whole number in range, a second mount that repeats another, or `CHAT_HOURS` other than `always` or `shows` stops the start with its name in the log.\n- **The player offers each stream that is on** (Opus, then each MP3 by rate). `test-local.sh` turns both MP3 streams on for its main run and checks each at its rate behind the password, and the player's list.\n- **Memory**: two MP3 encoders in the listener process where there was one. The memory gate with both on (2026-11-10, video off): 531 MiB idle, 684 MiB at peak under load, of the 2 GiB limit; no OOM kill.\n",
+                "tags": [
+                    "media",
+                    "radio",
+                    "streaming",
+                    "video",
+                    "chat"
+                ],
+                "mediaLinks": [
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-desk-window.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-screener-queue.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-public-pages-player.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-calendar-week.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-carts-window.png"
+                ],
+                "dockerImage": "forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.1"
+            },
+            "creationDate": "Thu, 12 Nov 2026 10:19:16 GMT",
+            "ts": "Thu, 12 Nov 2026 10:19:16 GMT",
+            "publishState": "published"
         }
     }
 }

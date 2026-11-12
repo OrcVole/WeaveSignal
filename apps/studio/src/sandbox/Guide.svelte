@@ -1,82 +1,114 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The sandbox's guide (ADR-0212): a bar over the studio app's frame that walks a visitor
-  // through a short show on Kettle FM, one step at a time, read from the simulated station; the
-  // switch between what the studio hears and what listeners hear; and the first screen, whose
-  // press starts the sound (a browser plays nothing before one).
-  import { slotKeys } from '../../../../packages/ui/keymap.ts';
-  import { begin, endShow, hear, pullPlayout, sandbox, station } from './sandbox.svelte.ts';
-  import { DELAY_TARGET_MS } from './station.ts';
+  // The sandbox's guide (ADR-0212, ADR-0222): a bar over the studio app's frame that walks a
+  // visitor through one scenario, one step at a time, read from the simulated station; the
+  // stand-in for the browser tab a DJ really speaks through (the studio app does not join the
+  // room yet, ADR-0013); the switch between what the studio hears and what listeners hear; a
+  // caption for every line said; and the cards around a scenario: the chooser, the start card
+  // (what you will learn, whose press starts the sound), and the end card (what you did).
+  import { begin, choose, hear, pull, sandbox, scenario, setMic, station } from './sandbox.svelte.ts';
+  import { SCENARIOS, type GuideFacts, type Step } from './scenarios/index.ts';
+  import { firstName } from '../lib/format.ts';
+  import { say } from '../lib/studio.svelte.ts';
 
-  type Part = string | { key: string };
-  interface Step {
-    id: string;
-    say: Part[];
-    done: boolean;
-    action?: { label: string; run: () => void };
+  // A laptop's F1 to F6 are often mute and volume keys without Fn: the guide's "press F2"
+  // turned the visitor's volume down instead of firing a bed (2026-11-10). When a volume key
+  // reaches the page, say so once a minute at most.
+  let volumeHintAt = 0;
+  function volumeKey(e: KeyboardEvent) {
+    if (!/^AudioVolume(Down|Up|Mute)$/.test(e.key) || !sandbox.started) return;
+    if (Date.now() - volumeHintAt < 60_000) return;
+    volumeHintAt = Date.now();
+    say('warning', 'That was your volume key', 'On a laptop, hold Fn with F1 to F6 to fire a cart, or click the cart on screen.', 9000);
   }
 
-  const k = (key: string) => ({ key });
-  const slotOf = (id: string) => station.slots.indexOf(id) + 1;
-
   let dumpedHeard = $state(false);
+  let listened = $state(false);
+  /** The end card was closed, or the scenario was left running after it. */
+  let endClosed = $state(false);
+  /** The chooser's list, or the chosen scenario's start card. */
+  let picked: string | null = $state(location.hash.replace(/^#/, '') ? scenario.id : null);
+  let dialog: HTMLElement | null = $state(null);
+
+  const facts = $derived<GuideFacts>({ hear: sandbox.hear, listened, heardListenersAfterDump: dumpedHeard });
 
   const steps = $derived.by((): Step[] => {
     void sandbox.version;
-    const s = station;
-    const niall = s.callerState('niall');
-    const jessie = s.callerState('jessie');
-    const nSlot = slotOf('niall') || 4;
-    const jSlot = slotOf('jessie') || 3;
-    const jessieQueued = s.callers.findIndex((c) => c.identity === 'jessie') + 1 || 2;
-    return [
-      { id: 'on', say: ['Put Eilidh on air: press ', k('1'), '. You are Eilidh, the presenter, at the desk.'], done: !!s.person('eilidh')?.on_air || s.done('open') },
-      { id: 'open', say: ['Press ', k('F1'), ' for the station jingle; Eilidh opens the show when it ends.'], done: s.done('open') || !!s.beat?.beat.id.startsWith('open') },
-      { id: 'gregor', say: ['Gregor is waiting on strip 2. Press ', k('2'), ' to bring him on air.'], done: s.done('gregor') || (s.open('gregor') && s.done('open')) },
-      {
-        id: 'screen',
-        say: ['A caller is ringing. ', k('Ctrl+2'), ' opens the Screener; press ', k('1'), ' to pick Niall, then ', k('T'), ' to answer as Shona. ', k('F2'), ' plays a music bed meanwhile.'],
-        done: niall !== null && niall !== 'waiting',
-      },
-      { id: 'send', say: ['Listen to Shona screen him. Write a line for the presenter if you like, then ', k('P'), ' sends Niall to the desk.'], done: niall === 'ready' || !!s.person('niall')?.on_air },
-      {
-        id: 'air',
-        say: [k('Ctrl+1'), ` back to the desk: Niall is on strip ${nSlot}. `, k(slotKeys(nSlot).cue), ' cues him (only you hear), ', k(slotKeys(nSlot).on), ' puts him on air.'],
-        done: s.done('niall-air') || !!s.person('niall')?.on_air,
-      },
-      {
-        id: 'jessie',
-        say: [`When Niall has finished, ${slotKeys(nSlot).on} takes him off. Then screen Jessie the same way: `, k('Ctrl+2'), ', ', k(String(jessieQueued)), ', ', k('T'), ', ', k('P'), '.'],
-        done: jessie === 'ready' || !!s.person('jessie')?.on_air,
-      },
-      {
-        id: 'swear',
-        say: [k('Ctrl+1'), `, then `, k(slotKeys(jSlot).on), ` puts Jessie on air. She is about to swear: press `, k('Delete'), ' twice to dump the profanity delay.'],
-        done: s.delay.dumps > 0,
-      },
-      {
-        id: 'listen',
-        say: [`Switch Hear to Listeners. They never heard her: they were ${DELAY_TARGET_MS / 1000} s behind, and the dump threw those seconds away. The delay builds back on its own.`],
-        done: dumpedHeard,
-      },
-      {
-        id: 'down',
-        say: ['The safety net: pull playout’s plug for 15 seconds. The lamp says PLAYOUT DOWN, open faders say OPEN, and listeners hear the fallback loop.'],
-        done: s.done('down') || !s.playout,
-        action: { label: 'Pull the plug', run: pullPlayout },
-      },
-      { id: 'end', say: ['End the show when you are ready. Eilidh says goodbye.'], done: s.done('end') || s.ended, action: { label: 'End the show', run: endShow } },
-    ];
+    return scenario.steps(station, facts);
   });
 
   $effect(() => {
+    if (sandbox.hear === 'listeners') listened = true;
     if (sandbox.hear === 'listeners' && station.delay.dumps > 0) dumpedHeard = true;
   });
 
   const at = $derived(steps.findIndex((s) => !s.done));
   const step = $derived(at < 0 ? null : steps[at]);
+  const finished = $derived(sandbox.started && at < 0);
+  const did = $derived.by(() => {
+    void sandbox.version;
+    return finished ? scenario.did(station, facts) : [];
+  });
+
+  // What the stand-in tab shows: whose tab, and what it is doing.
+  const you = $derived.by(() => {
+    void sandbox.version;
+    return station.person(scenario.you.identity) ?? null;
+  });
+  const talkingTo = $derived.by(() => {
+    void sandbox.version;
+    const to = you?.talk_to;
+    const p = to ? station.person(to) : null;
+    return p ? firstName(p.name, p.identity) : null;
+  });
+  const tabSays = $derived.by(() => {
+    void sandbox.version;
+    if (!station.mic) return 'Mic off';
+    if (talkingTo) return `Talking to ${talkingTo}`;
+    if (you?.on_air && !you.mute) return station.listenersHearDesk() ? 'Live' : 'Open to the room';
+    if (you?.cue) return 'In your own cue';
+    return 'Mic on';
+  });
+
+  // The caption: who is speaking, where, and what.
+  const caption = $derived.by(() => {
+    void sandbox.version;
+    const sp = station.speaking;
+    if (!sp || !sandbox.started) return null;
+    const p = station.person(sp.line.who);
+    const who = p ? firstName(p.name, p.identity) : sp.line.who;
+    return { who, where: sp.line.heard === 'booth' ? 'in the booth' : '', text: sp.line.text, recorded: sp.line.clip !== false };
+  });
+
+  const showCards = $derived(!sandbox.started || sandbox.chooser);
+  const showEnd = $derived(finished && !endClosed && !sandbox.chooser);
+  const pickedScenario = $derived(SCENARIOS.find((s) => s.id === picked) ?? null);
+
+  // A card takes the keyboard when it opens or changes: its first button, so keys do not reach
+  // the desk behind it.
+  $effect(() => {
+    void picked;
+    void sandbox.chooser;
+    if (!dialog) return;
+    const b = dialog.querySelector<HTMLElement>('button, a');
+    b?.focus();
+  });
+
+  // A card owns the keyboard while it is up (keymap rule 5): no key reaches the desk behind
+  // it, so pressing 1 on the chooser picks nothing on the stage. Tab, Enter and Space keep
+  // their defaults, so focus moves and buttons press.
+  function onDialogKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      if (sandbox.chooser) sandbox.chooser = false;
+      else if (showEnd) endClosed = true;
+      else if (picked && !location.hash.replace(/^#/, '')) picked = null;
+    }
+    e.stopPropagation();
+  }
 </script>
+
+<svelte:window onkeydown={volumeKey} />
 
 <section class="guide" data-panel="sandbox.guide" aria-label="Try the desk">
   <a class="home" href="https://weavesignal.top/try/" title="Back to weavesignal.top">
@@ -89,40 +121,141 @@
       <p>
         {#each step.say as part, i (i)}{#if typeof part === 'string'}{part}{:else}<kbd>{part.key}</kbd>{/if}{/each}
       </p>
-      {#if step.action}<button type="button" class="btn sm" onclick={step.action.run}>{step.action.label}</button>{/if}
-    {:else}
+      {#if step.action}<button type="button" class="btn sm" onclick={() => pull(step.action!.run)}>{step.action.label}</button>{/if}
+    {:else if finished}
       <span class="count num">✓</span>
       <p>
-        That was the show. Everything still answers: carts on <kbd>Ctrl+3</kbd>, mutes on <kbd>Z</kbd>–<kbd>B</kbd>, talkback on
-        <kbd>A</kbd>–<kbd>G</kbd> held. Reload to start again, or <a href="https://weavesignal.top/run/">run your own station</a>.
+        {#if scenario.id === 'show'}
+          That was the show. Everything still answers: carts on <kbd>Ctrl+3</kbd>, mutes on <kbd>Z</kbd>–<kbd>B</kbd>, talkback on
+          <kbd>A</kbd>–<kbd>G</kbd> held. Reload to start again, or <a href="https://weavesignal.top/run/">run your own station</a>.
+        {:else}
+          Done: {scenario.title}. Everything still answers; keep pressing, or pick another scenario.
+        {/if}
       </p>
+      {#if endClosed}<button type="button" class="btn sm" onclick={() => (endClosed = false)}>What you did</button>{/if}
+    {:else}
+      <p class="ink2">{scenario.title}</p>
     {/if}
+  </div>
+  <div class="tab" data-panel="sandbox.tab" role="group" aria-label="Your browser tab" class:off={!station.mic} class:talk={!!talkingTo}>
+    <svg class="win" aria-hidden="true"><use href="#g-browser" /></svg>
+    <span class="tab-text">
+      <span class="caps">Your browser tab</span>
+      <span class="tab-line"><b>{firstName(scenario.you.name, scenario.you.identity)}</b> in the room · {tabSays}</span>
+    </span>
+    <button type="button" class="btn sm" aria-pressed={!station.mic} onclick={() => setMic(!station.mic)} title={station.mic ? 'Mute the tab’s microphone, as its own button would' : 'Unmute the tab’s microphone'}>
+      <svg aria-hidden="true"><use href={station.mic ? '#g-mic' : '#g-muted'} /></svg>{station.mic ? 'Mute' : 'Unmute'}
+    </button>
   </div>
   <div class="hear" role="group" aria-label="Hear">
     <span class="caps">Hear</span>
     <button type="button" aria-pressed={sandbox.hear === 'studio'} onclick={() => hear('studio')} title="What the presenter hears: everyone open, cue and the caller's booth">Studio</button>
     <button type="button" aria-pressed={sandbox.hear === 'listeners'} onclick={() => hear('listeners')} title="What listeners hear: the programme, behind the delay">Listeners</button>
   </div>
+  <button type="button" class="btn sm quiet scen" onclick={() => (sandbox.chooser = true)} title="Pick another scenario">Scenarios</button>
 </section>
 
-{#if !sandbox.started}
-  <div class="start" role="dialog" aria-modal="true" aria-labelledby="sandbox-title">
-    <div class="card">
-      <p class="caps">WeaveSignal · Try the desk</p>
-      <h1 id="sandbox-title">You are presenting The Morning Kettle on Kettle FM</h1>
-      <p class="ink2">
-        This is the studio app itself, running in your browser against a station simulated in the page. Gregor, Shona and the callers are
-        pre-recorded with designed voices; nothing you press reaches a real station or anyone else.
-      </p>
-      <p class="ink2">Sound on, headphones if you have them. The bar at the top says what to press next.</p>
-      {#if sandbox.error}<p class="error" role="alert">The sound would not start: {sandbox.error}</p>{/if}
-      <div class="row">
-        <button type="button" class="btn primary big" onclick={() => void begin()} disabled={sandbox.loading}>
-          {sandbox.loading ? 'Loading the voices…' : 'Start with sound'}
-        </button>
-        <a class="btn quiet" href="https://weavesignal.top/try/">Back to the website</a>
+<!-- The caption row: its own row under the bar, so it never covers a control and nothing moves
+     when someone speaks. -->
+<div class="caption" data-panel="sandbox.caption" aria-live="polite" class:quiet={!caption}>
+  {#if caption}
+    <span class="cap-who">{caption.who}{caption.where ? ` · ${caption.where}` : ''}:</span>
+    <span class="cap-text">{caption.text}</span>
+    {#if !caption.recorded}<span class="cap-note">· voice not recorded yet</span>{/if}
+  {:else if sandbox.started}
+    <span class="cap-text muted">Captions: who is speaking, and what they say.</span>
+  {/if}
+</div>
+
+{#if showCards}
+  <div class="start" role="dialog" aria-modal="true" aria-labelledby="sandbox-title" tabindex="-1" bind:this={dialog} onkeydown={onDialogKey}>
+    {#if pickedScenario && !sandbox.chooser}
+      <!-- The start card: what you will learn, and the press that starts the sound. -->
+      <div class="card" data-panel="sandbox.start">
+        <p class="caps">WeaveSignal · Try the desk · {pickedScenario.minutes} min</p>
+        <h1 id="sandbox-title">{pickedScenario.id === 'show' ? 'You are presenting The Morning Kettle on Kettle FM' : pickedScenario.title}</h1>
+        {#if pickedScenario.id === 'show'}
+          <p class="ink2">
+            This is the studio app itself, running in your browser against a station simulated in the page. Gregor, Shona and the callers are
+            pre-recorded with designed voices; nothing you press reaches a real station or anyone else.
+          </p>
+        {:else}
+          <p class="ink2">
+            You are {pickedScenario.you.name}, {pickedScenario.you.role === 'screener' ? 'screening the phones' : 'at the desk'} on Kettle FM. The
+            studio app itself, in your browser, against a station simulated in the page; nothing you press reaches anyone.
+          </p>
+        {/if}
+        <p class="caps">What you will learn</p>
+        <ul class="learn">
+          {#each pickedScenario.learn as line, i (i)}<li>{line}</li>{/each}
+        </ul>
+        <p class="ink2 two">
+          <svg aria-hidden="true"><use href="#g-browser" /></svg>
+          On a real station you run two windows: the studio app, which drives the desk, and a browser tab you speak through (the app does not
+          join the room itself yet). The small panel in the bar stands in for that tab.
+        </p>
+        <p class="ink2">Sound on, headphones if you have them. The bar at the top says what to press next.</p>
+        <p class="ink2">On a laptop, F1 to F6 may be your computer's volume keys: hold <kbd>Fn</kbd> with them, or click the carts on screen.</p>
+        {#if sandbox.error}<p class="error" role="alert">The sound would not start: {sandbox.error}</p>{/if}
+        <div class="row">
+          <button type="button" class="btn primary big" onclick={() => void begin()} disabled={sandbox.loading}>
+            {sandbox.loading ? 'Loading the voices…' : 'Start with sound'}
+          </button>
+          <button type="button" class="btn quiet" onclick={() => (picked = null)}>Other scenarios</button>
+          <a class="btn quiet" href="https://weavesignal.top/try/">Back to the website</a>
+        </div>
+        <p class="small">Kettle FM and its people are fictional: sample names, designed voices, the repository's licence-clean sounds.</p>
       </div>
-      <p class="small">Kettle FM and its people are fictional: sample names, designed voices, the repository's licence-clean sounds.</p>
+    {:else}
+      <!-- The chooser: the show first, then the training scenarios (ADR-0222). -->
+      <div class="card wide" data-panel="sandbox.chooser">
+        <p class="caps">WeaveSignal · Try the desk</p>
+        <h1 id="sandbox-title">{sandbox.started ? 'Pick another scenario' : 'Pick a scenario'}</h1>
+        <p class="ink2">
+          The studio app, in your browser, against a station simulated in the page. The show is the demo video's; the rest teach one job or
+          one skill each, a few minutes apiece.
+        </p>
+        <ol class="list" aria-label="Scenarios">
+          {#each SCENARIOS as sc, i (sc.id)}
+            <li>
+              <button type="button" class="pick" class:current={sandbox.started && sc.id === scenario.id} onclick={() => (sandbox.started ? choose(sc.id) : (picked = sc.id))}>
+                <span class="n num">{i + 1}</span>
+                <span class="pick-text">
+                  <span class="pick-title">{sc.title}{#if sandbox.started && sc.id === scenario.id}<span class="now">running</span>{/if}</span>
+                  <span class="pick-blurb">{sc.blurb}</span>
+                </span>
+                <span class="min num">{sc.minutes} min</span>
+              </button>
+            </li>
+          {/each}
+        </ol>
+        <div class="row">
+          {#if sandbox.started}
+            <button type="button" class="btn" onclick={() => (sandbox.chooser = false)}>Back to {scenario.title}</button>
+          {/if}
+          <a class="btn quiet" href="https://weavesignal.top/try/">Back to the website</a>
+        </div>
+        <p class="small">Picking a scenario starts the station afresh. Kettle FM and its people are fictional.</p>
+      </div>
+    {/if}
+  </div>
+{/if}
+
+{#if showEnd}
+  <div class="start" role="dialog" aria-modal="true" aria-labelledby="sandbox-end-title" tabindex="-1" bind:this={dialog} onkeydown={onDialogKey}>
+    <div class="card" data-panel="sandbox.end">
+      <p class="caps">WeaveSignal · Try the desk</p>
+      <h1 id="sandbox-end-title">{scenario.id === 'show' ? 'That was The Morning Kettle' : `Done: ${scenario.title}`}</h1>
+      <p class="caps">What you did</p>
+      <ul class="learn">
+        {#each did as line, i (i)}<li>{line}</li>{/each}
+      </ul>
+      <div class="row">
+        <button type="button" class="btn primary" onclick={() => (sandbox.chooser = true)}>Other scenarios</button>
+        <button type="button" class="btn" onclick={() => choose(scenario.id)}>Run it again</button>
+        <button type="button" class="btn quiet" onclick={() => (endClosed = true)}>Keep playing</button>
+      </div>
+      <p class="small">The real thing runs on a server of your own: <a href="https://weavesignal.top/run/">weavesignal.top/run</a>.</p>
     </div>
   </div>
 {/if}
@@ -179,6 +312,60 @@
     color: var(--muted);
     font-weight: 600;
   }
+
+  /* The stand-in for the DJ's own browser tab: a small window beside the bar's controls. */
+  .tab {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.1rem;
+    padding: 0 var(--s-2) 0 var(--s-2);
+    border: 1px solid var(--axis);
+    border-radius: var(--r-2);
+    background: var(--surface);
+    color: var(--ink-2);
+  }
+  .tab.off {
+    border-color: var(--status-warning);
+  }
+  .tab.talk {
+    border-color: var(--live-talk);
+  }
+  .tab .win {
+    width: 16px;
+    height: 16px;
+    color: var(--muted);
+    flex: none;
+  }
+  .tab-text {
+    display: grid;
+    line-height: 1.15;
+  }
+  .tab-text .caps {
+    font-size: 10px;
+  }
+  .tab-line {
+    font-size: var(--fs-13);
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .tab-line b {
+    color: var(--ink);
+  }
+  .tab.off .tab-line {
+    color: var(--status-warning);
+  }
+  .tab .btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .tab .btn[aria-pressed='true'] {
+    background: var(--status-warning);
+    color: var(--status-ink-on-warning);
+    border-color: transparent;
+  }
+
   .hear {
     flex: none;
     display: inline-flex;
@@ -208,6 +395,45 @@
     color: var(--accent-ink);
     border-color: var(--accent);
   }
+  .scen {
+    flex: none;
+  }
+
+  /* The caption row: one line under the bar, kept even when nobody speaks. */
+  .caption {
+    min-height: 1.6rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0 var(--s-2);
+    padding: 0.15rem var(--s-3);
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+    border-bottom: 1px solid var(--hairline);
+    color: var(--ink);
+    font-size: var(--fs-13);
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .cap-who {
+    flex: none;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .cap-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cap-text.muted {
+    color: var(--muted);
+  }
+  .cap-note {
+    flex: none;
+    font-size: var(--fs-12);
+    color: var(--muted);
+    font-style: italic;
+  }
+
   .start {
     position: fixed;
     inset: 0;
@@ -217,6 +443,7 @@
     padding: var(--s-4);
     background: color-mix(in srgb, var(--plane) 78%, transparent);
     backdrop-filter: blur(3px);
+    overflow: auto;
   }
   .card {
     max-width: 34rem;
@@ -226,13 +453,43 @@
     background: var(--surface);
     border: 1px solid var(--axis);
     border-radius: var(--r-3, 0.75rem);
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--e-3);
+  }
+  .card.wide {
+    max-width: 46rem;
+    width: 100%;
+    gap: var(--s-2);
   }
   .card h1 {
     font-size: var(--fs-20, 1.25rem);
   }
   .card p {
     line-height: 1.55;
+  }
+  .learn {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: var(--s-1);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .two {
+    display: flex;
+    gap: var(--s-2);
+    align-items: flex-start;
+    padding: var(--s-2) var(--s-3);
+    border: 1px solid var(--axis);
+    border-radius: var(--r-2);
+    background: var(--surface-2);
+    font-size: var(--fs-13);
+  }
+  .two svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    margin-top: 2px;
+    color: var(--muted);
   }
   .row {
     display: flex;
@@ -243,7 +500,73 @@
   .row a {
     text-decoration: none;
   }
+  /* The word in ink, the colour on the edge: critical as text is under 4.5:1 on a card. */
   .error {
-    color: var(--status-critical);
+    color: var(--ink);
+    border-left: 3px solid var(--status-critical);
+    padding-left: var(--s-2);
+  }
+
+  /* The chooser's list: one button a scenario, the whole row pressable. */
+  .list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.3rem;
+  }
+  .pick {
+    appearance: none;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--s-3);
+    padding: 0.45rem var(--s-3);
+    border: 1px solid var(--axis);
+    border-radius: var(--r-2);
+    background: var(--surface-2);
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+  }
+  .pick:hover {
+    background: var(--surface-3);
+  }
+  .pick.current {
+    border-color: var(--accent);
+  }
+  .pick .n {
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .pick-text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .pick-title {
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+  }
+  .now {
+    font-size: var(--fs-12);
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+  }
+  .pick-blurb {
+    color: var(--ink-2);
+    font-size: var(--fs-13);
+    line-height: 1.4;
+  }
+  .pick .min {
+    color: var(--muted);
+    font-size: var(--fs-13);
+    white-space: nowrap;
   }
 </style>

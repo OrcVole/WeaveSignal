@@ -118,6 +118,8 @@ const panel = (page, name) => page.locator(`[data-panel="${name}"]`).first();
 async function screens() {
   const STUDIO = process.env.STUDIO ?? 'http://127.0.0.1:26420/';
   const api = apiFor(process.env.CONTROL ?? 'http://127.0.0.1:26310', process.env.ADMIN_TOKEN ?? 'screens-admin-test-only');
+  // The pictures show a station that is set up, not the setup notice (ADR-0267).
+  await api('POST', '/api/v1/setup/finish');
 
   // Staff for the Settings pages: names from the seeds, roles mixed (the passwords are never shown).
   for (const [username, name, role] of [
@@ -363,6 +365,8 @@ async function signin() {
 async function desk() {
   const STUDIO = process.env.STUDIO ?? 'http://127.0.0.1:27420/';
   const api = apiFor(process.env.CONTROL ?? 'http://127.0.0.1:27310', process.env.ADMIN_TOKEN ?? 'm2-admin-test-only');
+  // The pictures show a station that is set up, not the setup notice (ADR-0267).
+  await api('POST', '/api/v1/setup/finish');
   const view = async () => (await api('GET', '/api/v1/studio')).body;
   const until = async (pred, ms = 8000) => {
     const t0 = Date.now();
@@ -579,6 +583,8 @@ async function desk() {
 async function publicPages() {
   const WEB = process.env.WEB ?? 'http://127.0.0.1:32430';
   const api = apiFor(process.env.CONTROL ?? 'http://127.0.0.1:32310', process.env.ADMIN_TOKEN ?? 'm3-admin-test-only');
+  // The pictures show a station that is set up, not the setup notice (ADR-0267).
+  await api('POST', '/api/v1/setup/finish');
   for (let i = 0; i < 120; i++) {
     const p = await fetch(`${WEB}/api/v1/player`).then((r) => r.json()).catch(() => null);
     if (p?.call_in?.open && p.presenter_live) break;
@@ -628,7 +634,7 @@ async function publicPages() {
   // The invite page: a guest's link, before they join
   const inv = (await api('POST', '/api/v1/invites', { role: 'guest', name: 'Gregor Stewart' })).body;
   const g = await (await phoneBrowser.newContext({ ...phone, permissions: ['microphone'] })).newPage();
-  await g.goto(`${WEB}${inv.link}`);
+  await g.goto((/^https?:/.test(inv.link) ? inv.link : `${WEB}${inv.link}`));
   await g.getByRole('button', { name: 'Join the studio' }).waitFor();
   await sleep(800);
   await shot(full(g), 'reference-public-pages-join');
@@ -645,7 +651,7 @@ async function publicPages() {
   const deniedBrowser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM, args: ['--use-fake-device-for-media-stream'] });
   const inv2 = (await api('POST', '/api/v1/invites', { role: 'guest', name: 'Gregor Stewart' })).body;
   const d = await (await deniedBrowser.newContext({ ...phone, permissions: [] })).newPage();
-  await d.goto(`${WEB}${inv2.link}`);
+  await d.goto((/^https?:/.test(inv2.link) ? inv2.link : `${WEB}${inv2.link}`));
   await d.getByRole('button', { name: 'Join the studio' }).tap();
   await d.getByText('Your microphone is blocked').waitFor({ timeout: 20000 });
   await sleep(800);

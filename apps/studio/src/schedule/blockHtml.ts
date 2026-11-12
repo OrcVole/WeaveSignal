@@ -38,7 +38,7 @@ export function blockAria(b: Block, ctx: BlockContext): string {
   const when = `${hm(b.start, ctx.zone)} to ${hm(b.end, ctx.zone)}`;
   if (b.kind === 'automation') return `Automation, ${b.show}, ${when}`;
   if (b.kind === 'rule') return `${b.show}, weekly rule, ${when}, not drafted yet`;
-  const parts = [b.show, 'live', when];
+  const parts = [b.show, b.prerecorded ? 'pre-recorded' : 'live', when];
   const ep = episodeLine(b);
   if (ep) parts.push(ep);
   if (b.studio) parts.push(b.studio);
@@ -75,7 +75,8 @@ function blockInner(b: Block, ctx: BlockContext): string {
   }
   if (b.conflict) h += `<span class="flag">${glyph('g-fault')}Conflict</span>`;
   if (b.moved) h += `<span class="flag moved">${glyph('g-moved')}Moved · ${esc(b.moved)}</span>`;
-  h += `<span class="kind">${glyph('g-mic')}Live${past ? ' · aired' : ''}</span>`;
+  // Live or pre-recorded (ADR-0188; issue 10: every block said Live).
+  h += `<span class="kind">${b.prerecorded ? `${glyph('g-tape')}Pre-recorded` : `${glyph('g-mic')}Live`}${past ? ' · aired' : ''}</span>`;
   const ep = episodeLine(b);
   if (ep) h += `<span class="ep">${esc(ep)}</span>`;
   if (b.studio) h += `<span class="ep studio">${esc(b.studio)}</span>`;

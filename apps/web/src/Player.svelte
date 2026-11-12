@@ -9,7 +9,8 @@
   import type { Msg } from '../../../packages/ui/chat.ts';
   import { CHIP } from '../../../packages/ui/states.ts';
   import Glyphs from '../../studio/src/lib/Glyphs.svelte';
-  import Mark from '../../studio/src/lib/Mark.svelte';
+  import BrandMark from './lib/BrandMark.svelte';
+  import { brand } from './lib/brand.svelte.ts';
   import * as api from './lib/api.ts';
   import type { Call } from './lib/call.svelte.ts';
   import CallPanel from './lib/CallPanel.svelte';
@@ -20,6 +21,7 @@
   import { check, firstError, request, type LobbyErrors } from './lib/lobby.ts';
   import MicCheck from './lib/MicCheck.svelte';
   import * as store from './lib/store.ts';
+  import * as streams from './lib/streams.ts';
   import { choose, detect, positionAt } from './lib/watch.ts';
   import type HlsType from 'hls.js';
 
@@ -34,7 +36,12 @@
   let audioOnly = $state(false);
   let hls: HlsType | null = null;
   const caps = detect();
-  const choice = $derived(info ? choose(info.video, info.stream_url, caps, audioOnly) : null);
+  /** The stream the listener chose (ADR-0232), kept on this device; Opus until they choose. */
+  let chosenStream = $state(streams.remembered());
+  const opusOk = typeof document === 'undefined' || document.createElement('audio').canPlayType('audio/ogg; codecs=opus') !== '';
+  const offered = $derived(info?.streams ?? []);
+  const streamUrl = $derived(info ? streams.pick(offered, chosenStream, info.stream_url, opusOk) : '');
+  const choice = $derived(info ? choose(info.video, streamUrl, caps, audioOnly) : null);
   let streamProblem = $state<string | null>(null);
   let kept = $state(store.kept(Date.now()));
   /** A chat message the studio put on air, shown as text beside the stream (D32). */
@@ -138,6 +145,21 @@
       }
     } catch {
       streamProblem = "The stream didn't start. Try again in a moment.";
+    }
+  }
+
+  /** Another stream (ADR-0232): kept for next time, and played at once if the stream plays. */
+  async function chooseStream(url: string) {
+    chosenStream = url;
+    streams.remember(url);
+    if (playing && audio && choice?.mode === 'icecast') {
+      streamProblem = null;
+      try {
+        audio.src = url;
+        await audio.play();
+      } catch {
+        streamProblem = "The stream didn't start. Try again in a moment.";
+      }
     }
   }
 
@@ -249,8 +271,10 @@
 
 <Glyphs />
 <div class="page">
+  <!-- The station's banner (ADR-0237), when it has set one. Decorative: the name is in the header. -->
+  {#if brand.banner}<img class="banner" src={brand.banner.url} width={brand.banner.width} height={brand.banner.height} alt="" decoding="async" />{/if}
   <header class="top">
-    <Mark />
+    <BrandMark />
     <span class="station">{info?.station ?? ' '}</span>
     <span class="spacer"></span>
     <!-- During a call the banner says where the caller stands; a red ON AIR up here would read as theirs. -->
@@ -283,6 +307,19 @@
           <button type="button" class="btn quiet wide" aria-pressed={audioOnly} onclick={() => setAudioOnly(!audioOnly)}
             >{audioOnly ? 'Show the picture' : 'Audio only'}</button
           >
+        {/if}
+        {#if choice?.mode === 'icecast' && offered.length > 1}
+          <fieldset class="group streams" data-player="streams">
+            <legend class="caps">Stream</legend>
+            {#each offered as s (s.url)}
+              {@const why = streams.hint(s, offered)}
+              <label class="check"
+                ><input type="radio" name="stream" value={s.url} checked={streamUrl === s.url} onchange={() => chooseStream(s.url)} data-codec={s.codec} data-kbps={s.kbps} /><span
+                  >{streams.label(s)}{#if why}<span class="small hint"> · {why}</span>{/if}</span
+                ></label
+              >
+            {/each}
+          </fieldset>
         {/if}
         {#if choice?.note}<p class="small" role="status">{choice.note}</p>{/if}
         {#if info && !choice?.url}<p class="small">The stream is not set up at this station yet.</p>{/if}
@@ -414,6 +451,16 @@
   }
   .screen.hidden {
     display: none;
+  }
+  .streams {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: grid;
+  }
+  .streams legend {
+    padding: 0;
+    margin-bottom: var(--s-1);
   }
   .lobby h2:focus {
     outline: none;

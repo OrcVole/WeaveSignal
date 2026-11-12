@@ -36,6 +36,25 @@ pub struct Account {
     pub age_declared: bool,
     pub terms_version: Option<String>,
     pub erased: bool,
+    /// The shipped avatar they chose (ADR-0235), by its id.
+    pub avatar_stock: Option<String>,
+    /// Their own picture, approved: what everyone sees.
+    pub avatar_upload: Option<Uuid>,
+    /// Their own picture, waiting for staff: only they and staff see it.
+    pub avatar_held: Option<Uuid>,
+}
+
+impl Account {
+    /// What everyone sees beside their messages: their approved picture, else the shipped
+    /// avatar they chose, else none (the plain default).
+    pub fn avatar(&self) -> Option<crate::wire::Avatar> {
+        use crate::wire::Avatar;
+        match (&self.avatar_upload, &self.avatar_stock) {
+            (Some(id), _) => Some(Avatar::Upload { id: id.to_string() }),
+            (None, Some(id)) => Some(Avatar::Stock { id: id.clone() }),
+            (None, None) => None,
+        }
+    }
 }
 
 type AccountRow = (
@@ -47,11 +66,18 @@ type AccountRow = (
     bool,
     Option<String>,
     bool,
+    Option<String>,
+    Option<Uuid>,
+    Option<Uuid>,
 );
 
 const ACCOUNT_COLS: &str = "id, kind, name, standing,
     (extract(epoch FROM created_at) * 1000)::bigint,
-    age_declared_at IS NOT NULL, terms_version, erased_at IS NOT NULL";
+    age_declared_at IS NOT NULL, terms_version, erased_at IS NOT NULL, avatar_stock,
+    (SELECT v.id FROM chat_avatar v WHERE v.account_id = chat_account.id AND v.state = 'approved'
+       AND v.kind = 'avatar'),
+    (SELECT v.id FROM chat_avatar v WHERE v.account_id = chat_account.id AND v.state = 'held'
+       AND v.kind = 'avatar')";
 
 fn account(r: AccountRow) -> Account {
     Account {
@@ -67,6 +93,9 @@ fn account(r: AccountRow) -> Account {
         age_declared: r.5,
         terms_version: r.6,
         erased: r.7,
+        avatar_stock: r.8,
+        avatar_upload: r.9,
+        avatar_held: r.10,
     }
 }
 
@@ -309,6 +338,7 @@ pub async fn session_account(db: &Db, st: StationId, token: &str) -> sqlx::Resul
         ACCOUNT_COLS
             .replace("id, kind", "a.id, a.kind")
             .replace("created_at", "a.created_at")
+            .replace("chat_account.id", "a.id")
     );
     Ok(sqlx::query_as::<_, AccountRow>(sqlx::AssertSqlSafe(q))
         .bind(hash(token))
@@ -523,6 +553,9 @@ pub struct Row {
     pub flagged: Option<String>,
     pub pinned: bool,
     pub featured: bool,
+    /// The picture or document it carries (ADR-0262), as [`crate::attach::JSON`] describes it;
+    /// `None` when it has none, or when it was taken down.
+    pub attachment: Option<Value>,
 }
 
 pub struct NewMessage<'a> {
@@ -535,14 +568,17 @@ pub struct NewMessage<'a> {
     pub playhead_ms: Option<i64>,
     pub held: bool,
     pub flagged: Option<&'a str>,
+    /// A picture or document it carries (ADR-0262): held until staff approve it.
+    pub attachment: Option<Uuid>,
 }
 
 pub async fn insert_message(db: &Db, st: StationId, m: &NewMessage<'_>) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO chat_message
-           (station_id, id, account_id, kind, body, reply_to, server_at, playhead_at, state, flagged)
+           (station_id, id, account_id, kind, body, reply_to, server_at, playhead_at, state, flagged,
+            attachment)
          VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7::double precision / 1000.0),
-                 to_timestamp($8::double precision / 1000.0), $9, $10)",
+                 to_timestamp($8::double precision / 1000.0), $9, $10, $11)",
     )
     .bind(st.as_uuid())
     .bind(m.id)
@@ -554,6 +590,7 @@ pub async fn insert_message(db: &Db, st: StationId, m: &NewMessage<'_>) -> sqlx:
     .bind(m.playhead_ms.map(|p| p as f64))
     .bind(if m.held { "held" } else { "visible" })
     .bind(m.flagged)
+    .bind(m.attachment)
     .execute(db)
     .await?;
     Ok(())
@@ -571,12 +608,19 @@ type MsgRow = (
     Option<String>,
     bool,
     bool,
+    Option<Value>,
 );
 
+/// A message's columns; the last is its picture or document, unless that was taken down
+/// (ADR-0262).
 const MSG_COLS: &str = "id, account_id, kind, body, reply_to,
     (extract(epoch FROM server_at) * 1000)::bigint,
     (extract(epoch FROM playhead_at) * 1000)::bigint,
-    state, flagged, pinned, featured_at IS NOT NULL";
+    state, flagged, pinned, featured_at IS NOT NULL,
+    (SELECT json_build_object('id', v.id, 'kind', v.kind,
+        'name', COALESCE(v.file_name, ''), 'mime', v.mime, 'bytes', v.bytes, 'width', v.width,
+        'height', v.height, 'thumb_width', v.thumb_width, 'thumb_height', v.thumb_height)::jsonb
+     FROM chat_avatar v WHERE v.id = chat_message.attachment AND v.state <> 'withheld') AS attachment_json";
 
 async fn rows(db: &Db, st: StationId, list: Vec<MsgRow>) -> sqlx::Result<Vec<Row>> {
     let mut out = Vec::with_capacity(list.len());
@@ -606,6 +650,7 @@ async fn rows(db: &Db, st: StationId, list: Vec<MsgRow>) -> sqlx::Result<Vec<Row
             flagged: r.8,
             pinned: r.9,
             featured: r.10,
+            attachment: r.11,
         });
     }
     Ok(out)
@@ -665,7 +710,8 @@ pub async fn studio_lane(db: &Db, st: StationId) -> sqlx::Result<Vec<Row>> {
 
 pub async fn held_messages(db: &Db, st: StationId) -> sqlx::Result<Vec<Row>> {
     let q = format!(
-        "SELECT {MSG_COLS} FROM chat_message WHERE station_id = $1 AND state = 'held' ORDER BY id"
+        "SELECT {MSG_COLS} FROM chat_message WHERE station_id = $1 AND state = 'held'
+           AND attachment IS NULL ORDER BY id"
     );
     let list: Vec<MsgRow> = sqlx::query_as(sqlx::AssertSqlSafe(q))
         .bind(st.as_uuid())
@@ -967,6 +1013,39 @@ pub async fn log(db: &Db, st: StationId, a: &NewAction<'_>) -> sqlx::Result<i64>
     Ok(id)
 }
 
+/// The moderation record and the evidence holds that name one account, for the export of a
+/// picture kept as evidence (ADR-0257).
+pub async fn account_record(db: &Db, st: StationId, account: Uuid) -> sqlx::Result<Value> {
+    type ActionRow = (i64, i64, String, String, String, String, String, bool);
+    let actions: Vec<ActionRow> = sqlx::query_as(
+        "SELECT id, (extract(epoch FROM at) * 1000)::bigint, actor, action, reason, ground, note, automated
+         FROM chat_action WHERE station_id = $1 AND account_id = $2 ORDER BY id",
+    )
+    .bind(st.as_uuid())
+    .bind(account)
+    .fetch_all(db)
+    .await?;
+    type HoldRow = (String, String, i64, Option<i64>, Option<String>);
+    let holds: Vec<HoldRow> = sqlx::query_as(
+        "SELECT reason, held_by, (extract(epoch FROM held_at) * 1000)::bigint,
+                (extract(epoch FROM released_at) * 1000)::bigint, released_by
+         FROM chat_hold WHERE station_id = $1 AND account_id = $2 ORDER BY held_at",
+    )
+    .bind(st.as_uuid())
+    .bind(account)
+    .fetch_all(db)
+    .await?;
+    Ok(serde_json::json!({
+        "actions": actions.into_iter().map(|a| serde_json::json!({
+            "id": a.0, "at_ms": a.1, "actor": a.2, "action": a.3, "reason": a.4, "ground": a.5,
+            "note": a.6, "automated": a.7,
+        })).collect::<Vec<_>>(),
+        "holds": holds.into_iter().map(|h| serde_json::json!({
+            "reason": h.0, "held_by": h.1, "held_ms": h.2, "released_ms": h.3, "released_by": h.4,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
 pub type LogRow = (
     i64,
     i64,
@@ -1192,11 +1271,29 @@ pub async fn export(db: &Db, st: StationId, id: Uuid) -> sqlx::Result<Option<Val
     .fetch_all(db)
     .await?;
     let restriction = restriction(db, st, id).await?;
+    type Upload = (
+        Uuid,
+        String,
+        i32,
+        i64,
+        String,
+        Option<String>,
+        Option<String>,
+    );
+    let avatars: Vec<Upload> = sqlx::query_as(
+        "SELECT id, state, bytes, (extract(epoch FROM uploaded_at) * 1000)::bigint, kind, file_name, mime
+         FROM chat_avatar WHERE station_id = $1 AND account_id = $2 ORDER BY uploaded_at",
+    )
+    .bind(st.as_uuid())
+    .bind(id)
+    .fetch_all(db)
+    .await?;
     Ok(Some(serde_json::json!({
         "account": {
             "id": a.id, "kind": a.kind, "name": a.name, "standing": a.standing,
             "created_ms": a.created_ms, "age_declared": a.age_declared,
             "terms_version": a.terms_version,
+            "avatar_stock": a.avatar_stock,
             "email": "kept only as a SHA-256 hash, never as written",
         },
         "restriction": restriction.map(|r| match r {
@@ -1216,6 +1313,16 @@ pub async fn export(db: &Db, st: StationId, id: Uuid) -> sqlx::Result<Option<Val
             "id": s.0, "at_ms": s.1, "text": s.2, "automated": s.3, "review_by_ms": s.4, "review_requested": s.5,
         })).collect::<Vec<_>>(),
         "sessions": sessions.iter().map(|s| serde_json::json!({"created_ms": s.0, "address": s.1})).collect::<Vec<_>>(),
+        // Their own pictures (ADR-0235); each file is at /api/v1/chat/mod/avatars/{id}.
+        "avatars": avatars.iter().filter(|v| v.4 == "avatar").map(|v| serde_json::json!({
+            "id": v.0, "state": v.1, "bytes": v.2, "uploaded_ms": v.3,
+        })).collect::<Vec<_>>(),
+        // Pictures and documents they posted (ADR-0262): a picture at /api/v1/chat/pictures/{id},
+        // a document at /api/v1/chat/files/{id}.
+        "attachments": avatars.iter().filter(|v| v.4 != "avatar").map(|v| serde_json::json!({
+            "id": v.0, "kind": v.4, "state": v.1, "bytes": v.2, "uploaded_ms": v.3,
+            "name": v.5, "type": v.6,
+        })).collect::<Vec<_>>(),
     })))
 }
 
@@ -1243,6 +1350,26 @@ pub async fn erase(db: &Db, st: StationId, id: Uuid) -> sqlx::Result<Vec<i64>> {
         .bind(id)
         .execute(&mut *tx)
         .await?;
+    // Their pictures go too (ADR-0235), unless an evidence hold names the account: then they
+    // are withheld from everyone but staff until it is released. The files of the deleted rows
+    // are removed by the caller (`Chat::erase`) and, failing that, by the sweep.
+    sqlx::query(
+        "UPDATE chat_avatar v SET state = 'withheld', decided_at = now(), decided_by = 'erasure'
+         WHERE v.station_id = $1 AND v.account_id = $2 AND v.state <> 'withheld'
+           AND EXISTS (SELECT 1 FROM chat_hold h WHERE h.station_id = v.station_id
+                       AND h.account_id = v.account_id AND h.released_at IS NULL)",
+    )
+    .bind(st.as_uuid())
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM chat_avatar v WHERE v.station_id = $1 AND v.account_id = $2 AND v.state <> 'withheld'",
+    )
+    .bind(st.as_uuid())
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     // Reports they made keep their reason, not their text; reports about them lose the words
     // unless a hold keeps them.
     sqlx::query(
@@ -1257,7 +1384,7 @@ pub async fn erase(db: &Db, st: StationId, id: Uuid) -> sqlx::Result<Vec<i64>> {
     .await?;
     sqlx::query(
         "UPDATE chat_account SET name = 'erased ' || left(id::text, 8), email_hash = NULL,
-           erased_at = now() WHERE station_id = $1 AND id = $2",
+           avatar_stock = NULL, erased_at = now() WHERE station_id = $1 AND id = $2",
     )
     .bind(st.as_uuid())
     .bind(id)
@@ -1274,6 +1401,10 @@ pub struct Swept {
     pub moderation: u64,
     pub addresses: u64,
     pub sessions: u64,
+    /// Withheld pictures whose evidence hold was released (ADR-0235).
+    pub avatars: u64,
+    /// Pictures and documents whose message went (ADR-0262).
+    pub attachments: u64,
 }
 
 /// Apply the retention periods (seconds; `None`: no end): messages older than `messages_s` go
@@ -1313,6 +1444,10 @@ pub async fn sweep(
                      m.server_at + make_interval(secs => $2)) < now()
                AND NOT EXISTS (SELECT 1 FROM chat_hold h WHERE h.station_id = m.station_id
                                AND h.released_at IS NULL AND m.id = ANY(h.message_ids))
+               -- A message whose picture or document still waits for the station is the 30-day
+               -- wait's (ADR-0254, ADR-0262), not retention's; once shown it is retention's from
+               -- when it was approved.
+               AND NOT (m.state = 'held' AND m.attachment IS NOT NULL)
                AND NOT retention_held(m.station_id, 'chat_message', m.id, m.server_at, m.server_at)",
         )
         .bind(s)
@@ -1338,6 +1473,8 @@ pub async fn sweep(
         moderation += sqlx::query(
             "DELETE FROM chat_statement t WHERE t.station_id = $1
                AND t.at < now() - make_interval(secs => $2) AND t.review_by < now()
+               AND NOT EXISTS (SELECT 1 FROM chat_avatar v WHERE v.account_id = t.account_id
+                               AND v.keep_until > now())
                AND NOT retention_held(t.station_id, 'moderation_record', -1, t.at, t.at)",
         )
         .bind(s)
@@ -1349,6 +1486,8 @@ pub async fn sweep(
             "DELETE FROM chat_action l WHERE l.station_id = $1 AND l.at < now() - make_interval(secs => $2)
                AND NOT EXISTS (SELECT 1 FROM chat_hold h WHERE h.released_at IS NULL
                                AND (h.report_id = l.report_id OR h.account_id = l.account_id))
+               AND NOT EXISTS (SELECT 1 FROM chat_avatar v WHERE v.account_id = l.account_id
+                               AND v.keep_until > now())
                AND NOT retention_held(l.station_id, 'moderation_record', l.id, l.at, l.at)",
         )
         .bind(s)
@@ -1373,7 +1512,19 @@ pub async fn sweep(
     .bind(addresses_s.map(|a| a as f64))
     .execute(db)
     .await?
-    .rows_affected();
+    .rows_affected()
+        // The address an upload came from goes by the same rule, except from a picture kept as
+        // evidence: its snapshot holds the address it had (ADR-0257).
+        + sqlx::query(
+            "UPDATE chat_avatar SET upload_address = NULL WHERE station_id = $1
+               AND upload_address IS NOT NULL AND evidence IS NULL
+               AND ($2::double precision IS NULL OR uploaded_at < now() - make_interval(secs => $2))",
+        )
+        .bind(s)
+        .bind(addresses_s.map(|a| a as f64))
+        .execute(db)
+        .await?
+        .rows_affected();
     let mut sessions =
         sqlx::query("DELETE FROM chat_session WHERE station_id = $1 AND expires_at < now()")
             .bind(s)
@@ -1393,10 +1544,39 @@ pub async fn sweep(
     .bind(s)
     .execute(db)
     .await?;
+    // A picture withheld for an evidence hold goes once no open hold names its account
+    // (ADR-0235); its file is removed by the chat's own sweep of the avatar directory.
+    // One kept as evidence of suspected child sexual abuse material stays until its year is up,
+    // whatever became of the hold that withheld it (ADR-0257).
+    let avatars = sqlx::query(
+        "DELETE FROM chat_avatar v WHERE v.station_id = $1 AND v.state = 'withheld'
+           AND (v.keep_until IS NULL OR v.keep_until < now())
+           AND NOT EXISTS (SELECT 1 FROM chat_hold h WHERE h.station_id = v.station_id
+                           AND h.account_id = v.account_id AND h.released_at IS NULL)",
+    )
+    .bind(s)
+    .execute(db)
+    .await?
+    .rows_affected();
+    // A picture or document goes when its message goes (ADR-0262), and one never sent with a
+    // message (a crash between the two writes) after ten minutes; one withheld stays for its hold
+    // or its year, above. Its files go with the chat's own sweep of the directory.
+    let attachments = sqlx::query(
+        "DELETE FROM chat_avatar v WHERE v.station_id = $1 AND v.kind <> 'avatar'
+           AND v.state <> 'withheld' AND v.uploaded_at < now() - interval '10 minutes'
+           AND NOT EXISTS (SELECT 1 FROM chat_message m WHERE m.station_id = v.station_id
+                           AND m.attachment = v.id)",
+    )
+    .bind(s)
+    .execute(db)
+    .await?
+    .rows_affected();
     Ok(Swept {
         messages,
         moderation,
         addresses,
         sessions,
+        avatars,
+        attachments,
     })
 }

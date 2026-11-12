@@ -118,6 +118,9 @@ async fn a_callers_consent_is_kept_with_its_words() {
         words: "Your call may be broadcast live and recorded.".into(),
         words_version: "0123456789abcdef".into(),
         accepted_at_ms: 1_793_000_000_123,
+        show_id: None,
+        presenter: String::new(),
+        contact: String::new(),
     };
     let row = record_consent(&pool, id, &record).await.expect("insert");
     let (words, by, ms): (String, String, f64) = sqlx::query_as(

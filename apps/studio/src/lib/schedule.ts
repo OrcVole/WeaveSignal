@@ -28,6 +28,16 @@ export interface Show {
   explicit: boolean;
   feed_guid: string | null;
   cards: Cards | null;
+  /** The presenter's on-air name (ADR-0214); empty when the show has none of its own. */
+  presenter: string;
+  /** The show's own takedown contact (ADR-0214); empty when the station's is the only one. */
+  contact: string;
+  /** Links to the presenter's channels (ADR-0219). */
+  links: string[];
+  /** Whether the show plays commercial music (ADR-0219): a reminder, it blocks nothing. */
+  commercial_music: boolean;
+  /** The staff account that presents the show (ADR-0218), or null. */
+  presenter_account: string | null;
 }
 
 export interface Cards {
@@ -124,6 +134,13 @@ export interface ShowInput {
   hosts: string[];
   tags: string[];
   explicit: boolean;
+  /** The presenter's fields (ADR-0214, ADR-0219): left out, the station keeps what it has. */
+  presenter?: string;
+  contact?: string;
+  links?: string[];
+  commercial_music?: boolean;
+  /** Left out keeps; null clears; a staff account's id ties the show to it (ADR-0218). */
+  presenter_account?: string | null;
 }
 
 export interface SeriesInput {
@@ -277,6 +294,8 @@ const get = <T>(path: string) => call<T>('GET', path);
 export const weekEpisodes = (fromMs: number, toMs: number) =>
   get<{ zone: string; episodes: WeekEpisode[] }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
 export const shows = () => get<Show[]>('/api/v1/shows');
+/** The station's setup (ADR-0237): admins only; `pending` while the setup page is still offered. */
+export const setupState = () => get<{ status: 'pending' | 'done'; missing: string[] }>('/api/v1/setup');
 export const show = (slug: string) => get<ShowView>(`/api/v1/shows/${slug}`);
 export const putShow = (slug: string, input: ShowInput) => call<ShowView>('PUT', `/api/v1/shows/${slug}`, input);
 export const series = (slug: string, n: number) => get<SeriesView>(`/api/v1/shows/${slug}/series/${n}`);

@@ -106,10 +106,16 @@ fn the_listener_stream_keeps_a_steady_byte_rate_with_the_room_empty() {
             "reads": times.len(),
         })
     );
-    // Opus at 96 kbit/s is 72 KB in 6 s; on air, the staging run carried 37 to 45 KB.
+    // Opus at the stack's constant rate (ADR-0233; 96 kbit/s by default) is 72 KB in 6 s; on
+    // air, the staging run carried 37 to 45 KB. A trickle is far below; take 40 % of the rate.
+    let kbps: usize = std::env::var("WEAVESIGNAL_ROOM_OPUS_KBPS")
+        .ok()
+        .and_then(|k| k.parse().ok())
+        .unwrap_or(96);
+    let floor = kbps * 125 * 6 * 4 / 10;
     assert!(
-        per_window.iter().all(|&b| b >= 30_000),
-        "the empty room's stream trickles: {per_window:?} bytes per 6 s"
+        per_window.iter().all(|&b| b >= floor),
+        "the empty room's stream trickles: {per_window:?} bytes per 6 s ({kbps} kbit/s set)"
     );
     assert!(
         longest_gap < Duration::from_secs(2),

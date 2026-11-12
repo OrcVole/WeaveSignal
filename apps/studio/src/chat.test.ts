@@ -18,6 +18,7 @@ import {
   sorReasonOf,
   statementPreview,
   step,
+  type Room,
 } from './lib/chatModel.ts';
 
 const msg = (id: number, name: string, body: string, at = 1_000 * id, over: Partial<Msg> = {}): Msg => ({
@@ -179,5 +180,52 @@ describe('the statement of reasons', () => {
     expect(sorReasonOf('spam')).toBe('spam');
     expect(sorReasonOf('threat_to_life')).toBe('illegal');
     expect(sorReasonOf('child_safety')).toBe('illegal');
+  });
+});
+
+describe("chatters' pictures (ADR-0235)", () => {
+  const waiting = (id: string, name: string, at: number) => ({
+    id,
+    account: { id: `a-${name}`, name, since_ms: 0, standing: 'member' as const, guest: false, restricted: null, avatar: { kind: 'stock' as const, id: 'fox' } },
+    uploaded_ms: at,
+    bytes: 21_000,
+  });
+
+  it('a picture waiting for approval takes its place in Needs you by its age, and leaves when decided', () => {
+    let s = applyMod(EMPTY_MOD, { t: 'mod_held', h: held(3, 4_000, 9_000) });
+    s = applyMod(s, { t: 'mod_avatar', a: waiting('p-1', 'Morag Fraser', 2_000) });
+    s = applyMod(s, { t: 'mod_avatar', a: waiting('p-2', 'Rory MacLeod', 6_000) });
+    expect(needsList(s).map((e) => e.key)).toEqual(['avatar:p-1', 'held:3', 'avatar:p-2']);
+    // The same picture sent twice is one entry; a decision elsewhere removes it.
+    s = applyMod(s, { t: 'mod_avatar', a: waiting('p-1', 'Morag Fraser', 2_000) });
+    expect(s.avatars).toHaveLength(2);
+    s = applyMod(s, { t: 'mod_avatar_done', id: 'p-1' });
+    expect(needsList(s).map((e) => e.key)).toEqual(['held:3', 'avatar:p-2']);
+    expect(applyMod(s, { t: 'mod_avatar_done', id: 'never' })).toBe(s);
+  });
+
+  it('a snapshot from a chat without pictures still lists what it has', () => {
+    expect(needsList({ items: [], held: [held(3, 4_000, null)], studio: [] }).map((e) => e.key)).toEqual(['held:3']);
+  });
+
+  it("an avatar frame repaints that chatter's lines and the pinned one, nobody else's", () => {
+    const mine = msg(1, 'Morag Fraser', 'Evening from Crieff');
+    const other = msg(2, 'Hamish Murray', 'Hello');
+    let r: Room = { ...EMPTY_ROOM, lines: [mine, other], pinned: mine };
+    r = applyRoom(r, { t: 'avatar', offset: 9, account: 'a-Morag Fraser', avatar: { kind: 'upload', id: 'p-1' } }, 10_000);
+    expect(r.lines[0].author.avatar).toEqual({ kind: 'upload', id: 'p-1' });
+    expect(r.lines[1].author.avatar).toBeUndefined();
+    expect(r.pinned?.author.avatar).toEqual({ kind: 'upload', id: 'p-1' });
+    r = applyRoom(r, { t: 'avatar', offset: 10, account: 'a-Morag Fraser', avatar: null }, 11_000);
+    expect(r.lines[0].author.avatar).toBeNull();
+  });
+
+  it('the statement for a picture says what was done and that nobody can see it now', () => {
+    const facts = { station: 'Kettle FM', show: 'The Late Line', at: null, reason: 'abuse' as const, then: 'none' as const, automated: false, info: null };
+    const refused = statementPreview({ ...facts, subject: 'avatar-refuse' });
+    expect(refused).toContain('Kettle FM did not approve the picture you uploaded because it broke our terms (abuse or harassment).');
+    expect(refused).toContain('You can ask for a review within 14 days.');
+    expect(refused).not.toContain('The Late Line');
+    expect(statementPreview({ ...facts, subject: 'avatar-remove' })).toContain('removed your picture from its chat');
   });
 });

@@ -12,6 +12,7 @@
   import { dur, meterPct, signed } from '../lib/format.ts';
   import { run } from '../lib/actions.ts';
   import { studio } from '../lib/studio.svelte.ts';
+  import { HANDOVER_KEY, type HandoverButton } from '../lib/handover.ts';
 
   interface Props {
     /** The source, or null for slot 6, playout. */
@@ -21,8 +22,11 @@
     playoutForMs: number | null;
     /** The station's mode: in auto mode an open fader says OPEN (ADR-0183). */
     mode?: StationMode | null;
+    /** The handover button, on the incoming DJ's tile only (ADR-0074): the same action as ⇧⏎.
+     *  It sits in the lines row, under the controls, so the four live buttons never move. */
+    handover?: HandoverButton | null;
   }
-  let { source, slot, playoutUp, playoutForMs, mode = null }: Props = $props();
+  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null }: Props = $props();
 
   const keys = $derived(slotKeys(slot));
   const isPlayout = $derived(source === null);
@@ -185,8 +189,16 @@
     >
   </div>
 
-  <div class="lines">
-    <span class="mm"><svg aria-hidden="true"><use href="#g-good" /></svg><span>{hears}</span></span>
+  <div class="lines" class:has-hand={!!handover}>
+    {#if handover}
+      <!-- The handover (ADR-0074), the same action as ⇧⏎: in the lines row, under the four live
+           buttons, where it fits a full stage too; it takes the place of the line on what they hear. -->
+      <button type="button" class="btn primary hand" data-handover={handover.kind} title={handover.then} aria-describedby="hand-then-{slot}" onclick={() => run({ type: 'handover' })}
+        ><span>{handover.label}</span><kbd>{HANDOVER_KEY}</kbd></button
+      ><span id="hand-then-{slot}" class="sr-only">{handover.then}</span>
+    {:else}
+      <span class="mm"><svg aria-hidden="true"><use href="#g-good" /></svg><span>{hears}</span></span>
+    {/if}
     {#if isPlayout}
       {#if playoutUp}
         <span><svg class="g-good" aria-hidden="true"><use href="#g-good" /></svg><span

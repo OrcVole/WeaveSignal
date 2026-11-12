@@ -95,6 +95,8 @@
 .schedule .editor .levels button { appearance: none; border: 1px solid var(--axis); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-12); font-weight: 600; padding: 0 var(--s-2); min-height: var(--target); cursor: pointer; border-radius: var(--r-1); }
 .schedule .editor .levels button[aria-selected='true'] { background: var(--surface-3); color: var(--ink); border-color: var(--ink-2); }
 .schedule .editor .fields { overflow-y: auto; padding: var(--s-3) var(--s-4); display: grid; gap: var(--s-3); align-content: start; }
+.schedule .fields .group { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: var(--s-3); }
+.schedule .fields .group legend { padding: 0; margin-bottom: var(--s-1); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-2); font-weight: 700; }
 .schedule .field { display: grid; gap: 3px; padding-left: var(--s-3); border-left: 3px solid var(--axis); }
 .schedule .field.inh { border-left-style: dotted; }
 .schedule .field.set { border-left-color: var(--accent); }
@@ -176,10 +178,10 @@
    colour, the desk's SLATE_BG (crates/desk/src/video.rs), not a theme colour, so both themes show
    the picture as the stream does; the file input is hidden and Choose… opens it. */
 .schedule .still-preview { display: grid; gap: var(--s-2); }
-.schedule .still-preview img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; display: block; border-radius: var(--r-1); border: 1px solid var(--hairline); background: #15171c; }
+.schedule .still-preview img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: contain; display: block; border-radius: var(--r-1); border: 1px solid var(--hairline); background: var(--still-ground); }
 .schedule .still-preview .status { font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-label); }
 .schedule .still-preview.none .status { color: var(--muted); }
 .schedule .still-preview .problem b { color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) { .ev { transition: none; } }
-@media (max-width: 1100px) { .schedule .body { grid-template-columns: 1fr; } }
+@container (max-width: 1100px) { .schedule .body { grid-template-columns: 1fr; } }

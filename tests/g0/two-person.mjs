@@ -205,14 +205,14 @@ try {
   await ctx.addInitScript(pageScript(1000, 1500));
   const a = await ctx.newPage();
   a.on('console', (m) => m.type() === 'error' && log('A console:', m.text()));
-  await a.goto(`${WEB}${ia.link}`);
+  await a.goto((/^https?:/.test(ia.link) ? ia.link : `${WEB}${ia.link}`));
 
   if (PHONE_CDP === 'local') {
     // A baseline without the phone: the second guest is a page here too.
     const bctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     await bctx.addInitScript(pageScript(1500, 1000));
     const b = await bctx.newPage();
-    await b.goto(`${WEB}${ib.link}`);
+    await b.goto((/^https?:/.test(ib.link) ? ib.link : `${WEB}${ib.link}`));
     phone = { evaluate: (e) => b.evaluate(e), close: () => {} };
     results.phone_user_agent = 'local Chromium';
   } else {
@@ -224,7 +224,7 @@ try {
     // pass) would not load a new document, and the script above would not run.
     await phone.send('Page.navigate', { url: 'about:blank' });
     await sleep(1000);
-    await phone.send('Page.navigate', { url: `${WEB}${ib.link}` });
+    await phone.send('Page.navigate', { url: (/^https?:/.test(ib.link) ? ib.link : `${WEB}${ib.link}`) });
     results.phone_user_agent = (await (await fetch(`${PHONE_CDP}/json/version`)).json())['User-Agent'];
   }
 

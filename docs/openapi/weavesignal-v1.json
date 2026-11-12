@@ -10,6 +10,361 @@
     "version": "1"
   },
   "paths": {
+    "/api/v1/branding": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "The station's look",
+        "description": "Open: what the public pages show anyway. The accent colour and the addresses of the brand icon and the banner, each `null` until set. A station without a database answers with all three `null`.",
+        "operationId": "branding",
+        "responses": {
+          "200": {
+            "description": "The look.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/branding/accent": {
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Set the accent colour",
+        "description": "Admin only. One sRGB colour as six hex digits. The pages derive each theme's accent from it (its lightness moved until it reads at 4.5:1), so any colour is accepted. Empty goes back to the product's own.",
+        "operationId": "branding_accent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccentChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The look as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/branding/banner": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "The station's banner",
+        "description": "Open. The PNG the station made from the upload. Under the version its address carries (`?v=`, from `GET /api/v1/branding`) it may be kept for good; `404` when the station has set none.",
+        "operationId": "branding_banner",
+        "parameters": [
+          {
+            "name": "v",
+            "in": "query",
+            "description": "The picture's version.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The picture.",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not changed (`If-None-Match`)."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ]
+      },
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Set the station's banner",
+        "description": "Admin only. The body is the picture itself, a PNG or a JPEG (recognised by its first bytes; nothing else is read, and never SVG). At most 4 MB, at least 600 by 200 pixels; it is cropped about its middle to three to one and fitted inside 1,200 by 400. The station stores and serves the PNG its media worker writes, never the upload, so no metadata survives.",
+        "operationId": "branding_banner_set",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/File"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The look as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "description": "The body is larger than this picture may be."
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      },
+      "delete": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Remove the station's banner",
+        "description": "Admin only. The pages go back to the product's own.",
+        "operationId": "branding_banner_remove",
+        "responses": {
+          "200": {
+            "description": "The look as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/branding/icon": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "The station's icon",
+        "description": "Open. The PNG the station made from the upload. Under the version its address carries (`?v=`, from `GET /api/v1/branding`) it may be kept for good; `404` when the station has set none.",
+        "operationId": "branding_icon",
+        "parameters": [
+          {
+            "name": "v",
+            "in": "query",
+            "description": "The picture's version.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The picture.",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not changed (`If-None-Match`)."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ]
+      },
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Set the station's icon",
+        "description": "Admin only. The body is the picture itself, a PNG or a JPEG (recognised by its first bytes; nothing else is read, and never SVG). At most 1 MB, each side 64 to 4,096 pixels; it is fitted inside 256 pixels square with its transparency kept. The station stores and serves the PNG its media worker writes, never the upload, so no metadata survives.",
+        "operationId": "branding_icon_set",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/File"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The look as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "description": "The body is larger than this picture may be."
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      },
+      "delete": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Remove the station's icon",
+        "description": "Admin only. The pages go back to the product's own.",
+        "operationId": "branding_icon_remove",
+        "responses": {
+          "200": {
+            "description": "The look as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
     "/api/v1/call-in": {
       "post": {
         "tags": [
@@ -819,6 +1174,106 @@
             ]
           }
         ]
+      }
+    },
+    "/api/v1/icecast-out": {
+      "get": {
+        "tags": [
+          "playout"
+        ],
+        "summary": "The programme sent to another Icecast server",
+        "description": "ADR-0226: whether the station sends its programme, as an Icecast source, to a server of the deployment's choosing (a DJ's AzuraCast). Says whether it is set up, the station's choice (`auto`, `on`, `off`), whether it is sending now and why, whether the remote server took the login, the last error in words, and bytes sent. The server's password is never in the answer. Any signed-in staff may read it.",
+        "operationId": "get_icecast_out",
+        "responses": {
+          "200": {
+            "description": "The outgoing source.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IcecastOutStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "playout"
+        ],
+        "summary": "Choose when the programme is sent to another Icecast server",
+        "description": "Admin only. The choice is kept across restarts. It takes effect at once. The server's address, user and password are the deployment's settings (`ICECAST_OUT_*`), not this route's.",
+        "operationId": "put_icecast_out",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IcecastOutChoice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The outgoing source after the change.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IcecastOutStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "500": {
+            "description": "The database refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
       }
     },
     "/api/v1/invites": {
@@ -2917,6 +3372,284 @@
         ]
       }
     },
+    "/api/v1/rtmp": {
+      "get": {
+        "tags": [
+          "rtmp"
+        ],
+        "summary": "RTMP out's destinations",
+        "description": "Admin only. Every destination (never its stream key) with the desk's view of it (`desk`: its state, the last error with the key cut out, the bytes sent), whether the desk runs video (RTMP out needs it), the encoders running, and each platform's form.",
+        "operationId": "rtmp_list",
+        "responses": {
+          "200": {
+            "description": "The destinations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Listed"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/rtmp/destinations": {
+      "post": {
+        "tags": [
+          "rtmp"
+        ],
+        "summary": "Add an RTMP destination",
+        "description": "Admin only. `name`, `platform`, `url` (the server URL, `rtmp://` or `rtmps://`), `key` (the stream key, sealed in the database and never shown again), `profile` (`compatible`, the default, or `open`) and `enabled` (off unless asked). At most 10 (409); a name in use is 409 too.",
+        "operationId": "rtmp_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RtmpNewBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The destination, without its key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RtmpDestination"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/rtmp/destinations/{id}": {
+      "put": {
+        "tags": [
+          "rtmp"
+        ],
+        "summary": "Change an RTMP destination",
+        "description": "Admin only. Any of `name`, `platform`, `url`, `key`, `profile` and `enabled`; a field left out is kept (the key too). A destination whose URL, key or profile changes connects again.",
+        "operationId": "rtmp_change",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The destination's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RtmpChangeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The destination as it is now, without its key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RtmpDestination"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      },
+      "delete": {
+        "tags": [
+          "rtmp"
+        ],
+        "summary": "Remove an RTMP destination",
+        "description": "Admin only. The desk stops sending there, and its key is gone.",
+        "operationId": "rtmp_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The destination's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/rtmp/destinations/{id}/enabled": {
+      "put": {
+        "tags": [
+          "rtmp"
+        ],
+        "summary": "Turn an RTMP destination on or off",
+        "description": "Admin only. `{\"enabled\": true}` starts sending the programme there (behind the delay; the desk needs video on), `false` stops it. The encode for a profile runs only while one of its destinations is on.",
+        "operationId": "rtmp_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The destination's id.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RtmpTurnBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The destination as it is now, without its key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RtmpDestination"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
     "/api/v1/schedule/clocks": {
       "get": {
         "tags": [
@@ -4001,6 +4734,193 @@
         ]
       }
     },
+    "/api/v1/setup": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "The station's setup",
+        "description": "Admin only. Whether setup is still offered and what is missing; the station's name and takedown contact in force, each with where it comes from (the setup page or the settings file); the stream password where the install route has one; the install's own settings, which the page explains but cannot change; and the look.",
+        "operationId": "setup_view",
+        "responses": {
+          "200": {
+            "description": "The setup.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      },
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Set the station's name and takedown contact",
+        "description": "Admin only. Stores both in the database, where they win over the settings file, and puts them in force at once: the player, the consent words (whose version changes, so callers are asked again), feeds, cards and the studio's view. The chat reads the name when it next starts. A field left empty goes back to the settings file's value.",
+        "operationId": "setup_save",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The setup as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/setup/finish": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Finish setup",
+        "description": "Admin only. Marks setup finished: it is no longer offered, whatever the name and contact are. The page stays for admins. Done once; a second call changes nothing.",
+        "operationId": "setup_finish",
+        "responses": {
+          "200": {
+            "description": "The setup as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/setup/stream-password": {
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Turn the stream's password on or off",
+        "description": "Admin only. Only where the install route has a stream password (the Cloudron package; elsewhere `409`). The answer is written to a file the package's start script reads, so it applies when the station next restarts. The password is never read back. A password-protected stream is silent in the player page: a browser does not ask for a password for audio from another name.",
+        "operationId": "setup_stream_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamPasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The setup as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
     "/api/v1/shows": {
       "get": {
         "tags": [
@@ -4135,7 +5055,7 @@
           "shows"
         ],
         "summary": "Make or change a show",
-        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named).",
+        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine.",
         "operationId": "shows_put_show",
         "parameters": [
           {
@@ -5838,7 +6758,7 @@
           "station"
         ],
         "summary": "The station",
-        "description": "The station's identifier and name.",
+        "description": "The station's identifier and its name in force: the one set on the setup page, else the settings file's (ADR-0237).",
         "operationId": "station",
         "responses": {
           "200": {
@@ -5923,6 +6843,9 @@
           }
         },
         "security": [
+          {
+            "staff_session": []
+          },
           {
             "station_key": []
           }
@@ -6813,6 +7736,19 @@
   },
   "components": {
     "schemas": {
+      "AccentChange": {
+        "type": "object",
+        "properties": {
+          "accent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Six hex digits, such as `#b4532a`. Empty or left out: the product's own accent."
+          }
+        },
+        "additionalProperties": false
+      },
       "Account": {
         "type": "object",
         "description": "A staff account as the routes show it (never the hash).",
@@ -7024,7 +7960,7 @@
         "properties": {
           "edges": {
             "type": "boolean",
-            "description": "The station has edges or a CDN configured (steering has a pathway beside the origin)."
+            "description": "The station has edges or a CDN configured: steering has a pathway beside the origin, or\n`join.hls_url` points the player at another address."
           },
           "listeners": {
             "type": [
@@ -7118,6 +8054,41 @@
           }
         },
         "additionalProperties": false
+      },
+      "BrandingView": {
+        "type": "object",
+        "description": "The station's look on its public pages; every part is `null` until it is set.",
+        "properties": {
+          "accent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The accent colour as the station chose it, `#rrggbb`. The pages derive each theme's\naccent from it so that it stays legible (WCAG AA); they never use it as it is."
+          },
+          "banner": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PictureView",
+                "description": "The banner across the top of the player: a PNG up to 1200 by 400, three to one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "icon": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PictureView",
+                "description": "The brand icon, also the favicon: a PNG up to 256 pixels square."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "CallInInfo": {
         "type": "object",
@@ -8789,6 +9760,150 @@
           }
         }
       },
+      "DeskRtmp": {
+        "type": "object",
+        "description": "RTMP out as the desk reports it (ADR-0230).",
+        "properties": {
+          "destinations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeskRtmpDestination"
+            }
+          },
+          "encoders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeskRtmpEncoder"
+            },
+            "description": "The encoders running now: one per profile in use."
+          },
+          "set": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name of the set of destinations the desk holds (the control plane's; `None` until\nit is sent one)."
+          }
+        }
+      },
+      "DeskRtmpDestination": {
+        "type": "object",
+        "description": "One destination at the desk.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes sent on this connection, and since the desk started.",
+            "minimum": 0
+          },
+          "bytes_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "connected_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "connects": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The last failure, with the stream key cut out."
+          },
+          "last_error_ms_ago": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string",
+            "description": "`compatible` or `open`."
+          },
+          "retry_in_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string",
+            "description": "`off`, `waiting` (for its encoder's first keyframe), `connecting`, `live` or\n`retrying`."
+          }
+        }
+      },
+      "DeskRtmpEncoder": {
+        "type": "object",
+        "description": "One RTMP encoder at the desk.",
+        "required": [
+          "profile",
+          "encoder",
+          "width",
+          "height",
+          "fps",
+          "video_kbps"
+        ],
+        "properties": {
+          "encoder": {
+            "type": "string",
+            "description": "`openh264` or `nvenc` (H.264); `svt` or `nvenc` (AV1)."
+          },
+          "fps": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "profile": {
+            "type": "string",
+            "description": "`compatible` or `open`."
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "video_kbps": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "DeskVideo": {
         "type": "object",
         "description": "The video path as the desk reports it (M5, ADR-0009): absent with video off.",
@@ -8816,6 +9931,17 @@
           "room": {
             "type": "boolean",
             "description": "The programme picture is published into the room."
+          },
+          "rtmp": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeskRtmp",
+                "description": "RTMP out (ADR-0230, `rtmp-out`): each destination (never its key) and the encoders;\n`None` from a desk without it."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "shot": {
             "type": "string",
@@ -9654,6 +10780,167 @@
           "consent"
         ]
       },
+      "IcecastOutChoice": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/IcecastOutMode",
+            "description": "`auto`: send while the station is live with the desk on air. `on`: send whatever\nlisteners hear, until turned off. `off`: never."
+          }
+        },
+        "additionalProperties": false
+      },
+      "IcecastOutMode": {
+        "type": "string",
+        "description": "Whether the programme is sent to another Icecast server (ADR-0226).\n\nThe server's address and password are the deployment's settings; this is the one choice made\nwhile the station runs.",
+        "enum": [
+          "auto",
+          "on",
+          "off"
+        ]
+      },
+      "IcecastOutStatus": {
+        "type": "object",
+        "description": "The outgoing Icecast source (ADR-0226): the programme sent to another Icecast server as a\nsource, for a DJ's AzuraCast. The listener process holds the connection and says how it is\ndoing (`icecast_out.status`); the control plane decides when it sends. The remote password\nis never in here.",
+        "required": [
+          "configured",
+          "mode",
+          "wanted",
+          "reason",
+          "connected",
+          "host",
+          "port",
+          "mount",
+          "tls",
+          "bitrate",
+          "bytes_sent",
+          "failures",
+          "last_error"
+        ],
+        "properties": {
+          "bitrate": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Constant MP3 bit rate, kbit/s.",
+            "minimum": 0
+          },
+          "bytes_sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Counted from the stream's constant bit rate while connected, since the listener process\nstarted; not read from the socket.",
+            "minimum": 0
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "The deployment sends to a server and has its password (`ICECAST_OUT` in the settings).\nEverything below is empty when it is false."
+          },
+          "connected": {
+            "type": "boolean",
+            "description": "The remote server accepted the login and takes the stream."
+          },
+          "connected_since_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the current connection was made, in milliseconds since the Unix epoch."
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Failed tries in a row; the pause between tries grows from 5 s to 30 s.",
+            "minimum": 0
+          },
+          "host": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string",
+            "description": "The last error, in words; kept after a reconnect, with its time. Empty if none yet."
+          },
+          "last_error_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/IcecastOutMode",
+            "description": "The station's choice: `auto` (while live with the desk on air), `on` or `off`."
+          },
+          "mount": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, in words: \"live with the desk on air\", \"off\", and so on."
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "wanted": {
+            "type": "boolean",
+            "description": "The control plane is asking the listener process to send now."
+          }
+        }
+      },
+      "InstallFacts": {
+        "type": "object",
+        "description": "What the page explains but cannot change: the install's own settings, as this control plane\nwas started with them.",
+        "required": [
+          "public_url",
+          "stream_url",
+          "room_url",
+          "media_port",
+          "turn_tls_port",
+          "mail",
+          "listed"
+        ],
+        "properties": {
+          "listed": {
+            "type": "boolean",
+            "description": "Whether search engines may list the public pages."
+          },
+          "mail": {
+            "type": "string",
+            "description": "How sign-in codes go out: `command`, `outbox` or `off`."
+          },
+          "media_port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The live room's media port (UDP).",
+            "minimum": 0
+          },
+          "public_url": {
+            "type": "string",
+            "description": "The address cards and feeds print; empty on a station for this machine only."
+          },
+          "room_url": {
+            "type": "string",
+            "description": "LiveKit as browsers reach it."
+          },
+          "stream_url": {
+            "type": "string",
+            "description": "The listener stream as the player is given it."
+          },
+          "turn_tls_port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "TURN over TLS's port (TCP).",
+            "minimum": 0
+          }
+        }
+      },
       "Invite": {
         "type": "object",
         "required": [
@@ -9675,7 +10962,7 @@
           },
           "link": {
             "type": "string",
-            "description": "The join page's path with the pass in the fragment, which browsers never send."
+            "description": "The join page with the pass in the fragment, which browsers never send: absolute on the\nstation's public address (`publishing.public_url`) when it is set, else a path."
           },
           "name": {
             "type": "string"
@@ -10626,6 +11913,67 @@
           }
         }
       },
+      "PictureView": {
+        "type": "object",
+        "description": "One brand picture as the pages are given it.",
+        "required": [
+          "url",
+          "width",
+          "height",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string",
+            "description": "Its address on this station, with its version: it can be kept for good."
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "Platform": {
+        "type": "object",
+        "description": "A platform's form, for the studio app: where its server URL and key are found.",
+        "required": [
+          "platform",
+          "name",
+          "url",
+          "profile",
+          "where_to_find"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "The usual server URL (the platform's own page is the one to trust)."
+          },
+          "where_to_find": {
+            "type": "string",
+            "description": "Where the platform shows its server URL and stream key."
+          }
+        }
+      },
       "Play": {
         "type": "object",
         "description": "One row of the per-play log.",
@@ -10722,6 +12070,7 @@
           "station",
           "show",
           "stream_url",
+          "streams",
           "presenter",
           "presenter_live",
           "show_on_air",
@@ -10755,6 +12104,13 @@
           "stream_url": {
             "type": "string",
             "description": "The listener stream through the proxy; empty when not set up."
+          },
+          "streams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StreamChoice"
+            },
+            "description": "Every stream the listener may choose (ADR-0232): the Opus one at `stream_url` first,\nthen each MP3 stream that is on, lowest rate first. Empty when the stream is not set up."
           },
           "video": {
             "oneOf": [
@@ -11708,6 +13064,151 @@
           }
         }
       },
+      "RtmpChangeBody": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A new stream key; left out, the old one is kept.",
+            "writeOnly": true
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RtmpDestination": {
+        "type": "object",
+        "description": "A destination as it is kept.",
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "url",
+          "profile",
+          "enabled",
+          "created_by",
+          "created_ms",
+          "updated_ms"
+        ],
+        "properties": {
+          "created_by": {
+            "type": "string"
+          },
+          "created_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "description": "`rumble`, `odysee`, `peertube` or `custom`: the form the URL came from."
+          },
+          "profile": {
+            "type": "string",
+            "description": "`compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP)."
+          },
+          "updated_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "url": {
+            "type": "string",
+            "description": "The server URL, without the key."
+          }
+        }
+      },
+      "RtmpNewBody": {
+        "type": "object",
+        "required": [
+          "name",
+          "platform",
+          "url",
+          "key"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Off unless asked."
+          },
+          "key": {
+            "type": "string",
+            "description": "The stream key; never shown again.",
+            "writeOnly": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "description": "`rumble`, `odysee`, `peertube` or `custom`."
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`compatible` (the default: H.264 and AAC) or `open` (AV1 and Opus)."
+          },
+          "url": {
+            "type": "string",
+            "description": "The server URL, `rtmp://` or `rtmps://`, without the key."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RtmpTurnBody": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "RundownItem": {
         "type": "object",
         "description": "One row of the \"coming up\" rundown: a setting (`studio.rundown`); the schedule does not fill it yet.",
@@ -12173,6 +13674,95 @@
           }
         }
       },
+      "SetupChange": {
+        "type": "object",
+        "properties": {
+          "contact": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The takedown contact, an email address or a link: at most 200 characters, one line.\nEmpty or left out hands it back to the settings file."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The station's name: at most 200 characters, one line. Empty or left out hands the name\nback to the settings file."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupView": {
+        "type": "object",
+        "required": [
+          "status",
+          "missing",
+          "name",
+          "contact",
+          "stream_password",
+          "install",
+          "branding"
+        ],
+        "properties": {
+          "branding": {
+            "$ref": "#/components/schemas/BrandingView"
+          },
+          "completed_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "contact": {
+            "$ref": "#/components/schemas/Answer"
+          },
+          "done_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`page`: an admin finished the setup page. `settings`: the settings file gave a name and\na contact. `null` while pending."
+          },
+          "install": {
+            "$ref": "#/components/schemas/InstallFacts"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What is still missing, in words, while pending."
+          },
+          "name": {
+            "$ref": "#/components/schemas/Answer"
+          },
+          "status": {
+            "type": "string",
+            "description": "`pending`: setup is offered. `done`: it is not."
+          },
+          "stream_password": {
+            "$ref": "#/components/schemas/StreamPassword"
+          },
+          "updated_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Show": {
         "type": "object",
         "required": [
@@ -12192,6 +13782,14 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "commercial_music": {
+            "type": "boolean",
+            "description": "Whether the show plays commercial music (ADR-0219): the station's own reminder that a\nUK webcast of it needs PPL and PRS licences. It blocks nothing."
+          },
+          "contact": {
+            "type": "string",
+            "description": "The show's own takedown contact (ADR-0214): an email address or a link; empty when the\nstation's is the only one."
           },
           "description": {
             "type": "string"
@@ -12221,8 +13819,27 @@
             "type": "string",
             "description": "`poster` or `slate`."
           },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Links to the presenter's channels (ADR-0219: Rumble, Odysee, AzuraCast…)."
+          },
           "name": {
             "type": "string"
+          },
+          "presenter": {
+            "type": "string",
+            "description": "The presenter's on-air name (ADR-0214); empty when the show has none of its own."
+          },
+          "presenter_account": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The staff account that presents the show (ADR-0218): the wizard's answers are its\ndefaults. Cleared when the account goes."
           },
           "slot": {
             "oneOf": [
@@ -12258,6 +13875,20 @@
             "format": "int32",
             "minimum": 0
           },
+          "commercial_music": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the show plays commercial music (ADR-0219). Absent keeps what is stored."
+          },
+          "contact": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show's takedown contact (ADR-0214). Absent keeps what is stored; empty clears it."
+          },
           "description": {
             "type": "string"
           },
@@ -12273,8 +13904,33 @@
           "layout": {
             "type": "string"
           },
+          "links": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Links to the presenter's channels (ADR-0219). Absent keeps what is stored."
+          },
           "name": {
             "type": "string"
+          },
+          "presenter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The presenter's on-air name (ADR-0214). Absent keeps what is stored; empty clears it."
+          },
+          "presenter_account": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The staff account that presents the show (ADR-0218). Absent keeps what is stored;\n`null` clears it. A member of staff who is not an admin may name only themselves."
           },
           "slot": {
             "oneOf": [
@@ -12316,6 +13972,37 @@
             "$ref": "#/components/schemas/Show"
           }
         }
+      },
+      "Shown": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RtmpDestination"
+          },
+          {
+            "type": "object",
+            "required": [
+              "key_readable"
+            ],
+            "properties": {
+              "desk": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/DeskRtmpDestination",
+                    "description": "The desk's view of it; `None` when the desk has not got it yet (or has no video)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "key_readable": {
+                "type": "boolean",
+                "description": "The key can be read with the station's key; `false` after the token key changed (enter\nit again)."
+              }
+            }
+          }
+        ],
+        "description": "A destination as the studio shows it: never its key."
       },
       "SignIn": {
         "type": "object",
@@ -12525,6 +14212,7 @@
           "retained",
           "listeners",
           "default_fallback",
+          "icecast_out",
           "settings",
           "gaps",
           "now_playing"
@@ -12550,6 +14238,17 @@
               "type": "string"
             },
             "description": "What the last generation could not fill, in words."
+          },
+          "icecast_out": {
+            "$ref": "#/components/schemas/IcecastOutStatus",
+            "description": "The programme sent to another Icecast server (ADR-0226)."
+          },
+          "icecast_out_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the listener process could not be asked about it, if so."
           },
           "listeners": {
             "type": "integer",
@@ -12674,6 +14373,82 @@
             "minimum": 0
           }
         }
+      },
+      "StreamChoice": {
+        "type": "object",
+        "description": "One listener stream the player offers.",
+        "required": [
+          "codec",
+          "kbps",
+          "url"
+        ],
+        "properties": {
+          "codec": {
+            "type": "string",
+            "description": "`opus` or `mp3`."
+          },
+          "kbps": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its constant bit rate, in kbit/s.",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "StreamPassword": {
+        "type": "object",
+        "description": "The listener stream's password, where the install route has one.",
+        "required": [
+          "available",
+          "restart_needed"
+        ],
+        "properties": {
+          "asked": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "What the page last asked for, if it has; it applies when the station restarts."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether this install route has a stream password the page can set (the Cloudron package)."
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the stream asks for a password now; `null` when not available."
+          },
+          "restart_needed": {
+            "type": "boolean",
+            "description": "Whether an answer is waiting for a restart."
+          }
+        }
+      },
+      "StreamPasswordChange": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the listener stream asks for a password."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A new password: 8 to 64 of letters, digits, `.`, `_`, `~` and `-`. Left out, the\npassword already set is kept."
+          }
+        },
+        "additionalProperties": false
       },
       "StudioShow": {
         "type": "object",
@@ -13619,6 +15394,14 @@
     {
       "name": "webhooks",
       "description": "Webhooks: signed deliveries of the station's events to an integration. Admin only."
+    },
+    {
+      "name": "setup",
+      "description": "The station's setup page (ADR-0237): its name and takedown contact, the stream's password where the install has one, and its look on the public pages. Admin only, except reading the look."
+    },
+    {
+      "name": "rtmp",
+      "description": "RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown."
     }
   ]
 }

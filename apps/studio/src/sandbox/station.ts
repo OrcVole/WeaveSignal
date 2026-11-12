@@ -1,144 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-// The sandbox's station (ADR-0212): a simulated control plane and desk that live in the page,
-// for the website's "Try the desk". It answers the studio app's commands with the same view the
-// real control plane sends, by the same rules (the strips, the caller queue, sending, declining,
-// taking a caller; `crates/control/src/studio.rs`), and a director plays Kettle FM's
-// pre-recorded people (designed voices from the demo video) when the desk lets them be heard.
-// Pure apart from the clock it is given: the sound is `sound.ts`'s, which follows this state.
-// Nothing here reaches a server.
+// The sandbox's station (ADR-0212, ADR-0222): a simulated control plane and desk that live in
+// the page, for the website's "Try the desk" and its training scenarios. It answers the studio
+// app's commands with the same view the real control plane sends, by the same rules (the
+// strips, the caller queue, sending, declining, taking a caller, a dropped link's held place,
+// accounts banned before, the station's mode; `crates/control/src/studio.rs`), and a director
+// plays the scenario's pre-recorded people when the desk lets them be heard. Pure apart from
+// the clock it is given: the sound is `sound.ts`'s, which follows this state. Nothing here
+// reaches a server.
 
-import type { CartCommand, Caller, ChatCommand, DeskCommand, DeskPerson, EndPassCommand, Notice, RundownItem, ScreenerCommand, Source, View } from '../lib/api.ts';
+import type { CartCommand, Caller, ChatCommand, DeskCommand, DeskPerson, EndPassCommand, Invite, Notice, ScreenerCommand, Source, View } from '../lib/api.ts';
 import type { Bank, Cart, Catalogue, Sounding } from '../../../../packages/ui/carts.ts';
+import type { StationMode } from '../../../../packages/ui/states.ts';
+import type { Beat, Line, Speaking } from './lines.ts';
+import type { Scenario } from './scenarios/scenario.ts';
+import { SHOW } from './scenarios/show.ts';
 
-// ---- the cast and their lines ----
-
-export type Who = 'eilidh' | 'gregor' | 'shona' | 'niall' | 'jessie' | 'calum';
-
-/** Where a line is heard: on the desk like any voice (`air`), or in a caller's booth with the
- *  screener (`booth`), which never reaches the programme. */
-export type Heard = 'air' | 'booth';
-
-export interface Line {
-  id: string;
-  who: Who;
-  /** Its length in ms (the stems' `check.tsv`). */
-  ms: number;
-  text: string;
-  heard: Heard;
-  /** Skipped, not waited for, when its speaker cannot be heard. */
-  optional?: boolean;
-}
-
-const L = (id: string, who: Who, s: number, text: string, heard: Heard = 'air', optional = false): Line => ({ id, who, ms: Math.round(s * 1000), text, heard, optional });
-
-/** A run of lines that starts when its condition holds, once. */
-interface Beat {
-  id: string;
-  when: (s: Station) => boolean;
-  lines: Line[];
-  /** What happens when the beat's last line has played. */
-  after?: (s: Station, now: number) => void;
-}
-
-const BEATS: Beat[] = [
-  {
-    id: 'open',
-    when: (s) => s.open('eilidh') && !s.shotOnAir(),
-    lines: [
-      L('l-open', 'eilidh', 8.74, "Good morning, and welcome to The Morning Kettle on Kettle FM. I'm Eilidh Fraser-MacLeod. The kettle's on, the phones are open, and this morning it's all about Leith Walk."),
-      L('l-intro-gregor', 'eilidh', 7.11, "My guest this morning is the local historian Gregor Stewart, who's joining us from home with nothing but a link. Gregor, are you there?"),
-    ],
-  },
-  {
-    id: 'gregor',
-    when: (s) => s.done('open') && s.open('gregor'),
-    lines: [
-      L('l-gregor-here', 'gregor', 3.92, "I'm here, Eilidh. No account, no app. I just pressed the button in the email."),
-      L('l-photo', 'eilidh', 2.44, "Now, Leith Walk. You've brought a photograph."),
-      L('l-tram', 'gregor', 8.29, 'I have. Nineteen fifty-six, the last tram down Leith Walk, and a crowd of folk waving it goodbye. Fifty years later, we spent a fortune putting them back.'),
-      L('l-phones', 'eilidh', 4.55, "And the phones have lit up already. Here's a wee bit of music while Shona answers them."),
-    ],
-    after: (s, now) => {
-      s.ring('niall', now);
-      s.ring('calum', now + 9_000);
-    },
-  },
-  {
-    id: 'niall-booth',
-    when: (s) => s.callerState('niall') === 'screening',
-    lines: [
-      L('l-s1', 'shona', 2.8, "Kettle FM, you're through to Shona. Who's this?", 'booth'),
-      L('l-n1', 'niall', 3.6, "Niall Anderson, from Leith. It's about the bus lanes on Leith Walk.", 'booth'),
-      L('l-s2', 'shona', 1.98, "Have you rung us before, Niall?", 'booth'),
-      L('l-n2', 'niall', 2.52, "Three weeks running. Nobody's let me on yet.", 'booth'),
-      L('l-s3', 'shona', 3.28, "You're on next. Keep it short, and turn your radio down.", 'booth'),
-      L('l-n3', 'niall', 1.76, 'Will do. Cheers, Shona.', 'booth'),
-    ],
-    after: (s, now) => s.ring('jessie', now + 4_000),
-  },
-  {
-    id: 'niall-cue',
-    when: (s) => s.person('niall')?.cue === true && !s.open('niall'),
-    lines: [
-      L('l-e-cue', 'eilidh', 2.12, "Niall, it's Eilidh. You're on in a moment.", 'booth'),
-      L('l-n-cue', 'niall', 1.02, 'Right you are.', 'booth'),
-    ],
-  },
-  {
-    id: 'niall-air',
-    when: (s) => s.open('niall'),
-    lines: [
-      L('l-e-n', 'eilidh', 4.13, "Niall Anderson in Leith, good morning. You've been trying to get through for a while."),
-      L('l-n-air', 'niall', 8.27, 'Three weeks, Eilidh. The bus lanes on Leith Walk stop right where the buses need them most. At half past eight you can walk into town faster than the bus.'),
-      L('l-g-n', 'gregor', 3.7, 'Funny. They said the very same about the trams in nineteen fifty-six.', 'air', true),
-      L('l-e-bye', 'eilidh', 1.88, 'Thanks, Niall. Keep ringing.'),
-    ],
-  },
-  {
-    id: 'jessie-booth',
-    when: (s) => s.callerState('jessie') === 'screening',
-    lines: [L('i-jessie', 'jessie', 4.04, "I'm Jessie. I'm ringing in too, and I'm about to say something I shouldn't.", 'booth')],
-  },
-  {
-    id: 'jessie-air',
-    when: (s) => s.open('jessie') && !s.open('niall'),
-    lines: [
-      L('l-e-j', 'eilidh', 3.47, 'Jessie Brown is on the line from the Infirmary. Jessie, go ahead.'),
-      L('l-j', 'jessie', 7.53, "Eilidh, I'm a nurse on nights, and there's no bus home after ten past eleven. It's a bloody disgrace, and whoever planned it is a total arse."),
-    ],
-    after: (s, now) => {
-      s.swore = now;
-    },
-  },
-  {
-    id: 'sorry',
-    // After a dump, or a few seconds after she swore when nobody dumped.
-    when: (s) => s.swore !== null && (s.delay.dumps > 0 || s.clock - s.swore > 4_000),
-    lines: [L('l-e-sorry', 'eilidh', 5.36, "Jessie, I'll stop you there. Sorry about the language, folks. You never heard it, and that's the point.")],
-  },
-  {
-    id: 'down',
-    when: (s) => !s.playout && s.done('open'),
-    lines: [
-      L('l-e-down', 'eilidh', 5.05, "Gregor, the desk says playout's down. Listeners can't hear us, but we can still hear each other."),
-      L('l-g-down', 'gregor', 3.41, "Just like the trams. Gone, but we're still talking about them.", 'air', true),
-    ],
-  },
-  {
-    id: 'back',
-    when: (s) => s.done('down') && s.playout,
-    lines: [L('l-e-back', 'eilidh', 1.16, "And we're back.")],
-  },
-  {
-    id: 'end',
-    when: (s) => s.done('sorry') && s.ended,
-    lines: [L('l-e-end', 'eilidh', 6.81, "That's The Morning Kettle. Thanks to Gregor, to Niall and Jessie, and to Shona on the phones. Finlay Grant is on next with Steeped.")],
-  },
-];
-
-/** Every line, for the sound to fetch. */
-export const LINES: Line[] = BEATS.flatMap((b) => b.lines);
+export type { Line, Speaking } from './lines.ts';
 
 /** A gap between one line and the next, as people leave in conversation. */
 const GAP_MS = 450;
@@ -147,14 +25,21 @@ const OPTIONAL_WAIT_MS = 2_500;
 
 // ---- the station ----
 
-const SHOW = 'The Morning Kettle';
 const STATION = 'Kettle FM';
 const SLOTS = 5;
-const PLACE_HELD_MS = 5 * 60 * 1000;
+/** How long a dropped caller's place in the queue is held (studio.rs `PLACE_HELD_MS`). */
+export const PLACE_HELD_MS = 5 * 60 * 1000;
+/** How long the desk keeps someone whose link dropped before they leave its list (the tile
+ *  says "kept 30 s"). */
+export const AWAY_KEPT_MS = 30_000;
 const NOTICES = 12;
 /** The profanity delay this sandbox runs, and how fast it builds back after a dump (ms of delay
  *  per ms of time). The real desk slows what it plays to build back (ADR-0166). */
 export const DELAY_TARGET_MS = 8_000;
+/** From an invite being sent to its person in the room (opening the link, the microphone). */
+export const INVITE_TO_JOIN_MS = 4_000;
+/** How long an invite lasts: the real station's default `join.invite_ttl_s`. */
+export const INVITE_TTL_MS = 4 * 3600 * 1000;
 const REBUILD_RATE = 0.25;
 /** The path beyond the desk: the stream's own buffer and a player's (a setting until measured). */
 const LISTENER_PATH_MS = 6_000;
@@ -181,13 +66,6 @@ interface Lobby {
   consent: { at_ms: number; version: string; by: 'caller' };
 }
 
-/** A line being spoken: who, which, and until when. */
-export interface Speaking {
-  line: Line;
-  from: number;
-  until: number;
-}
-
 export class Refusal extends Error {
   constructor(
     readonly status: number,
@@ -204,14 +82,8 @@ function person(identity: string, name: string, role: Role, extra: Partial<DeskP
   return { identity, name, role, on_air: false, mute: false, cue: false, talk: false, talk_to: null, present: true, away_ms: null, linked: true, lufs: null, lufs_peak: null, ...extra };
 }
 
-/** The callers who ring, when the show says so: what they typed on the player page. */
-const CALLERS: Record<string, { name: string; topic: string }> = {
-  niall: { name: 'Niall Anderson', topic: 'The bus lanes on Leith Walk' },
-  jessie: { name: 'Jessie Brown', topic: 'No night bus from the Infirmary' },
-  calum: { name: 'Calum Robertson', topic: 'Parking at Easter Road on match days' },
-};
-
 export class Station {
+  readonly scenario: Scenario;
   clock: number;
   readonly started: number;
   people: DeskPerson[];
@@ -220,42 +92,85 @@ export class Station {
   slots: (string | null)[] = Array(SLOTS).fill(null);
   notices: Notice[] = [];
   noticeId = 0;
-  delay = { delay_ms: DELAY_TARGET_MS, rebuilding: false, dumps: 0, dumped_at_ms: null as number | null };
+  delay = { delay_ms: DELAY_TARGET_MS, target_ms: DELAY_TARGET_MS, rebuilding: false, dumps: 0, dumped_at_ms: null as number | null };
   playout = true;
   playoutSince: number;
+  /** The station's mode (ADR-0045): live, or automation holding the air (ADR-0183). */
+  mode: StationMode;
   modes = { slow: false, hold_new: false, links_trusted: true, accounts_only: false, min_age_24h: false };
   beforeInflux: typeof this.modes | null = null;
   influxSince: number | null = null;
   sounding: Sounding[] = [];
   cartSeq = 0;
   playNo = 0;
-  /** Who rings when: identity → the time they join the queue. */
-  rings = new Map<string, number>();
+  /** Accounts banned before, by identity (the station's setting). */
+  bans: Record<string, { date: string; reason: string }>;
+  /** When each person whose link dropped left the room, by identity. */
+  away = new Map<string, number>();
+  /** The microphone of the browser tab the DJ speaks through (ADR-0222): on unless the scenario
+   *  turns it off. Off, the DJ's lines reach no one and their meter stays flat. */
+  mic = true;
+  /** Things that happen later: callers ringing, a link going bad, the simulated presenter. */
+  private timers: { at: number; fn: (s: Station, now: number) => void }[] = [];
+  /** Who has been asked to ring, so nobody rings twice. */
+  private rings = new Set<string>();
   /** The director: beats done, the beat and line playing, and what is being said. */
   beatsDone = new Set<string>();
   beat: { beat: Beat; next: number; waitingSince: number | null } | null = null;
   speaking: Speaking | null = null;
   swore: number | null = null;
-  /** The visitor ended the show (the guide's button): Eilidh says goodbye. */
+  /** The visitor ended the show (the guide's button): the presenter says goodbye. */
   ended = false;
+  /** The sound has started (the visitor's first press). */
+  begun = false;
+  /** The show on air, as the desk names it: the scenario's, until a handover moves it on (on a
+   *  real station the schedule does, at the post). */
+  show: string;
+  /** What a scenario notes for its guide: a mark is set once by a beat or a timer. */
+  marks = new Set<string>();
+  /** What the visitor did, for the guide and the end card: carts fired (by id, in order),
+   *  fades of everything, cues of a cart, callers sent back to the queue, callers dropped. */
+  fired: string[] = [];
+  fades = 0;
+  /** Invites made from the desk's dialog. */
+  invites = 0;
+  cartCues = 0;
+  backs = 0;
+  drops: Record<string, number> = {};
   /** Levels from the sound, by identity (LUFS-like, approximate). */
   levels: Record<string, number | null> = {};
   readonly catalogue: Catalogue;
-  /** Told of every line that starts and every cart that starts or stops. */
+  /** Told of every line that starts. */
   onLine: ((s: Speaking) => void) | null = null;
   version = 0;
 
-  constructor(now: number, catalogue: Catalogue) {
+  constructor(now: number, catalogue: Catalogue, scenario: Scenario = SHOW) {
+    this.scenario = scenario;
     this.clock = now;
     this.started = now;
     this.playoutSince = now - 3_600_000;
     this.catalogue = catalogue;
-    this.people = [
-      person('eilidh', 'Eilidh Fraser-MacLeod', 'presenter'),
-      person('gregor', 'Gregor Stewart', 'guest'),
-      person('shona', 'Shona Campbell', 'screener'),
-    ];
+    this.mode = scenario.mode ?? 'live';
+    this.bans = { ...(scenario.bans ?? {}) };
+    this.show = scenario.show;
+    const later = new Set(scenario.later ?? []);
+    this.people = scenario.cast.filter((c) => !later.has(c.identity)).map((c) => person(c.identity, c.name, c.role));
     this.seat();
+  }
+
+  /** Every line the scenario can say, for the sound to fetch. */
+  get lines(): Line[] {
+    return this.scenario.beats.flatMap((b) => b.lines);
+  }
+
+  /** The sound has started: the scenario's rings and events are timed from now, not from when
+   *  the page opened. */
+  begin(now: number): void {
+    if (this.begun) return;
+    this.begun = true;
+    this.clock = now;
+    this.scenario.start?.(this, now);
+    this.version++;
   }
 
   // ---- reading ----
@@ -274,8 +189,33 @@ export class Station {
     return this.callers.find((c) => c.identity === id)?.state ?? null;
   }
 
+  /** A caller's record as the screener sees it, or null. */
+  callerRec(id: string): CallerRec | null {
+    return this.callers.find((c) => c.identity === id) ?? null;
+  }
+
   done(beat: string): boolean {
     return this.beatsDone.has(beat);
+  }
+
+  mark(what: string): void {
+    this.marks.add(what);
+    this.version++;
+  }
+
+  has(mark: string): boolean {
+    return this.marks.has(mark);
+  }
+
+  /** A caller's link is degraded as the desk sees it: in the room, no audio reaching it. */
+  degraded(id: string): boolean {
+    const p = this.person(id);
+    return !!p && p.present && !p.linked;
+  }
+
+  /** The visitor's own voice can be heard: their person is open and the tab's microphone is on. */
+  heardFromYou(): boolean {
+    return this.mic && this.open(this.scenario.you.identity);
   }
 
   /** A one-shot cart sounds on air now (the director lets a jingle finish before speaking). */
@@ -285,20 +225,28 @@ export class Station {
 
   /** A bed ducks under a voice on air (the desk's ducker, approximately). */
   ducked(): boolean {
-    return this.people.some((p) => p.on_air && !p.mute) && !!this.speaking && this.speaking.line.heard === 'air' && this.open(this.speaking.line.who);
+    if (!this.speaking || this.speaking.line.heard !== 'air') return false;
+    const who = this.speaking.line.who;
+    return this.open(who) && (who !== this.scenario.you.identity || this.mic);
+  }
+
+  /** Listeners hear the desk: playout is connected and automation does not hold the air
+   *  (`listenersHear` in packages/ui/states.ts). */
+  listenersHearDesk(): boolean {
+    return this.playout && this.mode !== 'auto';
   }
 
   // ---- time ----
 
-  /** Move the clock on: callers ring, the delay builds back, carts end, the director speaks. */
+  /** Move the clock on: timers fire, the delay builds back, carts end, dropped links settle, the
+   *  director speaks. */
   tick(now: number): void {
     const dt = Math.max(0, now - this.clock);
     this.clock = now;
-    for (const [id, at] of [...this.rings]) {
-      if (now >= at) {
-        this.rings.delete(id);
-        this.join(id, now);
-      }
+    const due = this.timers.filter((t) => now >= t.at).sort((a, b) => a.at - b.at);
+    if (due.length) {
+      this.timers = this.timers.filter((t) => now < t.at);
+      for (const t of due) t.fn(this, now);
     }
     if (this.delay.rebuilding) {
       this.delay.delay_ms = Math.min(DELAY_TARGET_MS, this.delay.delay_ms + dt * REBUILD_RATE);
@@ -307,15 +255,44 @@ export class Station {
     const before = this.sounding.length;
     this.sounding = this.sounding.filter((s) => s.ends_ms === null || s.ends_ms > now);
     if (this.sounding.length !== before) this.version++;
+    // Someone whose link dropped leaves the desk's list after its grace; their place in the
+    // queue is held for longer.
+    let left = false;
+    for (const [id, at] of [...this.away]) {
+      if (now - at >= AWAY_KEPT_MS) {
+        this.away.delete(id);
+        this.people = this.people.filter((p) => p.identity !== id);
+        left = true;
+      }
+    }
+    const held = this.callers.length;
     this.callers = this.callers.filter((c) => c.dropped_ms === null || now - c.dropped_ms < PLACE_HELD_MS);
+    if (left || this.callers.length !== held) {
+      this.seat();
+      this.version++;
+    }
     this.direct(now);
   }
 
+  /** Something happens at `when`: a caller rings, a link goes bad, the presenter acts. */
+  at(when: number, fn: (s: Station, now: number) => void): void {
+    this.timers.push({ at: when, fn });
+  }
+
   private direct(now: number): void {
+    // A beat with no lines is a cue (the simulated presenter acting, a mark for the guide): it
+    // fires as soon as its condition holds, whoever is speaking.
+    for (const b of this.scenario.beats) {
+      if (b.lines.length === 0 && !this.beatsDone.has(b.id) && b.when(this)) {
+        this.beatsDone.add(b.id);
+        b.after?.(this, now);
+        this.version++;
+      }
+    }
     if (this.speaking && now < this.speaking.until) return;
     if (this.speaking) this.speaking = null;
     if (!this.beat) {
-      const next = BEATS.find((b) => !this.beatsDone.has(b.id) && b.when(this));
+      const next = this.scenario.beats.find((b) => !this.beatsDone.has(b.id) && b.when(this));
       if (!next) return;
       this.beat = { beat: next, next: 0, waitingSince: null };
     }
@@ -329,6 +306,15 @@ export class Station {
       return;
     }
     if (!this.canHear(line)) {
+      // A booth conversation ends when its caller has moved on (sent to the desk and taken, or
+      // dropped): the rest of what they would have said is never said.
+      if (line.heard === 'booth' && this.boothOver(line.who)) {
+        this.beatsDone.add(b.beat.id);
+        this.beat = null;
+        b.beat.after?.(this, now);
+        this.version++;
+        return;
+      }
       b.waitingSince ??= now;
       if (line.optional && now - b.waitingSince > OPTIONAL_WAIT_MS) {
         b.next++;
@@ -343,16 +329,25 @@ export class Station {
     this.version++;
   }
 
-  /** A line can be said now: a booth line while its caller is screened or cued, an air line
-   *  while its speaker is open. */
+  /** A caller's booth is no longer where they are: they are on air, or gone from the queue. */
+  private boothOver(id: string): boolean {
+    const c = this.callers.find((x) => x.identity === id);
+    const p = this.person(id);
+    if (!c) return this.scenario.callers[id] !== undefined;
+    return !!p?.on_air || (c.state !== 'screening' && !p?.cue && c.state !== 'waiting');
+  }
+
+  /** A line can be said now: a booth line by staff always, a caller's booth line while they are
+   *  screened or cued, an air line while its speaker is open or in the presenter's cue. */
   private canHear(line: Line): boolean {
     if (line.heard === 'booth') {
-      if (line.who === 'shona' || line.who === 'eilidh') return true;
       const c = this.callers.find((x) => x.identity === line.who);
+      if (!c) return true;
       const p = this.person(line.who);
-      return !!c && c.dropped_ms === null && (c.state === 'screening' || !!p?.cue);
+      return c.dropped_ms === null && (c.state === 'screening' || !!p?.cue);
     }
-    return this.open(line.who);
+    const p = this.person(line.who);
+    return this.open(line.who) || (!!p && p.present && p.cue);
   }
 
   // ---- callers ----
@@ -360,15 +355,114 @@ export class Station {
   /** A caller rings at `at` (they join the queue then). */
   ring(id: string, at: number): void {
     if (this.person(id) || this.rings.has(id)) return;
-    this.rings.set(id, at);
+    this.rings.add(id);
+    this.at(at, (s, now) => {
+      s.rings.delete(id);
+      s.arrive(id, now);
+    });
   }
 
-  private join(id: string, now: number): void {
-    const who = CALLERS[id];
-    if (!who) return;
+  /** A caller joins the queue now, from the player page, with their consent to record. */
+  arrive(id: string, now: number): void {
+    const who = this.scenario.callers[id];
+    if (!who || this.person(id)) return;
     this.people.push(person(id, who.name, 'caller'));
     this.lobby.set(id, { name: who.name, topic: who.topic, consent: { at_ms: now - 20_000, version: '2026-11-01', by: 'caller' } });
     this.callers.push({ identity: id, name: who.name, state: 'waiting', since_ms: now, arrived_ms: now, line: '', note: '', name_on_air: '', declined: null, dropped_ms: null, taken: false });
+    this.seat();
+    this.version++;
+  }
+
+  /** The desk's invite dialog (`POST /api/v1/invites`): the answer a real station gives, with a
+   *  link that opens nothing here. If the scenario is waiting for someone of that role (its
+   *  `later`), it is their invite: they join a few seconds on, under their own name. */
+  makeInvite(req: { role?: unknown; name?: unknown }, now: number): Invite {
+    const role = req.role;
+    if (role !== 'dj' && role !== 'guest' && role !== 'presenter') {
+      throw new Refusal(422, `an invite is for a guest, a remote DJ or a presenter; a ${String(role)} joins another way`);
+    }
+    const name = typeof req.name === 'string' ? req.name.trim() : '';
+    if ([...name].length > 120) throw new Refusal(422, 'a name is at most 120 characters');
+    this.clock = now;
+    const id = (this.scenario.later ?? []).find(
+      (x) => !this.person(x) && !this.has(`invited:${x}`) && this.scenario.cast.find((c) => c.identity === x)?.role === role,
+    );
+    if (id) {
+      this.mark(`invited:${id}`);
+      this.at(now + INVITE_TO_JOIN_MS, (s, t) => s.join(id, t));
+    }
+    const n = ++this.invites;
+    const pass = `sandbox-${role}-${n}-${now.toString(36)}`;
+    return { pass, identity: `${role}-sandbox${n}`, role, name, expires_at_ms: now + INVITE_TTL_MS, link: `/join/#${pass}` };
+  }
+
+  /** Someone from the cast who was not in the room joins now, from their invite link (a guest,
+   *  a remote DJ, a presenter): seated by their role, a DJ off air on strip 5. */
+  join(id: string, now: number): void {
+    const who = this.scenario.cast.find((c) => c.identity === id);
+    if (!who || this.person(id)) return;
+    this.clock = now;
+    this.people.push(person(id, who.name, who.role));
+    this.seat();
+    const slot = this.slots.indexOf(id) + 1;
+    const first = who.name.split(' ')[0];
+    this.notice(
+      'desk',
+      'good',
+      'person.joined',
+      id,
+      `${first} joined the room`,
+      who.role === 'dj' ? `Off air under Not on air${slot ? `, on strip ${slot}` : ''}: cue them to hear them; ⇧⏎ brings them on air with you.` : `On strip ${slot || '–'}.`,
+    );
+    this.version++;
+  }
+
+  // ---- links (the desk's view of each person's connection) ----
+
+  /** A person's link is losing packets: the desk says LINK DEGRADED (they stay in the room). */
+  degrade(id: string, on: boolean, now: number): void {
+    const p = this.person(id);
+    if (!p) return;
+    this.clock = now;
+    p.linked = !on;
+    this.version++;
+  }
+
+  /** A person's link drops: the desk keeps them 30 s (the tile says so); a caller's place in
+   *  the queue is held for 5 min, and the screener is told (studio.rs `sync`). */
+  dropLink(id: string, now: number): void {
+    const p = this.person(id);
+    if (!p || !p.present) return;
+    this.clock = now;
+    p.present = false;
+    p.linked = false;
+    this.away.set(id, now);
+    const c = this.callers.find((x) => x.identity === id);
+    if (c && c.dropped_ms === null) {
+      c.dropped_ms = now;
+      this.notice('screener', 'warning', 'caller.dropped', id, `${this.short(id)}'s link dropped`, 'Their place in the queue is held for 5 min; if they call in again they come back where they were.');
+    }
+    this.seat();
+    this.version++;
+  }
+
+  /** They are back: the link clears, a held place is taken up where it was (the caller's state
+   *  is as it was: a ready caller comes back ready). */
+  returnLink(id: string, now: number): void {
+    this.clock = now;
+    let p = this.person(id);
+    const c = this.callers.find((x) => x.identity === id);
+    if (!p) {
+      const who = c ? { name: c.name, role: 'caller' as Role } : this.scenario.cast.find((x) => x.identity === id);
+      if (!who) return;
+      p = person(id, who.name, who.role);
+      this.people.push(p);
+    }
+    p.present = true;
+    p.linked = true;
+    this.away.delete(id);
+    if (c) c.dropped_ms = null;
+    this.seat();
     this.version++;
   }
 
@@ -385,16 +479,18 @@ export class Station {
         taken.push(c.identity);
       }
     }
+    // A slot is kept while its person is in the desk's list (a dropped link keeps them there
+    // for a while) and, for a caller, while they are on air or ready and not dropped.
     this.slots = this.slots.map((id) => {
       const p = id ? this.person(id) : undefined;
-      if (!p || !p.present) return null;
+      if (!p) return null;
       if (p.role === 'caller') return ready(p.identity) || p.on_air ? id : null;
       return preferred(p.role).length ? id : null;
     });
     for (const p of this.people) {
       if (this.slots.includes(p.identity)) continue;
       const eligible = p.role === 'caller' ? p.on_air || ready(p.identity) : preferred(p.role).length > 0;
-      if (!eligible || !p.present) continue;
+      if (!eligible) continue;
       const n = preferred(p.role).find((n) => this.slots[n - 1] === null);
       if (n) this.slots[n - 1] = p.identity;
     }
@@ -426,7 +522,7 @@ export class Station {
     this.clock = now;
     if (c.op === 'dump') {
       if (this.delay.delay_ms < 100 && !this.delay.rebuilding) throw new Refusal(409, 'The delay is off; there is nothing to dump.');
-      this.delay = { delay_ms: 0, rebuilding: true, dumps: this.delay.dumps + 1, dumped_at_ms: now };
+      this.delay = { ...this.delay, delay_ms: 0, rebuilding: true, dumps: this.delay.dumps + 1, dumped_at_ms: now };
     } else if (c.op === 'picture') {
       throw new Refusal(409, 'Video is off on this station.');
     } else {
@@ -465,6 +561,7 @@ export class Station {
       case 'back':
         if (this.person(rec.identity)?.on_air) throw new Refusal(409, `\`${rec.identity}\` is on air; the presenter takes them off first`);
         Object.assign(rec, { state: 'waiting', since_ms: now, declined: null, taken: false });
+        this.backs++;
         break;
       case 'decline':
         if (rec.state !== 'ready') throw new Refusal(409, `\`${rec.identity}\` was not sent to the desk`);
@@ -480,6 +577,8 @@ export class Station {
       case 'drop': {
         this.callers = this.callers.filter((x) => x !== rec);
         this.people = this.people.filter((p) => p.identity !== rec.identity);
+        this.away.delete(rec.identity);
+        this.drops[rec.identity] = (this.drops[rec.identity] ?? 0) + 1;
         break;
       }
       case 'release':
@@ -498,6 +597,7 @@ export class Station {
     if (p.role === 'presenter') throw new Refusal(409, 'The presenter cannot be sent out of their own show.');
     this.people = this.people.filter((x) => x !== p);
     this.callers = this.callers.filter((x) => x.identity !== p.identity);
+    this.away.delete(p.identity);
     this.seat();
     this.version++;
   }
@@ -549,6 +649,7 @@ export class Station {
       }
       case 'fade_all':
         for (const s of live) this.stopCart(s, now, 1_500);
+        this.fades++;
         break;
       case 'clear_cue':
         for (const s of live.filter((x) => x.cue)) this.stopCart(s, now);
@@ -561,12 +662,18 @@ export class Station {
     const cart = this.catalogue.carts.find((c) => c.id === id);
     if (!cart || !cart.file) throw new Refusal(404, `No cart \`${id}\``);
     const pool = cart.mode === 'bed' ? 'bed' : 'shot';
+    if (cue) this.cartCues++;
+    else this.fired.push(id);
     // A bed replaces the bed that plays (one bed player); a shot plays beside the others.
     if (pool === 'bed') for (const s of this.sounding.filter((x) => x.pool === 'bed' && x.cue === cue && !x.stopping)) this.stopCart(s, now, 800);
+    // A player of the pool that is free (the cart wall keys its list by player and pool).
+    const used = new Set(this.sounding.filter((x) => x.pool === pool).map((x) => x.player));
+    let player = 1;
+    while (used.has(player)) player++;
     this.sounding.push({
       cart: id,
       pool,
-      player: 1,
+      player,
       mode: cart.mode,
       cue,
       play: ++this.playNo,
@@ -594,6 +701,24 @@ export class Station {
     this.version++;
   }
 
+  /** The station's mode, a playout setting on a real station (ADR-0045): in auto mode
+   *  automation holds the air and the lamp says AUTO (ADR-0183). */
+  setMode(mode: StationMode, now: number): void {
+    this.clock = now;
+    if (this.mode === mode) return;
+    this.mode = mode;
+    if (mode === 'auto') this.notice('desk', 'warning', 'mode.auto', null, 'Automation holds the air', 'The station is in auto mode: listeners hear the log, and anything you open says OPEN, not ON AIR.');
+    else this.notice('desk', 'good', 'mode.live', null, 'The station is live', 'The desk reaches listeners again: open faders say ON AIR.');
+    this.version++;
+  }
+
+  /** The microphone of the browser tab the DJ speaks through. */
+  setMic(on: boolean, now: number): void {
+    this.clock = now;
+    this.mic = on;
+    this.version++;
+  }
+
   endShow(now: number): void {
     this.ended = true;
     this.clock = now;
@@ -605,7 +730,12 @@ export class Station {
   view(now: number): View {
     const cartsMicOpen = this.people.some((p) => p.on_air && !p.mute);
     const ducked = this.ducked();
-    const withLevel = (p: DeskPerson): DeskPerson => ({ ...p, lufs: this.levels[p.identity] ?? null, lufs_peak: this.levels[p.identity] ?? null });
+    const withLevel = (p: DeskPerson): DeskPerson => ({
+      ...p,
+      away_ms: p.present ? null : now - (this.away.get(p.identity) ?? now),
+      lufs: this.levels[p.identity] ?? null,
+      lufs_peak: this.levels[p.identity] ?? null,
+    });
     const sources: Source[] = this.slots.flatMap((id, i) => {
       const p = id ? this.person(id) : undefined;
       if (!p) return [];
@@ -626,7 +756,7 @@ export class Station {
         note: c.note,
         name_on_air: c.name_on_air,
         declined: c.declined,
-        banned_before: null,
+        banned_before: this.bans[c.identity] ?? null,
         topic: lobby?.topic ?? '',
         consent: lobby?.consent ?? null,
         dropped_ms: c.dropped_ms,
@@ -639,13 +769,15 @@ export class Station {
       };
     });
     const seat = (role: Role) => this.slots.find((id) => id && this.person(id)?.role === role) ?? this.people.find((p) => p.role === role && p.present)?.identity ?? null;
-    const presenter = seat('presenter');
+    // The presenter's seat (ADR-0231, as studio.rs): the first presenter while any presenter is
+    // on air; with none on air, the first DJ on air (after a handover); else the first presenter.
+    const onAir = (role: Role) => this.slots.find((id) => { const p = id ? this.person(id) : undefined; return !!p && p.role === role && p.on_air && p.present; }) ?? null;
+    const presenter = onAir('presenter') ? seat('presenter') : (onAir('dj') ?? seat('presenter'));
     const screener = seat('screener');
-    const rundown: RundownItem[] = rundownFrom(this.started);
     return {
       station: STATION,
       now_ms: now,
-      show: { title: SHOW, rundown },
+      show: { title: this.show, rundown: this.scenario.rundown(this.started) },
       desk: {
         reachable: true,
         error: null,
@@ -663,24 +795,9 @@ export class Station {
       listener_delay: { ms: LISTENER_PATH_MS + Math.floor(this.delay.delay_ms / 100) * 100, measured: false },
       default_fallback: false,
       audience: { listeners: listenersAt(now, this.started), edges: false },
-      mode: 'live',
+      mode: this.mode,
     };
   }
-}
-
-/** The show's rundown, from the moment the sandbox opened (station time, HH:MM). */
-function rundownFrom(start: number): RundownItem[] {
-  const at = (min: number) => {
-    const d = new Date(start + min * 60_000);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  };
-  return [
-    { at: at(0), title: 'Open and jingle', detail: 'Eilidh on air, the steel jingle', hard_post: false, key: null },
-    { at: at(1), title: 'Gregor Stewart', detail: 'Local historian: the last tram down Leith Walk, 1956', hard_post: false, key: null },
-    { at: at(3), title: 'Phones', detail: 'Shona screens; Leith Walk callers', hard_post: false, key: null },
-    { at: at(8), title: 'News', detail: 'Top of the hour', hard_post: true, key: null },
-    { at: at(10), title: 'Steeped with Finlay Grant', detail: 'Next show', hard_post: false, key: null },
-  ];
 }
 
 /** A listener count that drifts like a morning audience: about 140, never the same twice. */

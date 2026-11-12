@@ -32,6 +32,19 @@ pub fn consent_words(template: &str, station: &str, kept: &str, contact: &str) -
         .to_owned()
 }
 
+/// The `{contact}` phrase (ADR-0215): the show on air's takedown contact first, then the
+/// station's own as the host, "<show's>. This station is hosted by <station>: <station's>";
+/// the station's alone when the show has none. A show's contact is optional, the station's is
+/// not: call-in stays closed without it ([`crate::public`]).
+pub fn contact_phrase(show_contact: &str, station: &str, station_contact: &str) -> String {
+    let (show_contact, station_contact) = (show_contact.trim(), station_contact.trim());
+    if show_contact.is_empty() {
+        station_contact.to_owned()
+    } else {
+        format!("{show_contact}. This station is hosted by {station}: {station_contact}")
+    }
+}
+
 /// How long programme recordings (the archive and its podcast) are kept, as the consent words
 /// say it, exactly: "for two years", "for 30 days", or "only until the show ends" when nothing
 /// is kept.
@@ -276,6 +289,54 @@ pub fn me_state(
         presenter_live,
         show_on_air: playout && anyone_open,
         desk_reachable: view.desk.reachable,
+    }
+}
+
+#[cfg(test)]
+mod contact_tests {
+    use super::{consent_words, contact_phrase};
+
+    const WORDS: &str = "You'll be live on {station}, and we may keep your call in our archive and podcast {kept}. To have it taken down, contact {contact}.";
+
+    #[test]
+    fn the_shows_contact_comes_first_and_the_station_is_named_as_the_host() {
+        let c = contact_phrase("shona@example.org", "Kettle FM", "info@kettle.example");
+        assert_eq!(
+            c,
+            "shona@example.org. This station is hosted by Kettle FM: info@kettle.example"
+        );
+        let w = consent_words(WORDS, "Kettle FM", "for two years", &c);
+        assert_eq!(
+            w,
+            "You'll be live on Kettle FM, and we may keep your call in our archive and podcast for two years. To have it taken down, contact shona@example.org. This station is hosted by Kettle FM: info@kettle.example."
+        );
+    }
+
+    #[test]
+    fn without_a_show_contact_only_the_stations_is_said() {
+        assert_eq!(
+            contact_phrase("  ", "Kettle FM", " info@kettle.example "),
+            "info@kettle.example"
+        );
+        let w = consent_words(
+            WORDS,
+            "Kettle FM",
+            "for 30 days",
+            &contact_phrase("", "Kettle FM", "info@kettle.example"),
+        );
+        assert!(w.ends_with("To have it taken down, contact info@kettle.example."));
+        assert!(!w.contains("hosted by"));
+    }
+
+    #[test]
+    fn words_without_a_contact_placeholder_have_nowhere_for_the_shows() {
+        let w = consent_words(
+            "Live on {station}.",
+            "Kettle FM",
+            "",
+            &contact_phrase("x@y", "Kettle FM", "z@w"),
+        );
+        assert_eq!(w, "Live on Kettle FM.");
     }
 }
 

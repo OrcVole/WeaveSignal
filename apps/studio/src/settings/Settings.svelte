@@ -6,15 +6,20 @@
   // holds a complaint places. Station admin, reached from the frame; not a numbered tab, so
   // the keymap (ADR-0063) is unchanged, and while it is open no bare key reaches the desk.
   // Panel names `settings.jurisdiction`, `settings.periods`, `settings.holds` (ADR-0070).
+  // Your show (ADR-0218) is the MyShow panel's, for a member of staff signed in as themselves.
   // The studio app's updates (ADR-0140) are the Updates panel's, drawn in the packaged app only.
   // Staff accounts (ADR-0127) are the Staff panel's; retention and holds are an admin's, and
   // anyone else is told so here rather than refused by the station.
   import { untrack } from 'svelte';
   import Staff from './Staff.svelte';
+  import MyShow from './MyShow.svelte';
   import Zone from './Zone.svelte';
   import Tokens from './Tokens.svelte';
+  import Rtmp from './Rtmp.svelte'; // rtmp-out
   import Updates from './Updates.svelte';
-  import type { Me } from '../lib/api.ts';
+  import IcecastOut from './IcecastOut.svelte';
+  import ChatPictures from './ChatPictures.svelte';
+  import { sandboxed, type Me } from '../lib/api.ts';
   import { account } from '../lib/account.svelte.ts';
   import { isAdmin } from '../lib/account.ts';
   import {
@@ -58,6 +63,8 @@
    *  who the window is counts as the key, which is what it was. */
   const canManage = $derived(!known || who === null || isAdmin(who));
   const showStaff = $derived(!!who && isAdmin(who));
+  /** Your show (ADR-0218): for a member of staff signed in as themselves; not in the sandbox. */
+  const showMine = $derived(who?.kind === 'staff' && !sandboxed());
 
   const NAME_KEY = 'weavesignal.settings.name';
   const DAYS_MAX = 36_500;
@@ -431,7 +438,15 @@
     {#if showStaff}
       <Staff me={who} />
       <Zone />
+      <IcecastOut admin={canManage} />
       <Tokens />
+      <Rtmp />
+      <!-- Chat pictures (ADR-0259): the chat's own settings, which the sandbox does not simulate. -->
+      {#if !sandboxed()}<ChatPictures admin={canManage} />{/if}
+    {/if}
+
+    {#if showMine && who}
+      <MyShow me={who} />
     {/if}
 
     {#if !canManage}
@@ -786,7 +801,7 @@
     {/if}
   </div>
 
-  <dialog bind:this={confirmEl} aria-labelledby="cf-h" aria-describedby="cf-d">
+  <dialog data-panel="settings.periods.confirm" bind:this={confirmEl} aria-labelledby="cf-h" aria-describedby="cf-d">
     <h2 id="cf-h">Delete {pending ? goneWords(pending.sweep) : 'records'} at the next sweep?</h2>
     <p id="cf-d">
       The new periods are shorter than what is kept now. At the next sweep, WeaveSignal deletes {pending ? goneWords(pending.sweep) : 'the records'} past them. This can’t be undone. To keep anything a complaint concerns, place a hold first.
@@ -797,7 +812,7 @@
     </div>
   </dialog>
 
-  <dialog bind:this={extendEl} aria-labelledby="ex-h" aria-describedby="ex-d">
+  <dialog data-panel="settings.holds.extend" bind:this={extendEl} aria-labelledby="ex-h" aria-describedby="ex-d">
     <form onsubmit={onExtend} novalidate>
       <h2 id="ex-h">Extend this hold?</h2>
       <p id="ex-d">
@@ -826,7 +841,7 @@
     </form>
   </dialog>
 
-  <dialog bind:this={releaseEl} aria-labelledby="rl-h" aria-describedby="rl-d">
+  <dialog data-panel="settings.holds.release" bind:this={releaseEl} aria-labelledby="rl-h" aria-describedby="rl-d">
     <form onsubmit={onRelease} novalidate>
       <h2 id="rl-h">Release this hold?</h2>
       <p id="rl-d">
@@ -1209,7 +1224,7 @@
     padding: var(--s-5);
   }
   dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim-strong);
   }
   dialog h2 {
     font-size: var(--fs-20);
@@ -1225,7 +1240,7 @@
   dialog .acts {
     margin-top: var(--s-3);
   }
-  @media (max-width: 720px) {
+  @container (max-width: 720px) {
     .savebar {
       grid-template-columns: 1fr;
     }

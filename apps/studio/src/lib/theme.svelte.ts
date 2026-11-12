@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The theme: dark by default, switched only by the person, never by the operating system
-// (ADR-0065). The choice is remembered on this machine.
+// (ADR-0065). Night is the third: warm, with no blue, for presenting late (ADR-0270). The choice
+// is remembered on this machine.
 
-export type Theme = 'dark' | 'light';
+export const THEMES = ['dark', 'light', 'night'] as const;
+export type Theme = (typeof THEMES)[number];
+
+/** The word on each theme's button. */
+export const THEME_WORDS: Record<Theme, string> = { dark: 'Dark', light: 'Light', night: 'Night' };
 
 const KEY = 'weavesignal.theme';
 
 function stored(): Theme {
   try {
-    return globalThis.localStorage?.getItem(KEY) === 'light' ? 'light' : 'dark';
+    const kept = globalThis.localStorage?.getItem(KEY);
+    return THEMES.find((t) => t === kept) ?? 'dark';
   } catch {
     return 'dark';
   }
@@ -17,16 +23,16 @@ function stored(): Theme {
 
 export const theme = $state({ current: stored() });
 
-/** Put the theme on the document: dark is the root's own tokens, light sets data-theme. */
+/** Put the theme on the document: dark is the root's own tokens, light and night set data-theme. */
 export function applyTheme(t: Theme): void {
   const root = globalThis.document?.documentElement;
   if (!root) return;
-  if (t === 'light') root.dataset.theme = 'light';
-  else delete root.dataset.theme;
+  if (t === 'dark') delete root.dataset.theme;
+  else root.dataset.theme = t;
 }
 
 export function toggleTheme(): void {
-  setTheme(theme.current === 'dark' ? 'light' : 'dark');
+  setTheme(THEMES[(THEMES.indexOf(theme.current) + 1) % THEMES.length]);
 }
 
 /** The person chose a theme: show it and remember it on this machine. */

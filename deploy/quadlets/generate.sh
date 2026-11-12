@@ -61,7 +61,7 @@ for line in open(os.environ["ENV_FILE"]):
     k, sep, v = line.rstrip("\n").partition("=")
     if sep and not k.startswith("#"):
         env[k] = v
-secret_keys = ("LIVEKIT_API_SECRET", "LISTENERS_SOURCE_PASSWORD", "POSTGRES_PASSWORD", "CONTROL_ADMIN_TOKEN", "CHAT_EMAIL_KEY", "CONTROL_EMAIL_KEY", "CONTROL_TOKEN_KEY")
+secret_keys = ("LIVEKIT_API_SECRET", "LISTENERS_SOURCE_PASSWORD", "POSTGRES_PASSWORD", "CONTROL_ADMIN_TOKEN", "CHAT_EMAIL_KEY", "CONTROL_EMAIL_KEY", "CONTROL_TOKEN_KEY", "ICECAST_OUT_PASSWORD")
 secret_values = [env[k] for k in secret_keys if env.get(k)]
 secret_by_value = {env[k]: k for k in secret_keys if env.get(k)}
 

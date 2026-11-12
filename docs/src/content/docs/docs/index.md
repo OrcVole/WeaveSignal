@@ -25,6 +25,7 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 - [Take a caller to air](/docs/how-to/take-a-caller/): accept, decline or drop a caller the screener sends.
 - [Start on the count-in](/docs/how-to/count-in/): the count-in, and taking turns with remote guests.
 - [When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/): what it means, and what to do.
+- [Set up your show](/docs/how-to/set-up-your-show/): a DJ's on-air name, takedown contact, show and usual time, kept as defaults.
 - [Echo and headphones](/docs/explanation/echo-and-headphones/): why presenters and guests wear headphones.
 
 ## Screeners and station staff

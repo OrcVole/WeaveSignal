@@ -7,7 +7,7 @@
   // guest or presenter) or wait for the handover (a DJ), checks the microphone, then joins.
   import { onDestroy, onMount } from 'svelte';
   import Glyphs from '../../studio/src/lib/Glyphs.svelte';
-  import Mark from '../../studio/src/lib/Mark.svelte';
+  import BrandMark from './lib/BrandMark.svelte';
   import * as api from './lib/api.ts';
   import type { Call } from './lib/call.svelte.ts';
   import CallPanel from './lib/CallPanel.svelte';
@@ -80,7 +80,7 @@
 <Glyphs />
 <div class="page">
   <header class="top">
-    <Mark />
+    <BrandMark />
     <span class="station">{info?.station ?? 'WeaveSignal'}</span>
   </header>
 

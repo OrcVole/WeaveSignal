@@ -8,7 +8,7 @@
   import { onDestroy } from 'svelte';
   import { ECHO_TEST_CAPTURE } from '../../../packages/ui/media.ts';
   import Glyphs from '../../studio/src/lib/Glyphs.svelte';
-  import Mark from '../../studio/src/lib/Mark.svelte';
+  import BrandMark from './lib/BrandMark.svelte';
   import { micProblem } from './lib/mic.ts';
   import { Meter } from './lib/meter.svelte.ts';
 
@@ -44,7 +44,7 @@
 
 <Glyphs />
 <div class="page">
-  <header class="top"><Mark /><span class="station">Echo test</span></header>
+  <header class="top"><BrandMark /><span class="station">Echo test</span></header>
   <main class="card" aria-labelledby="echo-h">
     <h1 id="echo-h">Hear your microphone as it is</h1>
     <p class="small">

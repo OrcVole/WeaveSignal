@@ -40,13 +40,13 @@ pub struct StillReport {
 }
 
 /// 8-bit RGB, rows packed.
-struct Rgb {
-    width: usize,
-    height: usize,
-    data: Vec<u8>,
+pub(crate) struct Rgb {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) data: Vec<u8>,
 }
 
-fn check_size(width: usize, height: usize) -> Result<(), MediaError> {
+pub(crate) fn check_size(width: usize, height: usize) -> Result<(), MediaError> {
     if width == 0 || height == 0 {
         return Err(MediaError::Malformed("the picture is empty".into()));
     }
@@ -61,12 +61,12 @@ fn check_size(width: usize, height: usize) -> Result<(), MediaError> {
     Ok(())
 }
 
-fn over_background(c: u8, a: u8, bg: u8) -> u8 {
+pub(crate) fn over_background(c: u8, a: u8, bg: u8) -> u8 {
     let (c, a, bg) = (u32::from(c), u32::from(a), u32::from(bg));
     ((c * a + bg * (255 - a) + 127) / 255) as u8
 }
 
-fn decode_png(bytes: &[u8]) -> Result<Rgb, MediaError> {
+pub(crate) fn decode_png(bytes: &[u8], background: [u8; 3]) -> Result<Rgb, MediaError> {
     let bad = |e: png::DecodingError| MediaError::Malformed(format!("the PNG is damaged: {e}"));
     // The size is in the first chunk: read it ourselves, so nothing is allocated for a size
     // that is refused.
@@ -115,7 +115,7 @@ fn decode_png(bytes: &[u8]) -> Result<Rgb, MediaError> {
         png::ColorType::Rgba => {
             for p in src[..w * h * 4].as_chunks::<4>().0 {
                 data.extend(
-                    BACKGROUND
+                    background
                         .iter()
                         .zip(p)
                         .map(|(bg, c)| over_background(*c, p[3], *bg)),
@@ -129,7 +129,7 @@ fn decode_png(bytes: &[u8]) -> Result<Rgb, MediaError> {
         }
         png::ColorType::GrayscaleAlpha => {
             for p in src[..w * h * 2].as_chunks::<2>().0 {
-                data.extend(BACKGROUND.iter().map(|bg| over_background(p[0], p[1], *bg)));
+                data.extend(background.iter().map(|bg| over_background(p[0], p[1], *bg)));
             }
         }
         png::ColorType::Indexed => {
@@ -145,7 +145,7 @@ fn decode_png(bytes: &[u8]) -> Result<Rgb, MediaError> {
     })
 }
 
-fn decode_jpeg(bytes: &[u8]) -> Result<Rgb, MediaError> {
+pub(crate) fn decode_jpeg(bytes: &[u8]) -> Result<Rgb, MediaError> {
     use zune_core::bytestream::ZCursor;
     use zune_core::colorspace::ColorSpace;
     use zune_core::options::DecoderOptions;
@@ -192,7 +192,7 @@ fn fit(width: usize, height: usize, max_w: usize, max_h: usize) -> (usize, usize
 }
 
 /// `src` made `width` by `height`: each output pixel the mean of the area it covers.
-fn shrink(src: &Rgb, width: usize, height: usize) -> Rgb {
+pub(crate) fn shrink(src: &Rgb, width: usize, height: usize) -> Rgb {
     if (width, height) == (src.width, src.height) {
         return Rgb {
             width,
@@ -233,7 +233,7 @@ fn shrink(src: &Rgb, width: usize, height: usize) -> Rgb {
     }
 }
 
-fn encode_png(rgb: &Rgb) -> Result<Vec<u8>, MediaError> {
+pub(crate) fn encode_png(rgb: &Rgb) -> Result<Vec<u8>, MediaError> {
     let fail = |e: png::EncodingError| MediaError::Encode(e.to_string());
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, rgb.width as u32, rgb.height as u32);
@@ -243,6 +243,18 @@ fn encode_png(rgb: &Rgb) -> Result<Vec<u8>, MediaError> {
     writer.write_image_data(&rgb.data).map_err(fail)?;
     writer.finish().map_err(fail)?;
     Ok(out)
+}
+
+/// Read an untrusted PNG or JPEG as 8-bit RGB, transparency flattened onto `background`: the
+/// format it was read as, and the pixels.
+pub(crate) fn decode(bytes: &[u8], background: [u8; 3]) -> Result<(&'static str, Rgb), MediaError> {
+    if bytes.starts_with(PNG_SIGNATURE) {
+        Ok(("png", decode_png(bytes, background)?))
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Ok(("jpeg", decode_jpeg(bytes)?))
+    } else {
+        Err(MediaError::NotAnImage)
+    }
 }
 
 /// The whole job for a still: read a PNG or JPEG, fit it inside `max_width` by `max_height`
@@ -255,13 +267,7 @@ pub fn process_still(
     if bytes.is_empty() {
         return Err(MediaError::Empty);
     }
-    let (format, rgb) = if bytes.starts_with(PNG_SIGNATURE) {
-        ("png", decode_png(bytes)?)
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        ("jpeg", decode_jpeg(bytes)?)
-    } else {
-        return Err(MediaError::NotAnImage);
-    };
+    let (format, rgb) = decode(bytes, BACKGROUND)?;
     let (w, h) = fit(rgb.width, rgb.height, max_width.max(1), max_height.max(1));
     let small = shrink(&rgb, w, h);
     let png = encode_png(&small)?;
@@ -298,7 +304,7 @@ mod tests {
     }
 
     fn decoded(png: &[u8]) -> Rgb {
-        decode_png(png).unwrap()
+        decode_png(png, BACKGROUND).unwrap()
     }
 
     #[test]

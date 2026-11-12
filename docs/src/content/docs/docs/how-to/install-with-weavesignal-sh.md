@@ -3,13 +3,15 @@ title: "Install a station with weavesignal.sh"
 description: "Install, update and remove a station with the Compose bundle in one command: secrets made locally, free ports chosen, the data kept on uninstall."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-10
 sidebar:
   order: 33
 ---
 
 > **Loopback only, unless you ask.** `weavesignal.sh` installs the Compose bundle, which keeps every listener on loopback.
 > `--public station.example` also puts a reverse proxy with a certificate in front of it and turns on TURN over TLS: [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/).
+
+> **New to this?** The [install wizard](/docs/install-wizard/) asks the questions on this page and the next and gives you the settings file and the commands (from 1.0.1).
 
 `weavesignal.sh` is the Compose route's installer (ADR-0022).
 It finds Podman or Docker, makes the station's secrets on your machine, picks free ports (ADR-0075), writes the settings file, starts the bundle, and tells you where to sign in.
@@ -29,7 +31,7 @@ Running it again changes nothing that is already set.
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -80,6 +82,8 @@ The SRT link (7313), the playout feed (7315), the desk's feed (7317), and the po
 
 Sign in to the studio app with the station key, then add yourself as staff: [Add staff and sign in](/docs/how-to/add-staff/).
 
+From 1.0.1 the script also names the station's **setup page** (`/setup/` on the control plane's address): sign in there with the same key to give the station its name, its takedown contact and its look, with no file to edit ([Set up the station and its look](/docs/how-to/set-up-the-station/)).
+
 ### Open call-in
 
 Call-in stays closed until the station says how a caller can ask for their call to be taken down (ADR-0124).
@@ -88,6 +92,7 @@ Call-in stays closed until the station says how a caller can ask for their call 
 2. Run `deploy/compose/weavesignal.sh` again.
 
 The player page then offers call-in, and the consent words name that contact.
+From 1.0.1 the [setup page](/docs/how-to/set-up-the-station/#name-and-takedown-contact) sets it on the running station instead, with no second run.
 
 ### Choose ports yourself
 

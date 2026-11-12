@@ -10,11 +10,14 @@
   // touches the stream or a call.
   import { onDestroy, onMount, tick } from 'svelte';
   import { mentions, type ChatInfo, type Msg, type SignedIn } from '../../../../../packages/ui/chat.ts';
+  import Avatar from '../../../../../packages/ui/Avatar.svelte';
   import * as api from './api.ts';
+  import AvatarSheet from './AvatarSheet.svelte';
   import { ChatClient } from './client.svelte.ts';
   import Composer from './Composer.svelte';
   import Message from './Message.svelte';
-  import { due, mentionName, newBelow, noticeLocation, parsePrefs, postingBlocked, shownMessages, waitingBehindPause, type Announce, type Prefs } from './model.ts';
+  import PictureView from './PictureView.svelte';
+  import { closedWords, due, mentionName, newBelow, noticeLocation, pictureNoticeLocation, parsePrefs, postingBlocked, readOnlyNow, shownMessages, waitingBehindPause, type Announce, type Prefs } from './model.ts';
   import NoticeForm from './NoticeForm.svelte';
   import ReportDialog from './ReportDialog.svelte';
   import SignIn from './SignIn.svelte';
@@ -43,9 +46,15 @@
   let lastSeenId = $state<number | null>(null);
   let reply = $state<Msg | null>(null);
   let reportTarget = $state<Msg | null>(null);
+  /** What the report dialog opens on: the message, the sender's picture (ADR-0260), or the
+   *  picture or document it carries (ADR-0262). */
+  let reportWhat = $state<'message' | 'picture' | 'attachment'>('message');
+  /** A posted picture open full size. */
+  let viewing = $state<import('../../../../../packages/ui/chat.ts').Attachment | null>(null);
   let notice = $state<string | null>(null);
   let say = $state('');
   let signedOutNote = $state<string | null>(null);
+  let avatarOpen = $state(false);
   let logEl = $state<HTMLElement | undefined>();
 
   let infoTimer: ReturnType<typeof setTimeout> | undefined;
@@ -95,7 +104,10 @@
   const behind = $derived(waitingBehindPause(merged, view));
   const syncWaiting = $derived(prefs.sync ? merged.filter((m) => !due(m, view)).length : 0);
   const newCount = $derived(atBottom ? 0 : newBelow(shown, lastSeenId));
-  const canPost = $derived(!!me && !postingBlocked(me, now + client.skewMs));
+  // Between shows the room is read-only but for the station's staff (ADR-0234).
+  const readOnly = $derived(readOnlyNow(rules?.hours, me));
+  const closedNote = $derived(rules?.hours && !rules.hours.open ? closedWords(rules.hours, now + client.skewMs) : null);
+  const canPost = $derived(!!me && !postingBlocked(me, now + client.skewMs) && !readOnly);
   const canReply = $derived(canPost && !(rules?.comments_only ?? false));
   const delayS = $derived(Math.round(client.listenerDelayMs / 1000));
   const pinned = $derived(client.pinned && client.pinned.state !== 'hidden' ? client.pinned : null);
@@ -182,15 +194,24 @@
     api.saveSession(null);
     client.setSession(null);
     reply = null;
+    avatarOpen = false;
     signedOutNote = 'Signed out. You can still read the chat.';
     if (s) await api.signout(s);
     await tick();
     document.querySelector<HTMLElement>('[data-chat="signin-open"]')?.focus();
   }
 
-  function report(m: Msg) {
-    if (client.session && me) reportTarget = m;
-    else notice = noticeLocation(m);
+  function report(m: Msg, what?: 'picture' | 'attachment') {
+    if (client.session && me) {
+      reportWhat = what ?? 'message';
+      reportTarget = m;
+    } else
+      notice =
+        what === 'picture'
+          ? pictureNoticeLocation(m)
+          : what === 'attachment' && m.attachment
+            ? `${noticeLocation(m)}: the ${m.attachment.kind === 'document' ? 'document' : 'picture'} “${m.attachment.name}” (${m.attachment.id})`
+            : noticeLocation(m);
   }
 
   function reviewed(id: string) {
@@ -242,6 +263,8 @@
               onreact={(msg, e) => client.react(msg.id, e)}
               onreply={(msg) => (reply = msg)}
               onreport={report}
+              onview={(a) => (viewing = a)}
+              preview={m.attachment ? (client.previews[m.attachment.id] ?? null) : null}
             />
           {/each}
         </ol>
@@ -279,12 +302,20 @@
 
   <div class="card write">
     {#if signedOutNote}<p class="small" role="status">{signedOutNote}</p>{/if}
+    {#if closedNote}<p class="note" role="status" data-chat="closed"><svg aria-hidden="true"><use href="#g-standby" /></svg><span>{closedNote}{#if !me} You can sign in now.{/if}</span></p>{/if}
     {#if me}
-      <Composer {client} {info} {playing} bind:reply />
-      <p class="who small">
-        <span>{me.kind === 'guest' ? 'Posting as a guest:' : 'Signed in as'} <b>{me.name}</b></span>
-        <button type="button" class="btn quiet" onclick={signOut} data-chat="signout">Sign out</button>
-      </p>
+      {#if !readOnly}<Composer {client} {info} {playing} bind:reply />{/if}
+      <div class="who small">
+        <Avatar avatar={me.avatar} name={me.name} size={40} />
+        <span class="as"
+          ><span>{me.kind === 'guest' ? 'Posting as a guest:' : 'Signed in as'} <b>{me.name}</b></span
+          >{#if me.avatar_held}<span class="pending" data-chat="avatar-pending"><svg aria-hidden="true"><use href="#g-hold" /></svg>Your picture is waiting for a moderator</span>{/if}</span
+        >
+        <span class="acts">
+          <button type="button" class="btn quiet" onclick={() => (avatarOpen = true)} aria-haspopup="dialog" data-chat="avatar-open">Change avatar</button>
+          <button type="button" class="btn quiet" onclick={signOut} data-chat="signout">Sign out</button>
+        </span>
+      </div>
     {:else}
       <SignIn {info} onsigned={signed} onnotice={() => (notice = '')} />
     {/if}
@@ -312,7 +343,9 @@
   </details>
 </section>
 
-<ReportDialog {info} session={client.session} target={reportTarget} onclose={() => (reportTarget = null)} />
+<ReportDialog {info} session={client.session} target={reportTarget} opensOn={reportWhat} onclose={() => (reportTarget = null)} />
+<PictureView a={viewing} onclose={() => (viewing = null)} />
+{#if me}<AvatarSheet open={avatarOpen} {info} {rules} session={client.session} {me} onme={(m) => (client.me = m)} onclose={() => (avatarOpen = false)} />{/if}
 <NoticeForm {info} location={notice} onclose={() => (notice = null)} />
 
 <style>
@@ -386,9 +419,32 @@
   .who {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--s-2);
+    gap: var(--s-2) var(--s-3);
     flex-wrap: wrap;
+  }
+  .who .as {
+    flex: 1 1 12rem;
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    overflow-wrap: anywhere;
+  }
+  .who .pending {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-1);
+    font-size: var(--fs-13);
+  }
+  .who .pending svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: var(--status-warning);
+  }
+  .who .acts {
+    display: flex;
+    flex-wrap: wrap;
+    margin-left: auto;
   }
   .keep {
     display: grid;

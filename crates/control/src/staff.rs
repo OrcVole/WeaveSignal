@@ -225,6 +225,27 @@ impl Staff {
         Some(s.account.clone())
     }
 
+    /// A session for `role`, for other modules' tests; returns its bearer.
+    #[cfg(test)]
+    pub(crate) fn signed_in_for_test(&self, role: Role) -> String {
+        let token = model::new_token();
+        self.insert(Session {
+            token_hash: model::token_hash(&token),
+            account: Account {
+                id: uuid::Uuid::new_v4(),
+                username: "morag".into(),
+                name: "Morag".into(),
+                role,
+                disabled_ms: None,
+                created_ms: 0,
+                has_email: false,
+            },
+            created_ms: now_ms(),
+            expires_ms: now_ms() + 60_000,
+        });
+        token
+    }
+
     fn insert(&self, s: Session) {
         let now = now_ms();
         let mut sessions = self.sessions.lock().expect("staff sessions");
@@ -733,13 +754,13 @@ async fn send_code(state: &AppState, username: &str, email: &str) {
     }
     let body = format!(
         "Your code to sign in to {station}'s studio is {code}\n\nIt works for {minutes} minutes, once. If you did not ask for it, ignore this email: nothing happens without the code.\n",
-        station = mailer.station,
+        station = state.hub.live.name(),
         minutes = model::CODE_MINUTES,
     );
     match mail::send(
         &mailer.config,
         email,
-        &format!("{code} is your {} sign-in code", mailer.station),
+        &format!("{code} is your {} sign-in code", state.hub.live.name()),
         &body,
     )
     .await

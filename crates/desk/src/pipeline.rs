@@ -270,6 +270,8 @@ struct State {
     hls_limiter: Limiter,
     hls_buf: Vec<f32>,
     hls_taps: Vec<Tap>,
+    /// The same sound to RTMP out's encoders, one per profile (`rtmp-out`).
+    rtmp_audio: [Option<Arc<Output>>; 2],
     /// Playout's feed for this block.
     feed_buf: Vec<f32>,
     stats: MixStats,
@@ -409,6 +411,48 @@ pub fn signaller_limits_subscribers() -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Give a camera its own receive jitter buffer (`desk.video_jitter_buffer_ms`): from each video
+/// pad of the room element's `webrtcbin` (known by its caps) up to the `rtpjitterbuffer` that
+/// feeds it. A jitter buffer's own caps do not say video, so it cannot be told when it is made.
+fn video_jitter_buffer(room: &gst::Element, ms: u32) {
+    let Some(bin) = room.downcast_ref::<gst::Bin>() else {
+        return;
+    };
+    for e in bin.iterate_recurse().into_iter().flatten() {
+        if e.factory().is_none_or(|f| f.name() != "webrtcbin") {
+            continue;
+        }
+        for p in e.src_pads() {
+            let video = p
+                .current_caps()
+                .and_then(|c| c.structure(0).and_then(|s| s.get::<String>("media").ok()))
+                .is_some_and(|m| m == "video");
+            if !video {
+                continue;
+            }
+            let mut pad = Some(p);
+            for _ in 0..16 {
+                let Some(cur) = pad.take() else { break };
+                if let Some(g) = cur.downcast_ref::<gst::GhostPad>() {
+                    pad = g.target();
+                    continue;
+                }
+                let Some(el) = cur.parent_element() else {
+                    break;
+                };
+                if el.factory().is_some_and(|f| f.name() == "rtpjitterbuffer") {
+                    if el.property::<u32>("latency") != ms {
+                        el.set_property("latency", ms);
+                        tracing::info!(element = %el.name(), ms, "a camera's jitter buffer set");
+                    }
+                    break;
+                }
+                pad = el.sink_pads().into_iter().next().and_then(|s| s.peer());
+            }
+        }
+    }
 }
 
 /// Set the LiveKit signaller's properties on a `livekitwebrtcsrc` or `livekitwebrtcsink`, and
@@ -770,6 +814,7 @@ impl Desk {
                     hls_limiter: Limiter::new(&config.programme.limiter, CHANNELS),
                     hls_buf: Vec::new(),
                     hls_taps: Vec::new(),
+                    rtmp_audio: [None, None],
                     feed_buf: Vec::new(),
                     stats: MixStats::default(),
                     read_pos: None,
@@ -1131,6 +1176,7 @@ impl Desk {
             hls_limiter,
             hls_buf,
             hls_taps,
+            rtmp_audio,
             feed_buf,
             deck,
             ..
@@ -1228,6 +1274,9 @@ impl Desk {
                         t.push_f32(now, hls_buf);
                     }
                     if let Some(o) = hls_audio {
+                        o.offer(to_i16(hls_buf), pts, pool);
+                    }
+                    for o in rtmp_audio.iter().flatten() {
                         o.offer(to_i16(hls_buf), pts, pool);
                     }
                 }
@@ -1557,12 +1606,11 @@ impl Desk {
             Some(&format!("src-{identity}-{serial}")),
         )?;
         let room_identity = format!("{}-in-{identity}-{serial}", self.inner.config.desk.identity);
-        if self.inner.video.is_some() {
-            // Only what the desk can decode: never H.264 or H.265 (ADR-0028's room codecs).
-            let codecs: Vec<&str> = self
-                .inner
-                .config
-                .video
+        if let Some(video) = &self.inner.video {
+            // Only what the desk can decode: never H.264 or H.265 (ADR-0028's room codecs), and
+            // only codecs whose elements this machine has (`usable_camera_codecs`).
+            let codecs: Vec<&str> = video
+                .settings()
                 .camera_codecs
                 .iter()
                 .map(String::as_str)
@@ -1784,6 +1832,9 @@ impl Desk {
             e.sync_state_with_parent()?;
         }
         video.camera_attach(source, serial, sink.static_pad("sink"));
+        if let Some(room) = pad.parent_element() {
+            video_jitter_buffer(&room, self.inner.config.desk.video_jitter_buffer_ms);
+        }
         pad.link(&q.static_pad("sink").expect("queue sink"))
             .with_context(|| format!("cannot link {source}'s camera"))?;
         tracing::info!(participant = %source, pad = %pad.name(), "camera routed to the video path");
@@ -2231,6 +2282,21 @@ impl DeskSide for Inner {
             .expect("desk state lock")
             .people
             .is_empty()
+    }
+
+    fn rtmp_audio(&self, slot: usize, pad: Option<gst::Pad>) {
+        let block_ns = u64::from(self.config.desk.mix_buffer_ms) * 1_000_000;
+        let out = pad.map(|p| Output::new(&format!("rtmp-audio-{slot}"), p, block_ns));
+        let old = {
+            let mut st = self.state.lock().expect("desk state lock");
+            match st.rtmp_audio.get_mut(slot) {
+                Some(s) => std::mem::replace(s, out),
+                None => None,
+            }
+        };
+        if let Some(o) = old {
+            o.close();
+        }
     }
 }
 

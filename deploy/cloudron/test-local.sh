@@ -16,6 +16,7 @@
 #   IMAGE=localhost/weavesignal-cloudron:0.2.0-local  DESK_IMAGE=localhost/weavesignal-desk-dev:m1
 #   HTTP_PORT=27400  LISTEN_PORT=27401  ROOM_PORT=27402  PUBLIC_PORT=27403
 #   MEDIA_PORT=27482 (udp)  TURN_TLS_PORT=27449 (tcp)  MEMORY=<the manifest's memoryLimit>
+#   VIDEO=false  (true: the video path on, ADR-0227: the HLS, the camera check, a guest's camera)
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -29,6 +30,7 @@ PUBLIC_PORT=${PUBLIC_PORT:-27403}
 MEDIA_PORT=${MEDIA_PORT:-27482}
 TURN_TLS_PORT=${TURN_TLS_PORT:-27449}
 COMPAT=${COMPAT:-true}
+VIDEO=${VIDEO:-false}
 MEMORY=${MEMORY:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["memoryLimit"])' "$here/CloudronManifest.json")}
 # A new listener hears what the listener process holds, about 20 s behind live (M4).
 ROOM_SECONDS=${ROOM_SECONDS:-50}
@@ -39,7 +41,7 @@ fail() { echo "FAIL: $*" >&2; podman logs "$p-app" > "$work/app.log" 2>&1 || tru
 ok() { echo "ok    $*"; }
 
 down() {
-    podman rm -f "$p-app" "$p-pg" "$p-tone" "$p-smtp" >/dev/null 2>&1 || true
+    podman rm -f "$p-app" "$p-pg" "$p-tone" "$p-cam" "$p-smtp" >/dev/null 2>&1 || true
     podman network rm "$p-net" >/dev/null 2>&1 || true
     podman volume rm "$p-data" >/dev/null 2>&1 || true
 }
@@ -78,7 +80,7 @@ up() {
     podman run -d --name "$p-app" --network "$p-net" \
         --read-only --tmpfs /run:rw,exec,size=256m --tmpfs /tmp:rw,size=64m \
         -v "$p-data:/app/data" -v "$work/certs:/etc/certs:ro,z" \
-        --memory "$MEMORY" --memory-swap "$MEMORY" \
+        --memory "$MEMORY" --memory-swap "$MEMORY" --ulimit nofile=1024:524288 \
         -p "127.0.0.1:$HTTP_PORT:8000" -p "127.0.0.1:$LISTEN_PORT:8001" \
         -p "127.0.0.1:$ROOM_PORT:8002" -p "127.0.0.1:$PUBLIC_PORT:8003" \
         -p "127.0.0.1:$MEDIA_PORT:$MEDIA_PORT/udp" -p "127.0.0.1:$TURN_TLS_PORT:$TURN_TLS_PORT/tcp" \
@@ -102,8 +104,10 @@ up() {
         sleep 1; [[ $i == 30 ]] && fail "start.sh wrote no weavesignal.env"
     done
     podman exec "$p-app" sed -i 's/^NODE_IP=$/NODE_IP=127.0.0.1/' /app/data/weavesignal.env
-    # The MP3 stream on for the main run (COMPAT=true), off for cold starts, as installed.
-    [[ $COMPAT != true ]] || podman exec "$p-app" sed -i 's/^COMPAT_STREAM=false$/COMPAT_STREAM=true/' /app/data/weavesignal.env
+    # Both MP3 streams on for the main run (COMPAT=true), off for cold starts, as installed.
+    [[ $COMPAT != true ]] || podman exec "$p-app" sed -i 's/^COMPAT_STREAM=false$/COMPAT_STREAM=true/; s/^COMPAT_HIGH_STREAM=false$/COMPAT_HIGH_STREAM=true/' /app/data/weavesignal.env
+    # The video path (ADR-0227), off as installed; VIDEO=true turns it on for this run.
+    [[ $VIDEO != true ]] || podman exec "$p-app" sed -i 's/^VIDEO=false$/VIDEO=true/' /app/data/weavesignal.env
     # The stream's password on for the main run, so its refusal is checked; off, the default
     # since 1.0.0, for cold starts.
     [[ $COMPAT != true ]] || podman exec "$p-app" sed -i 's/^LISTENERS_AUTH=off$/LISTENERS_AUTH=on/' /app/data/weavesignal.env
@@ -187,14 +191,23 @@ PY
 
 checks() {
     ok "station: $(curl -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/station")"
+    # Cloudron gives the container a soft open-file limit of 1,024 (the --ulimit above, as
+    # measured on a Cloudron on 2026-11-06); supervisord's minfds must lift it for the listener
+    # process, or the stream is capped below 1,024 listeners.
+    nofile=$(podman exec "$p-app" sh -c 'grep "Max open files" /proc/$(pgrep -f listeners.liq | head -1)/limits' | awk '{print $4}')
+    [[ ${nofile:-0} -ge 65536 ]] || fail "the listener process may open ${nofile:-?} files, not 65536"
+    ok "the listener process may open $nofile files"
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$mount" || true)
     [[ $code == 401 ]] || fail "the stream without the password answered $code, not 401"
     ok "stream without the password: 401"
-    for path in / /admin/stats /admin/listclients /status-json.xsl /status.json /feed; do
+    root=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 3 "http://127.0.0.1:$LISTEN_PORT/" || true)
+    [[ $root == "302 https://weavesignal-public.weavesignal.test/" ]] || fail "the listener domain's / answered '$root', not a 302 to the public domain"
+    ok "listener domain: / sends a visitor to the player on the public domain (302)"
+    for path in /admin/stats /admin/listclients /status-json.xsl /status.json /feed; do
         code=$(curl -s -o /dev/null -w '%{http_code}' -u "listener:$lpass" --max-time 3 "http://127.0.0.1:$LISTEN_PORT$path" || true)
         [[ $code == 404 ]] || fail "listener domain $path answered $code, not 404"
     done
-    ok "listener domain serves the mount only (/, /admin/*, /status.json, /feed: 404)"
+    ok "listener domain serves the mount only (/admin/*, /status.json, /feed: 404)"
     code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT -u "listener:$lpass" --max-time 3 "$mount" || true)
     [[ $code == 403 ]] || fail "a source PUT through the listener domain answered $code, not 403"
     ok "no source through the listener domain (PUT: 403)"
@@ -261,12 +274,27 @@ PY
         curl -fsS "$pub$path" | grep -qi '<html' || fail "public page $path is not served"
     done
     ok "public domain: the player, join and echo-test pages"
+    # A page is revalidated on every load and its hashed files kept for good: a page cached across
+    # an update named code files the update had removed (the talk station, 2026-11-11).
+    asset=$(curl -fsS "$pub/join/" | grep -oE '/assets/[^"]+\.js' | head -1)
+    [[ -n $asset ]] || fail "the join page names no /assets/ file"
+    for base in "$pub" "http://127.0.0.1:$HTTP_PORT"; do
+        for path in / /join/ /echo-test/; do
+            curl -s -D - -o /dev/null --max-time 5 "$base$path" | grep -qi '^cache-control: no-cache' \
+                || fail "$base$path is not served no-cache"
+        done
+        curl -s -D - -o /dev/null --max-time 5 "$base$asset" | grep -qiE '^cache-control: max-age=[0-9]{8,}' \
+            || fail "$base$asset is not cached for long"
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$base/assets/no-such-file.js" || true)
+        [[ $code == 404 ]] || fail "$base: a missing /assets/ file answered $code, not 404"
+    done
+    ok "caching: the pages no-cache, $asset kept for long, a missing asset 404, on both domains"
     for path in /api/v1/chat/info /api/v1/player /api/v1/station /api/v1/now-playing; do
         code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$pub$path" || true)
         [[ $code == 200 ]] || fail "public $path answered $code, not 200"
     done
     ok "public domain: /api/v1/chat/info, /api/v1/player, /api/v1/station, /api/v1/now-playing answer 200"
-    for path in /api/v1/studio /api/v1/chat/admin/holds /api/v1/chat/mod/log /api/v1/retention/setting /api/v1/carts /api/v1/staff /api/v1/sessions/me; do
+    for path in /api/v1/studio /api/v1/chat/admin/holds /api/v1/chat/mod/log /api/v1/chat/mod/avatars/00000000-0000-0000-0000-000000000000 /api/v1/retention/setting /api/v1/carts /api/v1/staff /api/v1/sessions/me; do
         code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $admin" --max-time 5 "$pub$path" || true)
         [[ $code == 404 ]] || fail "public $path answered $code, not 404"
     done
@@ -312,16 +340,23 @@ for attempt in range(8):
     time.sleep(4)
 sys.exit(f"FAIL: the stream is {rms:.1f} dBFS with {100 * tone:.0f} % at 1 kHz, not the default loop")
 PY
-    # The MP3 compatibility stream (ADR-0002), when on: its own mount on the listener domain.
+    # The MP3 streams (ADR-0002, ADR-0232), when on: each its own mount on the listener domain,
+    # at its own rate (128 and 320 kbit/s as installed).
     if [[ $COMPAT == true ]]; then
-        mp3=http://127.0.0.1:$LISTEN_PORT/programme.mp3
-        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$mp3" || true)
-        [[ $code == 401 ]] || fail "the MP3 stream without the password answered $code, not 401"
-        curl -s -u "listener:$lpass" -D "$work/mp3.headers" --max-time 6 "$mp3" -o "$work/compat.mp3" || true
-        ffprobe -v error -show_entries stream=codec_name,sample_rate,bit_rate -of csv=p=0 "$work/compat.mp3" > "$work/mp3.probe" 2>&1 || true
-        grep -q '^mp3,44100' "$work/mp3.probe" || fail "the MP3 stream does not decode as MP3 at 44.1 kHz: $(cat "$work/mp3.probe")"
-        grep -qi '^icy-metaint' "$work/mp3.headers" && fail "the MP3 stream offered ICY metadata"
-        ok "MP3 stream: 401 without the password; $(cat "$work/mp3.probe") ($(stat -c %s "$work/compat.mp3") bytes in 6 s)"
+        for m in programme.mp3:128000 programme-high.mp3:320000; do
+            mp3=http://127.0.0.1:$LISTEN_PORT/${m%%:*}
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$mp3" || true)
+            [[ $code == 401 ]] || fail "the MP3 stream ${m%%:*} without the password answered $code, not 401"
+            curl -s -u "listener:$lpass" -D "$work/mp3.headers" --max-time 6 "$mp3" -o "$work/compat.mp3" || true
+            ffprobe -v error -show_entries stream=codec_name,sample_rate,bit_rate -of csv=p=0 "$work/compat.mp3" > "$work/mp3.probe" 2>&1 || true
+            grep -q "^mp3,44100,${m##*:}" "$work/mp3.probe" || fail "the MP3 stream ${m%%:*} does not decode as MP3 at 44.1 kHz and ${m##*:} bit/s: $(cat "$work/mp3.probe")"
+            grep -qi '^icy-metaint' "$work/mp3.headers" && fail "the MP3 stream ${m%%:*} offered ICY metadata"
+            ok "MP3 stream ${m%%:*}: 401 without the password; $(cat "$work/mp3.probe") ($(stat -c %s "$work/compat.mp3") bytes in 6 s)"
+        done
+        # The player offers all three, Opus first.
+        curl -fs "$pub/api/v1/player" | python3 -I -c 'import json,sys; s=[(x["codec"],x["kbps"]) for x in json.load(sys.stdin)["streams"]]; sys.exit(0 if s==[("opus",96),("mp3",128),("mp3",320)] else f"the player offers {s}")' \
+            || fail "the player does not offer Opus and both MP3 streams"
+        ok "the player offers Opus 96, MP3 128 and MP3 320"
     fi
     ctype=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$pub/feeds/no-such-show.xml")
     [[ $ctype == 404\ application/json* ]] || fail "a feed request did not reach the control plane ($ctype)"
@@ -370,6 +405,87 @@ PY
     grep -q '^To: ishbel.tone@weavesignal.test' "$eml" && grep -q '^From: weavesignal.app@weavesignal.test' "$eml" \
         || fail "the sign-in email has the wrong To or From"
     ok "chat sign-in email through msmtp and the addon's SMTP, authenticated: $(grep -m1 '^Subject:' "$eml")"
+}
+
+# The video path (ADR-0227). Off: the desk writes no HLS, the player is told there is none, and
+# the HLS route says so. On: the player is told where the HLS is, the public domain serves the
+# playlists and segments with the control plane's caching, the desk's log says SVT-AV1 writes
+# them, and a guest's camera reaches the desk's decoder.
+video_checks() {
+    local pub=http://127.0.0.1:$PUBLIC_PORT
+    if [[ $VIDEO != true ]]; then
+        python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("video") is None else 1)' \
+            < <(curl -fsS "$pub/api/v1/player") || fail "video is off, but the player is told of an HLS"
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$pub/hls/live.m3u8" || true)
+        [[ $code == 404 ]] || fail "video is off, but /hls/live.m3u8 answered $code, not 404"
+        grep -q 'video false' < <(podman logs "$p-app" 2>&1) || fail "the start line does not say video false"
+        ok "video off (the default): the player gets no HLS address, /hls/live.m3u8 is 404"
+        return
+    fi
+    local i video=
+    for i in $(seq 1 60); do
+        video=$(curl -fsS "$pub/api/v1/player" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("video"); print(v["live"] if v else "")')
+        [[ -n $video ]] && break
+        sleep 1; [[ $i == 60 ]] && { podman logs --tail 40 "$p-app"; fail "the desk wrote no HLS in 60 s"; }
+    done
+    ok "video on: the desk has HLS after ${i} s; the player is told $video"
+    # The public domain serves the playlists and segments, with the control plane's caching.
+    curl -fsS -D "$work/hls-live.headers" "$pub/hls/live.m3u8" -o "$work/live.m3u8" || fail "/hls/live.m3u8 is not served"
+    head -1 "$work/live.m3u8" | grep -q '^#EXTM3U' || fail "live.m3u8 is not a playlist"
+    grep -qi '^cache-control: no-cache' "$work/hls-live.headers" || fail "live.m3u8 is cached: $(grep -i '^cache-control' "$work/hls-live.headers")"
+    local variant segment
+    variant=$(grep -v '^#' "$work/live.m3u8" | head -1)
+    [[ -n $variant ]] || fail "live.m3u8 lists no rung"
+    curl -fsS "$pub/hls/$variant" -o "$work/variant.m3u8" || fail "the rung's playlist $variant is not served"
+    segment=$(grep -v '^#' "$work/variant.m3u8" | head -1)
+    [[ -n $segment ]] || fail "the rung's playlist lists no segment"
+    local dir=${variant%/*}; [[ $dir != "$variant" ]] || dir=
+    curl -fsS -D "$work/hls-seg.headers" "$pub/hls/${dir:+$dir/}$segment" -o "$work/segment.m4s" || fail "segment $segment is not served"
+    grep -qi '^cache-control: public, max-age=30' "$work/hls-seg.headers" || fail "a segment's caching is $(grep -i '^cache-control' "$work/hls-seg.headers")"
+    local init
+    init=$(sed -n 's/^#EXT-X-MAP:URI="\(.*\)"$/\1/p' "$work/variant.m3u8" | head -1)
+    [[ -n $init ]] || fail "the rung's playlist names no initialisation segment"
+    curl -fsS "$pub/hls/${dir:+$dir/}$init" -o "$work/init.mp4" || fail "the initialisation segment $init is not served"
+    cat "$work/init.mp4" "$work/segment.m4s" > "$work/rung.mp4"
+    ffprobe -v error -show_entries stream=codec_name -of csv=p=0 "$work/rung.mp4" 2>/dev/null | grep -q av1 \
+        || fail "the first segment ($segment) carries no AV1"
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$pub/hls/live.m3u8" || true)
+    [[ $code == 405 || $code == 404 || $code == 403 ]] || fail "PUT on /hls/ answered $code"
+    ok "HLS on the public domain: live.m3u8 ($(wc -l < "$work/live.m3u8") lines, no-cache), rung $variant, segment $segment is AV1 ($(stat -c %s "$work/segment.m4s") bytes, max-age=30)"
+    podman logs "$p-app" > "$work/app.log" 2>&1 || true
+    grep -F 'video: AV1 to CMAF HLS' "$work/app.log" | grep -q '"encoders":"\[Svt\]"' || fail "the desk's log does not say SVT-AV1 writes the HLS"
+    ok "the encoder: SVT-AV1 on the CPU, $(grep -F 'video: AV1 to CMAF HLS' "$work/app.log" | head -1 | sed 's/.*"rungs":"\(.*\)","target.*/\1/; s/\\//g') written to /run/weavesignal/hls"
+    # The sound while nobody is live is playout's (ADR-0172): the desk has its feed.
+    podman exec -i "$p-app" python3 - <<'PY' || fail "the desk's feed from playout is not connected"
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX); s.connect("/run/weavesignal/desk.sock")
+s.sendall(b'{"op": "status"}\n')
+buf = b""
+while not buf.endswith(b"\n"):
+    buf += s.recv(65536)
+sound = json.loads(buf)["sound"]
+print("ok    desk status sound:", json.dumps(sound))
+sys.exit(0 if sound.get("feed_connected") and sound.get("source") == "playout" else 1)
+PY
+    # A guest's camera: VP8 from a solid-colour test source, as the memory gate sends them.
+    local token
+    token=$(curl -fsS -X POST "http://127.0.0.1:$HTTP_PORT/api/v1/room/tokens" -H "Authorization: Bearer $admin" \
+        -H 'content-type: application/json' -d '{"identity":"camera-guest","name":"Eilidh Camera","role":"guest","subscribe":false}' \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+    podman rm -f -t 0 "$p-cam" >/dev/null 2>&1 || true
+    podman run -d --name "$p-cam" --network "container:$p-app" "$DESK_IMAGE" gst-launch-1.0 -q \
+        livekitwebrtcsink name=s video-caps=video/x-vp8 signaller::ws-url="ws://127.0.0.1:8002" \
+        signaller::auth-token="$token" signaller::room-name=studio \
+        audiotestsrc is-live=true wave=sine freq=700 volume=0.1 samplesperbuffer=480 \
+        ! audio/x-raw,format=S16LE,rate=48000,channels=2 ! queue ! s. \
+        videotestsrc is-live=true pattern=ball ! video/x-raw,width=640,height=360,framerate=20/1 ! queue ! s. >/dev/null
+    for i in $(seq 1 30); do
+        podman logs "$p-app" > "$work/camera.log" 2>&1 || true   # not a pipe into grep -q: SIGPIPE fails a pipefail pipeline
+        grep -q 'decoding a camera' "$work/camera.log" && break
+        sleep 1; [[ $i == 30 ]] && { podman logs --tail 40 "$p-cam"; fail "the desk never decoded the guest's camera"; }
+    done
+    ok "a guest's VP8 camera through the room: the desk decodes it ($(podman logs "$p-app" 2>&1 | grep -o 'decoding a camera[^"]*' | head -1))"
+    podman rm -f -t 0 "$p-cam" >/dev/null 2>&1 || true
 }
 
 start_tone() {
@@ -519,7 +635,7 @@ case ${1:-} in
         done
         ;;
     *)
-        up; checks; room_test; restart_test; faults
+        up; checks; video_checks; room_test; restart_test; faults
         ;;
 esac
 echo "ok    running: http://127.0.0.1:$HTTP_PORT (public pages http://127.0.0.1:$PUBLIC_PORT; stop with: $0 down)"

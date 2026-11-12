@@ -1264,6 +1264,65 @@ p .key {
   }
 }
 
+/* The training scenarios: a title, how long, one line; each row a link into the sandbox. */
+.scenarios {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  counter-reset: scenarios;
+}
+.scenarios li {
+  counter-increment: scenarios;
+}
+.scenarios a {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    'n title min'
+    'n blurb blurb';
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--hairline);
+  border-radius: 0.6rem;
+  text-decoration: none;
+  color: var(--ink);
+  background: var(--surface);
+}
+.scenarios a:hover {
+  border-color: var(--accent);
+}
+.scenarios a::before {
+  content: counter(scenarios);
+  grid-area: n;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.scenarios .sc-title {
+  grid-area: title;
+  font-weight: 600;
+  font-size: 1.0625rem;
+}
+.scenarios .sc-min {
+  grid-area: min;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.scenarios .sc-blurb {
+  grid-area: blurb;
+  color: var(--ink-2);
+  font-size: 1rem;
+  max-width: 70ch;
+}
+@media (min-width: 64rem) {
+  .scenarios {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* The steps: a number, the keys, the words, and the lamp that answers the key. */
 .steps {
   display: grid;

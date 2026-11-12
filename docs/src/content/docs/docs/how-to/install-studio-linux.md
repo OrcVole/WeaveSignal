@@ -21,7 +21,7 @@ The app drives the desk; it does not join the room itself, because WebKitGTK on 
 
 ## Download it
 
-Download the package for your system and the checksum file `SHA256SUMS-1.0.0` from the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.0); the updater reads the same files from `https://weavesignal.top/updates/`.
+Download the package for your system and the checksum file `SHA256SUMS-1.0.1` from the assets of [release v1.0.1 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.1); the updater reads the same files from `https://weavesignal.top/updates/`.
 
 To build the packages yourself instead, run `just package-desktop` in the repository ([Packages and install files](/docs/reference/packages/)). They land in `dist/desktop/` with their checksum file.
 
@@ -31,7 +31,7 @@ Each release lists the packages' SHA-256 checksums in `SHA256SUMS-<version>`.
 In the folder you saved both to, compare them:
 
 ```sh
-sha256sum -c --ignore-missing SHA256SUMS-1.0.0
+sha256sum -c --ignore-missing SHA256SUMS-1.0.1
 ```
 
 It prints `OK` beside the package. If it prints `FAILED`, delete the file and do not install it.
@@ -39,7 +39,7 @@ It prints `OK` beside the package. If it prints `FAILED`, delete the file and do
 ## Install the .deb
 
 ```sh
-sudo apt install ./WeaveSignal_1.0.0_amd64.deb
+sudo apt install ./WeaveSignal_1.0.1_amd64.deb
 ```
 
 `apt` installs WebKitGTK 4.1 and GTK 3 with it.
@@ -47,7 +47,7 @@ sudo apt install ./WeaveSignal_1.0.0_amd64.deb
 ## Install the .rpm
 
 ```sh
-sudo dnf install ./WeaveSignal-1.0.0-1.x86_64.rpm
+sudo dnf install ./WeaveSignal-1.0.1-1.x86_64.rpm
 ```
 
 ## Run the AppImage
@@ -55,8 +55,8 @@ sudo dnf install ./WeaveSignal-1.0.0-1.x86_64.rpm
 The AppImage carries WebKitGTK and its other libraries, and needs nothing installed:
 
 ```sh
-chmod +x WeaveSignal_1.0.0_amd64.AppImage
-./WeaveSignal_1.0.0_amd64.AppImage
+chmod +x WeaveSignal_1.0.1_amd64.AppImage
+./WeaveSignal_1.0.1_amd64.AppImage
 ```
 
 It needs FUSE 2 to mount itself. Where FUSE is missing, run it with `--appimage-extract-and-run`.

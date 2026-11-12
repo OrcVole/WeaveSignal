@@ -66,9 +66,20 @@ pub struct ShowsState {
     pub publishing: PublishingConfig,
     /// The station's one time zone, shared with playout's settings (review 0025, S1).
     pub zone: Arc<crate::zone::StationZone>,
+    /// The station's name in force (ADR-0237), shared with the rest of the control plane;
+    /// `None` (tests) leaves `station.name`.
+    pub live: Option<Arc<crate::setup::Live>>,
 }
 
 impl ShowsState {
+    /// The station's name as cards and feeds print it: the setup page's, else the settings
+    /// file's.
+    fn station_name(&self) -> String {
+        self.live
+            .as_ref()
+            .map_or_else(|| self.station.name.clone(), |l| l.name())
+    }
+
     fn zone(&self) -> TimeZone {
         self.zone.get()
     }
@@ -268,7 +279,7 @@ fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fail> {
         layout: Layout::parse(&r.layout).unwrap_or(Layout::Poster),
         colour_slot: r.colour_slot,
         station: StationCard {
-            name: state.station.name.clone(),
+            name: state.station_name(),
             place: state.publishing.place.clone(),
             address,
         },
@@ -373,7 +384,7 @@ fn card_from_editor(state: &ShowsState, mut v: Value) -> Result<CardData, Fail> 
         })?;
         o.insert(
             "station".into(),
-            json!({ "name": state.station.name, "place": state.publishing.place, "address": address }),
+            json!({ "name": state.station_name(), "place": state.publishing.place, "address": address }),
         );
     }
     serde_json::from_value(v)
@@ -644,7 +655,7 @@ async fn get_show(
     operation_id = "shows_put_show",
     tag = "shows",
     summary = "Make or change a show",
-    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named).",
+    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine.",
     params(("show" = String, Path, description = "The show's slug")),
     request_body = weavesignal_model::shows::ShowInput,
     responses(
@@ -664,11 +675,61 @@ async fn put_show(
     UrlPath(slug): UrlPath<String>,
     Json(input): Json<ShowInput>,
 ) -> Answer {
-    if let Some(r) = refusal(&state, &headers) {
-        return Ok(r);
-    }
+    let actor = match crate::staff::check(
+        state.admin_token.as_deref(),
+        &state.staff,
+        &headers,
+        crate::staff::Need::Staff,
+    ) {
+        Ok(a) => a,
+        Err(r) => return Ok(r),
+    };
     let pool = db(&state)?;
     input.check()?;
+    // Who may tie a staff account to the show (ADR-0218): an admin anyone, a member of staff
+    // only themselves, a token nobody.
+    if let Some(Some(account)) = input.presenter_account {
+        let allowed = match &actor {
+            crate::staff::Actor::Station => true,
+            crate::staff::Actor::Staff(a) => a.role.is_admin() || a.id == account,
+            crate::staff::Actor::Token(_) => false,
+        };
+        if !allowed {
+            return Ok(problem(
+                StatusCode::FORBIDDEN,
+                "only an admin names another account as a show's presenter",
+            ));
+        }
+    }
+    // Who may change the presenter's name and the takedown contact the consent words name
+    // (ADR-0241): an admin (or the station key), or the show's own presenter. A save that sends
+    // them unchanged passes, as the show editor sends every field.
+    let stored = shows::get_show(pool, state.station.id, &slug).await?;
+    let changes = |new: &Option<String>, old: Option<&str>| {
+        new.as_deref()
+            .is_some_and(|n| n.trim() != old.unwrap_or("").trim())
+    };
+    let touches = changes(
+        &input.presenter,
+        stored.as_ref().map(|s| s.presenter.as_str()),
+    ) || changes(&input.contact, stored.as_ref().map(|s| s.contact.as_str()));
+    if touches {
+        let own = |id: uuid::Uuid| {
+            stored.as_ref().and_then(|s| s.presenter_account) == Some(id)
+                || input.presenter_account == Some(Some(id))
+        };
+        let allowed = match &actor {
+            crate::staff::Actor::Station => true,
+            crate::staff::Actor::Staff(a) => a.role.is_admin() || own(a.id),
+            crate::staff::Actor::Token(_) => false,
+        };
+        if !allowed {
+            return Ok(problem(
+                StatusCode::FORBIDDEN,
+                "only an admin or the show's own presenter changes its presenter and takedown contact",
+            ));
+        }
+    }
     // The cards are drawn before the save, so a name that cannot fit refuses it (0008 §3).
     let provisional = Resolved {
         show: input.name.trim().to_owned(),
@@ -1622,7 +1683,7 @@ async fn write_files(
             .unwrap_or_else(|| format!("{}, series {n}, episode {e}", r.show)),
         show: r.show.clone(),
         hosts: r.hosts.clone(),
-        station: state.station.name.clone(),
+        station: state.station_name(),
         series: Some(n),
         episode: Some(e),
         date: air.as_ref().map(Zoned::date),
@@ -1786,10 +1847,10 @@ async fn feed(State(state): State<Arc<ShowsState>>, UrlPath(file): UrlPath<Strin
         language: p.language.clone(),
         square,
         social: image(&public, show.cards.as_ref(), "link", &alt),
-        author: state.station.name.clone(),
+        author: state.station_name(),
         owner_name: Some(p.owner_name.clone())
             .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| state.station.name.clone()),
+            .unwrap_or_else(|| state.station_name()),
         owner_email: Some(p.owner_email.clone()).filter(|e| !e.is_empty()),
         copyright: Some(p.copyright.clone()).filter(|c| !c.is_empty()),
         category: Some(p.category.clone())
@@ -1996,6 +2057,7 @@ mod tests {
                 ..PublishingConfig::default()
             },
             zone: Arc::new(crate::zone::StationZone::new("Europe/London")),
+            live: None,
         })
     }
 

@@ -31,8 +31,11 @@ For what each role hears, see [Who hears whom](/docs/reference/who-hears-whom/).
 ## Seats in the studio app
 
 The studio app has two seats, the presenter's and the screener's.
-Each is the first person at the desk with that role; for the presenter, the one in the lowest slot.
-The presenter's seat is who the desk's talk keys speak as; the screener's seat is who `T` and `⌃T` speak as on the screener tab.
+The screener's seat is the first `screener` at the desk.
+The presenter's seat follows the air to a DJ (ADR-0231): while any `presenter` is on air, it is the first `presenter` at the desk, in the lowest slot, as before; with no presenter on air, it is the first `dj` on air; with nobody presenting on air, the first `presenter` at the desk again.
+A second presenter never takes the seat from the first.
+So after a handover, once the outgoing presenter is off air, the seat is the DJ's ([Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/)).
+The presenter's seat is who the desk's talk keys and `⌃T` speak as, and the name a remote DJ's join page gives while they wait; the screener's seat is who `T` and `⌃T` speak as on the screener tab.
 There is no producer seat in the app.
 
 ## Identities

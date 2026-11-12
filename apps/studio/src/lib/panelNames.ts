@@ -8,6 +8,8 @@
 // hide itself and does not consume it). `?panel=all` pins every plate; `?audit=1` pins them all
 // and lists any that lies over a control.
 
+import { fixedScale } from '../../../../packages/ui/fixed.ts';
+
 const TITLE =
   ':scope > .ph > h2, :scope > .ph > h3, :scope > .head h2, :scope > .head h3, :scope > .head .name, :scope > .wh > span, :scope > h3, :scope > h2, h1, h2, h3';
 const HEAD = '.ph, .head, .stage-head, .frame, .wh, .lamp, header';
@@ -94,11 +96,15 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
     const hr = headOf(t, p).getBoundingClientRect();
     tag.classList.add('show');
     tag.style.maxWidth = 'none';
+    // Everything below is in viewport pixels, as rects are; the plate's style is in CSS pixels,
+    // which the studio's text size (zoom on <html>) scales, so it is divided by `zs` on the way out.
+    const zs = fixedScale(tag);
     tag.style.left = '-9999px';
     const pr = p.getBoundingClientRect();
-    const rem = parseFloat(win.getComputedStyle(doc.documentElement).fontSize) || 16;
-    const th = tag.offsetHeight;
-    let tw = Math.min(tag.offsetWidth, 30 * rem, win.innerWidth - 8);
+    const rem = (parseFloat(win.getComputedStyle(doc.documentElement).fontSize) || 16) * zs;
+    const size = tag.getBoundingClientRect();
+    const th = size.height;
+    let tw = Math.min(size.width, 30 * rem, win.innerWidth - 8);
     if (pr.width && pr.right - Math.max(4, tr.left) >= 10 * rem) tw = Math.min(tw, pr.right - Math.max(4, tr.left));
     // A title that is, or holds, a state chip with its own tooltip (StateChip) starts above, so the
     // plate never covers the state word the tooltip explains.
@@ -120,9 +126,9 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
       else if (r && !best) best = r;
     }
     best ??= { left: Math.max(4, tr.left), top: Math.max(0, rowTop), right: Math.max(4, tr.left) + Math.min(tw, 160) };
-    tag.style.left = `${best.left}px`;
-    tag.style.top = `${best.top}px`;
-    tag.style.maxWidth = `${best.right - best.left}px`;
+    tag.style.left = `${best.left / zs}px`;
+    tag.style.top = `${best.top / zs}px`;
+    tag.style.maxWidth = `${(best.right - best.left) / zs}px`;
   };
   const hide = (tag: HTMLElement) => tag.classList.remove('show');
   const pinned = (name: string) => all || pin.includes(name);
@@ -179,7 +185,7 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
       pre = doc.createElement('pre');
       pre.id = 'pn-audit';
       pre.style.cssText =
-        'position:fixed;left:8px;bottom:8px;z-index:99;max-height:60vh;overflow:auto;background:#000;color:#fff;font:600 13px/1.35 monospace;padding:8px 10px;border-radius:6px;opacity:.95;margin:0';
+        'position:fixed;left:8px;bottom:8px;z-index:99;max-height:60vh;overflow:auto;background:var(--plane);color:var(--ink);font:600 13px/1.35 monospace;padding:8px 10px;border-radius:6px;opacity:.95;margin:0';
       doc.body.appendChild(pre);
     }
     pre.textContent = `plates ${tags.length}\n${out.join('\n')}`;

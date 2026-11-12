@@ -93,6 +93,7 @@ fn plane(config: ApiConfig, gated: bool) -> Plane {
         staff: staff.clone(),
         publishing: Default::default(),
         zone: Arc::new(StationZone::new("Europe/London")),
+        live: None,
     })));
     let app = if gated {
         layer(app, staff.clone())

@@ -54,7 +54,7 @@
     padding: var(--s-5);
   }
   dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim-strong);
   }
   h2 {
     font-size: var(--fs-20);

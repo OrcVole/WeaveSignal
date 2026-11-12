@@ -76,7 +76,7 @@ A source keeps its slot, and so its keys, while it is in the room (ADR-0096): sl
 | `Esc` on a caller sent to you | *Not now*: declines them, and the screener sees DESK BUSY | works |
 | **Drop** on a caller's tile | the same as `⌃D ⌃D`: two presses | works |
 | **End pass** on a presenter's, DJ's or guest's tile | ends their pass (ADR-0119): off air, out of the room, and their link stops working; two presses, a button with no key | works |
-| `⇧⏎` | hand over to the next DJ (ADR-0074) | note only: put the next DJ on air by hand ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
+| `⇧⏎` | hand over to the next DJ (ADR-0074): the first press puts a DJ waiting under **Not on air** on air beside you, the second takes everyone presenting off but that DJ; guests and callers stay on. Desk tab only | works from 1.0.1; in 1.0.0 a note only |
 | arrows on a tile | the fader | not in 1.0.0: the desk has no fader, and the arrows do nothing on the Desk tab ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
 
 ## Screener tab
@@ -109,6 +109,7 @@ Every key on this tab works in 1.0.0; [Moderate the chat](/docs/how-to/moderate-
 |---|---|
 | `1` · `2` · `3` | hide only · hide and time out · hide and ban |
 | `A` · `S` · `T` · `I` · `M` · `E` | the reason: abuse or harassment · spam or scam · off topic, repeated · illegal content · intimate image · something else |
+| `C` | for a picture only: suspected child sexual abuse, kept as evidence ([the runbook](/docs/how-to/handle-suspected-child-abuse-images/)) |
 | `⏎` | hide and send (a focused button takes its own `⏎`) |
 | `Esc` | close it and keep the message; in the note field, the first `Esc` leaves the field |
 | `Tab`, `Space`, arrows | the dialog's own buttons and choices |

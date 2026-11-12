@@ -24,7 +24,13 @@
 //! {"op": "caption", "text": "…", "ms": 8000}   (text null or "" takes it down)
 //! {"op": "thumbs"}                       (a small JPEG of each camera, base64, by identity)
 //! {"op": "mode", "mode": "auto"}           (or "live")
+//! {"op": "rtmp", "set": "<id>", "destinations": [{"name": "rumble", "url": "rtmp://…/live",
+//!  "key": "…", "profile": "compatible", "enabled": true}]}
 //! ```
+//!
+//! `rtmp` (ADR-0230, `rtmp-out`) replaces RTMP out's destinations, with video on; the status's
+//! `video.rtmp` reports each one (never its key) and the `set` it holds, so the control plane
+//! sends the set again to a desk that restarted.
 //!
 //! `mode` is the station's mode as playout runs it (ADR-0045, ADR-0183): `live`, the desk first,
 //! or `auto`, automation only. The desk starts in live mode; the control plane compares the
@@ -144,6 +150,11 @@ pub enum Request {
     },
     Mode {
         mode: String,
+    },
+    /// RTMP out's destinations, with their keys (`rtmp-out`).
+    Rtmp {
+        set: String,
+        destinations: Vec<crate::rtmp::Destination>,
     },
 }
 
@@ -296,6 +307,19 @@ pub fn handle(desk: &Desk, line: &str) -> Reply {
                 artist,
             });
             Reply::Done { ok: true }
+        }
+        Request::Rtmp { set, destinations } => {
+            let Some(v) = desk.video() else {
+                return video_off();
+            };
+            match v.rtmp().set_destinations(&set, destinations) {
+                Ok(()) => Reply::Done { ok: true },
+                Err(e) => Reply::Error {
+                    ok: false,
+                    code: Some("invalid"),
+                    error: e,
+                },
+            }
         }
         Request::Mode { mode } => match StationMode::parse(&mode) {
             Some(m) => {

@@ -35,7 +35,7 @@ use axum::{Json, Router};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::app::{AppState, admin_first, problem, refusal};
+use crate::app::{AppState, problem, refusal, staff_first};
 use crate::config::VideoConfig;
 use crate::desk::DeskError;
 use crate::media::WorkerError;
@@ -52,7 +52,7 @@ pub fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 .layer(DefaultBodyLimit::max(limit))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
-                    admin_first,
+                    staff_first,
                 )),
         )
         .route("/api/v1/video/still/image", get(still_image))
@@ -65,7 +65,7 @@ pub fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 .layer(DefaultBodyLimit::max(limit))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
-                    admin_first,
+                    staff_first,
                 )),
         )
         .route("/api/v1/shows/{show}/still/image", get(show_still_image))
@@ -345,8 +345,6 @@ async fn thumbs(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
 
 /// How often the schedule is looked at for the show on air.
 const SLATE_STILL_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
-/// An episode with no length of its own or from its slot is taken to last this long.
-const DEFAULT_MINUTES: i64 = 60;
 
 /// Remove a still and bring the slate up to date; a still that was not there is no error.
 async fn remove(state: &AppState, path: PathBuf) -> std::io::Result<()> {
@@ -361,6 +359,7 @@ async fn remove(state: &AppState, path: PathBuf) -> std::io::Result<()> {
 
 /// The show whose episode is on air at `now_s` by the schedule: aired from its air time for its
 /// length (the episode's, else its series' or show's slot, else an hour). The latest wins.
+#[cfg(test)]
 fn show_on_air(
     episodes: &[(
         weavesignal_model::shows::Show,
@@ -369,47 +368,53 @@ fn show_on_air(
     )],
     now_s: i64,
 ) -> Option<Uuid> {
-    episodes
-        .iter()
-        .rev()
-        .find(|(show, series, ep)| {
-            let Some(start) = ep.air_at else {
-                return false;
-            };
-            let minutes = ep
-                .minutes
-                .or(series.slot.and_then(|s| s.minutes))
-                .or(show.slot.and_then(|s| s.minutes))
-                .map_or(DEFAULT_MINUTES, i64::from);
-            start <= now_s && now_s < start + minutes * 60
-        })
-        .map(|(show, _, _)| show.id)
+    on_air_entry(episodes, now_s).map(|(show, _, _)| show.id)
+}
+
+fn on_air_entry(
+    episodes: &[(
+        weavesignal_model::shows::Show,
+        weavesignal_model::shows::Series,
+        weavesignal_model::shows::Episode,
+    )],
+    now_s: i64,
+) -> Option<&(
+    weavesignal_model::shows::Show,
+    weavesignal_model::shows::Series,
+    weavesignal_model::shows::Episode,
+)> {
+    weavesignal_model::shows::on_air_at(episodes, now_s)
+}
+
+/// The show on air now by the schedule (ADR-0200's rule, shared with the consent words,
+/// ADR-0214): `None` without a database, when no episode holds now, or when the schedule
+/// cannot be read (logged at debug, as the slate does).
+pub(crate) async fn on_air_show(state: &AppState) -> Option<weavesignal_model::shows::Show> {
+    let pool = state.db.as_ref()?;
+    let now_s = jiff::Timestamp::now().as_second();
+    match weavesignal_model::shows::episodes_between(
+        pool,
+        state.station.id,
+        now_s - 36 * 3600,
+        now_s + 1,
+    )
+    .await
+    {
+        Ok(eps) => on_air_entry(&eps, now_s).map(|(show, _, _)| show.clone()),
+        Err(e) => {
+            tracing::debug!(error = %e, "the show on air: the schedule is not readable");
+            None
+        }
+    }
 }
 
 /// The still the slate should show now: the show on air's, else the station's, else none.
 async fn wanted(state: &AppState) -> Option<PathBuf> {
     let cfg = &state.video;
-    if let Some(pool) = &state.db {
-        let now_s = jiff::Timestamp::now().as_second();
-        match weavesignal_model::shows::episodes_between(
-            pool,
-            state.station.id,
-            now_s - 36 * 3600,
-            now_s + 1,
-        )
-        .await
-        {
-            Ok(eps) => {
-                if let Some(show) = show_on_air(&eps, now_s) {
-                    let p = show_still(cfg, show);
-                    if tokio::fs::try_exists(&p).await.unwrap_or(false) {
-                        return Some(p);
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::debug!(error = %e, "the slate's still: the schedule is not readable")
-            }
+    if let Some(show) = on_air_show(state).await {
+        let p = show_still(cfg, show.id);
+        if tokio::fs::try_exists(&p).await.unwrap_or(false) {
+            return Some(p);
         }
     }
     let p = station_still(cfg);

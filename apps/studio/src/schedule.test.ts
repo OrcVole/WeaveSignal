@@ -94,6 +94,11 @@ const show = (slug: string, name: string, colour_slot: number, slot: Show['slot'
   explicit: false,
   feed_guid: null,
   cards: null,
+  presenter: '',
+  contact: '',
+  links: [],
+  commercial_music: false,
+  presenter_account: null,
 });
 
 function episode(
@@ -230,6 +235,11 @@ describe('the week', () => {
     const aired = blocks.find((b) => b.id === 'ep:saturday-night-6')!;
     expect(blockClasses(aired, ctx)).toEqual(['ev', 'past']);
     expect(blockHtml(aired, ctx)).toContain('Live · aired');
+    // A pre-recorded episode says so (ADR-0188), in words and to a screen reader.
+    const tape = { ...snk, prerecorded: true };
+    expect(blockHtml(tape, ctx)).toContain('Pre-recorded');
+    expect(blockHtml(tape, ctx)).not.toContain('Live');
+    expect(blockAria(tape, ctx)).toBe('Saturday Night Kettle, pre-recorded, 20:00 to 23:00, S3 Ep 7 · Ghost Train night');
     const drive = blocks.find((b) => b.id === 'ep:kettle-drive-99')!;
     expect(blockHtml(drive, ctx)).toContain('Conflict');
     expect(blockClasses(drive, ctx)).toContain('conflict');

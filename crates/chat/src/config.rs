@@ -33,9 +33,19 @@ pub struct Config {
     pub mail: MailConfig,
     #[serde(default)]
     pub limits: Limits,
+    /// Chatters' own pictures (ADR-0235): whether they may upload, and where they are kept.
+    #[serde(default)]
+    pub avatars: crate::avatar::AvatarConfig,
+    /// Pictures and documents posted in the chat (ADR-0262): off by default, and where they are
+    /// kept.
+    #[serde(default)]
+    pub attachments: crate::attach::AttachmentConfig,
     /// The station's chat settings until someone edits them from the studio.
     #[serde(default)]
     pub defaults: StationSettings,
+    /// When chatters may post (ADR-0234): always, or while a scheduled show is on air.
+    #[serde(default)]
+    pub hours: HoursConfig,
     #[serde(default)]
     pub log: LogConfig,
     #[serde(skip)]
@@ -94,6 +104,36 @@ impl Default for ControlLink {
             url: "http://127.0.0.1:7310".into(),
         }
     }
+}
+
+/// When chatters may post (ADR-0234). A station setting in this file, not in the studio's chat
+/// settings: every install route writes it (`CHAT_HOURS`), and the chat reads it at start.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct HoursConfig {
+    /// `always` (the default, as 1.0.0) or `shows`: posting open while a scheduled episode is
+    /// on air, and for the station's staff at any time; reading and signing in stay open.
+    pub open: Open,
+    /// How often the schedule is read again, in seconds (`shows` only). A show that starts
+    /// between two readings opens the chat on time: the windows ahead are kept, not only now.
+    pub check_every_s: u64,
+}
+
+impl Default for HoursConfig {
+    fn default() -> Self {
+        Self {
+            open: Open::Always,
+            check_every_s: 30,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Open {
+    #[default]
+    Always,
+    Shows,
 }
 
 /// How sign-in codes reach a chatter's inbox.
@@ -312,6 +352,19 @@ pub struct StationSettings {
     pub comments_only: bool,
     /// Guests may post, every message held (ADR-0034).
     pub guests: bool,
+    /// Chatters may upload a picture of their own (ADR-0259), switched in the studio and
+    /// effective at once. `None` until the switch is used: then the install setting
+    /// (`avatars.uploads`, `AVATAR_UPLOADS`) is the default.
+    pub avatar_uploads: Option<bool>,
+    /// Trusted chatters may post pictures and documents, each held for staff (ADR-0262),
+    /// switched in the studio and effective at once. `None` until the switch is used: then the
+    /// install setting (`attachments.uploads`, `CHAT_ATTACHMENTS`, off) is the default.
+    pub attachments: Option<bool>,
+    /// The one person who may see a picture kept as evidence of suspected child sexual abuse
+    /// material, and export it (ADR-0257): a staff account's id. `None` is the station's first
+    /// admin; an account turned off or gone does not count either, and the first admin is the
+    /// answer then too.
+    pub evidence_viewer: Option<uuid::Uuid>,
     pub blocked_words: Vec<String>,
     pub forbidden_names: Vec<String>,
 }
@@ -417,6 +470,13 @@ impl Config {
                 "`limits`: max_sockets 1-100000, socket_queue 16-65536, recovery_events 100-100000, history 0-500, session_days 1-365".into(),
             ));
         }
+        if !(1..=3600).contains(&self.hours.check_every_s) {
+            return Err(ConfigError::Invalid(
+                "`hours.check_every_s` is 1 to 3600 seconds".into(),
+            ));
+        }
+        self.avatars.validate().map_err(ConfigError::Invalid)?;
+        self.attachments.validate().map_err(ConfigError::Invalid)?;
         if self.mail.mode == MailMode::Command && self.mail.command.is_empty() {
             return Err(ConfigError::Invalid(
                 "`mail.command` is empty: name a sendmail-compatible program".into(),
@@ -458,6 +518,41 @@ from = "chat@station.example"
 command = ["/usr/sbin/sendmail", "-t", "-i"]
 outbox_dir = "/var/lib/weavesignal/chat-outbox"
 
+[hours]
+# When chatters may post (ADR-0234): "always", or "shows": while a scheduled episode is on air
+# (by the schedule, not the desk), and the station's staff at any time. Between shows the room
+# stays readable and signing in stays open; the player says when the next show starts.
+open = "always"
+
+[avatars]
+# Chatters choose one of the 72 avatars WeaveSignal ships, or upload a picture of their own, which
+# nobody else sees until staff approve it on the Screener tab (ADR-0235).
+uploads = true          # false: the shipped avatars only; the studio's switch (Settings > Chat pictures) takes over once used
+dir = "/var/lib/weavesignal/chat-avatars"   # where uploaded pictures are kept: writable, and in your backups
+max_upload_kb = 2048    # the largest upload taken, 64 to 8192; the page sends a cropped square far smaller
+side = 128              # an avatar is rewritten as a PNG this many pixels square, 64 to 256
+uploads_per_chatter = 5 # uploads one chatter may make in ten minutes (0 is off)
+max_waiting = 500       # pictures that may wait for staff at once; more are refused until some are decided
+wait_days = 30          # a picture nobody decides on in this many days is deleted and its owner told, 1 to 365 (ADR-0254)
+evidence_days = 366     # a picture refused as suspected child sexual abuse material is kept this long, 366 to 3650 (a year, leap years too) (ADR-0257)
+
+[attachments]
+# Pictures and documents in the chat (ADR-0262). Off by default: when on, trusted chatters may
+# attach a picture (PNG, JPEG or WebP, rewritten to a legible size with nothing but its pixels) or
+# a document (PDF, OpenDocument text or spreadsheet, Markdown or plain text, passed on unchanged and
+# only ever offered as a download). Every one is held until staff or a moderator approve it on the
+# Screener tab, so staff will see every picture and document posted. The 30-day wait and the year
+# for evidence are the avatars' (wait_days, evidence_days above). Before turning this on, add a
+# line to your risk assessment (the UK's Online Safety Act s.9(4)).
+uploads = false         # true: trusted chatters may attach; the studio's switch (Settings > Chat pictures) takes over once used
+dir = "/var/lib/weavesignal/chat-attachments"   # where they are kept: writable, and in your backups
+max_picture_kb = 10240  # the largest picture taken, 256 to 32768
+max_document_kb = 5120  # the largest document taken, 64 to 20480
+long_side = 1600        # a picture's long side as shown, 640 to 4096 (a long strip keeps 800 across)
+thumb_side = 480        # the thumbnail fits a square this size, 64 to 1024
+per_chatter = 10        # attachments one chatter may post in ten minutes (0 is off)
+max_waiting = 200       # attachments that may wait for staff at once; more are refused until some are decided
+
 [defaults]
 # The station's chat settings until they are edited from the studio.
 # min_age = 16          # leave it out to follow the station's jurisdiction (ADR-0148)
@@ -490,7 +585,16 @@ mod tests {
         let c = Config::from_toml(SAMPLE, "sample").unwrap();
         assert_eq!(c.listen.port, 7311);
         assert_eq!(c.mail.mode, MailMode::Off);
+        assert_eq!(c.avatars, crate::avatar::AvatarConfig::default());
         assert!(!c.defaults.comments_only && !c.defaults.guests);
+        assert_eq!(c.hours.open, Open::Always);
+        let shows = SAMPLE.replace("open = \"always\"", "open = \"shows\"");
+        assert_eq!(
+            Config::from_toml(&shows, "t").unwrap().hours.open,
+            Open::Shows
+        );
+        let wrong = SAMPLE.replace("open = \"always\"", "open = \"sometimes\"");
+        assert!(Config::from_toml(&wrong, "t").is_err());
     }
 
     #[test]

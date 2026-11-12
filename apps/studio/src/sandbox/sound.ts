@@ -9,9 +9,15 @@
 // those copies and starts them again from where the studio is now, so what was held is never
 // heard. Levels for the meters are read from each person's voice before the fader, as the
 // desk's are, and are only approximate (RMS, not K-weighted loudness).
+//
+// For the training scenarios (ADR-0222): a line not yet recorded is never fetched (its caption
+// carries it); the DJ's own lines are silent while the browser tab's microphone is off; a
+// person whose link is degraded is heard in pieces, on both paths; and in auto mode listeners
+// hear the log (the default loop stands in for it), as they hear the fallback while playout
+// is down.
 
 import type { Catalogue } from '../../../../packages/ui/carts.ts';
-import { DELAY_TARGET_MS, fileOf, LINES, type Speaking, type Station } from './station.ts';
+import { DELAY_TARGET_MS, fileOf, type Line, type Speaking, type Station } from './station.ts';
 
 export type Hear = 'studio' | 'listeners';
 
@@ -33,6 +39,12 @@ interface Voice {
   listen: GainNode;
   /** What the gains were last set to, so only a change schedules anything. */
   was: { studio: number; listen: number };
+  /** The person's link, as the desk hears it: whole, or chopped while it is degraded. One on
+   *  each path (the booth's, the studio's, the listeners' a delay later). */
+  link: { booth: GainNode; studio: GainNode; listen: GainNode };
+  /** Until when the chop is scheduled, and whether it is on. */
+  chopUntil: number;
+  chopping: boolean;
 }
 
 /** A sound playing on the programme, for a dump to restart its listeners' copy. */
@@ -47,6 +59,8 @@ interface Playing {
   listen: AudioBufferSourceNode | null;
   /** The cart play's number, for a cart. */
   play?: number;
+  /** Whose line, for a voice. */
+  who?: string;
   /** The bed's own gain (for ducking and fades) on each path, for a cart. */
   gains?: { studio: GainNode; listen: GainNode };
 }
@@ -65,7 +79,9 @@ export class Sound {
   private playing: Playing[] = [];
   private hear: Hear = 'studio';
   private dumps = 0;
-  private playout = true;
+  /** Listeners hear the desk (playout up, and not in auto mode). */
+  private heard = true;
+  private mic = true;
   private fallbackSrc: AudioBufferSourceNode | null = null;
   private ducked = false;
   private readonly data = new Float32Array(2048);
@@ -86,10 +102,12 @@ export class Sound {
     this.booth = g(0.9, this.studioOut);
   }
 
-  /** Fetch every voice line (about 2 MB) and the bank's top row, so the first presses answer. */
-  async preload(cat: Catalogue): Promise<void> {
+  /** Fetch every recorded voice line (about 2 MB) and the bank's top row, so the first presses
+   *  answer. A line not yet recorded has no clip and is not asked for. */
+  async preload(cat: Catalogue, lines: Line[]): Promise<void> {
     const top = cat.carts.filter((c) => c.bank === 1 && c.slot <= 6).map((c) => this.cartUrl(c.file));
-    await Promise.allSettled([...LINES.map((l) => this.buffer(this.lineUrl(l.id))), ...top.map((u) => this.buffer(u)), this.buffer(`${MEDIA}default-loop.${this.kind}`)]);
+    const recorded = lines.filter((l) => l.clip !== false);
+    await Promise.allSettled([...recorded.map((l) => this.buffer(this.lineUrl(l.id))), ...top.map((u) => this.buffer(u)), this.buffer(`${MEDIA}default-loop.${this.kind}`)]);
   }
 
   async resume(): Promise<void> {
@@ -142,7 +160,11 @@ export class Sound {
       const listen = this.ctx.createGain();
       listen.gain.value = 0;
       listen.connect(this.programme);
-      v = { meter, studio, listen, was: { studio: 0, listen: 0 } };
+      const link = { booth: this.ctx.createGain(), studio: this.ctx.createGain(), listen: this.ctx.createGain() };
+      link.booth.connect(this.booth);
+      link.studio.connect(studio);
+      link.listen.connect(listen);
+      v = { meter, studio, listen, was: { studio: 0, listen: 0 }, link, chopUntil: 0, chopping: false };
       this.voices.set(id, v);
     }
     return v;
@@ -153,8 +175,11 @@ export class Sound {
     return Math.max(0, st.delay.delay_ms) / 1000;
   }
 
-  /** A line starts: on the desk (and, a delay later, to listeners) or in the booth. */
+  /** A line starts: on the desk (and, a delay later, to listeners) or in the booth. A line not
+   *  yet recorded, or the DJ's own while the tab's microphone is off, is said into silence. */
   async say(sp: Speaking, st: Station): Promise<void> {
+    if (sp.line.clip === false) return;
+    if (sp.line.who === st.scenario.you.identity && !st.mic) return;
     const buf = await this.buffer(this.lineUrl(sp.line.id)).catch(() => null);
     if (!buf) return;
     const v = this.voice(sp.line.who);
@@ -163,17 +188,17 @@ export class Sound {
     src.buffer = buf;
     src.connect(v.meter);
     if (sp.line.heard === 'booth') {
-      src.connect(this.booth);
+      src.connect(v.link.booth);
       src.start(now);
       return;
     }
-    src.connect(v.studio);
+    src.connect(v.link.studio);
     src.start(now);
     const listen = this.ctx.createBufferSource();
     listen.buffer = buf;
-    listen.connect(v.listen);
+    listen.connect(v.link.listen);
     listen.start(now + this.behind(st));
-    const p: Playing = { buffer: buf, at: now, loop: false, dest: v.listen, studio: src, listen };
+    const p: Playing = { buffer: buf, at: now, loop: false, dest: v.link.listen, studio: src, listen, who: sp.line.who };
     this.playing.push(p);
     src.onended = () => {
       this.playing = this.playing.filter((x) => x !== p || x.listen !== null);
@@ -201,15 +226,28 @@ export class Sound {
         v.listen.gain.setTargetAtTime(listen, later, 0.015);
         v.was.listen = listen;
       }
+      this.chop(v, p.present && !p.linked, now, later - now);
     }
     this.carts(st, now, later);
     if (st.delay.dumps !== this.dumps) {
       this.dumps = st.delay.dumps;
       this.dump(st, now);
     }
-    if (st.playout !== this.playout) {
-      this.playout = st.playout;
-      void this.setPlayout(st.playout);
+    const heard = st.listenersHearDesk();
+    if (heard !== this.heard) {
+      this.heard = heard;
+      void this.setHeard(heard);
+    }
+    if (st.mic !== this.mic) {
+      this.mic = st.mic;
+      // The tab's microphone went off mid-sentence: the rest of the DJ's line reaches no one.
+      if (!st.mic) {
+        for (const p of this.playing) {
+          if (p.who !== st.scenario.you.identity) continue;
+          p.studio.stop(now);
+          p.listen?.stop(now);
+        }
+      }
     }
     const duck = st.ducked();
     if (duck !== this.ducked) {
@@ -220,6 +258,40 @@ export class Sound {
         p.gains.listen.gain.setTargetAtTime(duck ? 0.3 : 1, later, 0.12);
       }
     }
+  }
+
+  /** A degraded link (ADR-0069's LINK DEGRADED): the voice comes through in pieces, a quarter
+   *  second at a time with gaps, on the booth and studio paths now and on the listeners' path
+   *  a delay later. Scheduled a second and a half ahead, deterministically, so it is cheap. */
+  private chop(v: Voice, bad: boolean, now: number, behind: number): void {
+    if (!bad) {
+      if (!v.chopping) return;
+      v.chopping = false;
+      v.chopUntil = 0;
+      for (const g of [v.link.booth, v.link.studio, v.link.listen]) {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(1, now);
+      }
+      return;
+    }
+    v.chopping = true;
+    if (v.chopUntil > now + 0.6) return;
+    let t = Math.max(v.chopUntil, now);
+    const end = t + 1.5;
+    let n = Math.floor(t * 7);
+    while (t < end) {
+      const on = 0.18 + ((n * 37) % 17) / 100;
+      const off = 0.06 + ((n * 53) % 9) / 100;
+      for (const g of [v.link.booth, v.link.studio]) {
+        g.gain.setValueAtTime(1, t);
+        g.gain.setValueAtTime(0, t + on);
+      }
+      v.link.listen.gain.setValueAtTime(1, t + behind);
+      v.link.listen.gain.setValueAtTime(0, t + behind + on);
+      t += on + off;
+      n++;
+    }
+    v.chopUntil = t;
   }
 
   private carts(st: Station, now: number, later: number): void {
@@ -315,13 +387,15 @@ export class Sound {
     void st;
   }
 
-  private async setPlayout(on: boolean): Promise<void> {
+  /** Listeners hear the desk, or not: while playout is down they hear the fallback, in auto
+   *  mode the log; the default loop stands in for both. */
+  private async setHeard(on: boolean): Promise<void> {
     const now = this.ctx.currentTime;
     this.programme.gain.setTargetAtTime(on ? 1 : 0, now, 0.05);
     this.fallback.gain.setTargetAtTime(on ? 0 : 0.8, now, 0.3);
     if (!on && !this.fallbackSrc) {
       const buf = await this.buffer(`${MEDIA}default-loop.${this.kind}`).catch(() => null);
-      if (!buf || this.playout) return;
+      if (!buf || this.heard) return;
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
       src.loop = true;

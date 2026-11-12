@@ -148,9 +148,28 @@ fn field_problem(code: StatusCode, field: &str, detail: impl Into<String>) -> Re
         .into_response()
 }
 
+/// The show on air as the consent words name it (ADR-0214): kept with the consent record
+/// exactly as shown, so a later change to the show never rewrites what a caller agreed to.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct OnAir {
+    pub show_id: Option<uuid::Uuid>,
+    pub presenter: String,
+    /// The `{contact}` phrase as the words said it (ADR-0215).
+    pub contact: String,
+}
+
+/// The consent words the station shows now, their version, and the show they name.
+pub(crate) struct Words {
+    pub text: String,
+    pub version: String,
+    pub on_air: OnAir,
+}
+
 /// The consent words the station shows now, and their version: `{kept}` from the station's
-/// Jurisdiction setting (its programme recordings' period; No retention without a database).
-async fn words(state: &AppState) -> (String, String) {
+/// Jurisdiction setting (its programme recordings' period; No retention without a database),
+/// and `{contact}` from the show on air by the schedule, then the station's as the host
+/// (ADR-0214, ADR-0215), else the station's alone.
+async fn words(state: &AppState) -> Words {
     let setting = match &state.db {
         Some(pool) => weavesignal_model::retention::load_setting(pool, state.station.id)
             .await
@@ -158,26 +177,40 @@ async fn words(state: &AppState) -> (String, String) {
         None => weavesignal_model::retention::Setting::default(),
     };
     let kept = crate::join::kept_phrase(setting.periods().programme_recordings);
-    let w = consent_words(
-        &state.join.consent_text,
-        &state.station.name,
-        &kept,
-        &state.join.consent_contact,
-    );
-    let v = consent_version(&w);
-    (w, v)
+    // The name and the contact in force (ADR-0237): a change on the setup page changes the
+    // words, and so their version, at once.
+    let station = state.station_name();
+    let show = crate::video::on_air_show(state).await;
+    let on_air = OnAir {
+        show_id: show.as_ref().map(|s| s.id),
+        presenter: show
+            .as_ref()
+            .map(|s| s.presenter.trim().to_owned())
+            .unwrap_or_default(),
+        contact: crate::join::contact_phrase(
+            show.as_ref().map_or("", |s| s.contact.as_str()),
+            &station,
+            &state.consent_contact(),
+        ),
+    };
+    let text = consent_words(&state.join.consent_text, &station, &kept, &on_air.contact);
+    let version = consent_version(&text);
+    Words {
+        text,
+        version,
+        on_air,
+    }
 }
 
 /// Whether the words name a contact the station has not given: call-in waits for it.
 fn contact_missing(state: &AppState) -> bool {
-    state.join.consent_text.contains("{contact}") && state.join.consent_contact.trim().is_empty()
+    state.join.consent_text.contains("{contact}") && state.consent_contact().trim().is_empty()
 }
 
 /// Check a consent against the words shown now: `Err` is the refusal to send.
-async fn check_consent(state: &AppState, given: Option<&ConsentGiven>) -> Result<String, Response> {
-    let (_, version) = words(state).await;
+fn check_consent(words: &Words, given: Option<&ConsentGiven>) -> Result<(), Response> {
     match given {
-        Some(c) if c.accepted && c.version == version => Ok(version),
+        Some(c) if c.accepted && c.version == words.version => Ok(()),
         Some(c) if c.accepted => Err(field_problem(
             StatusCode::CONFLICT,
             "consent",
@@ -192,8 +225,9 @@ async fn check_consent(state: &AppState, given: Option<&ConsentGiven>) -> Result
 }
 
 /// Keep a consent: in the studio for the screener, in the log, and in the database if there
-/// is one. The log line carries who, when and which words.
-async fn keep_consent(state: &AppState, call: CallIn) -> Result<(), Response> {
+/// is one. The log line carries who, when and which words; the record keeps the show on air
+/// and the contact as the words said it (ADR-0214).
+async fn keep_consent(state: &AppState, call: CallIn, on_air: &OnAir) -> Result<(), Response> {
     let c = &call.consent;
     tracing::info!(
         target: "weavesignal::consent",
@@ -204,6 +238,9 @@ async fn keep_consent(state: &AppState, call: CallIn) -> Result<(), Response> {
         at_ms = c.at_ms,
         version = %c.version,
         words = %c.text,
+        show = ?on_air.show_id,
+        presenter = %on_air.presenter,
+        contact = %on_air.contact,
         "consent to record given"
     );
     if let Some(pool) = &state.db {
@@ -218,6 +255,9 @@ async fn keep_consent(state: &AppState, call: CallIn) -> Result<(), Response> {
             words: c.text.clone(),
             words_version: c.version.clone(),
             accepted_at_ms: c.at_ms,
+            show_id: on_air.show_id,
+            presenter: on_air.presenter.clone(),
+            contact: on_air.contact.clone(),
         };
         if let Err(e) = weavesignal_model::record_consent(pool, state.station.id, &record).await {
             // A consent that cannot be kept is not given: no token.
@@ -237,8 +277,8 @@ pub(crate) async fn record_station_consent(
     state: &AppState,
     req: &TokenRequest,
 ) -> Result<(), Response> {
-    let version = check_consent(state, req.consent.as_ref()).await?;
-    let (text, _) = words(state).await;
+    let words = words(state).await;
+    check_consent(&words, req.consent.as_ref())?;
     keep_consent(
         state,
         CallIn {
@@ -247,11 +287,12 @@ pub(crate) async fn record_station_consent(
             topic: String::new(),
             consent: Consent {
                 at_ms: now_ms(),
-                version,
+                version: words.version,
                 by: ConsentBy::Station,
-                text,
+                text: words.text,
             },
         },
+        &words.on_air,
     )
     .await
 }
@@ -264,6 +305,9 @@ pub struct PlayerInfo {
     pub show: String,
     /// The listener stream through the proxy; empty when not set up.
     pub stream_url: String,
+    /// Every stream the listener may choose (ADR-0232): the Opus one at `stream_url` first,
+    /// then each MP3 stream that is on, lowest rate first. Empty when the stream is not set up.
+    pub streams: Vec<StreamChoice>,
     pub presenter: String,
     pub presenter_live: bool,
     /// Listeners hear the show now.
@@ -274,6 +318,59 @@ pub struct PlayerInfo {
     /// The picture and its sound as HLS, while the desk has video on (ADR-0009); `None`
     /// otherwise, and the player plays `stream_url`.
     pub video: Option<VideoInfo>,
+}
+
+/// One listener stream the player offers.
+#[derive(Serialize, utoipa::ToSchema, Debug, PartialEq, Eq)]
+pub struct StreamChoice {
+    /// `opus` or `mp3`.
+    pub codec: &'static str,
+    /// Its constant bit rate, in kbit/s.
+    pub kbps: u32,
+    pub url: String,
+}
+
+/// `stream_url` with its last path segment replaced by `mount`: the listener process serves
+/// every mount on one port, so each MP3 stream is reached beside the Opus one, through the same
+/// proxy or edge. `None` when the address has no path to replace.
+pub fn sibling(stream_url: &str, mount: &str) -> Option<String> {
+    let after_scheme = stream_url.find("://")? + 3;
+    let path_at = after_scheme + stream_url[after_scheme..].find('/')?;
+    let (base, _) = stream_url[path_at..].rsplit_once('/')?;
+    Some(format!("{}{base}/{mount}", &stream_url[..path_at]))
+}
+
+/// The streams the player offers, from the join settings (see [`PlayerInfo::streams`]).
+pub fn streams(join: &crate::config::JoinConfig) -> Vec<StreamChoice> {
+    if join.stream_url.is_empty() {
+        return Vec::new();
+    }
+    let mut mp3: Vec<StreamChoice> = join
+        .mp3
+        .iter()
+        .filter(|m| m.enabled && crate::config::is_mount_name(&m.mount))
+        .filter_map(|m| {
+            Some(StreamChoice {
+                codec: "mp3",
+                kbps: m.kbps,
+                url: sibling(&join.stream_url, &m.mount)?,
+            })
+        })
+        .collect();
+    mp3.sort_by_key(|m| m.kbps);
+    let mut seen = vec![join.stream_url.clone()];
+    mp3.retain(|m| {
+        let new = !seen.contains(&m.url);
+        seen.push(m.url.clone());
+        new
+    });
+    let mut all = vec![StreamChoice {
+        codec: "opus",
+        kbps: join.stream_kbps,
+        url: join.stream_url.clone(),
+    }];
+    all.extend(mp3);
+    all
 }
 
 /// Where the player finds the HLS: `live` (AV1 with Opus) and `audio` (the same Opus alone:
@@ -339,11 +436,12 @@ pub async fn player(State(state): State<Arc<AppState>>) -> Json<PlayerInfo> {
         false,
     );
     let why_not = call_in_closed(&state);
-    let (text, version) = words(&state).await;
+    let Words { text, version, .. } = words(&state).await;
     Json(PlayerInfo {
-        station: state.station.name.clone(),
+        station: state.station_name(),
         show: view.show.title.clone(),
         stream_url: state.join.stream_url.clone(),
+        streams: streams(&state.join),
         presenter: facts.presenter,
         presenter_live: facts.presenter_live,
         show_on_air: facts.show_on_air,
@@ -615,10 +713,10 @@ pub async fn call_in(
         }
         Err(e) => return field_problem(StatusCode::UNPROCESSABLE_ENTITY, "topic", e),
     };
-    let version = match check_consent(&state, req.consent.as_ref()).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
+    let words = words(&state).await;
+    if let Err(r) = check_consent(&words, req.consent.as_ref()) {
+        return r;
+    }
     // The challenge before the rate limit, so requests without the work count against nobody.
     if state.join.challenge_bits > 0
         && let Err(why) = state
@@ -661,7 +759,6 @@ pub async fn call_in(
         Ok(p) => p,
         Err(e) => return problem(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
-    let (text, _) = words(&state).await;
     if let Err(r) = keep_consent(
         &state,
         CallIn {
@@ -670,11 +767,12 @@ pub async fn call_in(
             topic,
             consent: Consent {
                 at_ms: now_ms(),
-                version,
+                version: words.version,
                 by: ConsentBy::Caller,
-                text,
+                text: words.text,
             },
         },
+        &words.on_air,
     )
     .await
     {
@@ -785,7 +883,7 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         role: c.role,
         identity: c.id.clone(),
         name: c.name.clone(),
-        station: state.station.name.clone(),
+        station: state.station_name(),
         show: state.hub.view().show.title.clone(),
         expires_at_ms: c.exp * 1000,
         ended: state.joins.ended(&c.id, c.iat),
@@ -942,8 +1040,15 @@ pub struct Invite {
     pub role: Role,
     pub name: String,
     pub expires_at_ms: u64,
-    /// The join page's path with the pass in the fragment, which browsers never send.
+    /// The join page with the pass in the fragment, which browsers never send: absolute on the
+    /// station's public address (`publishing.public_url`) when it is set, else a path.
     pub link: String,
+}
+
+/// An invite's link: on the station's public address when one is set (on Cloudron the join
+/// page is only there, outside the login), else relative to the address the caller reached.
+fn invite_link(public_url: &str, pass: &str) -> String {
+    format!("{}/join/#{pass}", public_url.trim_end_matches('/'))
 }
 
 #[utoipa::path(
@@ -1003,7 +1108,7 @@ pub async fn invite(
             (
                 StatusCode::CREATED,
                 Json(Invite {
-                    link: format!("/join/#{pass}"),
+                    link: invite_link(&state.join.public_url, &pass),
                     pass,
                     identity,
                     role: req.role,
@@ -1035,6 +1140,17 @@ pub(crate) struct Api;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_invite_link_is_on_the_public_address_when_there_is_one() {
+        // Cloudron: the join page is on the public domain, outside the login.
+        assert_eq!(
+            super::invite_link("https://kettle.example/", "p.q.r"),
+            "https://kettle.example/join/#p.q.r"
+        );
+        // Compose with no public address: relative, to wherever the app reached the station.
+        assert_eq!(super::invite_link("", "p.q.r"), "/join/#p.q.r");
+    }
+
     use super::*;
 
     #[test]
@@ -1098,5 +1214,63 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert("x-forwarded-for", "6.6.6.6, unknown".parse().unwrap());
         assert_eq!(peer(true, &h, Some(proxy)), None);
+    }
+
+    #[test]
+    fn each_mp3_stream_is_offered_beside_the_opus_one() {
+        use crate::config::{JoinConfig, Mp3Stream};
+        assert_eq!(
+            sibling("https://radio.example/programme.opus", "programme.mp3").as_deref(),
+            Some("https://radio.example/programme.mp3")
+        );
+        assert_eq!(
+            sibling(
+                "http://127.0.0.1:7312/listen/programme.opus",
+                "programme-high.mp3"
+            )
+            .as_deref(),
+            Some("http://127.0.0.1:7312/listen/programme-high.mp3")
+        );
+        assert_eq!(sibling("https://radio.example", "programme.mp3"), None);
+        let mp3 = |enabled, mount: &str, kbps| Mp3Stream {
+            enabled,
+            mount: mount.into(),
+            kbps,
+        };
+        let mut join = JoinConfig {
+            stream_url: "https://radio.example/programme.opus".into(),
+            stream_kbps: 128,
+            mp3: vec![
+                mp3(true, "programme-high.mp3", 320),
+                mp3(false, "off.mp3", 192),
+                mp3(true, "programme.mp3", 128),
+                mp3(true, "programme.mp3", 160),
+                mp3(true, "programme.opus", 64),
+                mp3(true, "../x", 64),
+            ],
+            ..JoinConfig::default()
+        };
+        let got: Vec<(&str, u32, String)> = streams(&join)
+            .into_iter()
+            .map(|s| (s.codec, s.kbps, s.url))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "opus",
+                    128,
+                    "https://radio.example/programme.opus".to_owned()
+                ),
+                ("mp3", 128, "https://radio.example/programme.mp3".to_owned()),
+                (
+                    "mp3",
+                    320,
+                    "https://radio.example/programme-high.mp3".to_owned()
+                ),
+            ]
+        );
+        join.stream_url.clear();
+        assert!(streams(&join).is_empty());
     }
 }

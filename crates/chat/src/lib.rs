@@ -11,13 +11,19 @@
 //! | [`room`] | the room in memory: fan-out through bounded queues, the recovery ring, holds |
 //! | [`service`] | posting, the hold, moderation, statements of reasons, reports, erasure |
 //! | [`legal`] | the legal toolset's words: reasons, statements, the risk-assessment template |
+//! | [`avatar`] | chatters' avatars: the shipped set, their own pictures held for staff (ADR-0235) |
 //! | [`key`] | the secret that keys the hash of chatters' email addresses (ADR-0125) |
 //! | [`store`] | the rows (migration 0006) and the retention sweep |
 //! | [`control`] | the control plane's studio view, followed for the modes, show and delay |
+//! | [`hours`] | the chat's hours (ADR-0234): open always, or while a scheduled show is on air |
+//! | [`zip`] | the evidence export's archive (ADR-0257) |
 //! | [`http`], [`ws`] | the routes and the socket |
 
+pub mod attach;
+pub mod avatar;
 pub mod config;
 pub mod control;
+pub mod hours;
 pub mod http;
 pub mod key;
 pub mod legal;
@@ -29,6 +35,7 @@ pub mod service;
 pub mod store;
 pub mod wire;
 pub mod ws;
+pub mod zip;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -124,6 +131,42 @@ fn spawn_tasks(chat: &Arc<Chat>) {
             c.announce_rules();
         }
     });
+    // The chat's hours (ADR-0234), with `shows`: the schedule read again every
+    // `hours.check_every_s`, and every page told the moment posting opens or closes.
+    if chat.config.hours.open == config::Open::Shows {
+        let c = chat.clone();
+        tokio::spawn(async move {
+            let every = c.config.hours.check_every_s.max(1) as i64;
+            let mut last_read: Option<i64> = None;
+            let mut said = c.hours();
+            let mut warned = false;
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tick.tick().await;
+                let now_s = service::now_ms() / 1000;
+                if last_read.is_none_or(|l| now_s - l >= every) {
+                    last_read = Some(now_s);
+                    match hours::read(&c.db, c.station.id, now_s).await {
+                        Ok(s) => {
+                            warned = false;
+                            c.set_schedule(s);
+                        }
+                        Err(e) if !warned => {
+                            warned = true;
+                            tracing::warn!(error = %e, "cannot read the schedule for the chat's hours; the last one read stands");
+                        }
+                        Err(_) => {}
+                    }
+                }
+                let now = c.hours();
+                if now != said {
+                    tracing::info!(open = now.open, opens_at_ms = ?now.opens_at_ms, "the chat's hours");
+                    said = now;
+                    c.announce_rules();
+                }
+            }
+        });
+    }
     let c = chat.clone();
     tokio::spawn(async move {
         let mut last = usize::MAX;
@@ -166,6 +209,18 @@ fn spawn_tasks(chat: &Arc<Chat>) {
                 Ok(_) => {}
                 Err(e) => tracing::warn!(error = %e, "the retention sweep failed"),
             }
+            // A picture nobody decided on in `avatars.wait_days` goes, its owner told (ADR-0254).
+            match c.expire_waiting_avatars().await {
+                Ok(0) => {}
+                Ok(n) => {
+                    tracing::info!(n, "waiting pictures deleted, nobody having decided on them")
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "cannot delete the pictures nobody decided on")
+                }
+            }
+            // After the rows: a picture's file with no row left goes (ADR-0235).
+            c.sweep_avatar_files().await;
         }
     });
 }

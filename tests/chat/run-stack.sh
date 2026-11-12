@@ -7,6 +7,13 @@
 # email codes written to tests/chat/run/outbox, the player page and the studio app on Vite.
 # Then it runs tests/chat/chat.mjs (PLAYWRIGHT_CORE must name a playwright-core with Chromium),
 # or, with WAIT=1, waits for Ctrl+C. Screenshots go to OUT (default tests/chat/run/shots).
+# TEST=avatars runs tests/chat/avatars.mjs instead (ADR-0235): choosing an avatar, the crop step,
+# the screener's queue with approve, refuse and remove, at 1,440 and 2,560 wide in both themes.
+# TEST=followups runs tests/chat/followups.mjs (ADR-0257, 0259, 0260): the uploads switch on an open
+# page, Report this picture through to Remove, and H then C through to Delete now.
+# TEST=attachments runs tests/chat/attachments.mjs (ADR-0262): the studio's switch, a trusted
+# chatter attaching a screenshot and a PDF, the waiting state, approving in the screener, the
+# thumbnail and the full picture, the download's headers, and Report this through to Remove.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -25,7 +32,7 @@ for p in "$PG_PORT" "$CONTROL_PORT" "$CHAT_PORT" "$STUDIO_PORT" "$WEB_PORT"; do
   taken -t "$p" && { echo "port $p/tcp is in use; set another" >&2; exit 1; }
 done
 
-rm -rf "$run/outbox"
+rm -rf "$run/outbox" "$run/avatars" "$run/attachments"
 mkdir -p "$run/outbox"
 cargo build -p weavesignal-control -p weavesignal-chat --manifest-path "$root/Cargo.toml" >/dev/null
 
@@ -68,6 +75,10 @@ url = "http://127.0.0.1:$CONTROL_PORT"
 mode = "outbox"
 from = "chat@kettle.example"
 outbox_dir = "$run/outbox"
+[avatars]
+dir = "$run/avatars"
+[attachments]
+dir = "$run/attachments"
 [defaults]
 terms = "Be kind to the callers and to each other. No abuse, no spam, nothing unlawful. The moderators' word is final for tonight; ask for a review afterwards."
 accountable_person = "Elspeth Gordon, station manager"
@@ -97,5 +108,5 @@ if [[ -n "${WAIT:-}" ]]; then
 else
   WEB="http://127.0.0.1:$WEB_PORT" STUDIO="http://127.0.0.1:$STUDIO_PORT/" CONTROL="http://127.0.0.1:$CONTROL_PORT" \
   CHAT="http://127.0.0.1:$CHAT_PORT" ADMIN_TOKEN=$ADMIN_TOKEN OUTBOX="$run/outbox" PG="$prefix-browser-pg" \
-  OUT="${OUT:-$run/shots}" node "$root/tests/chat/chat.mjs"
+  AVATARS="$run/avatars" ATTACHMENTS="$run/attachments" OUT="${OUT:-$run/shots}" node "$root/tests/chat/${TEST:-chat}.mjs"
 fi

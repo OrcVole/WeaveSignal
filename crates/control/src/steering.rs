@@ -8,7 +8,7 @@
 //! | Route | What |
 //! |---|---|
 //! | `GET /api/v1/steering` | public: the steering manifest (HLS Content Steering 1.2b1; RFC 8216bis section 7) |
-//! | `GET /api/v1/steering/edges` | admin bearer: every edge with its health and how many viewers were sent to it first |
+//! | `GET /api/v1/steering/edges` | an admin (the station key or an admin's session): every edge with its health and how many viewers were sent to it first |
 //!
 //! The multivariant playlist names this route in `EXT-X-CONTENT-STEERING:SERVER-URI`. Each
 //! answer orders the healthy edges for one viewer, by weight, and keeps that viewer on the same
@@ -241,9 +241,20 @@ pub struct Health {
 pub struct SteeringState {
     pub config: SteeringConfig,
     pub admin_token: Option<String>,
+    /// The station's staff, so an admin's session opens the edges' view as the station key
+    /// does (issue 7; ADR-0127). Empty until [`Self::with_staff`].
+    staff: Arc<crate::staff::Staff>,
     health: Vec<Mutex<Health>>,
     /// Manifests that put each edge first.
     first: Vec<AtomicU64>,
+}
+
+impl SteeringState {
+    /// The station's staff, whose admins may read the edges' view.
+    pub fn with_staff(mut self, staff: Arc<crate::staff::Staff>) -> Self {
+        self.staff = staff;
+        self
+    }
 }
 
 impl SteeringState {
@@ -253,6 +264,7 @@ impl SteeringState {
         Self {
             config,
             admin_token,
+            staff: Arc::new(crate::staff::Staff::new(None)),
             // Up until a check says otherwise, so viewers are steered from the first moment.
             health: (0..n)
                 .map(|_| {
@@ -472,7 +484,7 @@ struct EdgeView<'a> {
         (status = 401, response = crate::openapi::Unauthorized),
         (status = 503, response = crate::openapi::Unavailable),
     ),
-    security(("station_key" = [])),
+    security(("staff_session" = []), ("station_key" = [])),
 )]
 async fn edges(State(state): State<Arc<SteeringState>>, headers: HeaderMap) -> Response {
     if let Some(r) = refusal(&state, &headers) {
@@ -500,29 +512,16 @@ async fn edges(State(state): State<Arc<SteeringState>>, headers: HeaderMap) -> R
     .into_response()
 }
 
-/// `None` when the request carries the admin bearer (as `app::refusal`, for this state).
+/// `None` when the request comes from an admin: the station key or an admin's session, as
+/// `app::admin_refusal` (issue 7: this route took the station key only).
 fn refusal(state: &SteeringState, headers: &HeaderMap) -> Option<Response> {
-    let Some(expected) = &state.admin_token else {
-        return Some(problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                "admin routes are off: set {}",
-                crate::config::ADMIN_TOKEN_ENV
-            ),
-        ));
-    };
-    let given = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("");
-    let same = given.len() == expected.len()
-        && given
-            .bytes()
-            .zip(expected.bytes())
-            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-            == 0;
-    (!same).then(|| problem(StatusCode::UNAUTHORIZED, "a valid bearer token is needed"))
+    crate::staff::check(
+        state.admin_token.as_deref(),
+        &state.staff,
+        headers,
+        crate::staff::Need::Admin,
+    )
+    .err()
 }
 
 /// One health check: a GET that answers 2xx within the timeout. The time it took, or why not.
@@ -617,6 +616,27 @@ pub(crate) struct Api;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_edges_view_takes_an_admins_session_as_well_as_the_station_key() {
+        use weavesignal_model::staff::Role;
+        let staff = Arc::new(crate::staff::Staff::new(None));
+        let admin = staff.signed_in_for_test(Role::Admin);
+        let presenter = staff.signed_in_for_test(Role::Presenter);
+        let s = SteeringState::new(pool(), Some("key".into())).with_staff(staff);
+        let with = |b: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(
+                header::AUTHORIZATION,
+                format!("Bearer {b}").parse().unwrap(),
+            );
+            refusal(&s, &h).map(|r| r.status())
+        };
+        assert_eq!(with("key"), None);
+        assert_eq!(with(&admin), None);
+        assert_eq!(with(&presenter), Some(StatusCode::FORBIDDEN));
+        assert_eq!(with("nope"), Some(StatusCode::UNAUTHORIZED));
+    }
 
     fn edge(pathway: &str, weight: u32, host: &str, check: bool) -> EdgeConfig {
         EdgeConfig {

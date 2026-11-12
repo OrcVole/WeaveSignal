@@ -11,6 +11,8 @@
 
 {#if chat.link === 'off' || chat.link === 'connecting'}
   <p class="empty" data-chat="link">Connecting to the chat…</p>
+{:else if chat.link === 'none'}
+  <p class="empty" data-chat="link">This station has no chat. Callers and the room are on the desk as usual.</p>
 {:else if chat.link === 'lost'}
   <p class="empty" data-chat="link">
     <b>The chat is not connected</b>{chat.why ? `: ${chat.why}` : ''}. What shows may be out of date. {wait > 0

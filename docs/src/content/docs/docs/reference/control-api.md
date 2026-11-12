@@ -35,7 +35,7 @@ A missing, wrong or ended bearer answers 401 (an ended session says "Your sign-i
 With no station key set, staff sessions still open the routes, and so do API tokens when `WEAVESIGNAL_CONTROL_TOKEN_KEY` is set; a request with any other bearer, or none, answers 503.
 
 Routes only an admin may use, besides the staff list: retention, holds, recordings, consents and erasure ([Set retention](/docs/how-to/set-retention/)); `GET /api/v1/people` and its erasure; `PUT /api/v1/playout/settings`; a room token with the `listener` role (a monitor hears every return, ADR-0118); API tokens and webhooks; and the chat's `/api/v1/chat/admin/…` routes.
-`GET /api/v1/steering/edges` takes the station key only.
+`GET /api/v1/steering/edges` takes an admin: the station key or an admin's session (the station key only until 1.0.1).
 
 ## The description and the reference
 
@@ -108,4 +108,5 @@ How to use these from the studio app: [Add staff and sign in](/docs/how-to/add-s
 - The desk's own control socket, which the control plane's desk and cart commands call: [Desk control](/docs/reference/desk-control/).
 - Shows, series and episodes are under `/api/v1/shows`; `POST …/episodes/{episode}/corrections` corrects the public text of an aired episode (ADR-0177), and the log, which `GET` on the same path lists, names who made each correction (a username, `station key`, or `API token` and the token's name).
   A save whose card text holds characters the card fonts cannot draw answers 422 with the field named (ADR-0176).
+  A show's `presenter`, `contact`, `links`, `commercial_music` and `presenter_account` (ADR-0214, ADR-0218, ADR-0219) are kept when a `PUT` leaves them out, so a client that does not know them never wipes a presenter's details; an empty value clears one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise), and an API token may not set it.
 - Routes with no `/api/v1` prefix: `GET /health`, `GET /hls/{path}` and `GET /feeds/{file}`, which the [API reference](/docs/reference/api/) has; and the static `/cards/…` and `/media/episodes/…`, served from the publishing directories with ranges, which it does not.

@@ -4,12 +4,16 @@
 // person's own pass opens (a fresh room token, their own state, hanging up). No admin bearer
 // ever reaches these pages; a pass is the only credential, and it names one person.
 
+import type { StreamChoice } from './streams.ts';
+
 export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'producer' | 'listener';
 
 export interface PlayerInfo {
   station: string;
   show: string;
   stream_url: string;
+  /** Every stream the listener may choose (ADR-0232): Opus first, then each MP3 stream. */
+  streams: StreamChoice[];
   presenter: string;
   presenter_live: boolean;
   show_on_air: boolean;

@@ -2,6 +2,10 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 Your station is installed. The guide is at https://weavesignal.top/docs/how-to/install-on-cloudron/.
 
+* **Set the station up** at `https://<this app's domain>/setup/`: sign in with
+  `CONTROL_ADMIN_TOKEN` from `/app/data/secrets.env` and give the station its name, the takedown
+  contact that opens call-in, its jurisdiction and its look (colour, icon, banner). The install
+  wizard at https://weavesignal.top/docs/install-wizard/ makes `weavesignal.env` and the DNS list.
 * The station's settings are in `/app/data/weavesignal.env`, and its generated secrets (the
   station identifier, LiveKit's key, the control plane's admin token, the listener password,
   and the keys that hash chatters' and staff's email addresses) are in `/app/data/secrets.env`.

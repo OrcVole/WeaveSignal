@@ -14,7 +14,7 @@ This page covers what ADR-0044 asks of playout, as release one does it.
 ## Who holds the listener mount
 
 Listeners connect to the **listener process** (`listeners.liq`), not to playout.
-Playout sends its programme there over loopback (the `playout_feed` port, 7315), and the listener process encodes the one Ogg Opus stream listeners hear.
+Playout sends its programme there over loopback (the `playout_feed` port, 7315), and the listener process encodes the Ogg Opus stream listeners hear (and the MP3 streams, when they are on).
 When playout or the desk stops, the listener process plays the station's fallback (the files in its fallback directory, else the default loop, else silence) and listeners stay connected; when playout returns, they hear the programme again without reconnecting.
 With video on, playout sends the same programme back to the desk too (the `desk_feed` port, 7317), for the video stream's sound while nobody is live ([Video in the desk](/docs/reference/desk-video/#the-sound), ADR-0172): from a buffer on a clock of its own, so a desk that stops reading never holds up what listeners hear.
 Metadata never travels in the stream: a new track would start a chained Ogg stream, which `icecast.server` 2.5.0-rc1 answers by dropping every listener.
@@ -35,6 +35,14 @@ On a busy server the listener process falls behind for moments, and a thin cushi
 If the log shows `listener_programme` switching to the fallback while playout is on air, the server is short of time; raising the cushion (1 to 2 s) hides short stalls, and each second added is a second more listener delay.
 The Cloudron package sets 1.5 s, because the server it was tested on is shared.
 
+## The Opus stream's rate
+
+The Opus stream is constant bit rate, so a player that buffers by bytes never waits on a quiet programme: 96 kbit/s unless the station sets another (ADR-0233), from 64 to 256.
+The setting is `listeners.bitrate` in the playout data, called `OPUS_BITRATE` in the Compose bundle's `.env` and in the Cloudron package's `weavesignal.env`.
+A rate outside 64 to 256 stops the listener process at start, with the setting named in its log.
+Each listener costs the rate in bandwidth: 2,000 listeners at 96 kbit/s are about 192 Mbit/s, at 128 about 256 Mbit/s.
+The player names the rate beside the MP3 streams; the control plane learns it from `join.stream_kbps`, which the install routes set from the same setting.
+
 ## Directory listing
 
 The stream does not ask internet radio directories to list it (ADR-0129).
@@ -42,22 +50,62 @@ The setting is `listeners.directory` in the playout data, `false` unless set; th
 Set it to `true` when the station goes public.
 It is separate from search-engine listing of the public pages (`web.listed`, [The public pages](/docs/reference/public-pages/#search-engines)) and from whether the stream needs a password.
 
-## The MP3 compatibility stream
+## The MP3 streams
 
-Opus is the listener stream. Directories such as TuneIn and smart speakers that do not take Opus need MP3, so a station may turn on **one** extra stream (ADR-0002).
-It is off unless the playout data says `listeners.compat.enabled`; the Compose bundle calls its settings `COMPAT_STREAM`, `COMPAT_MOUNT` and `COMPAT_BITRATE` in `.env`.
+Opus is the listener stream. Directories such as TuneIn, smart speakers and players that do not take Opus need MP3, so a station may turn on MP3 beside it, at two rates (ADR-0002, ADR-0232): 128 kbit/s, enough for speech, and 320 kbit/s for music.
+Each is off until turned on, each by itself.
+The first is 1.0.0's one MP3 stream, with its settings unchanged, so a station upgraded from 1.0.0 keeps its mount and its rate; the second is new in 1.0.1.
+
+| Playout data | Compose and Cloudron | Default | Does |
+|---|---|---|---|
+| `listeners.compat.enabled` | `COMPAT_STREAM` | `false` | turns the first MP3 stream on |
+| `listeners.compat.mount` | `COMPAT_MOUNT` | `programme.mp3` | its mount on the listener port |
+| `listeners.compat.bitrate` | `COMPAT_BITRATE` | `128` | its constant bit rate in kbit/s, at 44.1 kHz stereo |
+| `listeners.compat_high.enabled` | `COMPAT_HIGH_STREAM` | `false` | turns the second MP3 stream on |
+| `listeners.compat_high.mount` | `COMPAT_HIGH_MOUNT` | `programme-high.mp3` | its mount on the listener port |
+| `listeners.compat_high.bitrate` | `COMPAT_HIGH_BITRATE` | `320` | its constant bit rate in kbit/s, at 44.1 kHz stereo |
+
+No two streams may share a mount: a second MP3 mount that repeats the first or the Opus one stops the listener process at start, with the setting named.
+The listener process encodes each with LAME, from the same programme as the Opus stream (never AAC: Ubuntu's Liquidsoap links fdk-aac, whose licence keeps the package out of app stores); each output has its own encoder, all on the listener process's one clock.
+They share the listener port, so they need no port of their own, and they carry no metadata, like the Opus mount (now playing comes from `GET /api/v1/now-playing`); MP3 has no chained stream to start.
+The directory-listing setting above applies to them as to the Opus mount.
+A listener on any mount stays connected through a playout or desk restart, as on the Opus one (`test-bundle` holds one on each mount through playout's restart).
+
+The player page offers the Opus stream and each MP3 stream that is on, labelled with its codec and rate, and keeps the listener's choice on their device; a browser that cannot play Ogg Opus starts on the first MP3 stream.
+It learns them from `join.stream_kbps` and `join.mp3` in the control plane's settings, each MP3 stream at `join.stream_url`'s address with its own mount; the install routes write both.
+
+Bandwidth: 320 kbit/s is 2.5 times 128 for each listener on it, so 2,000 listeners on the 320 mount would need about 640 Mbit/s.
+The Compose bundle's public route and the Cloudron package publish each MP3 mount that is on.
+A local edge relays only the mounts named in its `RELAY_MOUNTS` (`/programme.opus` by default), so add `/programme.mp3` and `/programme-high.mp3` there if the edge should serve them.
+Listeners on every mount count in the audience figures.
+
+## The outgoing Icecast source
+
+The listener process can send the programme to another Icecast server as a source, for a DJ's AzuraCast (ADR-0226).
+It is off unless the playout data says `icecast_out.enabled` and the environment gives `WEAVESIGNAL_ICECAST_OUT_PASSWORD`.
+[Send your programme to AzuraCast or another Icecast server](/docs/how-to/send-to-azuracast/) is the how-to.
 
 | Setting | Default | Does |
 |---|---|---|
-| `listeners.compat.enabled` | `false` | turns the stream on |
-| `listeners.compat.mount` | `programme.mp3` | its mount on the listener port |
-| `listeners.compat.bitrate` | `128` | constant bitrate in kbit/s, at 44.1 kHz stereo |
+| `icecast_out.enabled` | `false` | turns it on |
+| `icecast_out.host`, `port`, `mount` | none | the server's address, source port and mount |
+| `icecast_out.user` | `source` | the user name |
+| `icecast_out.tls` | `false` | connects over TLS |
+| `icecast_out.bitrate` | `128` | constant MP3 bit rate in kbit/s, 44.1 kHz stereo |
+| `icecast_out.name` | none | the stream's name on the other server |
+| `WEAVESIGNAL_ICECAST_OUT_PASSWORD` | none | the password; never in the data file |
 
-The listener process encodes it once, from the same programme as the Opus stream, with LAME (never AAC: Ubuntu's Liquidsoap links fdk-aac, whose licence keeps the package out of app stores).
-It shares the listener port, so it needs no port of its own, and it carries no metadata, like the Opus mount (now playing comes from `GET /api/v1/now-playing`).
-The directory-listing setting above applies to it as to the Opus mount.
-The reverse proxy must publish its mount, and a local edge relays only the mounts named in its `RELAY_MOUNTS` (`/programme.opus` by default), so add `/programme.mp3` there if the edge should serve it.
-Listeners on either mount count in the audience figures.
+The Compose bundle, the Quadlets and the Cloudron package call them `ICECAST_OUT`, `ICECAST_OUT_HOST`, `ICECAST_OUT_PORT`, `ICECAST_OUT_MOUNT`, `ICECAST_OUT_USER`, `ICECAST_OUT_PASSWORD`, `ICECAST_OUT_TLS` and `ICECAST_OUT_BITRATE`.
+
+How it works:
+
+- It reads the same programme as the Opus mount, after metadata and track marks are dropped and behind `clip`, and encodes MP3 with LAME.
+  There is no Ogg: a chained Ogg stream makes Icecast-type servers drop the source.
+- It runs on a clock of its own behind a buffer, so a remote that stalls a connection holds up only the outgoing stream. Listeners and playout's clock do not wait for it.
+- The control plane decides when it sends. It asks the listener process to send for ten seconds at a time (`icecast_out.send`), repeating every two seconds while it wants the programme sent, and says `icecast_out.stop` when it does not. If the control plane dies, the source is let go within ten seconds.
+- The choice is `auto`, `on` or `off`, kept in the database. `auto` sends while playout reports live mode with the desk on air (`on_air` is `desk`): not on dead air, not on automation, not while playout is away.
+- A failed connection is tried again after 5, 10, 20 and then 30 seconds, from 5 again once one holds. Stopping cancels a try that is waiting.
+- The listener process's status (`icecast_out.status`) and the control plane's `GET /api/v1/icecast-out` say whether the connection holds, the last error and its time, the failures in a row, and the bytes sent, counted from the constant bit rate. The password is in neither.
 
 ## The default loop
 

@@ -25,8 +25,10 @@ export const TABS: readonly Tab[] = ['desk', 'screener', 'carts', 'chat', 'sched
  *  tile it was pressed on says whose pass it ends. */
 export type TwoPress = 'dump' | 'drop' | 'influx' | 'fade-all' | 'ban' | 'end-pass';
 
-/** The statement dialog's reasons, on `A` `S` `T` `I` `M` `E` (screener section 3). */
-export type SorReason = 'abuse' | 'spam' | 'off_topic' | 'illegal' | 'intimate_image' | 'other';
+/** The statement dialog's reasons, on `A` `S` `T` `I` `M` `E` (screener section 3), and `C` for a
+ *  picture suspected of being child sexual abuse material (ADR-0257; the dialog offers it for a
+ *  picture only). */
+export type SorReason = 'abuse' | 'spam' | 'off_topic' | 'illegal' | 'intimate_image' | 'other' | 'suspected_csam';
 /** What happens to the chatter besides the hide, on `1` `2` `3`. */
 export type SorThen = 'none' | 'timeout' | 'ban';
 
@@ -37,6 +39,7 @@ const SOR_REASON_CODES: Record<string, SorReason> = {
   KeyI: 'illegal',
   KeyM: 'intimate_image',
   KeyE: 'other',
+  KeyC: 'suspected_csam',
 };
 const SOR_THEN: readonly SorThen[] = ['none', 'timeout', 'ban'];
 
@@ -101,6 +104,10 @@ export type Action =
   | { type: 'pass' }
   | { type: 'newest' }
   | { type: 'post' }
+  /** Take down a chatter's approved picture (ADR-0235): a button only, no key. */
+  | { type: 'avatar-remove'; account: string; name: string; picture: string; report?: string }
+  /** A picture or document posted in the chat and shown, taken down with its message (ADR-0262). */
+  | { type: 'attachment-remove'; attachment: string; kind: 'picture' | 'document'; account: string; name: string; report?: string }
   // schedule tab: the calendar's toolbar (calendar.md §5): the arrows move a week, T is today
   | { type: 'week'; delta: number }
   | { type: 'today' }

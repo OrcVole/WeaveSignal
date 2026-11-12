@@ -3,10 +3,12 @@ title: "Run a station as Podman Quadlets"
 description: "Generate systemd units for each container from the Compose bundle, store the secrets as Podman secrets, and let systemd start the station."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-10
 sidebar:
   order: 34
 ---
+
+> **New to this?** The [install wizard](/docs/install-wizard/) asks the questions and gives you the settings file, the DNS record and these commands filled in (from 1.0.1).
 
 > **A documented route** (ADR-0022): the units are generated and checked by Podman's own generator on every `just ci`, but the tests do not install them into systemd or start them, as they run Compose end to end.
 > Like the Compose bundle, the station listens on loopback only unless its settings name a domain (`weavesignal.sh --public`, [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/)); the generator then adds the proxy, whose units were converted by Podman's generator but not run.

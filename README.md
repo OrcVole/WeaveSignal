@@ -29,7 +29,7 @@ The documentation is at **<https://weavesignal.top>**.
 | Install the studio app | [On Linux](https://weavesignal.top/docs/how-to/install-studio-linux/), [on Windows](https://weavesignal.top/docs/how-to/install-studio-windows/) |
 | See which ports it uses | [Ports](https://weavesignal.top/docs/reference/ports/) |
 
-The install script pulls the published server image (`forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0`); you can build your own from this
+The install script pulls the published server image (`forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1`); you can build your own from this
 repository instead. The studio app's packages are at <https://weavesignal.top/updates/1.0.0/> and on the
 repository's v1.0.0 release, with their signatures and checksums. What changed in each release is in
 [`CHANGELOG.md`](CHANGELOG.md).

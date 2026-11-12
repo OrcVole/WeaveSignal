@@ -25,6 +25,11 @@ rustix = { version = "1.1.5", features = ["process"] }
 png = "0.18.1"
 zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
 zune-core = { version = "0.5.3", default-features = false, features = ["std"] }
+# Pictures in the chat (ADR-0258, ADR-0262): WebP in, and JPEG out for a photograph, where a
+# lossless PNG would be megabytes. Both pure Rust and single-threaded; read from the registry on
+# 2026-11-10. jpeg-encoder's DCT is ported from the IJG's library (licence IJG, in NOTICES.md).
+image-webp = "0.2.4"
+jpeg-encoder = { version = "0.7.1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

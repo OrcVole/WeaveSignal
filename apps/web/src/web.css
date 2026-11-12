@@ -27,6 +27,9 @@ a { color: var(--accent); }
 .top .station { font-weight: 650; font-size: var(--fs-16); }
 .top .spacer { flex: 1; }
 .mark { width: 22px; height: 22px; color: var(--accent); flex: none; }
+/* the station's own look (ADR-0237): its icon in place of the mark, its banner above the header */
+.brand-icon { width: 28px; height: 28px; object-fit: contain; border-radius: var(--r-1); flex: none; }
+.banner { display: block; width: 100%; height: auto; aspect-ratio: 3 / 1; object-fit: cover; border-radius: var(--r-3); background: var(--surface-2); }
 
 .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-3); padding: var(--s-4); display: grid; gap: var(--s-3); box-shadow: var(--e-1); }
 .card h2 { font-size: var(--fs-20); }

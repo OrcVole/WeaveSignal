@@ -15,8 +15,14 @@
 #   TEST=cameras  cameras through the room to the desk's HLS, the room picture, 4 cameras' cost;
 #                 tests/cameras.rs (M5)
 #   TEST=rejoin   a person rejoining at once under the same identity is heard again; tests/rejoin.rs
+#   TEST=quiet    a digitally silent microphone stays linked and is never subscribed again
+#                 (issue 13); tests/quiet.rs
 #   TEST=feed     video on, the real playout's output back to the desk as the video's sound while
 #                 nobody is live (ADR-0172, review 0028 A1); tests/feed.rs
+#   TEST=browsercam  video on, headless Chromium publishing a camera as the join page does (AV1;
+#                 the talk station's Brave fault, 2026-11-11): the desk holds that person's one
+#                 subscription and shows their camera; tests/browsercam.rs, with
+#                 tests/room/browser-camera.mjs on the host (needs PLAYWRIGHT_CORE)
 # WEAVESIGNAL_ROOM_VIDEO=1 runs any of them with video on and a camera beside each voice (the
 # room's figures with video on); WEAVESIGNAL_DESK_GPU=1 hands the desk's container the GPU.
 #   TEST=playout  playout, then the desk, killed and restarted; tests/playout.rs. When the
@@ -40,7 +46,11 @@ DESK_FEED_PORT=${DESK_FEED_PORT:-18017}
 ROOM_SECONDS=${ROOM_SECONDS:-80}
 TEST=${TEST:-room}
 [ "$TEST" = load ] && RELEASE=${RELEASE-1}
-case $TEST in room|playout|churn|contain|empty|load|dump|listen|cameras|rejoin|feed) ;; *) echo "TEST must be room, playout, churn, contain, empty, load, dump, listen, cameras, rejoin or feed" >&2; exit 2 ;; esac
+case $TEST in room|playout|churn|contain|empty|load|dump|listen|cameras|rejoin|quiet|feed|browsercam) ;; *) echo "TEST must be room, playout, churn, contain, empty, load, dump, listen, cameras, rejoin, quiet, feed or browsercam" >&2; exit 2 ;; esac
+if [ "$TEST" = browsercam ]; then
+  : "${PLAYWRIGHT_CORE:?TEST=browsercam needs PLAYWRIGHT_CORE: an installed playwright-core with its Chromium}"
+  WEAVESIGNAL_ROOM_VIDEO=1
+fi
 LIQ_IMAGE=${LIQ_IMAGE:-docker.io/savonet/liquidsoap:v2.5.0-rc1}
 LK_IMAGE=${LK_IMAGE:-docker.io/livekit/livekit-server:v1.13.10}
 DESK_IMAGE=${DESK_IMAGE:-${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:m5}}
@@ -64,6 +74,8 @@ rtc:
   use_external_ip: false
   node_ip: 127.0.0.1
 room:
+  # TEST=quiet unmutes a voice through the server API, as it muted it.
+  enable_remote_unmute: true
   enabled_codecs:
     - mime: audio/opus
     - mime: audio/red
@@ -90,7 +102,7 @@ cat > "$run/playout.json" <<JSON
 {
   "station_id": "00000000-0000-0000-0000-000000000000",
   "srt": { "host": "127.0.0.1", "port": $SRT_PORT },
-  "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": $LISTENERS_PORT, "mount": "programme.opus", "feed_port": $FEED_PORT },
+  "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": $LISTENERS_PORT, "mount": "programme.opus", "feed_port": $FEED_PORT, "bitrate": ${OPUS_RATE:-96} },
   "control_socket": "/tmp/weavesignal-playout.sock",
   "carts": { "dir": "/var/lib/weavesignal/carts" }$feed_extra
 }
@@ -98,6 +110,7 @@ JSON
 
 cleanup() {
   [ -n "${restarter:-}" ] && kill "$restarter" 2>/dev/null
+  if [ -n "${browser:-}" ]; then kill "$browser" 2>/dev/null || true; fi
   rm -f "$run/restart-playout" "$run/playout-restarted"
   for c in livekit playout listeners; do
     podman logs "$prefix-$c" > "$run/$c.log" 2>&1 || true
@@ -138,6 +151,11 @@ if [ "$TEST" = playout ]; then
   restarter=$!
 fi
 
+if [ "$TEST" = browsercam ]; then
+  RUN="$run" PLAYWRIGHT_CORE="$PLAYWRIGHT_CORE" node "$root/tests/room/browser-camera.mjs" > "$run/browser.log" 2>&1 &
+  browser=$!
+fi
+
 gpu=()
 [ "${WEAVESIGNAL_DESK_GPU:-}" = 1 ] && gpu=(--device nvidia.com/gpu=all)
 podman run --rm "${common[@]}" "${gpu[@]}" -v "$root:/work" -v "$HOME/.cargo/registry:/root/.cargo/registry" -w /work \
@@ -147,6 +165,7 @@ podman run --rm "${common[@]}" "${gpu[@]}" -v "$root:/work" -v "$HOME/.cargo/reg
   -e "WEAVESIGNAL_ROOM_SRT_PORT=$SRT_PORT" \
   -e "WEAVESIGNAL_ROOM_DESK_FEED_PORT=$DESK_FEED_PORT" -e "WEAVESIGNAL_PLAYOUT_FEED_PASSWORD=$SOURCE_PASSWORD" \
   -e "WEAVESIGNAL_ROOM_LISTENER_URL=http://127.0.0.1:$LISTENERS_PORT/programme.opus" \
+  -e "WEAVESIGNAL_ROOM_OPUS_KBPS=${OPUS_RATE:-96}" \
   -e "WEAVESIGNAL_ROOM_SECONDS=$ROOM_SECONDS" \
   -e "WEAVESIGNAL_CHURN_CYCLES=${CHURN_CYCLES:-4}" \
   -e "WEAVESIGNAL_LOAD_MONITORS=${LOAD_MONITORS:-0}" -e "WEAVESIGNAL_LOAD_MONITOR_ROLE=${LOAD_MONITOR_ROLE:-producer}" \
@@ -157,4 +176,5 @@ podman run --rm "${common[@]}" "${gpu[@]}" -v "$root:/work" -v "$HOME/.cargo/reg
   -e "WEAVESIGNAL_ROOM_VIDEO=${WEAVESIGNAL_ROOM_VIDEO:-}" \
   -e WEAVESIGNAL_STACK_DIR=/work/tests/room/run \
   -e RUST_LOG="${RUST_LOG:-weavesignal_desk=info}" \
+  ${GST_DEBUG:+-e "GST_DEBUG=$GST_DEBUG"} \
   "$DESK_IMAGE" cargo test ${RELEASE:+--release} -p weavesignal-desk --test "$TEST" -- --ignored --nocapture --test-threads=1

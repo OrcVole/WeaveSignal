@@ -85,5 +85,5 @@
   .pad.playing .foot .word { color: var(--ink-2); }
 
   @media (prefers-reduced-motion: reduce) { .pad { transition: none; } }
-  @media (max-width: 1000px) { & { overflow: auto; height: auto; } .wall { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: none; } .wall .pad { min-height: 8rem; } }
+  @container (max-width: 1000px) { & { overflow: auto; height: auto; } .wall { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: none; } .wall .pad { min-height: 8rem; } }
 }

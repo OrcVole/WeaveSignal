@@ -13,6 +13,7 @@
   // which is 0 under prefers-reduced-motion. A word with no approved sentence (READY,
   // SCREENING, the surface words) is drawn as a plain chip with no tab stop.
   import { tipFor, type Chip } from './states.ts';
+  import { fixedScale } from './fixed.ts';
 
   interface Props {
     chip: Chip;
@@ -51,17 +52,19 @@
     const win = trigger.ownerDocument.defaultView!;
     const t = trigger.getBoundingClientRect();
     if (!t.width && !t.height) return;
-    box.style.left = '0px';
-    box.style.top = '0px';
-    const b = box.getBoundingClientRect();
+    // Rects and the window are in viewport pixels; the tip's style is in CSS pixels, which the
+    // studio's text size (zoom on <html>) scales: convert, or at 130 % the tip lands off the window.
+    const s = fixedScale(box);
     const vw = win.innerWidth;
     const vh = win.innerHeight;
+    box.style.maxWidth = `min(24rem, ${(vw - 8) / s}px)`;
+    const b = box.getBoundingClientRect();
     // Under the chip; over it when the tip would run off the bottom and there is room above.
     let top = t.bottom;
     if (top + b.height > vh - 4 && t.top - b.height >= 4) top = t.top - b.height;
     const left = Math.max(4, Math.min(t.left, vw - b.width - 4));
-    box.style.left = `${left}px`;
-    box.style.top = `${Math.max(0, top)}px`;
+    box.style.left = `${(left - b.left) / s}px`;
+    box.style.top = `${(Math.max(0, top) - b.top) / s}px`;
   }
   function show() {
     if (!tip || !box) return;

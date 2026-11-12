@@ -14,7 +14,11 @@ The schedule does choose the slate's picture for the show on air ([Video in the 
 
 ## Set them
 
-1. Open the control plane's settings file, `control.toml` ([Settings](/docs/reference/settings/)).
+1. Open the file for them:
+   - **With the Quadlets or your own settings file**: the control plane's `control.toml` ([Settings](/docs/reference/settings/)).
+   - **On Cloudron** (from 1.0.1): create `/app/data/station.toml` with Cloudron's file manager. The package writes `control.toml` itself at every start, without `[studio]`, and the control plane adds this file to it. It may hold only `[studio]` and `[steering]`; anything else stops the control plane with a message naming the file.
+   - **Any install**: the environment variable `WEAVESIGNAL_CONTROL_EXTRA` names such a file for the control plane to add, if it exists.
+   - **The Compose bundle** has no place for the file yet: its control plane's settings are written into `compose.yaml`.
 2. Add a `[studio]` table:
 
    ```toml
@@ -39,7 +43,7 @@ The schedule does choose the slate's picture for the show on air ([Video in the 
    reason = "Abuse on air"
    ```
 
-3. Restart the control plane.
+3. Restart the control plane (on Cloudron, restart the app).
 
 The desk now heads the stage with the show, lists what is coming up and back-times to the next hard post.
 
@@ -48,7 +52,7 @@ The desk now heads the stage with the show, lists what is coming up and back-tim
 | `show` | heads the stage (`desk.stage`), the rundown and the screener's status line; empty, they say *No show set* |
 | `[[studio.rundown]]` | one row each in `desk.rundown`, at its time: `at` as `HH:MM` or `HH:MM:SS`, today; `title`, and `detail` under it |
 | `hard_post = true` | the clock (`desk.clock`) back-times to the first such row ahead |
-| `key` | the cart key the row needs, shown beside it |
+| `key` | the cart key the row needs, shown beside it; `⇧⏎` marks the row as the DJ handover, and while a DJ is in the room it carries the handover button ([Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/)) |
 | `[[studio.banned]]` | a caller who joins with that `identity` shows BANNED BEFORE on the screener, with the `date` (`YYYY-MM-DD`) and the `reason` |
 | `listener_delay_ms` | how far behind the studio listeners hear, not counting the profanity delay: 15000 (15 s) by default, shown under the clock as set, not measured (ADR-0103) |
 
@@ -56,7 +60,7 @@ The desk now heads the stage with the show, lists what is coming up and back-tim
 
 ![The desk's rundown, with the hard post, its cart key and the times set in the rundown rows.](../../../../assets/screens/how-to-set-the-show-rundown.png)
 
-The rundown's times are read on the station's clock, in the time zone of the computer that runs the studio app.
+The rundown's times are read on the station's clock, in the station's time zone (the one chosen in the Schedule tab), from the studio app 1.0.1; the app 1.0.0 read them in the time zone of the computer that runs it.
 
 ## With the Compose bundle, Quadlets or Cloudron
 

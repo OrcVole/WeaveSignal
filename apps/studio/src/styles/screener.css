@@ -184,6 +184,8 @@
   .line .n { font-weight: 700; color: var(--ink); }
   .line .n small { font-weight: 400; color: var(--muted); font-size: var(--fs-12); }
   .line .x { color: var(--ink-2); }
+  /* A picture or document the message carries (ADR-0262), under its words. */
+  .line .att { display: block; margin-top: var(--s-1); }
   .line .re { font-size: var(--fs-12); color: var(--muted); display: block; }
   .line .at { color: var(--accent); font-weight: 600; }
   .line.request { background: var(--surface-2); border-color: var(--hairline); }
@@ -240,7 +242,7 @@
     .panel.studio { max-height: 24rem; }
   }
   /* narrow safety: the surface is for 1,440 px and up; below that the columns stack and the window scrolls */
-  @media (max-width: 1360px) {
+  @container (max-width: 1360px) {
     & { overflow: auto; }
     .app { display: flex; flex-direction: column; }
     .panel > .body { overflow: visible; }

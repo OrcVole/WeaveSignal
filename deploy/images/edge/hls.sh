@@ -42,6 +42,26 @@ cache_max=${EDGE_CACHE_MAX:-2g}
 workers=${EDGE_WORKERS:-auto}
 relay=${EDGE_RELAY:-}
 
+# Viewers' Cache-Control follows the cache times (issue 6): nginx takes 1s, 60s, 2m, 1h or
+# 1d; the header wants whole seconds. Other nginx forms (ms, 1m30s) are refused.
+seconds() {
+  case $1 in
+    ''|*[!0-9smhd]*) return 1 ;;
+  esac
+  n=${1%[smhd]}
+  u=${1#"$n"}
+  case $n in ''|*[!0-9]*) return 1 ;; esac
+  case $u in
+    ''|s) echo "$n" ;;
+    m) echo $((n * 60)) ;;
+    h) echo $((n * 3600)) ;;
+    d) echo $((n * 86400)) ;;
+    *) return 1 ;;
+  esac
+}
+playlist_age=$(seconds "$playlist_ttl") || { echo "weavesignal-edge: EDGE_PLAYLIST_TTL is a whole number of s, m, h or d, such as 1s" >&2; exit 2; }
+segment_age=$(seconds "$segment_ttl") || { echo "weavesignal-edge: EDGE_SEGMENT_TTL is a whole number of s, m, h or d, such as 60s" >&2; exit 2; }
+
 case $EDGE_ORIGIN in
   http://*|https://*) ;;
   *) echo "weavesignal-edge: EDGE_ORIGIN must start with https:// (or http:// on a test bench)" >&2; exit 2 ;;
@@ -142,14 +162,14 @@ content="    location ^~ $hls_path {
       location ~ \.m3u8\$ {
         proxy_pass $origin;
         proxy_cache_valid 200 $playlist_ttl; proxy_cache_valid 404 1s;
-        add_header Cache-Control \"max-age=1\" always;
+        add_header Cache-Control \"max-age=$playlist_age\" always;
         add_header X-Cache \$upstream_cache_status always;
         add_header Access-Control-Allow-Origin \"*\" always;
       }
       location ~ \.(m4s|mp4|m4a|ts|vtt)\$ {
         proxy_pass $origin;
         proxy_cache_valid 200 $segment_ttl; proxy_cache_valid 404 1s;
-        add_header Cache-Control \"max-age=60\" always;
+        add_header Cache-Control \"max-age=$segment_age\" always;
         add_header X-Cache \$upstream_cache_status always;
         add_header Access-Control-Allow-Origin \"*\" always;
       }

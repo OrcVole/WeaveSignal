@@ -18,6 +18,10 @@ allow = [
   # Permissive (OSI approved). The control plane's webhook deliveries speak https through
   # ureq's rustls (ADR-0195): ring and rustls-webpki and untrusted carry ISC.
   "ISC",
+  # Permissive (FSF: a free licence, GPL-compatible), asking only that the documentation say the
+  # IJG's code is used: jpeg-encoder's DCT, which writes a photograph posted in the chat as a JPEG
+  # (ADR-0262). NOTICES.md says so.
+  "IJG",
   # Permissive. webpki-roots, the Mozilla root certificates rustls trusts, carries it.
   "CDLA-Permissive-2.0",
   "MIT",

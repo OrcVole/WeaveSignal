@@ -3,7 +3,7 @@ title: "Present from the keyboard"
 description: "Put people on air and off, cue them, mute them and talk to one of them off air, all from the keyboard."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-06
 sidebar:
   order: 2
 ---
@@ -70,13 +70,16 @@ Press `Esc` to leave the field; chords such as `⌃1` and `⌃T` still work in i
 - `F1` to `F6` fire the current bank's top row of carts from any tab; the cart wall is the Carts tab (`⌃3`, [Cart wall](/docs/reference/surfaces/carts/)).
 - `F7` switches the programme picture between live and the slate; with video off it says so.
 
+## Hand over to the next DJ
+
+`⇧⏎` on the Desk tab hands over to a DJ waiting under **Not on air**: the first press puts them on air with you, the second takes you off ([Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/)).
+
 ## Keys that only show a note
 
 These keys answer with a note in the toast slot; nothing happens to the room ([planned](/docs/reference/release-one-status/#not-in-release-one)):
 
 - `⌃R`, restart playout: restart Liquidsoap on the server ([When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/)).
 - `⌃⇧E` and **End show**, end the show.
-- `⇧⏎`, the DJ handover: put the next DJ on air with their digit.
 - `6`, `Y` and `N`, playout as a desk source in slot 6.
 
 The keyboard-only run `tests/m2/drive.mjs` drives these steps against a real desk.

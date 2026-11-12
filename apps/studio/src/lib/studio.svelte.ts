@@ -43,6 +43,13 @@ export const studio = $state({
   bank: readBank(),
   /** The cart the arrows have moved to on the wall (1 to 24), or null. */
   cartFocus: null as number | null,
+  /** What the station's setup still lacks, for an admin, while its setup page is offered
+   *  (ADR-0267); null when done, not known, or not an admin's to see. */
+  setupPending: null as string[] | null,
+  /** The station's time zone (IANA), for the rundown's times; empty until read. */
+  zone: '',
+  /** The DJ this window's first ⇧⏎ put on air, until the second press hands over (ADR-0231). */
+  handoverTo: null as string | null,
 });
 
 const BANK_KEY = 'weavesignal.cart-bank';

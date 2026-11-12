@@ -48,6 +48,13 @@ services:
   listeners:
     <<: *liquidsoap
     command: ["/opt/weavesignal/playout/listeners.liq"]
+    # Playout's two settings, and (icecast-out, ADR-0226) the password of the other Icecast
+    # server the programme can be sent to. Only this process holds that password; it is never in
+    # the settings file below.
+    environment:
+      WEAVESIGNAL_PLAYOUT_DATA: /etc/weavesignal/playout.json
+      WEAVESIGNAL_LISTENERS_SOURCE_PASSWORD: ${LISTENERS_SOURCE_PASSWORD:?set LISTENERS_SOURCE_PASSWORD in .env}
+      WEAVESIGNAL_ICECAST_OUT_PASSWORD: ${ICECAST_OUT_PASSWORD:-}
     # The control plane's user: its socket (0600) is the control plane's to open, and the
     # logger's files are the control plane's to delete when retention says so.
     user: "999:999"
@@ -77,7 +84,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
     environment:
@@ -121,7 +128,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
     environment:
@@ -158,7 +165,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
     environment:
@@ -172,6 +179,13 @@ services:
         target: /etc/weavesignal/chat.toml
     volumes:
       - postgres-socket:/var/run/postgresql
+      # Chatters' own pictures (ADR-0235): small PNGs the chat's media worker wrote. Back this
+      # volume up with the database; without it, approved pictures fall back to chosen avatars.
+      - chat-avatars:/var/lib/weavesignal/chat-avatars
+      # Pictures and documents posted in the chat (ADR-0262), when the station turns them on:
+      # the pictures as the media worker rewrote them, the documents as they arrived. Back this
+      # volume up with the database too.
+      - chat-attachments:/var/lib/weavesignal/chat-attachments
     depends_on:
       control:
         condition: service_started
@@ -181,6 +195,8 @@ services:
 
 volumes:
   postgres-data:
+  chat-avatars:
+  chat-attachments:
   postgres-socket:
   desk-control:
   # Playout's control socket.
@@ -245,13 +261,14 @@ configs:
       {
         "station_id": "${STATION_ID:?set STATION_ID in .env}",
         "srt": { "host": "127.0.0.1", "port": ${SRT_INGEST_PORT:-7313} },
-        "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": ${LISTENERS_PORT:-7312}, "mount": "programme.opus", "feed_port": ${PLAYOUT_FEED_PORT:-7315}, "feed_buffer_s": ${FEED_BUFFER_S:-0.5}, "directory": ${DIRECTORY_LISTING:-false}, "compat": { "enabled": ${COMPAT_STREAM:-false}, "mount": "${COMPAT_MOUNT:-programme.mp3}", "bitrate": ${COMPAT_BITRATE:-128} }, "control_socket": "/run/weavesignal-listeners/listeners.sock" },
+        "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": ${LISTENERS_PORT:-7312}, "mount": "programme.opus", "feed_port": ${PLAYOUT_FEED_PORT:-7315}, "feed_buffer_s": ${FEED_BUFFER_S:-0.5}, "directory": ${DIRECTORY_LISTING:-false}, "bitrate": ${OPUS_BITRATE:-96}, "compat": { "enabled": ${COMPAT_STREAM:-false}, "mount": "${COMPAT_MOUNT:-programme.mp3}", "bitrate": ${COMPAT_BITRATE:-128} }, "compat_high": { "enabled": ${COMPAT_HIGH_STREAM:-false}, "mount": "${COMPAT_HIGH_MOUNT:-programme-high.mp3}", "bitrate": ${COMPAT_HIGH_BITRATE:-320} }, "control_socket": "/run/weavesignal-listeners/listeners.sock" },
         "desk_feed": { "host": "127.0.0.1", "port": ${DESK_FEED_PORT:-7317}, "enabled": ${VIDEO:-false} },
         "control_socket": "/run/weavesignal-playout/playout.sock",
         "carts": { "dir": "/var/lib/weavesignal/carts" },
         "library": { "dir": "/var/lib/weavesignal/library" },
         "fallback": { "dir": "/var/lib/weavesignal/fallback", "default_file": "/opt/weavesignal/assets/default-loop/default-loop.flac" },
         "processing": { "enabled": ${PROCESSING:-true}, "target_lufs": ${PROCESSING_TARGET_LUFS:--16}, "max_gain_db": ${PROCESSING_MAX_GAIN_DB:-6} },
+        "icecast_out": { "enabled": ${ICECAST_OUT:-false}, "host": "${ICECAST_OUT_HOST:-}", "port": ${ICECAST_OUT_PORT:-8005}, "mount": "${ICECAST_OUT_MOUNT:-/}", "user": "${ICECAST_OUT_USER:-source}", "tls": ${ICECAST_OUT_TLS:-false}, "bitrate": ${ICECAST_OUT_BITRATE:-128}, "name": "WeaveSignal" },
         "logger": { "dir": "/var/lib/weavesignal/recordings/logger" }
       }
 
@@ -277,6 +294,9 @@ configs:
       [video]
       enabled = ${VIDEO:-false}
       station = "${STATION_NAME:-Kettle FM}"
+      # rtmp-out: the picture composed; empty, 480p20. 720p30 (or 720p25, 1080p30) lets RTMP out
+      # send more than HLS's 480p20, which is scaled down from it; every camera costs more.
+      canvas = "${VIDEO_CANVAS:-}"
 
       [video.hls]
       dir = "/var/lib/weavesignal/hls"
@@ -284,6 +304,17 @@ configs:
       # Playout's output back to the desk: the video's sound while nobody is live (ADR-0172).
       [video.playout_feed]
       port = ${DESK_FEED_PORT:-7317}
+
+      # --- rtmp-out (ADR-0230) -------------------------------------------------------------
+      # RTMP out to Rumble, Odysee, PeerTube or any RTMP server, with video on. The destinations
+      # and their stream keys are set in the studio app (Settings, RTMP out) and kept, sealed,
+      # in the database; here only the picture sent and the H.264 encoder.
+      [video.rtmp]
+      rung = "${RTMP_RUNG:-}"
+
+      [video.rtmp.compatible]
+      h264 = "${RTMP_H264:-auto}"
+      video_kbps = ${RTMP_VIDEO_KBPS:-0}
 
   control:
     content: |
@@ -346,6 +377,13 @@ configs:
       consent_contact = "${CONSENT_CONTACT:-}"
       # The player's Listen live: the listener process on loopback, or through the proxy.
       stream_url = "${STREAM_URL:-http://127.0.0.1:${LISTENERS_PORT:-7312}/programme.opus}"
+      # The Opus stream's rate, and the MP3 streams beside it (ADR-0232, ADR-0233): the player
+      # offers each one that is on, at the same address as stream_url with its own mount.
+      stream_kbps = ${OPUS_BITRATE:-96}
+      mp3 = [
+        { enabled = ${COMPAT_STREAM:-false}, mount = "${COMPAT_MOUNT:-programme.mp3}", kbps = ${COMPAT_BITRATE:-128} },
+        { enabled = ${COMPAT_HIGH_STREAM:-false}, mount = "${COMPAT_HIGH_MOUNT:-programme-high.mp3}", kbps = ${COMPAT_HIGH_BITRATE:-320} },
+      ]
       # True only behind the station's own proxy, which sets X-Forwarded-For (otherwise every
       # caller shares the proxy's address and the per-address call-in limit caps the station).
       forwarded_for = ${FORWARDED_FOR:-false}
@@ -370,6 +408,23 @@ configs:
       [control]
       url = "http://127.0.0.1:${CONTROL_PORT:-7310}"
 
+      # When listeners may post (ADR-0234): always, or shows (while a scheduled episode is on
+      # air, and the station's staff at any time; read-only between shows).
+      [hours]
+      open = "${CHAT_HOURS:-always}"
+
       [mail]
       mode = "${MAIL_MODE:-off}"
       from = "${MAIL_FROM:-chat@station.example}"
+
+      # Avatars (ADR-0235): chatters choose a shipped one, or upload their own, held until staff
+      # approve it. The pictures are kept in the chat-avatars volume.
+      [avatars]
+      uploads = ${AVATAR_UPLOADS:-true}
+      dir = "/var/lib/weavesignal/chat-avatars"
+
+      # Pictures and documents in the chat (ADR-0262): off unless CHAT_ATTACHMENTS is true;
+      # trusted chatters only, each held for staff. Kept in the chat-attachments volume.
+      [attachments]
+      uploads = ${CHAT_ATTACHMENTS:-false}
+      dir = "/var/lib/weavesignal/chat-attachments"

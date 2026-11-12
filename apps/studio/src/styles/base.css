@@ -14,6 +14,10 @@ body {
   -webkit-text-size-adjust: 100%;
   overflow: hidden;
 }
+/* Nothing is left to the browser's own blue: ticks and sliders, selected text and links take the accent (ADR-0270). */
+:root { accent-color: var(--accent); }
+::selection { background: color-mix(in srgb, var(--accent) 40%, var(--plane)); color: var(--ink); }
+a { color: var(--accent); }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--r-1); }
 h1, h2, h3, h4 { line-height: var(--lh-tight); margin: 0; font-weight: 600; }
@@ -29,7 +33,7 @@ p { margin: 0; }
 
 /* key cap */
 kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5rem; height: 1.25rem; padding: 0 0.35rem; font-family: var(--font-mono); font-size: var(--fs-12); line-height: 1; color: var(--ink-2); background: var(--surface-3); border: 1px solid var(--axis); border-bottom-width: 2px; border-radius: var(--r-1); white-space: nowrap; }
-.on-dark kbd, .lit-onair kbd, .lit-cue kbd, .lit-talk kbd, .armed kbd, .primary kbd { color: inherit; background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.35); }
+.on-dark kbd, .lit-onair kbd, .lit-cue kbd, .lit-talk kbd, .armed kbd, .primary kbd { color: inherit; background: var(--on-fill-wash); border-color: var(--on-fill-edge); }
 :root[data-theme="light"] .primary kbd { background: rgba(255, 255, 255, 0.22); border-color: rgba(255, 255, 255, 0.45); }
 
 /* buttons */

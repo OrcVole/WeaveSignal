@@ -4,10 +4,18 @@
 # GStreamer 1.28.8 (Fedora 44), gst-plugins-rs 0.15.4+fixup's webrtc plugin with LiveKit,
 # and the SRT plugin from gst-plugins-bad 1.28.8 against libsrt 1.5.7
 # (spike/desk-image/Containerfile builds the base). This adds the development files and
-# Fedora's Rust so the desk builds and runs in one image, and, for the video path (M5), three
-# more plugins from the same gst-plugins-rs tag: isobmff (`cmafmux`), hlssink3 (`hlscmafsink`)
-# and dav1d (`dav1ddec`, a fast AV1 decoder for guests' cameras). FFmpeg is here for the
+# Fedora's Rust so the desk builds and runs in one image, and, for the video path (M5), four
+# more plugins from the same gst-plugins-rs tag: isobmff (`cmafmux`), hlssink3 (`hlscmafsink`),
+# dav1d (`dav1ddec`, a fast AV1 decoder for guests' cameras) and rtp (`rtpav1depay`: a browser's
+# AV1 camera out of RTP; without it the desk could not take a Chromium camera, 2026-11-11). FFmpeg is here for the
 # tests only (VMAF scoring); the server image does not carry it.
+# RTMP out (ADR-0230, rtmp-out): OpenH264's GStreamer element (Fedora's plugin over Cisco's
+# binary from the fedora-cisco-openh264 repository) for H.264, and VisualOn's AAC encoder
+# (`voaacenc`: vo-aacenc 0.1.3, Apache-2.0, and its plugin from gst-plugins-bad 1.28.8, both
+# built below) for AAC. Not gst-libav: Fedora's libavcodec-free links fdk-aac, which ADR-0230
+# keeps out of the desk's process. GStreamer's fdk-aac plugin is deleted, so nothing in GStreamer
+# can encode with it; the library stays here only because the tests' FFmpeg (ffmpeg-free) links
+# it. The server image removes it altogether.
 #
 # Build:  just desk-image
 # A GPU run (NVENC):  podman run --device nvidia.com/gpu=all --security-opt label=disable ...
@@ -17,6 +25,11 @@ ARG BASE=localhost/weavesignal-desk-spike:dev
 ARG GST_RS_TAG=0.15.4+fixup
 # The commit the tag names (the tag is annotated; this is what it points at): a moved tag fails the build.
 ARG GST_RS_COMMIT=c164a6696fcb0408f72a108e5f35ec25eb047464
+# rtmp-out: VisualOn's AAC encoder and its GStreamer plugin.
+ARG GST_VERSION=1.28.8
+ARG GST_BAD_SHA256=670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104
+ARG VOAAC_TAG=v0.1.3
+ARG VOAAC_COMMIT=41158e488b3fd4e7e0737789bfc717971ee09f10
 
 ########################################################################
 FROM docker.io/library/fedora:44 AS plugins
@@ -34,31 +47,68 @@ WORKDIR /src/gst-plugins-rs
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/src/gst-plugins-rs/target \
-    cargo cinstall --locked -p gst-plugin-isobmff -p gst-plugin-hlssink3 -p gst-plugin-dav1d --release \
+    cargo cinstall --locked -p gst-plugin-isobmff -p gst-plugin-hlssink3 -p gst-plugin-dav1d -p gst-plugin-rtp --release \
         --prefix /usr --libdir /usr/lib64 --destdir /stage \
     && mkdir -p /out \
-    && for p in isobmff hlssink3 dav1d; do \
+    && for p in isobmff hlssink3 dav1d rsrtp; do \
          install -D -m 0755 /stage/usr/lib64/gstreamer-1.0/libgst$p.so /out/libgst$p.so; \
        done
+
+########################################################################
+# rtmp-out: vo-aacenc (Apache-2.0) and gst-plugins-bad's voaacenc against it.
+FROM docker.io/library/fedora:44 AS voaac
+ARG GST_VERSION
+ARG GST_BAD_SHA256
+ARG VOAAC_TAG
+ARG VOAAC_COMMIT
+RUN dnf -y install --setopt=install_weak_deps=False \
+        gcc gcc-c++ make autoconf automake libtool git xz meson ninja-build pkgconf-pkg-config \
+        glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel \
+    && dnf clean all
+RUN git clone --depth 1 --branch "${VOAAC_TAG}" https://github.com/mstorsjo/vo-aacenc.git /src/vo-aacenc \
+    && { [ "$(git -C /src/vo-aacenc rev-parse HEAD)" = "${VOAAC_COMMIT}" ] \
+         || { echo "vo-aacenc ${VOAAC_TAG} no longer names ${VOAAC_COMMIT}" >&2; exit 1; }; } \
+    && cd /src/vo-aacenc && autoreconf -fi && ./configure --prefix=/usr --libdir=/usr/lib64 --disable-static \
+    && make -j"$(nproc)" && make install && make install DESTDIR=/stage
+WORKDIR /src
+RUN curl -fsSLO https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-${GST_VERSION}.tar.xz \
+    && echo "${GST_BAD_SHA256}  gst-plugins-bad-${GST_VERSION}.tar.xz" | sha256sum -c - \
+    && tar xf gst-plugins-bad-${GST_VERSION}.tar.xz \
+    && cd gst-plugins-bad-${GST_VERSION} \
+    && meson setup build --prefix=/usr --libdir=lib64 --buildtype=release \
+         -Dauto_features=disabled -Dvoaacenc=enabled \
+         -Dtools=disabled -Dexamples=disabled -Dtests=disabled -Ddoc=disabled \
+         -Dintrospection=disabled -Dnls=disabled -Dorc=disabled \
+    && ninja -C build ext/voaacenc/libgstvoaacenc.so \
+    && mkdir -p /out \
+    && install -m 0755 build/ext/voaacenc/libgstvoaacenc.so /out/libgstvoaacenc.so \
+    && cp -a /stage/usr/lib64/libvo-aacenc.so.0* /out/
 
 ########################################################################
 FROM ${BASE}
 
 COPY --from=plugins /out/ /usr/lib64/gstreamer-1.0/
+COPY --from=voaac /out/libgstvoaacenc.so /usr/lib64/gstreamer-1.0/
+COPY --from=voaac /out/libvo-aacenc.so.0* /usr/lib64/
 
 RUN dnf -y install --setopt=install_weak_deps=False \
         gcc pkgconf-pkg-config rust cargo clippy rustfmt \
         glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel \
         libdav1d ffmpeg-free procps-ng \
+        gstreamer1-plugin-openh264 \
     && dnf clean all \
+    && rm -f /usr/lib64/gstreamer-1.0/libgstfdkaac.so \
+    && ldconfig \
     && for e in livekitwebrtcsrc livekitwebrtcsink srtsink matroskamux audiomixer opusenc \
                 audiotestsrc souphttpsrc oggdemux opusdec \
-                cmafmux hlscmafsink dav1ddec av1dec av1parse svtav1enc vp8dec vp8enc \
-                textoverlay videotestsrc videoscale videoconvert jpegenc; do \
+                cmafmux hlscmafsink dav1ddec av1dec av1parse svtav1enc vp8dec vp8enc rtpav1depay rtpav1pay \
+                textoverlay videotestsrc videoscale videoconvert jpegenc \
+                openh264enc openh264dec h264parse voaacenc aacparse audioresample rtmp2sink flvdemux; do \
          gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
        done \
+    && ! gst-inspect-1.0 --exists fdkaacenc \
     && rm -rf /root/.cache/gstreamer-1.0
 
 LABEL org.opencontainers.image.title="weavesignal-desk-dev" \
-      org.opencontainers.image.description="WeaveSignal desk build and run image (GStreamer 1.28.8, gst-plugins-rs 0.15.4 webrtc with LiveKit, isobmff, hlssink3, dav1d; SRT)"
+      org.opencontainers.image.description="WeaveSignal desk build and run image (GStreamer 1.28.8, gst-plugins-rs 0.15.4 webrtc with LiveKit, isobmff, hlssink3, dav1d, rtp; SRT)"
 CMD ["cargo", "--version"]

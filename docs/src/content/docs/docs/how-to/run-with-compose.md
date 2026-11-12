@@ -22,7 +22,7 @@ sidebar:
 
 ## The images
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0`, which holds the desk, the control plane, the chat and the public pages.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1`, which holds the desk, the control plane, the chat and the public pages.
 Liquidsoap 2.5.0-rc1, LiveKit 1.13.10 and PostgreSQL 18 come from their upstream images.
 Compose pulls them all on the first `up`.
 
@@ -63,7 +63,7 @@ Set `SERVER_IMAGE=localhost/weavesignal-server:m1` in `.env` to use it.
 4. Set `CONSENT_CONTACT` to an email address or a link where callers ask for their call to be taken down. Call-in stays closed until it is set (ADR-0124).
 
 Every port is a setting (ADR-0075): change `CONTROL_PORT`, `CHAT_PORT`, `LISTENERS_PORT`, `SRT_INGEST_PORT`, `PLAYOUT_FEED_PORT`, `DESK_FEED_PORT`, `LIVEKIT_HTTP_PORT` or `LIVEKIT_MEDIA_PORT` if a default is taken.
-`.env.example` names the other settings: mail, listing, the MP3 stream, playout's processing, video, and `FEED_BUFFER_S`, the listener process's cushion of playout's feed (0.5 s; raise it to 1–2 s only on a busy host, as each second is a second more delay).
+`.env.example` names the other settings: mail, the chat's hours (`CHAT_HOURS`, [The chat service](/docs/reference/chat/#hours)), listing, the Opus stream's rate (`OPUS_BITRATE`) and the two MP3 streams (`COMPAT_*`, `COMPAT_HIGH_*`; [Playout](/docs/reference/playout/#the-mp3-streams)), playout's processing, video, and `FEED_BUFFER_S`, the listener process's cushion of playout's feed (0.5 s; raise it to 1–2 s only on a busy host, as each second is a second more delay).
 
 ## Start it
 
@@ -91,7 +91,7 @@ To check that only LiveKit's media port listens off loopback, run the bundle's o
 just test-bundle
 ```
 
-It builds the server image, brings the bundle up on test ports with throwaway secrets, checks the control plane, a room token, the desk and playout, the listener process's feed cushion behind the real desk, the MP3 stream and the default loop, scans the ports, and takes the bundle down with its volumes.
+It builds the server image, brings the bundle up on test ports with throwaway secrets, checks the control plane, a room token, the desk and playout, the listener process's feed cushion behind the real desk, the Opus stream at a rate set, both MP3 streams at their rates, the player's list of streams, the default loop, and a listener on each mount held through a playout restart, scans the ports, and takes the bundle down with its volumes.
 
 ## The studio app
 

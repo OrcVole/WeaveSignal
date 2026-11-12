@@ -123,6 +123,24 @@ pub struct Show {
     pub explicit: bool,
     pub feed_guid: Option<Uuid>,
     pub cards: Option<serde_json::Value>,
+    /// The presenter's on-air name (ADR-0214); empty when the show has none of its own.
+    #[serde(default)]
+    pub presenter: String,
+    /// The show's own takedown contact (ADR-0214): an email address or a link; empty when the
+    /// station's is the only one.
+    #[serde(default)]
+    pub contact: String,
+    /// Links to the presenter's channels (ADR-0219: Rumble, Odysee, AzuraCast…).
+    #[serde(default)]
+    pub links: Vec<String>,
+    /// Whether the show plays commercial music (ADR-0219): the station's own reminder that a
+    /// UK webcast of it needs PPL and PRS licences. It blocks nothing.
+    #[serde(default)]
+    pub commercial_music: bool,
+    /// The staff account that presents the show (ADR-0218): the wizard's answers are its
+    /// defaults. Cleared when the account goes.
+    #[serde(default)]
+    pub presenter_account: Option<Uuid>,
 }
 
 /// A show as the studio app sends it; hosts by name.
@@ -143,6 +161,22 @@ pub struct ShowInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub explicit: bool,
+    /// The presenter's on-air name (ADR-0214). Absent keeps what is stored; empty clears it.
+    #[serde(default)]
+    pub presenter: Option<String>,
+    /// The show's takedown contact (ADR-0214). Absent keeps what is stored; empty clears it.
+    #[serde(default)]
+    pub contact: Option<String>,
+    /// Links to the presenter's channels (ADR-0219). Absent keeps what is stored.
+    #[serde(default)]
+    pub links: Option<Vec<String>>,
+    /// Whether the show plays commercial music (ADR-0219). Absent keeps what is stored.
+    #[serde(default)]
+    pub commercial_music: Option<bool>,
+    /// The staff account that presents the show (ADR-0218). Absent keeps what is stored;
+    /// `null` clears it. A member of staff who is not an admin may name only themselves.
+    #[serde(default, deserialize_with = "double")]
+    pub presenter_account: Option<Option<Uuid>>,
 }
 
 fn poster() -> String {
@@ -167,8 +201,32 @@ impl ShowInput {
             s.check()?;
         }
         check_people(&self.hosts)?;
-        check_tags(&self.tags)
+        check_tags(&self.tags)?;
+        if let Some(p) = &self.presenter {
+            text("presenter's name", p.trim(), 0, 120)?;
+        }
+        if let Some(c) = &self.contact {
+            text("takedown contact", c.trim(), 0, 200)?;
+        }
+        if let Some(links) = &self.links {
+            check_links(links)?;
+        }
+        Ok(())
     }
+}
+
+/// The presenter's channel links: at most ten, each one line of up to 400 characters.
+fn check_links(links: &[String]) -> Result<(), ShowError> {
+    if links.len() > 10 {
+        return Err(ShowError::Invalid("at most 10 links".into()));
+    }
+    for l in links {
+        text("link", l.trim(), 1, 400)?;
+        if l.trim().contains(char::is_whitespace) {
+            return Err(ShowError::Invalid("a link has no spaces".into()));
+        }
+    }
+    Ok(())
 }
 
 fn check_people(names: &[String]) -> Result<(), ShowError> {
@@ -605,7 +663,7 @@ pub fn fill_next(
 
 macro_rules! show_columns {
     () => {
-        "id, slug, name, description, colour_slot, layout, slot_weekday, slot_start, slot_minutes, hosts, tags, explicit, feed_guid, cards::text AS cards"
+        "id, slug, name, description, colour_slot, layout, slot_weekday, slot_start, slot_minutes, hosts, tags, explicit, feed_guid, cards::text AS cards, presenter, contact, links, commercial_music, presenter_account"
     };
 }
 
@@ -645,6 +703,11 @@ fn show_of(row: &sqlx::postgres::PgRow) -> Result<Show, sqlx::Error> {
         explicit: row.try_get("explicit")?,
         feed_guid: row.try_get("feed_guid")?,
         cards: json_of(row, "cards")?,
+        presenter: row.try_get("presenter")?,
+        contact: row.try_get("contact")?,
+        links: row.try_get("links")?,
+        commercial_music: row.try_get("commercial_music")?,
+        presenter_account: row.try_get("presenter_account")?,
     })
 }
 
@@ -686,7 +749,9 @@ pub async fn people(
     Ok(rows.into_iter().collect())
 }
 
-/// Make or change a show by its path segment.
+/// Make or change a show by its path segment. The presenter's fields (ADR-0214, ADR-0219)
+/// are kept when the input leaves them out, so an older studio build or an integration that
+/// does not know them never wipes a DJ's details on save.
 pub async fn put_show(
     pool: &sqlx::PgPool,
     station: StationId,
@@ -701,16 +766,36 @@ pub async fn put_show(
     input.check()?;
     let hosts = people_ids(pool, station, &input.hosts).await?;
     let slot = input.slot;
+    let links: Option<Vec<String>> = input.links.as_ref().map(|l| {
+        l.iter()
+            .map(|x| x.trim().to_owned())
+            .filter(|x| !x.is_empty())
+            .collect()
+    });
+    // `presenter_account`: absent keeps, `null` clears, a value sets.
+    let (account_given, account): (bool, Option<Uuid>) = match input.presenter_account {
+        None => (false, None),
+        Some(a) => (true, a),
+    };
     let row = sqlx::query(concat!(
         "INSERT INTO show (id, station_id, slug, name, description, colour_slot, layout,
-                           slot_weekday, slot_start, slot_minutes, hosts, tags, explicit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                           slot_weekday, slot_start, slot_minutes, hosts, tags, explicit,
+                           presenter, contact, links, commercial_music, presenter_account)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                 COALESCE($14, ''), COALESCE($15, ''), COALESCE($16, '{}'::text[]),
+                 COALESCE($17, false), $19)
          ON CONFLICT (station_id, slug) DO UPDATE SET
            name = EXCLUDED.name, description = EXCLUDED.description,
            colour_slot = EXCLUDED.colour_slot, layout = EXCLUDED.layout,
            slot_weekday = EXCLUDED.slot_weekday, slot_start = EXCLUDED.slot_start,
            slot_minutes = EXCLUDED.slot_minutes, hosts = EXCLUDED.hosts, tags = EXCLUDED.tags,
-           explicit = EXCLUDED.explicit, updated_at = now()
+           explicit = EXCLUDED.explicit,
+           presenter = COALESCE($14, show.presenter),
+           contact = COALESCE($15, show.contact),
+           links = COALESCE($16, show.links),
+           commercial_music = COALESCE($17, show.commercial_music),
+           presenter_account = CASE WHEN $18 THEN $19 ELSE show.presenter_account END,
+           updated_at = now()
          RETURNING ",
         show_columns!()
     ))
@@ -727,6 +812,12 @@ pub async fn put_show(
     .bind(&hosts)
     .bind(&input.tags)
     .bind(input.explicit)
+    .bind(input.presenter.as_ref().map(|p| p.trim().to_owned()))
+    .bind(input.contact.as_ref().map(|c| c.trim().to_owned()))
+    .bind(links)
+    .bind(input.commercial_music)
+    .bind(account_given)
+    .bind(account)
     .fetch_one(pool)
     .await?;
     Ok(show_of(&row)?)
@@ -934,6 +1025,35 @@ pub async fn get_episode(
     .fetch_optional(pool)
     .await?;
     row.as_ref().map(episode_of).transpose()
+}
+
+/// An episode with no length of its own or from its slot is taken to last this long.
+pub const DEFAULT_EPISODE_MINUTES: i64 = 60;
+
+/// When an episode is on air by the schedule, in epoch seconds `[start, end)`: from its air time
+/// for its length (the episode's, else its series' or show's slot, else an hour). `None` for an
+/// episode with no air time.
+pub fn air_window(show: &Show, series: &Series, ep: &Episode) -> Option<(i64, i64)> {
+    let start = ep.air_at?;
+    let minutes = ep
+        .minutes
+        .or(series.slot.and_then(|s| s.minutes))
+        .or(show.slot.and_then(|s| s.minutes))
+        .map_or(DEFAULT_EPISODE_MINUTES, i64::from);
+    Some((start, start + minutes * 60))
+}
+
+/// The show on air at `now_s` by the schedule: the entry whose episode's [`air_window`] holds
+/// it, the latest-starting when two overlap (`episodes` in air order, as [`episodes_between`]
+/// gives them). The one rule for the slate's picture (ADR-0200), the consent words (ADR-0214)
+/// and the chat's hours (ADR-0234).
+pub fn on_air_at(
+    episodes: &[(Show, Series, Episode)],
+    now_s: i64,
+) -> Option<&(Show, Series, Episode)> {
+    episodes.iter().rev().find(|(show, series, ep)| {
+        air_window(show, series, ep).is_some_and(|(start, end)| start <= now_s && now_s < end)
+    })
 }
 
 /// Every episode of the station airing in `[from_s, to_s)` (epoch seconds), with its series
@@ -1694,6 +1814,11 @@ mod tests {
             explicit: false,
             feed_guid: None,
             cards: None,
+            presenter: String::new(),
+            contact: String::new(),
+            links: Vec::new(),
+            commercial_music: false,
+            presenter_account: None,
         }
     }
 

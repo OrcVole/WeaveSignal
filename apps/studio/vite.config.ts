@@ -31,6 +31,11 @@ export default defineConfig(({ mode }) => ({
       ...(control ? { '/api': { target: control, headers: auth } } : {}),
     },
   },
-  build: { target: 'es2022', outDir: mode === 'sandbox' ? 'dist-sandbox' : 'dist' },
+  build: {
+    target: 'es2022',
+    outDir: mode === 'sandbox' ? 'dist-sandbox' : 'dist',
+    // The chat's shipped avatars (packages/ui/avatars), kept as files beside the script.
+    assetsInlineLimit: (file: string) => (file.includes('/packages/ui/avatars/') ? false : undefined),
+  },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },
 }));

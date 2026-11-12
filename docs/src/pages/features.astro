@@ -4,7 +4,7 @@
 // What WeaveSignal can do (src/data/features.ts): the strongest differences first, then every
 // feature grouped by what a station cares about, each with its reason and its documentation
 // page, with the demo video's moments beside the features they show; last, what is planned and
-// not in 1.0.0, kept apart and labelled.
+// not in 1.0.1, kept apart and labelled.
 import Site from '../layouts/Site.astro';
 import Clip from '../components/site/Clip.astro';
 import Frame from '../components/site/Frame.astro';
@@ -100,12 +100,12 @@ const lead = leadFeatures();
 
 <Site
   title="Features — WeaveSignal"
-  description="What WeaveSignal 1.0.0 can do for a station, by what a station cares about: live shows with guests, screened callers, staying on air, playout and the schedule, listeners, shows and podcasts, running it, and the studio app; and what is planned, apart."
+  description="What WeaveSignal 1.0.1 can do for a station, by what a station cares about: live shows with guests, screened callers, staying on air, playout and the schedule, listeners, shows and podcasts, running it, and the studio app; and what is planned, apart."
   path="/features/"
 >
   <div class="wrap page-title">
     <h1>What WeaveSignal does</h1>
-    <p class="lead">{count} features in 1.0.0, grouped by what a station cares about, each with the reason it is there and the page that explains it. The clips are moments from <a href="/#hero-h">the demo video</a>, played only when pressed. <a href="#next">What comes next</a> is at the end, apart, and nothing there is in 1.0.0.</p>
+    <p class="lead">{count} features in 1.0.1, grouped by what a station cares about, each with the reason it is there and the page that explains it. The clips are moments from <a href="/#hero-h">the demo video</a>, played only when pressed. <a href="#next">What comes next</a> is at the end, apart, and nothing there is in 1.0.1.</p>
   </div>
 
   <section class="section" aria-labelledby="first-h">
@@ -174,8 +174,8 @@ const lead = leadFeatures();
 
   <section class="section next" id="next" aria-labelledby="next-h">
     <div class="wrap">
-      <h2 id="next-h">Coming next: not in 1.0.0</h2>
-      <p class="lead">These are planned and not built. Each says what a station does today instead. <a href="/docs/reference/release-one-status/#not-in-release-one">The full list of what 1.0.0 leaves out</a> is in the documentation, and a key in the studio app whose feature is planned says so in a note and does nothing to the room.</p>
+      <h2 id="next-h">Coming next: not in 1.0.1</h2>
+      <p class="lead">These are planned and not built. Each says what a station does today instead. <a href="/docs/reference/release-one-status/#not-in-release-one">The full list of what release one leaves out</a> is in the documentation, and a key in the studio app whose feature is planned says so in a note and does nothing to the room.</p>
       <dl class="planned">
         {next.map((p) => (
           <div id={p.id}>

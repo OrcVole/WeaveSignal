@@ -14,6 +14,8 @@
   import { rateWords } from '../lib/chatModel.ts';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { delayWords, hms, listenerDelayMs } from '../lib/format.ts';
+  import ChatAvatar from './ChatAvatar.svelte';
+  import ChatAttachment from './ChatAttachment.svelte';
   import LinkLine from './LinkLine.svelte';
 
   let { children }: { children?: Snippet } = $props();
@@ -124,8 +126,8 @@
                   ><svg class="g-accent" aria-hidden="true"><use href="#g-pin" /></svg>Request</span
                 >{/if}{#if m.featured}<span class="k"
                   ><svg class="g-onair" aria-hidden="true"><use href="#g-lower" /></svg>Featured on the player page{featAt ? ` ${hms(featAt)}` : ''}</span
-                >{/if}<span class="n">{m.author.name}{#if small}{' '}<small>{small}</small>{/if}</span>
-              <span class="x">{m.body}</span></span
+                >{/if}<span class="n"><ChatAvatar avatar={m.author.avatar} name={m.author.name} size={18} />{m.author.name}{#if small}{' '}<small>{small}</small>{/if}</span>
+              <span class="x">{m.body}</span>{#if m.attachment}<span class="att"><ChatAttachment a={m.attachment} size={120} /></span>{/if}</span
             >
             {#if sel}
               <span class="acts">
@@ -139,6 +141,29 @@
                   <button type="button" class="btn" data-chat="room-invite" onclick={(ev) => press(ev, m, { type: 'invite' })}>Invite to call in <kbd>I</kbd></button>
                   <span class="sp"></span>
                   <button type="button" class="btn quiet" data-chat="room-hide" onclick={(ev) => press(ev, m, { type: 'mod-hide' })}>Hide <kbd>H</kbd></button>
+                  {#if m.attachment}
+                    <button
+                      type="button"
+                      class="btn quiet"
+                      data-chat="room-remove-attachment"
+                      onclick={(ev) =>
+                        press(ev, m, {
+                          type: 'attachment-remove',
+                          attachment: m.attachment!.id,
+                          kind: m.attachment!.kind,
+                          account: m.author.id,
+                          name: m.author.name,
+                        })}>{m.attachment.kind === 'document' ? 'Remove document' : 'Remove picture'}</button
+                    >
+                  {/if}
+                  {#if m.author.avatar?.kind === 'upload'}
+                    <button
+                      type="button"
+                      class="btn quiet"
+                      data-chat="room-remove-picture"
+                      onclick={(ev) => press(ev, m, { type: 'avatar-remove', account: m.author.id, name: m.author.name, picture: m.author.avatar!.id })}>Remove picture</button
+                    >
+                  {/if}
                   <button type="button" class="btn quiet" data-chat="room-timeout" onclick={(ev) => press(ev, m, { type: 'mod-timeout' })}>Time out <kbd>O</kbd></button>
                   <button
                     type="button"
@@ -209,6 +234,11 @@
   }
   :global(.screener .room .line) {
     cursor: default;
+  }
+  /* The sender's avatar sits on the name's line, small enough not to open the rows up. */
+  :global(.screener .room .line .n .avatar) {
+    margin-right: var(--s-1);
+    vertical-align: -0.22em;
   }
   :global(.screener .room .room-top) {
     min-width: 0;

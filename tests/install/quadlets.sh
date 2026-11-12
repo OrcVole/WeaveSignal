@@ -23,9 +23,11 @@ for variant in loopback public; do
   # given above 1024 here (nothing is bound).
   PROXY_HTTPS_PORT=18443 PROXY_HTTP_PORT=18080 \
     "$root/deploy/compose/weavesignal.sh" --project "$project" --env-file "$dir/station.env" --no-start "${extra[@]}" >/dev/null
+  # icecast-out (ADR-0226): the remote server's password is a Podman secret like the rest.
+  printf 'ICECAST_OUT=true\nICECAST_OUT_HOST=azuracast.example\nICECAST_OUT_USER=dj\nICECAST_OUT_PASSWORD=quadlet-test-streamer-password\n' >> "$dir/station.env"
   "$root/deploy/quadlets/generate.sh" --project "$project" --env-file "$dir/station.env" --out "$dir/out" 2>/dev/null | tail -1
   units="$dir/out/containers/systemd"
-  for key in LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY; do
+  for key in LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY ICECAST_OUT_PASSWORD; do
     value=$(grep "^$key=" "$dir/station.env" | cut -d= -f2-)
     ! grep -rqF -- "$value" "$dir/out" || { echo "$key is written into a unit or a settings file" >&2; exit 1; }
   done
@@ -38,7 +40,11 @@ for variant in loopback public; do
   grep -q -- "--secret $project-chat-email-key,type=env,target=WEAVESIGNAL_CHAT_EMAIL_KEY" "$dir/dryrun.txt"
   grep -q -- "--secret $project-control-email-key,type=env,target=WEAVESIGNAL_CONTROL_EMAIL_KEY" "$dir/dryrun.txt"
   grep -q -- "--secret $project-control-token-key,type=env,target=WEAVESIGNAL_CONTROL_TOKEN_KEY" "$dir/dryrun.txt"
+  grep -q -- "--secret $project-icecast-out-password,type=env,target=WEAVESIGNAL_ICECAST_OUT_PASSWORD" "$dir/dryrun.txt"
+  grep -q '"host": "azuracast.example"' "$dir/out/config/playout" || { echo "the outgoing Icecast host is not in playout's settings" >&2; exit 1; }
   grep -q -- "--health-cmd" "$dir/dryrun.txt"
+  # rtmp-out: the desk's settings carry RTMP out's block (ADR-0230).
+  grep -rq '^\[video.rtmp\]' "$dir/out" || { echo "the desk's settings have no [video.rtmp]" >&2; exit 1; }
   if [ "$variant" = public ]; then
     [ -f "$units/$project-proxy.container" ] || { echo "the public station has no proxy unit" >&2; exit 1; }
     grep -q '^HealthCmd=test -s .*\.crt && test -s .*\.key' "$units/$project-proxy.container" || { echo "the proxy's health check is not the certificate and key" >&2; exit 1; }

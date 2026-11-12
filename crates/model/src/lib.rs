@@ -10,10 +10,13 @@ pub mod carts;
 pub mod passes;
 pub mod playout;
 pub mod retention;
+pub mod setup;
 pub mod shows;
 pub mod staff;
 pub mod tokens;
 pub mod webhooks;
+// rtmp-out (ADR-0230)
+pub mod rtmp;
 
 use std::fmt;
 use std::str::FromStr;
@@ -112,8 +115,10 @@ pub enum ModelError {
     StationNameTooLong(usize),
 }
 
-/// Apply every migration, then make sure `station` has a row for this station; the name is
-/// updated if it changed. Returns the station as stored.
+/// Apply every migration, then make sure `station` has a row for this station. The name stored
+/// is the one in force: the one an admin set on the station's setup page (ADR-0237,
+/// `station_setup.name`) when there is one, else the settings file's, updated if it changed.
+/// Returns the station as stored, so the control plane and the chat start with the same name.
 pub async fn ensure_station(
     pool: &sqlx::PgPool,
     station: &Station,
@@ -121,7 +126,9 @@ pub async fn ensure_station(
     MIGRATOR.run(pool).await?;
     let (id, name): (Uuid, String) = sqlx::query_as(
         "INSERT INTO station (id, name) VALUES ($1, $2)
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+         ON CONFLICT (id) DO UPDATE SET name = COALESCE(
+             (SELECT s.name FROM station_setup s WHERE s.station_id = EXCLUDED.id),
+             EXCLUDED.name)
          RETURNING id, name",
     )
     .bind(station.id.as_uuid())
@@ -146,6 +153,15 @@ pub struct ConsentRecord {
     pub words_version: String,
     /// Milliseconds since the Unix epoch.
     pub accepted_at_ms: u64,
+    /// The show on air when the consent was given, by the schedule (ADR-0214); `None` when no
+    /// show was, or the show has since been deleted.
+    pub show_id: Option<uuid::Uuid>,
+    /// The presenter the words named (ADR-0214); empty when they named none.
+    pub presenter: String,
+    /// The takedown contact exactly as the words said it (ADR-0214, ADR-0215): the show's and
+    /// then the station's as the host, or the station's alone. A later change to the show
+    /// never rewrites it.
+    pub contact: String,
 }
 
 /// Keep one consent; returns its row's identifier.
@@ -156,8 +172,10 @@ pub async fn record_consent(
 ) -> Result<i64, sqlx::Error> {
     let (id,): (i64,) = sqlx::query_as(
         "INSERT INTO caller_consent
-           (station_id, identity, name, topic, given_by, words, words_version, accepted_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8::double precision / 1000.0))
+           (station_id, identity, name, topic, given_by, words, words_version, accepted_at,
+            show_id, presenter, contact)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8::double precision / 1000.0),
+                 $9, $10, $11)
          RETURNING id",
     )
     .bind(station.as_uuid())
@@ -168,6 +186,9 @@ pub async fn record_consent(
     .bind(&c.words)
     .bind(&c.words_version)
     .bind(c.accepted_at_ms as f64)
+    .bind(c.show_id)
+    .bind(&c.presenter)
+    .bind(&c.contact)
     .fetch_one(pool)
     .await?;
     Ok(id)

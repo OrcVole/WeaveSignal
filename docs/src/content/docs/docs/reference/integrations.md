@@ -59,7 +59,7 @@ A refused field is named in the answer: `{"error": "…", "field": "scopes"}`.
 | `studio:read` | `GET /studio`, `GET /studio/events`: the studio's view, with callers' names and the topics they gave |
 | `desk:control` | `POST /desk/commands`: on air, mute, cue, talk, dump the profanity delay |
 | `screener:control` | `POST /screener/commands`; `POST /passes/end` |
-| `chat:moderate` | `POST /chat/modes` on the control plane: slow mode, hold new, links, influx. Behind the station's proxy that path reaches the chat service first, which refuses a token (see below). The chat service's own routes are not reachable with a token |
+| `chat:moderate` | `POST /chat/modes`: slow mode, hold new, links, influx. Through the station's address it reaches the chat service, which passes it on to the control plane (see below). The chat service's own routes are not reachable with a token |
 | `carts:read` | `GET /carts` |
 | `carts:fire` | `POST /carts/commands`: toggle, fire, stop, cue, stop last, fade all |
 | `carts:write` | `PUT /carts/banks/{n}`; `PUT` and `DELETE /carts/banks/{bank}/slots/{slot}` |
@@ -76,7 +76,7 @@ A refused field is named in the answer: `{"error": "…", "field": "scopes"}`.
 Paths are under `/api/v1`.
 There is no `playout:control`: the desk's switches are `desk:control`, and the library is `library:write`.
 
-**`chat:moderate` behind the proxy.** The station's proxy sends every `/api/v1/chat/…` request to the chat service, which passes `POST /api/v1/chat/modes` on to the control plane, but only for a staff session or the station key: an API token is refused there with 401 before it reaches the control plane. In WeaveSignal 1.0 a token with `chat:moderate` works only for a program that reaches the control plane directly, on its loopback port (`ports.control`, 7310), not through the station's address.
+**`chat:moderate` behind the proxy.** The station's proxy sends every `/api/v1/chat/…` request to the chat service, which passes `POST /api/v1/chat/modes` on to the control plane with the caller's bearer. The chat does not check an API token itself: the control plane does, on that request, exactly as on its own routes (known, not expired, not revoked, holding `chat:moderate`, within its limit), and the chat answers with what the control plane answered. In WeaveSignal 1.0.0 the chat refused a token there with 401, so a token worked only on the control plane's loopback port; from 1.0.1 it works through the station's address.
 
 **Never reachable with a token**, so that a leaked token cannot do the worst things:
 staff accounts and sessions; retention, holds, recordings, consents and erasure; the people list and its erasure; playout's settings and the station's time zone; room tokens (they mint a presenter) and invites; API tokens; webhooks.

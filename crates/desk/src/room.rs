@@ -8,7 +8,9 @@
 //! gets a mix-minus, and a subscription once they publish audio; someone who leaves is
 //! dropped at once and their mix-minus kept for a grace period, so a dropped link that rejoins
 //! finds it again; a rejoin (a new session) is subscribed afresh; a subscription that routes
-//! nothing in time is made again. Participants without a role in their token (the desk's own
+//! nothing in time is made again, and so is one that brings no packets for a while, unless
+//! the person's audio is muted in the room (packets, not sound: digital silence arrives like
+//! any other, issue 13). Participants without a role in their token (the desk's own
 //! identities, recorders, anything not issued by the control plane) are ignored, and so are
 //! listeners (the `listener` role: monitors, test drivers' ears), who only listen.
 
@@ -33,6 +35,9 @@ pub struct Seen {
     pub role: Role,
     /// Whether they publish an audio track.
     pub has_audio: bool,
+    /// Whether every audio track they publish is muted in the room. LiveKit then forwards
+    /// nothing of it, so a voice that brings no packets is not a fault while it lasts.
+    pub muted: bool,
     /// Their booth, for a caller (ADR-0193); `None` in the studio room.
     pub room: Option<String>,
 }
@@ -63,6 +68,8 @@ struct ParticipantInfo {
 struct TrackInfo {
     #[serde(default, rename = "type")]
     kind: String,
+    #[serde(default)]
+    muted: bool,
 }
 
 /// Parse a `ListParticipants` reply into the people the desk mixes: those with a role, who
@@ -81,8 +88,11 @@ pub fn parse(reply: &str, desk_prefix: &str) -> Result<Vec<Seen>> {
             if !role.at_desk() {
                 return None;
             }
+            let mut audio = p.tracks.iter().filter(|t| t.kind == "AUDIO").peekable();
+            let has_audio = audio.peek().is_some();
             Some(Seen {
-                has_audio: p.tracks.iter().any(|t| t.kind == "AUDIO"),
+                has_audio,
+                muted: has_audio && audio.all(|t| t.muted),
                 identity: p.identity,
                 name: p.name,
                 sid: p.sid,
@@ -230,6 +240,10 @@ pub struct DeskView {
     /// Each person's room as the desk holds it (`None`: the studio room); someone the desk does
     /// not list here is taken to be where they are seen.
     pub rooms: BTreeMap<String, Option<String>>,
+    /// How long since each person was last seen with their audio muted (kept by the room watch,
+    /// empty in a fresh view): nothing arrived while they were muted, so their voice is given
+    /// a full wait from then.
+    pub unmuted: BTreeMap<String, Duration>,
 }
 
 /// How long a subscription is given before it is made again: `link_timeout` the first time,
@@ -262,19 +276,32 @@ pub fn reconcile(
         if !s.has_audio {
             continue;
         }
+        // Nothing arrives from a muted track (LiveKit stops forwarding it), so the time it was
+        // muted does not count against the voice: it is waited for afresh from its unmuting.
+        let since_muted = if s.muted {
+            Some(Duration::ZERO)
+        } else {
+            desk.unmuted.get(&s.identity).copied()
+        };
+        let counted = |d: Duration| since_muted.map_or(d, |m| d.min(m));
         match desk.subs.get(&s.identity) {
             None => out.push(Action::Subscribe(s.identity.clone(), s.sid.clone())),
             Some((sid, ..)) if *sid != s.sid => {
                 out.push(Action::Resubscribe(s.identity.clone(), s.sid.clone()));
             }
-            Some((_, false, age, _)) if *age > wait => {
+            Some((_, false, age, _)) if counted(*age) > wait => {
                 out.push(Action::Resubscribe(s.identity.clone(), s.sid.clone()));
             }
-            // Routed, but nothing has come for a while: a rejoin under the same identity whose
-            // subscription found the departed session's track (the join pages' rejoin, M3),
-            // or a link that died quietly. The pages send audio throughout (no DTX), muted
-            // or not, so silence on the wire is a fault.
-            Some((_, true, _, Some(silent))) if *silent > wait => {
+            // Routed, but no packets have come for a while: a rejoin under the same identity
+            // whose subscription found the departed session's track (the join pages' rejoin,
+            // M3), or a link that died quietly. This counts packets, not sound: digital
+            // silence (a microphone muted on the page, its track disabled; a guest who has
+            // not spoken) keeps arriving and is no fault (issue 13). The pages publish without
+            // DTX, so a microphone that gives samples, zeros included, sends a packet every
+            // 20 ms; only a track that gives no samples at all (a Web Audio graph with nothing
+            // playing) sends nothing, and that cannot be told from a dead link. A track muted
+            // in the room is not a fault.
+            Some((_, true, _, Some(silent))) if counted(*silent) > wait => {
                 tracing::warn!(participant = %s.identity, silent_ms = silent.as_millis() as u64, retries = desk.retries.get(&s.identity).copied().unwrap_or(0), "a routed voice has brought no audio; subscribing again");
                 out.push(Action::Resubscribe(s.identity.clone(), s.sid.clone()));
             }
@@ -343,12 +370,26 @@ impl Desk {
     }
 }
 
-/// Forget the retries of anyone gone, and of anyone whose voice now arrives.
+/// Forget the retries of anyone gone, anyone whose voice now arrives, and anyone muted (their
+/// unmuting starts afresh).
 fn note_retries(retries: &mut BTreeMap<String, u32>, seen: &[Seen], view: &DeskView) {
-    let here: BTreeSet<&str> = seen.iter().map(|s| s.identity.as_str()).collect();
+    let here: BTreeSet<&str> = seen
+        .iter()
+        .filter(|s| !s.muted)
+        .map(|s| s.identity.as_str())
+        .collect();
     retries.retain(|id, _| {
         here.contains(id.as_str()) && !matches!(view.subs.get(id), Some((_, true, _, None)))
     });
+}
+
+/// Note who is muted now, and forget anyone gone.
+fn note_muted(last_muted: &mut BTreeMap<String, Instant>, seen: &[Seen], now: Instant) {
+    let here: BTreeSet<&str> = seen.iter().map(|s| s.identity.as_str()).collect();
+    last_muted.retain(|id, _| here.contains(id.as_str()));
+    for s in seen.iter().filter(|s| s.muted) {
+        last_muted.insert(s.identity.clone(), now);
+    }
 }
 
 /// Count each resubscription made for a fault; one made for a new session starts afresh.
@@ -375,6 +416,8 @@ pub fn watch(desk: Desk, api: RoomApi, stop: Arc<AtomicBool>) {
     let mut was_empty = true;
     // Faulted resubscriptions in a row, per person, for the back-off (`retry_wait`).
     let mut retries: BTreeMap<String, u32> = BTreeMap::new();
+    // When each person was last seen with their audio muted.
+    let mut last_muted: BTreeMap<String, Instant> = BTreeMap::new();
     while !stop.load(Ordering::SeqCst) {
         // Each time the room empties, what the desk still holds: across shows it must come
         // back to the same (the staging run saw about two cores used with the room empty).
@@ -397,6 +440,11 @@ pub fn watch(desk: Desk, api: RoomApi, stop: Arc<AtomicBool>) {
                 let mut view = desk.view();
                 note_retries(&mut retries, &seen, &view);
                 view.retries = retries.clone();
+                note_muted(&mut last_muted, &seen, Instant::now());
+                view.unmuted = last_muted
+                    .iter()
+                    .map(|(id, t)| (id.clone(), t.elapsed()))
+                    .collect();
                 let actions = reconcile(&seen, &view, grace, timeout);
                 count_retries(&mut retries, &actions, &view);
                 desk.apply(&actions);
@@ -445,6 +493,7 @@ mod tests {
                     sid: "PA_1".into(),
                     role: Role::Presenter,
                     has_audio: true,
+                    muted: false,
                     room: None,
                 },
                 Seen {
@@ -453,6 +502,7 @@ mod tests {
                     sid: "PA_2".into(),
                     role: Role::Guest,
                     has_audio: false,
+                    muted: false,
                     room: None,
                 },
             ]
@@ -468,6 +518,7 @@ mod tests {
             sid: sid.into(),
             role: Role::Guest,
             has_audio: audio,
+            muted: false,
             room: None,
         }
     }
@@ -646,6 +697,130 @@ mod tests {
             reconcile(&[seen("g", "PA_2", true)], &v, GRACE, TIMEOUT),
             vec![Action::Resubscribe("g".into(), "PA_2".into())]
         );
+    }
+
+    #[test]
+    fn a_track_muted_in_the_room_is_read_from_the_list() {
+        let reply = r#"{"participants": [
+            {"sid": "PA_1", "identity": "morag", "state": "ACTIVE",
+             "tracks": [{"sid": "TR_1", "type": "AUDIO", "muted": true}],
+             "attributes": {"weavesignal.role": "guest"}},
+            {"sid": "PA_2", "identity": "hamish", "state": "ACTIVE",
+             "tracks": [{"sid": "TR_2", "type": "AUDIO", "muted": true},
+                        {"sid": "TR_3", "type": "AUDIO"}],
+             "attributes": {"weavesignal.role": "presenter"}},
+            {"sid": "PA_3", "identity": "gregor", "state": "ACTIVE",
+             "tracks": [{"sid": "TR_4", "type": "VIDEO", "muted": true}],
+             "attributes": {"weavesignal.role": "guest"}}
+        ]}"#;
+        let seen = parse(reply, "desk").unwrap();
+        let muted: Vec<(&str, bool)> = seen
+            .iter()
+            .map(|s| (s.identity.as_str(), s.muted))
+            .collect();
+        // Muted only when every audio track is: one open microphone still sends; a muted
+        // camera is not a muted voice.
+        assert_eq!(
+            muted,
+            vec![("morag", true), ("hamish", false), ("gregor", false)]
+        );
+    }
+
+    #[test]
+    fn a_voice_muted_in_the_room_is_not_a_fault() {
+        // Issue 13: LiveKit forwards nothing of a muted track, so no packets is expected.
+        let mut s = seen("g", "PA_1", true);
+        s.muted = true;
+        let mut v = DeskView::default();
+        v.people.insert("g".into(), (Role::Guest, None));
+        // Routed, then muted: no packets for a minute.
+        v.subs.insert(
+            "g".into(),
+            (
+                "PA_1".into(),
+                true,
+                Duration::from_secs(90),
+                Some(Duration::from_secs(60)),
+            ),
+        );
+        assert!(reconcile(std::slice::from_ref(&s), &v, GRACE, TIMEOUT).is_empty());
+        // Muted from the start: never routed.
+        v.subs.insert(
+            "g".into(),
+            ("PA_1".into(), false, Duration::from_secs(60), None),
+        );
+        assert!(reconcile(std::slice::from_ref(&s), &v, GRACE, TIMEOUT).is_empty());
+        // A new session is still subscribed afresh, muted or not.
+        let mut rejoined = seen("g", "PA_2", true);
+        rejoined.muted = true;
+        assert_eq!(
+            reconcile(&[rejoined], &v, GRACE, TIMEOUT),
+            vec![Action::Resubscribe("g".into(), "PA_2".into())]
+        );
+    }
+
+    #[test]
+    fn an_unmuted_voice_is_waited_for_afresh() {
+        let mut v = DeskView::default();
+        v.people.insert("g".into(), (Role::Guest, None));
+        v.subs.insert(
+            "g".into(),
+            (
+                "PA_1".into(),
+                true,
+                Duration::from_secs(90),
+                Some(Duration::from_secs(60)),
+            ),
+        );
+        // Unmuted 2 s ago: its packets have had 2 s, not 60, to come back.
+        v.unmuted.insert("g".into(), Duration::from_secs(2));
+        assert!(reconcile(&[seen("g", "PA_1", true)], &v, GRACE, TIMEOUT).is_empty());
+        // Unmuted 9 s ago and still nothing: a fault again.
+        v.unmuted.insert("g".into(), Duration::from_secs(9));
+        assert_eq!(
+            reconcile(&[seen("g", "PA_1", true)], &v, GRACE, TIMEOUT),
+            vec![Action::Resubscribe("g".into(), "PA_1".into())]
+        );
+        // Packets that came since the unmuting count from the last of them.
+        v.subs.insert(
+            "g".into(),
+            (
+                "PA_1".into(),
+                true,
+                Duration::from_secs(90),
+                Some(Duration::from_millis(20)),
+            ),
+        );
+        assert!(reconcile(&[seen("g", "PA_1", true)], &v, GRACE, TIMEOUT).is_empty());
+    }
+
+    #[test]
+    fn muting_clears_the_back_off_and_is_remembered_while_they_stay() {
+        let mut s = seen("g", "PA_1", true);
+        s.muted = true;
+        let mut r = BTreeMap::from([("g".to_owned(), 2)]);
+        let mut v = DeskView::default();
+        v.subs.insert(
+            "g".into(),
+            (
+                "PA_1".into(),
+                true,
+                Duration::from_secs(90),
+                Some(Duration::from_secs(60)),
+            ),
+        );
+        note_retries(&mut r, std::slice::from_ref(&s), &v);
+        assert!(r.is_empty(), "a muted voice's unmuting starts afresh");
+        let t0 = Instant::now();
+        let mut m = BTreeMap::new();
+        note_muted(&mut m, std::slice::from_ref(&s), t0);
+        assert_eq!(m.get("g"), Some(&t0));
+        // Unmuted: the last time seen muted stays; gone: forgotten.
+        let later = t0 + Duration::from_secs(1);
+        note_muted(&mut m, &[seen("g", "PA_1", true)], later);
+        assert_eq!(m.get("g"), Some(&t0));
+        note_muted(&mut m, &[], later);
+        assert!(m.is_empty());
     }
 
     #[test]

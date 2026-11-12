@@ -31,7 +31,7 @@ The relay's own source and relay passwords are random at every start, and it tak
 
 - One machine per edge with a public address, Podman or Docker, and a 1 Gbit/s port or better. Size by the port, not the processor: about 1,000 video viewers per Gbit/s at the default quality, or about 9,000 audio listeners (*inference* from bench 02, where two edges served 4,000 viewers on under 5 % of a core each).
 - A host name per edge under a subdomain kept for edges, such as `edge-1.edges.example`, and a wildcard certificate for that subdomain only: its key sits on machines you may throw away.
-- The images. They are published as `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0` and `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0`; or build them from the repository with `just edge-image`, which tags them `localhost/weavesignal-edge:m1` and `localhost/weavesignal-relay:m1`.
+- The images. They are published as `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1` and `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1`; or build them from the repository with `just edge-image`, which tags them `localhost/weavesignal-edge:m1` and `localhost/weavesignal-relay:m1`.
 - The station's HLS origin running (the control plane serves the desk's HLS at `/hls/`, with video on) and published through its reverse proxy, with its `/health` published too: each edge's `/health` asks it.
 
 ## Run an edge
@@ -43,12 +43,12 @@ podman run -d --name weavesignal-edge --network host \
   -e EDGE_ORIGIN=https://station.example \
   -v /etc/weavesignal-edge/tls:/etc/weavesignal-edge/tls:ro \
   -e EDGE_RELAY=127.0.0.1:8000 \
-  forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0
+  forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1
 
 podman run -d --name weavesignal-relay --network host \
   -e RELAY_ORIGIN_HOST=station.example \
   -e RELAY_MOUNTS=/programme.opus -e RELAY_BIND=127.0.0.1 \
-  forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0
+  forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1
 ```
 
 The edge listens on 80 and, with a certificate, 443; it pulls `/hls/` from the station over HTTPS, checking the station's certificate.
@@ -140,7 +140,7 @@ They add no capacity on the station's own machine; they are there to try the poo
 ## Known limits
 
 - **Measured on loopback only.** Real links, join time over a real network, and failover in a real hls.js player are [planned](/docs/reference/release-one-status/).
-- **The station's own player does not follow steering to an edge yet.** The player page's Content-Security-Policy lets it fetch HLS only from the station and from `[join] hls_url`, so a browser refuses the edges' host names. Players on other pages, and apps, are not held back.
+- **The station's own player and steering.** From 1.0.1 the player page's Content-Security-Policy allows each edge's host (on any port, with the page's scheme), as well as the station and `[join] hls_url`; in 1.0.0 a browser refused the edges' host names. A player steered to an edge from the station's own page has not been tried in a browser yet.
 - **Health checks are plain HTTP.** A pass proves that the edge's nginx answers, that it reaches the station and that the station's `/health` answers; it does not prove that the edge has the newest segments.
 - **Icecast 2.5.0 ignores `relay-shoutcast-metadata` inside an `<upstream type="normal">` block** and still asks for ICY metadata, after which it relays nothing; the image sets it in the default upstream block. If you write your own relay configuration, do the same.
 - **Now playing does not travel in the stream.** The listener process strips metadata before it encodes (a new title would end the stream for every listener); players get it from the control plane (`/api/v1/now-playing`). A relay does pass in-band titles when its origin sends them.

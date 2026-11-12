@@ -170,6 +170,8 @@ fn api_token_description() -> String {
         (name = "public", description = "Routes that need no bearer: the player, now playing, the feeds, the HLS files, and the open routes for a station's website (`/api/v1/public/…`, now playing), which carry CORS open to any origin and are limited per address."),
         (name = "tokens", description = "API tokens for integrations. Admin only."),
         (name = "webhooks", description = "Webhooks: signed deliveries of the station's events to an integration. Admin only."),
+        (name = "setup", description = "The station's setup page (ADR-0237): its name and takedown contact, the stream's password where the install has one, and its look on the public pages. Admin only, except reading the look."),
+        (name = "rtmp", description = "RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown."),
     ),
     components(responses(Unauthorized, Forbidden, NotFound, Conflict, Unprocessable, Unavailable, TooManyRequests, ScopeMissing)),
     paths(openapi_json),
@@ -191,6 +193,8 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::tokens::Api::openapi(),
         crate::webhooks::Api::openapi(),
         crate::open::Api::openapi(),
+        crate::rtmp::Api::openapi(),
+        crate::setup::Api::openapi(),
     ] {
         doc.merge(part);
     }

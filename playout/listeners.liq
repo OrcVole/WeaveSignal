@@ -8,11 +8,15 @@
 #   WEAVESIGNAL_PLAYOUT_DATA                 the data file (see playout.example.json)
 #   WEAVESIGNAL_LISTENERS_SOURCE_PASSWORD    the source password: playout's feed, and this
 #                                          process's own source on the mount
+#   WEAVESIGNAL_ICECAST_OUT_PASSWORD         optional: the password of the remote Icecast server
+#                                          the programme can be sent to (ADR-0226); never in
+#                                          the data file, never logged
 #
-# One more optional stream (ADR-0002): an MP3 compatibility stream beside the Opus one, for
-# directories and smart speakers, off unless the data says `listeners.compat.enabled`. LAME
-# encodes it (not fdk-aac, which Ubuntu's Liquidsoap links and which blocks the app store). It
-# takes the same programme, once, on the same port, under its own mount.
+# Two more optional streams (ADR-0002, ADR-0232): MP3 beside the Opus one, for directories,
+# smart speakers and listeners who choose it, at two rates (128 and 320 kbit/s by default), each
+# off unless the data says `listeners.compat.enabled` or `listeners.compat_high.enabled`. LAME
+# encodes them (not fdk-aac, which Ubuntu's Liquidsoap links and which blocks the app store).
+# Each takes the same programme, on the same port, under its own mount.
 #
 # Playout does not hold the listener mount (M4; rehearsal 02). Playout sends its programme here
 # as PCM in WAV over loopback (the feed); this process falls back to the station's
@@ -60,12 +64,66 @@ let json.parse (data :
         feed_buffer_s : float?,
         control_socket : string?,
         directory : bool?,
-        compat : {enabled : bool, mount : string?, bitrate : int?}?
+        bitrate : int?,
+        compat : {enabled : bool, mount : string?, bitrate : int?}?,
+        compat_high : {enabled : bool, mount : string?, bitrate : int?}?
       },
     fallback : {dir : string, default_file : string?}?,
-    logger : {dir : string, bitrate : int?}?
+    logger : {dir : string, bitrate : int?}?,
+    icecast_out :
+      {
+        enabled : bool,
+        host : string,
+        port : int,
+        mount : string,
+        user : string?,
+        tls : bool?,
+        bitrate : int?,
+        name : string?
+      }?
   }
 ) = file.contents(data_path)
+
+# The Opus stream's constant bit rate (ADR-0233): 96 kbit/s unless the data says otherwise,
+# 64 to 256. A rate outside that stops this process here, with the setting named, rather than
+# leaving the encoder to refuse it or listeners to hear a starved stream.
+opus_bitrate = data.listeners.bitrate ?? 96
+if
+  opus_bitrate < 64 or opus_bitrate > 256
+then
+  print(
+    "weavesignal: listeners.bitrate (OPUS_BITRATE) is #{opus_bitrate} kbit/s; the Opus stream takes 64 to 256"
+  )
+  shutdown(code=2)
+end
+
+# The MP3 mounts (ADR-0002, ADR-0232): each one's mount and rate, and no two streams on one mount.
+compat = data.listeners.compat ?? {enabled = false, mount = null, bitrate = null}
+compat_mount = compat.mount ?? "programme.mp3"
+compat_high = data.listeners.compat_high ?? {enabled = false, mount = null, bitrate = null}
+compat_high_mount = compat_high.mount ?? "programme-high.mp3"
+if
+  compat.enabled and compat_mount == data.listeners.mount
+then
+  print(
+    "weavesignal: listeners.compat.mount (COMPAT_MOUNT) is the Opus stream's mount, #{compat_mount}"
+  )
+  shutdown(code=2)
+end
+if
+  compat_high.enabled
+  and
+    (
+      compat_high_mount == data.listeners.mount
+    or
+      (compat.enabled and compat_high_mount == compat_mount)
+    )
+then
+  print(
+    "weavesignal: listeners.compat_high.mount (COMPAT_HIGH_MOUNT) is another stream's mount, #{compat_high_mount}"
+  )
+  shutdown(code=2)
+end
 
 # The control plane turns the legal logger on and off here, over a Unix socket.
 null.case(
@@ -191,10 +249,11 @@ programme = source.drop.metadata_track_marks(programme)
 
 # Constant bitrate: Opus's default (unconstrained VBR) codes digital silence in a few bytes a
 # frame, which a player that buffers by bytes waits on for minutes (the staging run,
-# 2026-10-25). 96 kbit/s is what the audience sizing budgets (0005).
+# 2026-10-25). 96 kbit/s, the default, is what the audience sizing budgets (0005); the station
+# sets its own with `listeners.bitrate` (OPUS_BITRATE, ADR-0233), still constant.
 output.icecast(
   id="to-listeners",
-  %ogg(%opus(bitrate = 96, channels = 2, vbr = "none")),
+  %ogg(%opus(bitrate = opus_bitrate, channels = 2, vbr = "none")),
   host=data.listeners.host,
   port=data.listeners.port,
   password=password,
@@ -213,26 +272,35 @@ def fallback_status(_) =
 end
 server.register(namespace="fallback", usage="status", description="What is on air here, as JSON.", "status", fallback_status)
 
-# ---- The compatibility stream (ADR-0002) ----
-# One MP3 stream for directories and smart speakers that do not take Opus: off unless the
-# station's data turns it on. LAME encodes it, constant bitrate, at 44.1 kHz; the metadata and
-# track marks are already dropped. It shares the listener port (the mount is its own), so it
-# needs no port of its own (ADR-0075); the reverse proxy must publish its mount to reach
-# anyone. Directory listing (ADR-0129) applies to it as to the Opus mount.
-compat = data.listeners.compat ?? {enabled = false, mount = null, bitrate = null}
-if
-  compat.enabled
-then
-  output.icecast(
-    id="to-compat",
-    %mp3(bitrate = compat.bitrate ?? 128, samplerate = 44100, stereo = true),
-    host=data.listeners.host,
-    port=data.listeners.port,
-    password=password,
-    mount=compat.mount ?? "programme.mp3",
-    public=(data.listeners.directory ?? false),
-    programme
+# ---- The MP3 streams (ADR-0002, ADR-0232) ----
+# MP3 for directories and smart speakers that do not take Opus, and for listeners who choose
+# it: at two rates, each off unless the station's data turns it on. `compat` is 1.0.0's one MP3
+# mount (COMPAT_STREAM, COMPAT_MOUNT, COMPAT_BITRATE: 128 kbit/s on programme.mp3), unchanged;
+# `compat_high` is the second (COMPAT_HIGH_*: 320 kbit/s on programme-high.mp3). LAME encodes
+# each, constant bitrate, at 44.1 kHz; the metadata and track marks are already dropped, and MP3
+# has no chained stream to start. They share the listener port (each mount is its own), so they
+# need no port of their own (ADR-0075); the reverse proxy must publish each mount to reach
+# anyone. Directory listing (ADR-0129) applies to them as to the Opus mount. Each has its own
+# encoder (dedicated_encoder above) on this process's one clock, with the Opus one.
+def mp3_mount(id, mount, bitrate) =
+  ignore(
+    output.icecast(
+      id=id,
+      %mp3(bitrate = bitrate, samplerate = 44100, stereo = true),
+      host=data.listeners.host,
+      port=data.listeners.port,
+      password=password,
+      mount=mount,
+      public=(data.listeners.directory ?? false),
+      programme
+    )
   )
+end
+if compat.enabled then mp3_mount("to-compat", compat_mount, compat.bitrate ?? 128) end
+if
+  compat_high.enabled
+then
+  mp3_mount("to-compat-high", compat_high_mount, compat_high.bitrate ?? 320)
 end
 
 # ---- The legal logger (ADR-0044) ----
@@ -298,4 +366,251 @@ then
       programme
     )
   logger_command(logger)
+end
+
+# ---- The outgoing Icecast source (ADR-0226; branch icecast-out) ----
+# The programme sent to another Icecast server as a source, for a DJ's AzuraCast (a streamer
+# account: user, password, mount) or any Icecast: its AutoDJ gives way to our programme, with the
+# profanity delay and Dump already in it. Off unless the data says `icecast_out.enabled`
+# and WEAVESIGNAL_ICECAST_OUT_PASSWORD is set.
+#
+# MP3, not Ogg: a chained Ogg stream makes Icecast-type servers drop the source (the third fault,
+# above), and MP3 has no chain. LAME encodes it (ADR-0002's exception).
+#
+# A remote failure must never reach our own listeners or playout's clock. Three things see to it:
+#   - `buffer` puts the output on a clock of its own, so a remote that stalls a write (an
+#     accepted connection nobody reads, a login that never answers) blocks only that clock;
+#   - the output starts and stops on demand (`icecast_out.send`, `icecast_out.stop`) and is
+#     stopped again when the control plane stops asking: each `send` lasts a few seconds only,
+#     so a control plane that dies mid-show does not leave the remote station held on us;
+#   - a failed connection is tried again after a pause that doubles, from 5 s to 30 s (so a wrong
+#     password is one refused login every 30 s, not a storm), and the pause starts again once a
+#     connection holds. The last error is kept for the studio to show.
+# The output reads the same `programme` as the Opus mount, after the metadata is dropped, behind
+# `clip` (NaN to 0). There is no `compress` here, so no lookahead.
+io = data.icecast_out ?? {
+  enabled = false,
+  host = "",
+  port = 0,
+  mount = "",
+  user = null,
+  tls = null,
+  bitrate = null,
+  name = null
+}
+io_password = environment.get("WEAVESIGNAL_ICECAST_OUT_PASSWORD")
+io_bitrate = io.bitrate ?? 128
+io_ready = io.enabled and io_password != "" and io.host != ""
+
+io_connected = ref(false)
+io_since = ref(0.)
+io_audio_s = ref(0.)
+io_error = ref("")
+io_error_at = ref(0.)
+io_failures = ref(0)
+io_until = ref(0.)
+
+if
+  io.enabled and not io_ready
+then
+  io_error :=
+    if
+      io.host == ""
+    then
+      "the remote server's address is not set (ICECAST_OUT_HOST)"
+    else
+      "the remote server's password is not set (ICECAST_OUT_PASSWORD)"
+    end
+  io_error_at := time()
+  log.important(label="icecast_out", "enabled, but #{io_error()}: nothing will be sent")
+end
+
+def icecast_out_status(_) =
+  json.stringify(
+    compact=true,
+    {
+      configured=io_ready,
+      host=io.host,
+      port=io.port,
+      mount=io.mount,
+      tls=(io.tls ?? false),
+      bitrate=io_bitrate,
+      sending=(io_until() > time()),
+      connected=io_connected(),
+      connected_since=(if io_connected() then io_since() else 0. end),
+      bytes_sent=int_of_float(io_audio_s() * float_of_int(io_bitrate) * 125.),
+      failures=io_failures(),
+      last_error=io_error(),
+      last_error_at=io_error_at()
+    }
+  )
+end
+server.register(
+  namespace="icecast_out",
+  usage="status",
+  description="The outgoing Icecast source, as JSON.",
+  "status",
+  icecast_out_status
+)
+
+if
+  io_ready
+then
+  io_source =
+    buffer(id="icecast_out_buffer", buffer=1., max=8., fallible=true, clip(programme))
+  io_transport = if (io.tls ?? false) then http.transport.ssl() else http.transport.unix end
+  io_out =
+    output.icecast(
+      id="to-icecast-out",
+      %mp3(bitrate = io_bitrate, samplerate = 44100, stereo = true),
+      host=io.host,
+      port=io.port,
+      user=(io.user ?? "source"),
+      password=io_password,
+      mount=io.mount,
+      name=io.name,
+      public=false,
+      transport=io_transport,
+      start=false,
+      fallible=true,
+      register_telnet=false,
+      io_source
+    )
+
+  # Audio time sent while connected, for the byte count: the stream is constant bit rate.
+  ignore(
+    io_out.on_frame(
+      synchronous=false,
+      fun () ->
+        if
+          io_connected()
+        then
+          io_audio_s := io_audio_s() + settings.frame.duration()
+        end
+    )
+  )
+  ignore(
+    io_out.on_connect(
+      synchronous=false,
+      fun () ->
+        begin
+          io_connected := true
+          io_since := time()
+          io_failures := 0
+          log.important(label="icecast_out", "connected to #{io.host}:#{io.port}")
+        end
+    )
+  )
+  ignore(
+    io_out.on_disconnect(
+      synchronous=false,
+      fun () ->
+        begin
+          io_connected := false
+          log.important(label="icecast_out", "disconnected from #{io.host}:#{io.port}")
+        end
+    )
+  )
+  # The server's own words, with what they mean in front for the ones people meet.
+  def io_explain(m) =
+    if
+      string.contains(substring="401", m) or string.contains(substring="403", m)
+    then
+      "the server refused the user name or password (#{m})"
+    elsif
+      string.contains(substring="Timeout", m)
+    then
+      "the server did not answer in time (#{m})"
+    elsif
+      string.contains(substring="refused in connect", m)
+    then
+      "nothing is listening at that address and port (#{m})"
+    elsif
+      string.contains(substring="could not write", m) or string.contains(substring="could not read", m)
+    then
+      "the connection to the server was lost (#{m})"
+    else
+      m
+    end
+  end
+  # 5, 10, 20 and then 30 s between tries.
+  def io_backoff(failures) =
+    if
+      failures <= 1
+    then
+      5.
+    elsif
+      failures == 2
+    then
+      10.
+    elsif
+      failures == 3
+    then
+      20.
+    else
+      30.
+    end
+  end
+  ignore(
+    io_out.on_error(
+      synchronous=true,
+      fun (~restart_in, err) ->
+        begin
+          io_connected := false
+          io_failures := io_failures() + 1
+          io_error := io_explain(error.message(err))
+          io_error_at := time()
+          wait = io_backoff(io_failures())
+          log.important(
+            label="icecast_out",
+            "#{io.host}:#{io.port}: #{io_error()}; trying again in #{wait} s"
+          )
+          restart_in(wait)
+        end
+    )
+  )
+
+  # `send` is a lease: the output runs for this many seconds, and the control plane repeats the
+  # command while it wants the programme sent.
+  def io_send(arg) =
+    seconds = float_of_string(default=0., string.trim(arg))
+    if
+      seconds <= 0. or seconds > 120.
+    then
+      "error give a number of seconds between 1 and 120"
+    else
+      io_until := time() + seconds
+      if not io_out.is_started() then io_out.start() end
+      "ok sending for #{seconds} s"
+    end
+  end
+  def io_stop(_) =
+    io_until := 0.
+    if io_out.is_started() then io_out.stop() end
+    io_connected := false
+    "ok stopped"
+  end
+  server.register(
+    namespace="icecast_out",
+    usage="send <seconds>",
+    description="Send the programme to the remote server for this long (a lease to repeat).",
+    "send",
+    io_send
+  )
+  server.register(
+    namespace="icecast_out",
+    usage="stop",
+    description="Stop sending to the remote server.",
+    "stop",
+    io_stop
+  )
+  thread.run(
+    every=1.,
+    fun () ->
+      if
+        io_until() <= time() and io_out.is_started()
+      then
+        ignore(io_stop(""))
+      end
+  )
 end

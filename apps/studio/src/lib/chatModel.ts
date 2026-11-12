@@ -5,7 +5,7 @@
 // watched, the rate, and the statement of reasons the chatter receives. No DOM and no runes, so
 // it is tested on its own (src/chat.test.ts).
 
-import { applyEvent, type ChatInfo, type Held, type Item, type ModSnapshot, type Msg, type Reason, type ServerFrame } from '../../../../packages/ui/chat.ts';
+import { applyEvent, withAvatar, type ChatInfo, type Held, type HeldAvatar, type Item, type ModSnapshot, type Msg, type Reason, type ServerFrame } from '../../../../packages/ui/chat.ts';
 import type { SorReason, SorThen } from '../../../../packages/ui/keymap.ts';
 
 // ---- the statement dialog's reasons ----
@@ -28,6 +28,21 @@ export const SOR_REASONS: readonly SorReasonRow[] = [
   { reason: 'other', key: 'E', label: 'Something else', words: 'another breach of our terms' },
 ];
 
+/** What a picture's dialog adds (ADR-0257): the reason for a picture suspected of being child
+ *  sexual abuse material, which keeps the picture and the uploader's details for a year instead of
+ *  deleting it. Offered for a picture only, never for a message. */
+export const SOR_CSAM: SorReasonRow = {
+  reason: 'suspected_csam',
+  key: 'C',
+  label: 'Suspected child sexual abuse: keep as evidence',
+  words: 'suspected child sexual abuse material',
+};
+
+/** The reasons the dialog offers: the same for a message and a picture, and for a picture one more. */
+export function sorReasonsFor(picture: boolean): readonly SorReasonRow[] {
+  return picture ? [...SOR_REASONS, SOR_CSAM] : SOR_REASONS;
+}
+
 export const SOR_THENS: readonly { then: SorThen; key: string; label: string }[] = [
   { then: 'none', key: '1', label: 'Hide only' },
   { then: 'timeout', key: '2', label: 'Hide and time out' },
@@ -44,14 +59,14 @@ export function sorReasonOf(r: Reason): SorReason {
 export function reasonWords(r: Reason, info: Pick<ChatInfo, 'reasons'> | null): string {
   const given = info?.reasons.find((x) => x.reason === r)?.words;
   if (given) return given.toLowerCase();
-  const row = SOR_REASONS.find((x) => x.reason === r);
+  const row = [...SOR_REASONS, SOR_CSAM].find((x) => x.reason === r);
   if (row) return row.words;
   return r === 'threat_to_life' ? 'a threat to life' : 'child safety';
 }
 
 /** A reason as the screener reads it on an item: the dialog's label, or the service's words. */
 export function reasonLabel(r: Reason, info: Pick<ChatInfo, 'reasons'> | null): string {
-  const row = SOR_REASONS.find((x) => x.reason === r);
+  const row = [...SOR_REASONS, SOR_CSAM].find((x) => x.reason === r);
   if (row) return row.label.replace(/:.*$/, '').toLowerCase();
   return reasonWords(r, info);
 }
@@ -61,7 +76,15 @@ export const REVIEW_DAYS = 14;
 /** The time-out the screener's `O` and the dialog's `2` give. */
 export const TIMEOUT_MIN = 10;
 
+/** What a statement of reasons is about: a message, or a chatter's picture (ADR-0235): one
+ *  waiting for approval that is refused, or an approved one that is removed. */
+export type SorSubject = 'message' | 'avatar-refuse' | 'avatar-remove';
+
 export interface PreviewFacts {
+  /** Absent: a message. */
+  subject?: SorSubject;
+  /** With a picture subject: a picture or document posted in the chat (ADR-0262), not an avatar. */
+  posted?: 'picture' | 'document' | null;
   station: string;
   show: string;
   /** The message's time, already as the chatter's clock prints it (`20:13`); null for many. */
@@ -75,6 +98,32 @@ export interface PreviewFacts {
 /** The statement the chatter receives, as the dialog previews it (ADR-0032: terse). The
  *  service writes the real one from the same facts. */
 export function statementPreview(f: PreviewFacts): string {
+  // Suspected child sexual abuse material: the uploader is told less (the operator, 2026-11-10),
+  // nothing about the reason's words, keeping or reporting. The dialog tells the moderator.
+  if ((f.subject === 'avatar-refuse' || f.subject === 'avatar-remove') && f.reason === 'suspected_csam') {
+    const thing = f.posted ? `the ${f.posted} you posted` : f.subject === 'avatar-refuse' ? 'the picture you uploaded' : 'your picture';
+    return `${f.station || 'The station'} removed ${thing} for breaking the station's rules on illegal content. A moderator decided. You can ask for a review within ${REVIEW_DAYS} days.`;
+  }
+  if ((f.subject === 'avatar-refuse' || f.subject === 'avatar-remove') && f.posted) {
+    const thing = f.posted;
+    const where = f.show ? ` in ${f.show}` : '';
+    const did = f.subject === 'avatar-refuse' ? `did not show the ${thing} you posted${where}` : `removed the ${thing} you posted${where}, and the message with it`;
+    const csam = f.reason === 'suspected_csam';
+    const ground = csam ? 'we believe it is unlawful' : 'it broke our terms';
+    const out = [`${f.station || 'The station'} ${did} because ${ground} (${reasonWords(f.reason, f.info)}).`, 'A moderator decided.'];
+    out.push(`You can ask for a review within ${REVIEW_DAYS} days.`);
+    out.push(`Nobody else can see the ${thing} now.`);
+    return out.join(' ');
+  }
+  if (f.subject === 'avatar-refuse' || f.subject === 'avatar-remove') {
+    const did = f.subject === 'avatar-refuse' ? 'did not approve the picture you uploaded' : 'removed your picture from its chat';
+    const csam = f.reason === 'suspected_csam';
+    const ground = csam ? 'we believe it is unlawful' : 'it broke our terms';
+    const out = [`${f.station || 'The station'} ${did} because ${ground} (${reasonWords(f.reason, f.info)}).`, 'A moderator decided.'];
+    out.push(`You can ask for a review within ${REVIEW_DAYS} days.`);
+    out.push('Nobody else can see the picture now; your messages show the avatar you chose from our set.');
+    return out.join(' ');
+  }
   const where = f.show ? ` in ${f.show}` : '';
   const which = f.at ? `your message of ${f.at}${where}` : `your message${where}`;
   const out = [`${f.station || 'The station'} hid ${which} because it broke our terms (${reasonWords(f.reason, f.info)}).`];
@@ -89,7 +138,7 @@ export function statementPreview(f: PreviewFacts): string {
 
 // ---- the moderation snapshot ----
 
-export const EMPTY_MOD: ModSnapshot = { items: [], held: [], studio: [] };
+export const EMPTY_MOD: ModSnapshot = { items: [], held: [], studio: [], avatars: [] };
 
 /** Apply a moderators-only frame to the snapshot. Returns the same object when nothing changed. */
 export function applyMod(s: ModSnapshot, f: ServerFrame): ModSnapshot {
@@ -107,6 +156,10 @@ export function applyMod(s: ModSnapshot, f: ServerFrame): ModSnapshot {
         : { ...s, items: [...s.items, f.item] };
     case 'mod_item_done':
       return { ...s, items: s.items.filter((i) => i.id !== f.id) };
+    case 'mod_avatar':
+      return { ...s, avatars: [...(s.avatars ?? []).filter((a) => a.id !== f.a.id), f.a] };
+    case 'mod_avatar_done':
+      return (s.avatars ?? []).some((a) => a.id === f.id) ? { ...s, avatars: (s.avatars ?? []).filter((a) => a.id !== f.id) } : s;
     case 'mod_studio':
       return s.studio.some((x) => x.m.id === f.s.m.id)
         ? { ...s, studio: s.studio.map((x) => (x.m.id === f.s.m.id ? f.s : x)) }
@@ -120,7 +173,8 @@ export function applyMod(s: ModSnapshot, f: ServerFrame): ModSnapshot {
 
 export type Entry =
   | { key: string; kind: 'report' | 'notice' | 'review'; at: number; due: number | null; item: Item }
-  | { key: string; kind: 'held'; at: number; due: null; held: Held };
+  | { key: string; kind: 'held'; at: number; due: null; held: Held }
+  | { key: string; kind: 'avatar'; at: number; due: null; avatar: HeldAvatar };
 
 /** Everything that needs a person, in one list: anything on a fixed clock (an intimate image's
  *  48 hours) first, soonest due first; then the rest oldest first. */
@@ -129,7 +183,8 @@ export function needsList(s: ModSnapshot): Entry[] {
     .filter((i) => i.status === 'open')
     .map((item) => ({ key: `item:${item.id}`, kind: item.kind, at: item.created_ms, due: item.due_ms, item }));
   const held: Entry[] = s.held.map((h) => ({ key: `held:${h.m.id}`, kind: 'held' as const, at: h.m.server_ms, due: null, held: h }));
-  return [...items, ...held].sort((a, b) => {
+  const avatars: Entry[] = (s.avatars ?? []).map((a) => ({ key: `avatar:${a.id}`, kind: 'avatar' as const, at: a.uploaded_ms, due: null, avatar: a }));
+  return [...items, ...held, ...avatars].sort((a, b) => {
     if (a.due !== null || b.due !== null) {
       if (a.due === null) return 1;
       if (b.due === null) return -1;
@@ -180,6 +235,8 @@ export function applyRoom(r: Room, f: ServerFrame, now: number, mine: Record<num
       return { ...r, lines: applyEvent(r.lines, f, cap), featuredAt: { ...r.featuredAt, [f.m.id]: now } };
     case 'pin':
       return { ...r, lines: applyEvent(r.lines, f, cap), pinned: f.m };
+    case 'avatar':
+      return { ...r, lines: applyEvent(r.lines, f, cap), pinned: r.pinned?.author.id === f.account ? withAvatar(r.pinned, f.avatar) : r.pinned };
     case 'hide': {
       const hidden = { ...r.hidden };
       for (const id of f.ids) {

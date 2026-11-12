@@ -1,0 +1,30 @@
+id	who	speaker	heard	scenario	text
+t-alone-phones	eilidh	Eilidh Fraser-MacLeod	air	alone	It's just me on the desk this morning, so bear with me while I answer the phones myself.
+t-dougal-1	dougal	Dougal Thomson	booth	queue	Dougal Thomson, Portobello. It's the bins. Three weeks now and nobody's lifted them, and the gulls have found out.
+t-dougal-2	dougal	Dougal Thomson	booth	queue	Aye, I'll keep it short. I've been trying since the news.
+t-e-dougal	eilidh	Eilidh Fraser-MacLeod	air	queue	Dougal Thomson in Portobello. Dougal, the bins.
+t-dougal-air	dougal	Dougal Thomson	air	queue	Three weeks, Eilidh. Three weeks of bags on the pavement, and the gulls having a festival. I've rung the council, I've rung the councillor, and now I'm ringing you.
+t-e-dougal-bye	eilidh	Eilidh Fraser-MacLeod	air	queue	We'll ask them. Thanks, Dougal.
+t-flora-1	flora	Flora Armstrong	booth	queue	Flora Armstrong, Musselburgh. Och, I've no question really, Shona. I just love the show and I wanted to say so.
+t-alastair-1	alastair	Alastair Buchanan	booth	queue	Alastair. I've a thing or two to say about that presenter of yours, and I'll be saying them on air, so just put me through.
+t-tavish-1	tavish	Tavish	booth	banned	It's Tavish. Aye, I know what it says on your screen. That was months ago. I just want a word about the ferries.
+t-tavish-2	tavish	Tavish	booth	banned	Me again. Come on, Shona, it's one word about the ferries.
+t-carts-link	eilidh	Eilidh Fraser-MacLeod	air	carts	Coming up after the news: Gregor Stewart and the last tram down Leith Walk. Stay with us.
+t-auto-room	eilidh	Eilidh Fraser-MacLeod	air	auto	Morning. If you can hear this, you're in the room with me: listeners are still on the overnight log.
+t-auto-live	eilidh	Eilidh Fraser-MacLeod	air	auto	That's the overnight done. Kettle FM is live, the kettle's on, and Finlay is here for Steeped after the news.
+t-e-iona	eilidh	Eilidh Fraser-MacLeod	air	link	Iona MacIntosh is on the line from Derry. Iona, go ahead.
+t-iona-1	iona	Iona MacIntosh	air	link	Morning, Eilidh. It's the ferry fares. They've gone up twice this year, the timetable's got worse, and if you miss the last one you're sleeping in the car.
+t-iona-2	iona	Iona MacIntosh	air	link	…can you hear me? Hello? The signal's awful on this stretch of road, I'll… the fares, I was saying…
+t-iona-3	iona	Iona MacIntosh	air	link	Sorry about that, Eilidh, I'm back. Where was I: the fares. Twice this year.
+t-e-iona-bye	eilidh	Eilidh Fraser-MacLeod	air	link	Thanks, Iona. Safe home.
+t-nd-on	eilidh	Eilidh Fraser-MacLeod	air	next-dj	It's nearly ten on Kettle FM. Finlay Grant has Steeped after this, and he'll be joining me in a wee while.
+t-nd-level	finlay	Finlay Grant	air	next-dj	One, two. One, two. Is that loud enough, or am I too close to it?
+t-nd-plan-e	eilidh	Eilidh Fraser-MacLeod	booth	next-dj	Finlay, it's Eilidh. You sound good. I'll bring you on at five to, we'll have a wee chat, then it's yours.
+t-nd-plan-f	finlay	Finlay Grant	booth	next-dj	Five to. Right you are. I'll have my first record ready.
+t-ho-last	eilidh	Eilidh Fraser-MacLeod	air	handover	That's nearly it from me this morning. Thanks for all your calls about Leith Walk, and to Gregor for the trams.
+t-ho-count-e	eilidh	Eilidh Fraser-MacLeod	booth	handover	Finlay, you're on after this. In three, two, one.
+t-ho-count-f	finlay	Finlay Grant	booth	handover	Ready when you are.
+t-ho-hello	eilidh	Eilidh Fraser-MacLeod	air	handover	And here he is. Finlay Grant, good morning. What's in the pot for Steeped today?
+t-ho-f-hello	finlay	Finlay Grant	air	handover	Morning, Eilidh. Morning, everyone. Loose leaf and long records: an hour of Scottish folk you'll not have heard on the radio.
+t-ho-bye	eilidh	Eilidh Fraser-MacLeod	air	handover	Lovely. That's me away, then. Finlay, she's all yours.
+t-ho-steeped	finlay	Finlay Grant	air	handover	This is Steeped on Kettle FM, with me, Finlay Grant. The kettle's still on. Here's the first one.

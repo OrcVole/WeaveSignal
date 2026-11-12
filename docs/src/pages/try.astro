@@ -5,7 +5,8 @@
 // runs a simulated station in the visitor's browser. The page says what the visitor is about to
 // do, who is in the room, which keys to press (the keymap's own: packages/ui/keymap.ts), what
 // the sandbox needs, and whose sounds it plays. The keys and the slot a caller takes are the
-// product's documented ones (how-to/take-a-caller); the sandbox's guide bar says the rest.
+// product's documented ones (how-to/take-a-caller); the sandbox's guide bar says the rest. The
+// training scenarios (ADR-0222) are listed from the sandbox's own chooser, each by its hash.
 import Site from '../layouts/Site.astro';
 import Frame from '../components/site/Frame.astro';
 import desk from '../assets/screens/reference-desk-window.png';
@@ -17,6 +18,21 @@ import dumpedDark from '../assets/states/chip-dumped-dark.svg';
 import dumpedLight from '../assets/states/chip-dumped-light.svg';
 
 const app = 'https://demo.weavesignal.top/';
+
+// The training scenarios (ADR-0222), as the sandbox's chooser lists them after the show; the
+// hash opens each one's start card. One job or one skill each.
+const scenarios = [
+  { id: 'alone', title: 'Running everything alone', min: 4, blurb: 'You are the DJ and the screener: answer a caller from the desk, cue and talk to them, take them to air, play a cart, hand back to playout.' },
+  { id: 'queue', title: 'A busy queue', min: 4, blurb: 'You are the screener and four callers ring within seconds: send, see the desk decline, hold one, drop one, send again.' },
+  { id: 'dump', title: 'The dump', min: 2, blurb: 'A caller swears on air: dump the profanity delay in time, and hear as a listener that it never went out.' },
+  { id: 'banned', title: 'Banned before', min: 2, blurb: 'A caller rings from an account the station banned: read the mark, see the desk decline, drop him, and see him come back marked.' },
+  { id: 'carts', title: 'Carts and a bed', min: 2, blurb: 'A music bed under your link, shots over the top, the cart wall’s keys, and a cart cued in your headphones.' },
+  { id: 'auto', title: 'Playout takes over', min: 2, blurb: 'The station starts in auto mode: see AUTO and OPEN, take it live, cue the next DJ, hand the air back to automation.' },
+  { id: 'next-dj', title: 'Set up the next DJ', min: 3, blurb: 'The next show is another DJ’s: send them an invite, hear their level in your headphones, agree the handover off air.' },
+  { id: 'handover', title: 'Hand over to the next DJ', min: 3, blurb: 'The next DJ stands by: count them in, overlap on air for a minute, take yourself off and leave them the air with no gap.' },
+  { id: 'link', title: 'A line goes bad', min: 2, blurb: 'A caller’s link degrades on air, then drops: read LINK DEGRADED, take her off, and put her back when she returns.' },
+  { id: 'mic', title: 'Your own microphone', min: 1, blurb: 'ON AIR but silent: the tab’s microphone is off. Then the desk’s own mute, and how to tell the two apart.' },
+];
 const credits = 'https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/assets/carts-demo/CREDITS.md';
 
 // The five people, in the order the visitor meets them.
@@ -60,10 +76,10 @@ const cast = [
         <h1 id="try-h">Try the desk</h1>
         <p class="sub">Run a short show on Kettle FM from the studio's real interface, in your browser. The people are pre-recorded. Nothing you press reaches a real station.</p>
         <div class="actions">
-          <a class="btn primary" href={app}>Open the sandbox desk</a>
-          <a class="btn" href={app} target="_blank" rel="noopener">Open it in a new tab</a>
+          <a class="btn primary" href={`${app}#show`}>Open the sandbox desk</a>
+          <a class="btn" href="#scenarios-h">Training scenarios</a>
         </div>
-        <p class="try-note">A short show. Best with sound on and headphones, on a computer with a keyboard. A guide bar in the app walks you through the same steps.</p>
+        <p class="try-note">A short show, then ten training scenarios of a few minutes each. Best with sound on and headphones, on a computer with a keyboard. A guide bar in the app walks you through every step.</p>
       </div>
       <div class="try-media">
         <Frame
@@ -160,6 +176,25 @@ const cast = [
         </li>
       </ol>
       <p class="lead" style="margin-top:2rem">Everything else on the desk works the same way: <kbd class="key">Q</kbd> to <kbd class="key">Y</kbd> cue a slot, <kbd class="key">A</kbd> to <kbd class="key">H</kbd> talk to one person while held, <kbd class="key">Z</kbd> to <kbd class="key">N</kbd> mute. <a href="/docs/how-to/present-from-the-keyboard/">Present from the keyboard</a> has the whole map.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="scenarios-h">
+    <div class="wrap">
+      <h2 id="scenarios-h">Training scenarios</h2>
+      <p class="lead">After the show, the same sandbox teaches one job or one skill at a time, each with its own guide, a card that says what you will learn, and a card at the end that says what you did. The first is the one a DJ most needs: running the desk and the phones alone. Pick them from the sandbox's chooser, or open one here.</p>
+      <ol class="scenarios">
+        {scenarios.map((sc) => (
+          <li>
+            <a href={`${app}#${sc.id}`}>
+              <span class="sc-title">{sc.title}</span>
+              <span class="sc-min">{sc.min} min</span>
+              <span class="sc-blurb">{sc.blurb}</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+      <p class="lead" style="margin-top:1.5rem">A DJ really runs two windows: the studio app, which drives the desk, and a browser tab they speak through, because the app does not join the room itself yet. The scenarios show that tab as a small panel in the guide bar, with its own microphone. Some of the new callers are not recorded yet and speak in captions.</p>
     </div>
   </section>
 

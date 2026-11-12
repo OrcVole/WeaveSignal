@@ -87,6 +87,12 @@ pub async fn serve(chat: Arc<Chat>, socket: WebSocket) {
     } else {
         None
     };
+    // Their own pictures and documents still waiting for the station (ADR-0262), so a page
+    // opened later says so too.
+    let waiting = match &account {
+        Some(a) => chat.own_waiting(a.id).await.unwrap_or_default(),
+        None => vec![],
+    };
 
     // ---- welcome, then the room ----
     let (tx, mut rx) = mpsc::channel::<Out>(chat.config.limits.socket_queue);
@@ -132,6 +138,9 @@ pub async fn serve(chat: Arc<Chat>, socket: WebSocket) {
             slow.clone(),
         );
         room.send_to(id, &welcome);
+        for m in waiting {
+            room.send_to(id, &ServerFrame::Mine { m });
+        }
         id
     };
 
@@ -221,6 +230,7 @@ pub async fn serve(chat: Arc<Chat>, socket: WebSocket) {
                     .post(
                         who,
                         PostRequest {
+                            attachment: None,
                             nonce,
                             kind,
                             body,

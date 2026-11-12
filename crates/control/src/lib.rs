@@ -27,6 +27,7 @@ pub mod public;
 pub mod retention;
 pub mod schedule;
 pub mod scopes;
+pub mod setup;
 pub mod shows;
 pub mod staff;
 pub mod steering;
@@ -37,6 +38,8 @@ pub mod video;
 pub mod web;
 pub mod webhooks;
 pub mod zone;
+// rtmp-out (ADR-0230)
+pub mod rtmp;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -147,7 +150,9 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     });
     let mut studio = studio::Studio::new(&config.studio.show, config.studio.rundown.clone());
     studio.set_listener_delay(config.studio.listener_delay_ms);
-    studio.set_edges(config.steering.enabled());
+    // Viewers are served by more than this server when steering has edges, or when the
+    // player's HLS is on another address, an edge or a CDN (issue 4).
+    studio.set_edges(config.steering.enabled() || web::hls_elsewhere(&config.join.hls_url));
     for b in &config.studio.banned {
         studio.ban(
             &b.identity,
@@ -282,7 +287,40 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         staff: staff.clone(),
         publishing: config.publishing.clone(),
         zone: hub.zone.clone(),
+        live: Some(hub.live.clone()),
     });
+    // The setup page and the station's look (ADR-0237): what an admin set on the running
+    // station is read back now, so the name and the contact in force are right from the first
+    // request. The settings file's name is `config.station.name`; the database's `station.name`
+    // (returned above) is the one in force.
+    hub.live.set_file_name(&config.station()?.name);
+    let setup_state = Arc::new(setup::SetupState {
+        station: station.id,
+        db: db.clone(),
+        admin_token: config.admin_token.clone(),
+        staff: staff.clone(),
+        hub: hub.clone(),
+        file_contact: config.join.consent_contact.clone(),
+        overrides_file: config.setup.overrides_file.clone(),
+        stream_auth: config.setup.stream_auth,
+        facts: setup::InstallFacts {
+            public_url: config.publishing.public_url.clone(),
+            stream_url: config.join.stream_url.clone(),
+            room_url: config.room.public_url.clone(),
+            media_port: config.ports.get("livekit_media"),
+            turn_tls_port: config.ports.get("turn_tls"),
+            mail: match config.mail.mode {
+                config::MailMode::Command => "command",
+                config::MailMode::Outbox => "outbox",
+                config::MailMode::Off => "off",
+            }
+            .to_owned(),
+            listed: config.web.listed,
+        },
+        carts: config.carts.clone(),
+        started: std::time::SystemTime::now(),
+    });
+    setup::restore(&setup_state).await;
     let state = Arc::new(app::AppState {
         station,
         db,
@@ -290,7 +328,14 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         admin_token: config.admin_token.clone(),
         staff,
         hub,
-        join: config.join.clone(),
+        join: crate::config::JoinConfig {
+            public_url: config
+                .publishing
+                .public_url
+                .trim_end_matches('/')
+                .to_owned(),
+            ..config.join.clone()
+        },
         video: config.video.clone(),
         joins: Default::default(),
         turn_tls_port: config.ports.get("turn_tls"),
@@ -314,6 +359,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     });
     // The slate's still follows the show on air (ADR-0200).
     video::spawn_slate_still(state.clone());
+    // rtmp-out: RTMP out's destinations, kept in the database, to the desk (ADR-0230).
+    rtmp::spawn_sync(state.clone());
     if let Some(pool) = &state.db {
         retention::warn_at_start(pool, state.station.id).await;
         retention::spawn_sweeper(pool.clone(), state.station.id, link.clone());
@@ -324,18 +371,29 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         );
     }
     // Content steering among the edges (M7): its own state, routes and health checks.
-    let steering_state = Arc::new(steering::SteeringState::new(
-        config.steering.clone(),
-        config.admin_token.clone(),
-    ));
+    let steering_state = Arc::new(
+        steering::SteeringState::new(config.steering.clone(), config.admin_token.clone())
+            .with_staff(state.staff.clone()),
+    );
     steering::spawn_checker(steering_state.clone());
     // The public pages, when a build is configured (M3's known fault: nothing served them).
     let site = match &config.web.dir {
         Some(dir) => {
-            let csp = web::csp_with_hls(
+            let edges: Vec<&str> = if config.steering.enabled() {
+                config
+                    .steering
+                    .edges
+                    .iter()
+                    .map(|e| e.host.as_str())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let csp = web::csp_with_edges(
                 &config.room.public_url,
                 &config.join.stream_url,
                 &config.join.hls_url,
+                &edges,
             );
             let site = web::Site::load_listed(dir, &csp, config.web.listed)
                 .with_context(|| format!("cannot serve the public pages from {}", dir.display()))?;
@@ -355,6 +413,7 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let routes = router
         .layer(axum::Extension(link))
         .merge(shows::router(shows_state))
+        .merge(setup::router(setup_state))
         .merge(steering::router(steering_state));
     // API tokens, the open routes' CORS and limits (ADR-0195): over every route.
     let service = api::layer(routes, gate_staff)

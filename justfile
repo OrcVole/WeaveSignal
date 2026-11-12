@@ -80,6 +80,8 @@ liq-check:
     podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/r/tests/playout:ro -v {{root}}/playout:/r/playout:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /r/tests/playout/nan.liq
     # The processing chain that plays (playout/chain.liq) on tones: raised, lowered, left alone, not pumped, never over the limiter's ceiling
     podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/r/tests/playout:ro -v {{root}}/playout:/r/playout:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /r/tests/playout/chain.liq
+    # The outgoing Icecast source (ADR-0226) stays on a clock of its own, so a remote that stalls cannot hold up our listeners
+    grep -q 'buffer(id="icecast_out_buffer"' {{root}}/playout/listeners.liq
     # The default loop plays three laps with no gap at the join (ADR-0130)
     podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/t:ro -v {{root}}/assets/default-loop:/a:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /t/default-loop.liq
 
@@ -98,6 +100,10 @@ test-contain:
 # The listener stream keeps a steady byte rate with the room empty
 test-empty:
     TEST=empty {{root}}/tests/room/run-stack.sh
+
+# A digitally silent microphone stays linked and is never subscribed again (issue 13)
+test-quiet:
+    TEST=quiet {{root}}/tests/room/run-stack.sh
 
 # The profanity delay dumped: the listener never hears the audio it held
 test-dump:
@@ -131,6 +137,12 @@ test-chat-load:
 test-onair:
     {{root}}/tests/playout/run-playout.sh
 
+# The programme sent to another Icecast server (ADR-0226; branch icecast-out): Icecast 2.5 stands in for a DJ's
+# AzuraCast on ports 223xx. The MP3 arrives and decodes; the source follows the desk and the manual choice;
+# the remote killed and a wrong password leave our own listeners unbroken; the right password is taken again
+test-icecast-out: relay-image
+    RELAY_IMAGE={{relay_image}} {{root}}/tests/playout/run-icecast-out.sh
+
 # Carts fired over HTTP heard in the listener stream (Liquidsoap and PostgreSQL on 31xxx ports,
 # the demo pack loaded through the media worker); FILE MISSING; a bed ducked by a sweeper
 test-carts:
@@ -143,6 +155,13 @@ test-carts:
 # browser outside the repository.
 test-m3:
     {{root}}/tests/m3/run-relay.sh
+
+# A browser's camera at the desk (needs PLAYWRIGHT_CORE): headless Chromium publishes a camera as
+# the join page does (AV1, the talk station's Brave fault of 2026-11-11), and the desk keeps that
+# person's one subscription, hears them and shows their camera. Not in `ci`, for the same reason;
+# the images' element checks (rtpav1depay) are.
+test-browsercam:
+    TEST=browsercam {{root}}/tests/room/run-stack.sh
 
 # The edge images (M7): nginx as the HLS pull-through cache, Icecast 2.5 as the audio relay
 edge-image: relay-image
@@ -288,6 +307,15 @@ feed-test:
 package-desktop-test:
     {{root}}/deploy/desktop/install-test.sh
 
+# The install wizards' shell parts (ADR-0237), with no container: the generator's Compose file
+# through the real weavesignal.sh (engines stubbed) and `compose config`, and the Cloudron start
+# script's setup.env reader and nginx routes. Needs Node 22.18 or later. The generator's own
+# tests run in `web-check`, the setup routes' in `test-db`; the browser check is
+# tests/wizard/check.mjs against tests/wizard/run-station.sh.
+wizard-check:
+    {{root}}/tests/wizard/compose-env.sh
+    {{root}}/tests/wizard/start-sh.sh
+
 # The public pages (player, call-in, join, echo test): Svelte checks, tests and the build
 # (pnpm 10 first on PATH)
 web-check:
@@ -318,10 +346,25 @@ test-db:
     podman rm -f {{test_prefix}}-pg >/dev/null 2>&1 || true
     podman run -d --rm --name {{test_prefix}}-pg -p 127.0.0.1:{{test_pg_port}}:5432 -e POSTGRES_PASSWORD=test-only -e POSTGRES_DB=weavesignal docker.io/library/postgres:18 >/dev/null
     for i in $(seq 1 60); do podman exec {{test_prefix}}-pg pg_isready -h 127.0.0.1 -U postgres -d weavesignal >/dev/null 2>&1 && break; sleep 0.5; done
-    status=0; WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-model -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test carts_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test retention_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test shows_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test schedule_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test staff_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test tokens_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-chat --test chat_db -- --ignored || status=$?; podman rm -f {{test_prefix}}-pg >/dev/null; exit $status
+    status=0; WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-model -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test carts_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test retention_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test shows_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test consent_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test rtmp_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test schedule_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test staff_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test tokens_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-control --test setup_db -- --ignored && WEAVESIGNAL_TEST_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:{{test_pg_port}}/weavesignal cargo test -p weavesignal-chat --test chat_db -- --ignored || status=$?; podman rm -f {{test_prefix}}-pg >/dev/null; exit $status
 
 # Every gate, in order, on this machine (there is no hosted CI): host crates, licences, the
 # desk in its image, the Liquidsoap scripts, the migrations, the documentation, the stack
 # tests (room, playout restart, carts, edges), the studio app, the public pages, the Compose bundle with its port scan, the installer and the Quadlets.
 # Needs Podman, cargo-deny, pnpm 10, WebKitGTK 4.1, ffmpeg, and the images (`just desk-image server-image`).
-ci: check openapi-check licences reuse-check desk-check liq-check test-db docs-build studio-check feed-test web-check compose-check boot-check public-check tools-check quadlet-check test-room test-contain test-churn test-empty test-dump test-playout test-feed test-onair test-carts test-edges test-relay-tls test-bundle test-install
+# The desk image first, under this worktree's tag (ADR-0243): a gate that ran a stale image
+# (the default :m5, older than RTMP out) failed desk-check, or passed what it should not.
+ci: desk-image check openapi-check licences reuse-check desk-check liq-check test-db docs-build studio-check feed-test web-check wizard-check compose-check boot-check public-check tools-check quadlet-check test-room test-contain test-churn test-empty test-quiet test-dump test-playout test-feed test-onair test-icecast-out test-carts test-edges test-relay-tls test-bundle test-install
+
+# --- rtmp-out (ADR-0230) -------------------------------------------------------------------
+
+# RTMP out against real servers on loopback (24xxx), never a real platform: MediaMTX (both
+# profiles read back, a refused key, the server going away, a dump), OvenMediaEngine and PeerTube
+# (both profiles; PEERTUBE=0 skips it). Not in `ci`: it pulls three servers' images.
+test-rtmp:
+    WEAVESIGNAL_DESK_IMAGE={{desk_image}} {{root}}/tests/rtmp/run.sh
+
+# RTMP out's extra encode, measured: the desk's CPU with each profile sending, at the 480p20 and
+# 720p30 canvases (a release build; a measurement, not in `ci`)
+test-rtmp-cost:
+    {{in_desk}} env RUST_LOG=error cargo test --release -p weavesignal-desk --test rtmp_stack -- --ignored --nocapture rtmp_cost

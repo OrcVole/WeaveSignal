@@ -53,6 +53,9 @@ pub struct Config {
     pub publishing: PublishingConfig,
     #[serde(default)]
     pub web: WebConfig,
+    /// The station's setup page (ADR-0237).
+    #[serde(default)]
+    pub setup: SetupConfig,
     /// HLS content steering among the station's edges (M7, ADR-0051).
     #[serde(default)]
     pub steering: crate::steering::SteeringConfig,
@@ -128,6 +131,22 @@ pub struct WebConfig {
     /// `/robots.txt` disallows everything. On, the public address may be listed; the API and
     /// the invite and echo-test pages never are.
     pub listed: bool,
+}
+
+/// The station's setup page (ADR-0237). What it stores is in the database; these two are for
+/// the one answer that cannot be: the listener stream's password, which only a package whose
+/// own proxy enforces it has (the Cloudron package sets both; the Compose bundle neither).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct SetupConfig {
+    /// A file the package's start script reads at each start (`LISTENERS_AUTH` and
+    /// `LISTENERS_PASSWORD`, each checked; it is never run). Set, the setup page offers the
+    /// stream's password and writes its answer here, to apply at the next restart. An absolute
+    /// path.
+    pub overrides_file: Option<PathBuf>,
+    /// Whether the stream asks for a password as this station was started, for the page to
+    /// show; the start script writes it.
+    pub stream_auth: Option<bool>,
 }
 
 /// Retention (ADRs 0113-0116): where recordings are kept, and how often the sweeper deletes
@@ -347,6 +366,12 @@ pub struct JoinConfig {
     /// The listener stream as the player page reaches it, through the proxy; empty, the
     /// player says the stream is not set up.
     pub stream_url: String,
+    /// The Opus stream's constant bit rate in kbit/s (ADR-0233; the listener process's
+    /// `listeners.bitrate`), so the player can name it beside the MP3 streams.
+    pub stream_kbps: u32,
+    /// The MP3 streams beside the Opus one (ADR-0002, ADR-0232): the player offers each one
+    /// that is on, at [`Self::stream_url`]'s address with its own mount.
+    pub mp3: Vec<Mp3Stream>,
     /// Whether the player page offers "call in" (ADR-0006).
     pub call_in: bool,
     /// What a caller agrees to before they can call. `{station}` becomes the station's name,
@@ -382,6 +407,39 @@ pub struct JoinConfig {
     /// The HLS as the player reaches it: `/hls` through the proxy, or an edge or CDN's
     /// address for the same files (ADR-0017).
     pub hls_url: String,
+    /// The station's public address (`publishing.public_url`), copied in at start and not a
+    /// setting of its own: an invite's link is made absolute with it, because on Cloudron the
+    /// join page is on the public domain while the studio app talks to the studio domain,
+    /// behind Cloudron's login. Empty, the link stays relative to wherever the app reaches.
+    #[serde(skip)]
+    pub public_url: String,
+}
+
+/// One MP3 stream the listener process encodes (`listeners.compat`, `listeners.compat_high`).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Mp3Stream {
+    /// Off, the player does not offer it (the bundle writes both, on or off). A mount that is
+    /// not a mount name, or one already offered, is left out of the player, not refused: the
+    /// listener process is what refuses a station's streams.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Its mount on the listener port, e.g. `programme.mp3`.
+    pub mount: String,
+    /// Its constant bit rate, in kbit/s.
+    pub kbps: u32,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// A mount's name as the listener process takes it: letters, digits, `.`, `_` and `-`.
+pub fn is_mount_name(m: &str) -> bool {
+    !m.is_empty()
+        && m.len() <= 64
+        && m.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 /// The default consent wording (operator, 2026-11-01: two sentences, for internet radio); a
@@ -392,6 +450,8 @@ impl Default for JoinConfig {
     fn default() -> Self {
         Self {
             stream_url: String::new(),
+            stream_kbps: 96,
+            mp3: Vec::new(),
             call_in: true,
             consent_text: CONSENT_TEXT.to_owned(),
             consent_contact: String::new(),
@@ -405,6 +465,7 @@ impl Default for JoinConfig {
             challenge_ttl_s: 30 * 60,
             hls_dir: PathBuf::from("/var/lib/weavesignal/hls"),
             hls_url: "/hls".to_owned(),
+            public_url: String::new(),
         }
     }
 }
@@ -507,6 +568,39 @@ pub enum ConfigError {
     Invalid(String),
 }
 
+/// The station's own additions to a generated settings file (issue 5): a second file that may
+/// hold only `[studio]` (the show, the rundown, the banned list) and `[steering]`, which the
+/// Compose bundle and the Cloudron package do not write. Its sections replace the file's.
+pub const EXTRA_ENV: &str = "WEAVESIGNAL_CONTROL_EXTRA";
+
+/// The sections the additions file may hold.
+const EXTRA_SECTIONS: [&str; 2] = ["studio", "steering"];
+
+/// `base` with the sections of `extra` put in place of its own.
+pub fn with_extra(
+    base: &str,
+    base_path: &str,
+    extra: &str,
+    extra_path: &str,
+) -> Result<String, ConfigError> {
+    let parse = |text: &str, path: &str| {
+        text.parse::<toml::Table>().map_err(|e| ConfigError::Parse {
+            path: path.to_owned(),
+            source: Box::new(e),
+        })
+    };
+    let mut table = parse(base, base_path)?;
+    for (k, v) in parse(extra, extra_path)? {
+        if !EXTRA_SECTIONS.contains(&k.as_str()) {
+            return Err(ConfigError::Invalid(format!(
+                "{extra_path} may hold only [studio] and [steering]; it has `{k}`"
+            )));
+        }
+        table.insert(k, v);
+    }
+    toml::to_string(&table).map_err(|e| ConfigError::Invalid(e.to_string()))
+}
+
 impl Config {
     pub fn from_toml(text: &str, path: &str) -> Result<Self, ConfigError> {
         let config: Config = toml::from_str(text).map_err(|e| ConfigError::Parse {
@@ -517,15 +611,23 @@ impl Config {
         Ok(config)
     }
 
-    /// Read the settings file, then take secrets from the environment.
+    /// Read the settings file, then the station's own additions (`WEAVESIGNAL_CONTROL_EXTRA`,
+    /// when set and the file exists), then take secrets from the environment.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let shown = path.display().to_string();
-        let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
+        let mut text = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: shown.clone(),
             source,
         })?;
-        let mut config = Self::from_toml(&text, &shown)?;
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        if let Some(extra) = env(EXTRA_ENV).filter(|p| Path::new(p).is_file()) {
+            let more = std::fs::read_to_string(&extra).map_err(|source| ConfigError::Read {
+                path: extra.clone(),
+                source,
+            })?;
+            text = with_extra(&text, &shown, &more, &extra)?;
+        }
+        let mut config = Self::from_toml(&text, &shown)?;
         config.database_url = env(DATABASE_URL_ENV);
         config.livekit_secret = env(LIVEKIT_SECRET_ENV);
         config.admin_token = env(ADMIN_TOKEN_ENV);
@@ -639,11 +741,27 @@ impl Config {
                     .into(),
             ));
         }
+        if !(64..=256).contains(&self.join.stream_kbps) {
+            return Err(ConfigError::Invalid(format!(
+                "`join.stream_kbps` is {}; the Opus stream takes 64 to 256 kbit/s (OPUS_BITRATE)",
+                self.join.stream_kbps
+            )));
+        }
         let contact = &self.join.consent_contact;
         if contact.chars().count() > 200 || contact.chars().any(char::is_control) {
             return Err(ConfigError::Invalid(
                 "`join.consent_contact` is an email address or a link: at most 200 characters, on one line"
                     .into(),
+            ));
+        }
+        if self
+            .setup
+            .overrides_file
+            .as_ref()
+            .is_some_and(|p| !p.is_absolute())
+        {
+            return Err(ConfigError::Invalid(
+                "`setup.overrides_file` must be an absolute path".into(),
             ));
         }
         if self.retention.sweep_every_s < 60 {
@@ -756,6 +874,33 @@ const SAMPLE: &str = include_str!("../control.example.toml");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stations_additions_bring_the_show_and_steering_and_nothing_else() {
+        let base = "[station]\nname = \"Kettle FM\"\n[studio]\nshow = \"Old\"\n";
+        let extra = "[studio]\nshow = \"The Morning Kettle\"\n[[studio.rundown]]\nat = \"10:07\"\ntitle = \"Handover\"\nkey = \"⇧⏎\"\n";
+        let merged = with_extra(base, "control.toml", extra, "station.toml").unwrap();
+        let t: toml::Table = merged.parse().unwrap();
+        assert_eq!(t["studio"]["show"].as_str(), Some("The Morning Kettle"));
+        assert_eq!(t["studio"]["rundown"][0]["key"].as_str(), Some("⇧⏎"));
+        assert_eq!(t["station"]["name"].as_str(), Some("Kettle FM"));
+        // Anything else is refused, naming the file and the section.
+        let e = with_extra(
+            base,
+            "control.toml",
+            "[room]\nname = \"x\"\n",
+            "station.toml",
+        )
+        .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("station.toml may hold only [studio] and [steering]; it has `room`"),
+            "{e}"
+        );
+        // A file that is not TOML names itself.
+        let e = with_extra(base, "control.toml", "[studio", "station.toml").unwrap_err();
+        assert!(e.to_string().contains("station.toml"), "{e}");
+    }
 
     const MINIMAL: &str = r#"
 [station]
@@ -891,6 +1036,28 @@ name = "Kettle FM"
         assert!(Config::from_toml(&text, "t").is_err());
         let text = format!("{MINIMAL}\n[join]\nconsent_text = \" \"\n");
         assert!(Config::from_toml(&text, "t").is_err());
+    }
+
+    #[test]
+    fn the_streams_rates_and_mounts_are_checked() {
+        let c = Config::from_toml(MINIMAL, "t").unwrap();
+        assert_eq!(c.join.stream_kbps, 96);
+        assert!(c.join.mp3.is_empty());
+        // As the Compose bundle writes them: both MP3 streams listed, on or off.
+        let both = |a: &str, b: &str, kbps: u32| {
+            format!(
+                "{MINIMAL}\n[join]\nstream_kbps = {kbps}\nmp3 = [\n  {{ enabled = true, mount = \"{a}\", kbps = 128 }},\n  {{ enabled = false, mount = \"{b}\", kbps = 320 }},\n]\n"
+            )
+        };
+        let c = Config::from_toml(&both("programme.mp3", "programme-high.mp3", 128), "t").unwrap();
+        assert_eq!(c.join.stream_kbps, 128);
+        assert_eq!(c.join.mp3.len(), 2);
+        assert!(c.join.mp3[0].enabled && !c.join.mp3[1].enabled);
+        assert!(Config::from_toml(&both("programme.mp3", "x.mp3", 300), "t").is_err());
+        assert!(Config::from_toml(&both("programme.mp3", "x.mp3", 48), "t").is_err());
+        // An MP3 stream's mount and rate are the listener process's to refuse: a station whose
+        // 1.0.0 settings started keeps starting, and the player leaves out what it cannot reach.
+        assert!(Config::from_toml(&both("../etc", "x.mp3", 96), "t").is_ok());
     }
 
     #[test]

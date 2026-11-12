@@ -156,6 +156,27 @@ pub fn clean_path(path: &str) -> Result<&str, String> {
     }
 }
 
+/// The request body the page sent, as bytes. The page sends raw bytes; over Tauri's custom IPC
+/// protocol they arrive as `Raw`, but when the webview falls back to its postMessage IPC (the
+/// custom protocol blocked, as the CSP did until 1.0.1's test run) Tauri serialises them as a JSON
+/// array of numbers. Sending that array on as JSON made every body a list of numbers, and the
+/// station answered 400 to each: no invitation, no handover, nothing with a body.
+pub fn request_bytes(body: &InvokeBody) -> Result<Vec<u8>, String> {
+    match body {
+        InvokeBody::Raw(b) => Ok(b.clone()),
+        InvokeBody::Json(serde_json::Value::Null) => Ok(Vec::new()),
+        InvokeBody::Json(serde_json::Value::Array(a)) => a
+            .iter()
+            .map(|n| {
+                n.as_u64()
+                    .and_then(|n| u8::try_from(n).ok())
+                    .ok_or_else(|| "a request body that is not bytes".to_owned())
+            })
+            .collect(),
+        InvokeBody::Json(v) => serde_json::to_vec(v).map_err(|e| e.to_string()),
+    }
+}
+
 /// Run keychain work on a thread of its own. The keychain crate's Secret Service client
 /// (zbus) blocks on a runtime of its own, which panics inside an async command's Tokio worker
 /// ("Cannot start a runtime from within a runtime"; found on a real desktop, 2026-11-01).
@@ -540,11 +561,7 @@ pub async fn station_fetch(
     )
     .map_err(|e| e.to_owned())?
     .channel_on(webview);
-    let body = match request.body() {
-        InvokeBody::Raw(b) => b.clone(),
-        InvokeBody::Json(serde_json::Value::Null) => Vec::new(),
-        InvokeBody::Json(v) => serde_json::to_vec(v).map_err(|e| e.to_string())?,
-    };
+    let body = request_bytes(request.body())?;
     let mut out = stations
         .client
         .request(method, format!("{}{path}", info.url))
@@ -717,6 +734,27 @@ pub fn station_stop(stations: State<'_, Stations>, id: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_that_came_by_post_message_is_sent_as_the_bytes_it_was() {
+        let json = br#"{"role":"guest","name":"Nessie"}"#;
+        let numbers = serde_json::Value::Array(json.iter().map(|b| (*b).into()).collect());
+        assert_eq!(
+            request_bytes(&InvokeBody::Json(numbers)).unwrap(),
+            json.to_vec()
+        );
+        assert_eq!(
+            request_bytes(&InvokeBody::Raw(json.to_vec())).unwrap(),
+            json.to_vec()
+        );
+        assert!(
+            request_bytes(&InvokeBody::Json(serde_json::Value::Null))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(request_bytes(&InvokeBody::Json(serde_json::json!([1, 256]))).is_err());
+        assert!(request_bytes(&InvokeBody::Json(serde_json::json!([1, "a"]))).is_err());
+    }
 
     #[test]
     fn an_open_strip_stops_a_restart_and_a_muted_or_closed_one_does_not() {

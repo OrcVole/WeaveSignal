@@ -3,7 +3,8 @@
    WeaveSignal design tokens, copied from the decided desk B design page (weavesignal-design-desk-b.html,
    proposal of 2026-10-24 with the operator's decisions of 2026-10-25) in the project folder's
    Library/design/. Dark is the default; the theme is an explicit toggle, data-theme="light" on
-   <html>, and never follows the operating system (ADR-0065). OPEN is the white lamp,
+   <html>, and never follows the operating system (ADR-0065). Night (data-theme="night", ADR-0270)
+   is the third: warm grounds and an amber accent, no blue or cyan hue. OPEN is the white lamp,
    --live-open and --live-open-ink (ADR-0079). AUTO is --mode-auto (ADR-0183). The design system page is the source: change the
    tokens there first, then here. */
 :root {
@@ -50,6 +51,13 @@
   /* focus and targets */
   --focus-ring: 2px solid var(--accent); --focus-offset: 2px;
   --target: 24px; --target-touch: 44px;
+  /* overlays: the veil behind a dialog; the wash and edge of a key cap on a filled button; the
+     ground behind a picture someone sent */
+  --scrim: rgba(0, 0, 0, 0.35); --scrim-strong: rgba(0, 0, 0, 0.55);
+  --on-fill-wash: rgba(255, 255, 255, 0.18); --on-fill-edge: rgba(255, 255, 255, 0.35);
+  --paper: #ffffff; --still-ground: #15171c;
+  /* a default avatar's hue is the person's own, times the scale, plus the shift (Night folds it into the warm hues) */
+  --avatar-hue-scale: 1; --avatar-hue-shift: 0;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -66,6 +74,29 @@
   --e-1: 0 1px 2px rgba(26, 27, 38, 0.10);
   --e-2: 0 2px 6px rgba(26, 27, 38, 0.08), 0 8px 24px rgba(26, 27, 38, 0.10);
   --e-3: 0 4px 12px rgba(26, 27, 38, 0.10), 0 24px 56px rgba(26, 27, 38, 0.16);
+}
+/* Night (ADR-0270): Dark with every blue taken out. Warm near-black grounds, warm off-white ink,
+   an amber accent; no token here has a blue or cyan hue, and none has more blue than red. The
+   states keep their meaning: ON AIR red, OPEN the white lamp (a warm white), cue a plum, talk a
+   green. Every pair meets WCAG AA; the figures are in ADR-0270's "In the build". */
+:root[data-theme="night"] {
+  color-scheme: dark;
+  --plane: #14110c; --surface: #1c1812; --surface-2: #231e16; --surface-3: #2b241a;
+  --ink: #f0e2c8; --ink-2: #d2c2a4; --muted: #a39274;
+  --hairline: rgba(240, 226, 200, 0.12); --grid: #2a241a; --axis: #453b2a;
+  --accent: #d0912f; --accent-ink: #14110c; --deemph: #5c5038;
+  --live-onair: #d2304a; --live-onair-ink: #fff6e5;
+  --live-cue: #b83e92;   --live-cue-ink: #fff6e5;
+  --live-talk: #57792a;  --live-talk-ink: #fff6e5;
+  --live-open: #f3e9d6;  --live-open-ink: #14110c;
+  --mode-auto: #a9d67a;
+  --status-warning: #f7c21d; --status-serious: #ee7b5c; --status-critical: #d03636;
+  --status-ink-on-critical: #fff6e5;
+  --cart-1: #5fbf4f; --cart-2: #267618; --cart-3: #df5d93; --cart-4: #935c19; --cart-5: #f2b8a2; --cart-6: #a29027;
+  --cart-7: #d4c81e; --cart-8: #c23c45; --cart-9: #b9a98c; --cart-10: #e36826; --cart-11: #b8308a; --cart-12: #f2a03a;
+  --on-fill-wash: rgba(255, 246, 229, 0.18); --on-fill-edge: rgba(255, 246, 229, 0.35);
+  --paper: #f3e9d6; --still-ground: #14110c;
+  --avatar-hue-scale: 0.3; --avatar-hue-shift: 20;
 }
 @media (prefers-reduced-motion: reduce) {
   :root { --t-press: 0ms; --t-state: 0ms; --t-panel: 0ms; }

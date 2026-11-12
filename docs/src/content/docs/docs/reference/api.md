@@ -35,7 +35,7 @@ This document: the API as OpenAPI 3.1, generated from the handlers. Needs no bea
 
 Needs: nobody (no bearer).
 
-The station's identifier and name.
+The station's identifier and its name in force: the one set on the setup page, else the settings file's (ADR-0237).
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -675,7 +675,7 @@ The show, resolved, and its series.
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named).
+Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -1269,6 +1269,40 @@ Request body: [WeekBody](#schema-weekbody).
 ## Routes: playout
 
 The playout layer.
+
+### GET /api/v1/icecast-out
+
+**The programme sent to another Icecast server**
+
+Needs: staff: any staff session, or the station key.
+
+ADR-0226: whether the station sends its programme, as an Icecast source, to a server of the deployment's choosing (a DJ's AzuraCast). Says whether it is set up, the station's choice (`auto`, `on`, `off`), whether it is sending now and why, whether the remote server took the login, the last error in words, and bytes sent. The server's password is never in the answer. Any signed-in staff may read it.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The outgoing source. | [IcecastOutStatus](#schema-icecastoutstatus) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/icecast-out
+
+**Choose when the programme is sent to another Icecast server**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The choice is kept across restarts. It takes effect at once. The server's address, user and password are the deployment's settings (`ICECAST_OUT_*`), not this route's.
+
+Request body: [IcecastOutChoice](#schema-icecastoutchoice).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The outgoing source after the change. | [IcecastOutStatus](#schema-icecastoutstatus) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 500 | The database refused. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ### GET /api/v1/playout
 
@@ -1930,7 +1964,7 @@ HLS content steering (RFC 8216bis section 7): which edge a player takes first, p
 
 **The edges' health**
 
-Needs: the station key only.
+Needs: staff: any staff session, or the station key.
 
 The station key only (not a staff session).
 
@@ -2262,9 +2296,327 @@ A new signing secret, shown this once; the old one stops signing at once.
 | 404 | There is no such thing. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+## Routes: setup
+
+The station's setup page (ADR-0237): its name and takedown contact, the stream's password where the install has one, and its look on the public pages. Admin only, except reading the look.
+
+### GET /api/v1/branding
+
+**The station's look**
+
+Needs: nobody (no bearer).
+
+Open: what the public pages show anyway. The accent colour and the addresses of the brand icon and the banner, each `null` until set. A station without a database answers with all three `null`.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The look. | [BrandingView](#schema-brandingview) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/branding/accent
+
+**Set the accent colour**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+One sRGB colour as six hex digits. The pages derive each theme's accent from it (its lightness moved until it reads at 4.5:1), so any colour is accepted. Empty goes back to the product's own.
+
+Request body: [AccentChange](#schema-accentchange).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The look as it is now. | [BrandingView](#schema-brandingview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/branding/banner
+
+**The station's banner**
+
+Needs: nobody (no bearer).
+
+Open. The PNG the station made from the upload. Under the version its address carries (`?v=`, from `GET /api/v1/branding`) it may be kept for good; `404` when the station has set none.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `v` | query | string | no | The picture's version. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The picture. | [File](#schema-file) (`image/png`) |
+| 304 | Not changed (`If-None-Match`). |  |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/branding/banner
+
+**Set the station's banner**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The body is the picture itself, a PNG or a JPEG (recognised by its first bytes; nothing else is read, and never SVG). At most 4 MB, at least 600 by 200 pixels; it is cropped about its middle to three to one and fitted inside 1,200 by 400. The station stores and serves the PNG its media worker writes, never the upload, so no metadata survives.
+
+Request body (`application/octet-stream`): [File](#schema-file).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The look as it is now. | [BrandingView](#schema-brandingview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 413 | The body is larger than this picture may be. |  |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/branding/banner
+
+**Remove the station's banner**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The pages go back to the product's own.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The look as it is now. | [BrandingView](#schema-brandingview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/branding/icon
+
+**The station's icon**
+
+Needs: nobody (no bearer).
+
+Open. The PNG the station made from the upload. Under the version its address carries (`?v=`, from `GET /api/v1/branding`) it may be kept for good; `404` when the station has set none.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `v` | query | string | no | The picture's version. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The picture. | [File](#schema-file) (`image/png`) |
+| 304 | Not changed (`If-None-Match`). |  |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/branding/icon
+
+**Set the station's icon**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The body is the picture itself, a PNG or a JPEG (recognised by its first bytes; nothing else is read, and never SVG). At most 1 MB, each side 64 to 4,096 pixels; it is fitted inside 256 pixels square with its transparency kept. The station stores and serves the PNG its media worker writes, never the upload, so no metadata survives.
+
+Request body (`application/octet-stream`): [File](#schema-file).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The look as it is now. | [BrandingView](#schema-brandingview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 413 | The body is larger than this picture may be. |  |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/branding/icon
+
+**Remove the station's icon**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The pages go back to the product's own.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The look as it is now. | [BrandingView](#schema-brandingview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/setup
+
+**The station's setup**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Whether setup is still offered and what is missing; the station's name and takedown contact in force, each with where it comes from (the setup page or the settings file); the stream password where the install route has one; the install's own settings, which the page explains but cannot change; and the look.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The setup. | [SetupView](#schema-setupview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/setup
+
+**Set the station's name and takedown contact**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Stores both in the database, where they win over the settings file, and puts them in force at once: the player, the consent words (whose version changes, so callers are asked again), feeds, cards and the studio's view. The chat reads the name when it next starts. A field left empty goes back to the settings file's value.
+
+Request body: [SetupChange](#schema-setupchange).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The setup as it is now. | [SetupView](#schema-setupview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/setup/finish
+
+**Finish setup**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Marks setup finished: it is no longer offered, whatever the name and contact are. The page stays for admins. Done once; a second call changes nothing.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The setup as it is now. | [SetupView](#schema-setupview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/setup/stream-password
+
+**Turn the stream's password on or off**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Only where the install route has a stream password (the Cloudron package; elsewhere `409`). The answer is written to a file the package's start script reads, so it applies when the station next restarts. The password is never read back. A password-protected stream is silent in the player page: a browser does not ask for a password for audio from another name.
+
+Request body: [StreamPasswordChange](#schema-streampasswordchange).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The setup as it is now. | [SetupView](#schema-setupview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+## Routes: rtmp
+
+RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown.
+
+### GET /api/v1/rtmp
+
+**RTMP out's destinations**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Every destination (never its stream key) with the desk's view of it (`desk`: its state, the last error with the key cut out, the bytes sent), whether the desk runs video (RTMP out needs it), the encoders running, and each platform's form.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The destinations. | [Listed](#schema-listed) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/rtmp/destinations
+
+**Add an RTMP destination**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+`name`, `platform`, `url` (the server URL, `rtmp://` or `rtmps://`), `key` (the stream key, sealed in the database and never shown again), `profile` (`compatible`, the default, or `open`) and `enabled` (off unless asked). At most 10 (409); a name in use is 409 too.
+
+Request body: [RtmpNewBody](#schema-rtmpnewbody).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The destination, without its key. | [RtmpDestination](#schema-rtmpdestination) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/rtmp/destinations/{id}
+
+**Change an RTMP destination**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Any of `name`, `platform`, `url`, `key`, `profile` and `enabled`; a field left out is kept (the key too). A destination whose URL, key or profile changes connects again.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The destination's id. |
+
+Request body: [RtmpChangeBody](#schema-rtmpchangebody).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The destination as it is now, without its key. | [RtmpDestination](#schema-rtmpdestination) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/rtmp/destinations/{id}
+
+**Remove an RTMP destination**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The desk stops sending there, and its key is gone.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The destination's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 204 | Removed. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/rtmp/destinations/{id}/enabled
+
+**Turn an RTMP destination on or off**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+`{"enabled": true}` starts sending the programme there (behind the delay; the desk needs video on), `false` stops it. The encode for a profile runs only while one of its destinations is on.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The destination's id. |
+
+Request body: [RtmpTurnBody](#schema-rtmpturnbody).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The destination as it is now, without its key. | [RtmpDestination](#schema-rtmpdestination) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ## Schemas
 
 The shapes the routes take and answer. A field marked *Needed: no* may be left out of a request (it has a default) or may be absent or `null` in an answer.
+
+### Schema: AccentChange
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `accent` | string, or null | no | Six hex digits, such as `#b4532a`. Empty or left out: the product's own accent. |
 
 ### Schema: Account
 
@@ -2337,7 +2689,7 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `edges` | boolean | yes | The station has edges or a CDN configured (steering has a pathway beside the origin). |
+| `edges` | boolean | yes | The station has edges or a CDN configured: steering has a pathway beside the origin, or `join.hls_url` points the player at another address. |
 | `listeners` | integer (int32), or null | no | Listeners connected to the station's stream now; `None` while not counted. |
 
 ### Schema: AutodjStatus
@@ -2369,6 +2721,16 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 |---|---|---|---|
 | `colour_slot` | integer (int32) | yes |  |
 | `name` | string | yes |  |
+
+### Schema: BrandingView
+
+The station's look on its public pages; every part is `null` until it is set.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `accent` | string, or null | no | The accent colour as the station chose it, `#rrggbb`. The pages derive each theme's accent from it so that it stays legible (WCAG AA); they never use it as it is. |
+| `banner` | [PictureView](#schema-pictureview), or null | no |  |
+| `icon` | [PictureView](#schema-pictureview), or null | no |  |
 
 ### Schema: CallInInfo
 
@@ -2939,6 +3301,49 @@ A person as the desk reports them.
 | `talk` | boolean | yes |  |
 | `talk_to` | string, or null | no |  |
 
+### Schema: DeskRtmp
+
+RTMP out as the desk reports it (ADR-0230).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `destinations` | array of [DeskRtmpDestination](#schema-deskrtmpdestination) | no |  |
+| `encoders` | array of [DeskRtmpEncoder](#schema-deskrtmpencoder) | no | The encoders running now: one per profile in use. |
+| `set` | string, or null | no | The name of the set of destinations the desk holds (the control plane's; `None` until it is sent one). |
+
+### Schema: DeskRtmpDestination
+
+One destination at the desk.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bytes` | integer (int64) | no | Bytes sent on this connection, and since the desk started. |
+| `bytes_total` | integer (int64) | no |  |
+| `connected` | boolean | no |  |
+| `connected_ms` | integer (int64), or null | no |  |
+| `connects` | integer (int32) | no |  |
+| `enabled` | boolean | no |  |
+| `last_error` | string, or null | no | The last failure, with the stream key cut out. |
+| `last_error_ms_ago` | integer (int64), or null | no |  |
+| `name` | string | yes |  |
+| `profile` | string | no | `compatible` or `open`. |
+| `retry_in_ms` | integer (int64), or null | no |  |
+| `state` | string | no | `off`, `waiting` (for its encoder's first keyframe), `connecting`, `live` or `retrying`. |
+
+### Schema: DeskRtmpEncoder
+
+One RTMP encoder at the desk.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `encoder` | string | yes | `openh264` or `nvenc` (H.264); `svt` or `nvenc` (AV1). |
+| `fps` | integer (int32) | yes |  |
+| `height` | integer (int32) | yes |  |
+| `profile` | string | yes | `compatible` or `open`. |
+| `ready` | boolean | no |  |
+| `video_kbps` | integer (int32) | yes |  |
+| `width` | integer (int32) | yes |  |
+
 ### Schema: DeskVideo
 
 The video path as the desk reports it (M5, ADR-0009): absent with video off.
@@ -2950,6 +3355,7 @@ The video path as the desk reports it (M5, ADR-0009): absent with video off.
 | `identity` | string, or null | no |  |
 | `mode` | any | no | Who chooses the picture: `{"mode": "auto"}`, `{"mode": "slate"}` (F7), or `{"mode": "person", "identity": …}`. |
 | `room` | boolean | no | The programme picture is published into the room. |
+| `rtmp` | [DeskRtmp](#schema-deskrtmp), or null | no |  |
 | `shot` | string | no | What is on air: `slate` or `person` (with `identity`). |
 | `still` | boolean | no | The slate has a picture (ADR-0010). |
 
@@ -3211,13 +3617,61 @@ What a hold can name one by one in this release.
 
 one of `recording`, `consent`
 
+### Schema: IcecastOutChoice
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `mode` | [IcecastOutMode](#schema-icecastoutmode) | yes | `auto`: send while the station is live with the desk on air. `on`: send whatever listeners hear, until turned off. `off`: never. |
+
+### Schema: IcecastOutMode
+
+Whether the programme is sent to another Icecast server (ADR-0226). The server's address and password are the deployment's settings; this is the one choice made while the station runs.
+
+one of `auto`, `on`, `off`
+
+### Schema: IcecastOutStatus
+
+The outgoing Icecast source (ADR-0226): the programme sent to another Icecast server as a source, for a DJ's AzuraCast. The listener process holds the connection and says how it is doing (`icecast_out.status`); the control plane decides when it sends. The remote password is never in here.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bitrate` | integer (int32) | yes | Constant MP3 bit rate, kbit/s. |
+| `bytes_sent` | integer (int64) | yes | Counted from the stream's constant bit rate while connected, since the listener process started; not read from the socket. |
+| `configured` | boolean | yes | The deployment sends to a server and has its password (`ICECAST_OUT` in the settings). Everything below is empty when it is false. |
+| `connected` | boolean | yes | The remote server accepted the login and takes the stream. |
+| `connected_since_ms` | integer (int64), or null | no | When the current connection was made, in milliseconds since the Unix epoch. |
+| `failures` | integer (int32) | yes | Failed tries in a row; the pause between tries grows from 5 s to 30 s. |
+| `host` | string | yes |  |
+| `last_error` | string | yes | The last error, in words; kept after a reconnect, with its time. Empty if none yet. |
+| `last_error_at_ms` | integer (int64), or null | no |  |
+| `mode` | [IcecastOutMode](#schema-icecastoutmode) | yes | The station's choice: `auto` (while live with the desk on air), `on` or `off`. |
+| `mount` | string | yes |  |
+| `port` | integer (int32) | yes |  |
+| `reason` | string | yes | Why, in words: "live with the desk on air", "off", and so on. |
+| `tls` | boolean | yes |  |
+| `wanted` | boolean | yes | The control plane is asking the listener process to send now. |
+
+### Schema: InstallFacts
+
+What the page explains but cannot change: the install's own settings, as this control plane was started with them.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `listed` | boolean | yes | Whether search engines may list the public pages. |
+| `mail` | string | yes | How sign-in codes go out: `command`, `outbox` or `off`. |
+| `media_port` | integer (int32) | yes | The live room's media port (UDP). |
+| `public_url` | string | yes | The address cards and feeds print; empty on a station for this machine only. |
+| `room_url` | string | yes | LiveKit as browsers reach it. |
+| `stream_url` | string | yes | The listener stream as the player is given it. |
+| `turn_tls_port` | integer (int32) | yes | TURN over TLS's port (TCP). |
+
 ### Schema: Invite
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `expires_at_ms` | integer (int64) | yes |  |
 | `identity` | string | yes |  |
-| `link` | string | yes | The join page's path with the pass in the fragment, which browsers never send. |
+| `link` | string | yes | The join page with the pass in the fragment, which browsers never send: absolute on the station's public address (`publishing.public_url`) when it is set, else a path. |
 | `name` | string | yes |  |
 | `pass` | string | yes |  |
 | `role` | [Role](#schema-role) | yes |  |
@@ -3549,6 +4003,29 @@ A period for each kind of record.
 | `id` | string (uuid) | yes |  |
 | `name` | string | yes |  |
 
+### Schema: PictureView
+
+One brand picture as the pages are given it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bytes` | integer (int32) | yes |  |
+| `height` | integer (int32) | yes |  |
+| `url` | string | yes | Its address on this station, with its version: it can be kept for good. |
+| `width` | integer (int32) | yes |  |
+
+### Schema: Platform
+
+A platform's form, for the studio app: where its server URL and key are found.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `platform` | string | yes |  |
+| `profile` | string | yes |  |
+| `url` | string | yes | The usual server URL (the platform's own page is the one to trust). |
+| `where_to_find` | string | yes | Where the platform shows its server URL and stream key. |
+
 ### Schema: Play
 
 One row of the per-play log.
@@ -3583,6 +4060,7 @@ One row of the per-play log.
 | `show_on_air` | boolean | yes | Listeners hear the show now. |
 | `station` | string | yes |  |
 | `stream_url` | string | yes | The listener stream through the proxy; empty when not set up. |
+| `streams` | array of [StreamChoice](#schema-streamchoice) | yes | Every stream the listener may choose (ADR-0232): the Opus one at `stream_url` first, then each MP3 stream that is on, lowest rate first. Empty when the stream is not set up. |
 | `video` | [VideoInfo](#schema-videoinfo), or null | no |  |
 
 ### Schema: PlayoutLink
@@ -3893,6 +4371,50 @@ One period as the screen shows it.
 | `source` | string | yes |  |
 | `swept` | boolean | yes | Whether this release keeps records of the kind (and so deletes them). |
 
+### Schema: RtmpChangeBody
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `enabled` | boolean, or null | no |  |
+| `key` | string, or null | no | A new stream key; left out, the old one is kept. |
+| `name` | string, or null | no |  |
+| `platform` | string, or null | no |  |
+| `profile` | string, or null | no |  |
+| `url` | string, or null | no |  |
+
+### Schema: RtmpDestination
+
+A destination as it is kept.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `created_by` | string | yes |  |
+| `created_ms` | integer (int64) | yes |  |
+| `enabled` | boolean | yes |  |
+| `id` | string (uuid) | yes |  |
+| `name` | string | yes |  |
+| `platform` | string | yes | `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from. |
+| `profile` | string | yes | `compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP). |
+| `updated_ms` | integer (int64) | yes |  |
+| `url` | string | yes | The server URL, without the key. |
+
+### Schema: RtmpNewBody
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | no | Off unless asked. |
+| `key` | string | yes | The stream key; never shown again. |
+| `name` | string | yes |  |
+| `platform` | string | yes | `rumble`, `odysee`, `peertube` or `custom`. |
+| `profile` | string, or null | no | `compatible` (the default: H.264 and AAC) or `open` (AV1 and Opus). |
+| `url` | string | yes | The server URL, `rtmp://` or `rtmps://`, without the key. |
+
+### Schema: RtmpTurnBody
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | yes |  |
+
 ### Schema: RundownItem
 
 One row of the "coming up" rundown: a setting (`studio.rundown`); the schedule does not fill it yet.
@@ -4044,19 +4566,47 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 | `updated_by` | string, or null | no |  |
 | `us_statutory_licence` | boolean, or null | no |  |
 
+### Schema: SetupChange
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `contact` | string, or null | no | The takedown contact, an email address or a link: at most 200 characters, one line. Empty or left out hands it back to the settings file. |
+| `name` | string, or null | no | The station's name: at most 200 characters, one line. Empty or left out hands the name back to the settings file. |
+
+### Schema: SetupView
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `branding` | [BrandingView](#schema-brandingview) | yes |  |
+| `completed_at_ms` | integer (int64), or null | no |  |
+| `contact` | [Answer](#schema-answer) | yes |  |
+| `done_by` | string, or null | no | `page`: an admin finished the setup page. `settings`: the settings file gave a name and a contact. `null` while pending. |
+| `install` | [InstallFacts](#schema-installfacts) | yes |  |
+| `missing` | array of string | yes | What is still missing, in words, while pending. |
+| `name` | [Answer](#schema-answer) | yes |  |
+| `status` | string | yes | `pending`: setup is offered. `done`: it is not. |
+| `stream_password` | [StreamPassword](#schema-streampassword) | yes |  |
+| `updated_at_ms` | integer (int64), or null | no |  |
+| `updated_by` | string, or null | no |  |
+
 ### Schema: Show
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `cards` | any | no |  |
 | `colour_slot` | integer (int32) | yes |  |
+| `commercial_music` | boolean | no | Whether the show plays commercial music (ADR-0219): the station's own reminder that a UK webcast of it needs PPL and PRS licences. It blocks nothing. |
+| `contact` | string | no | The show's own takedown contact (ADR-0214): an email address or a link; empty when the station's is the only one. |
 | `description` | string | yes |  |
 | `explicit` | boolean | yes |  |
 | `feed_guid` | string (uuid), or null | no |  |
 | `hosts` | array of string (uuid) | yes |  |
 | `id` | string (uuid) | yes |  |
 | `layout` | string | yes | `poster` or `slate`. |
+| `links` | array of string | no | Links to the presenter's channels (ADR-0219: Rumble, Odysee, AzuraCast…). |
 | `name` | string | yes |  |
+| `presenter` | string | no | The presenter's on-air name (ADR-0214); empty when the show has none of its own. |
+| `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218): the wizard's answers are its defaults. Cleared when the account goes. |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `slug` | string | yes |  |
 | `tags` | array of string | yes |  |
@@ -4068,11 +4618,16 @@ A show as the studio app sends it; hosts by name.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `colour_slot` | integer (int32) | yes |  |
+| `commercial_music` | boolean, or null | no | Whether the show plays commercial music (ADR-0219). Absent keeps what is stored. |
+| `contact` | string, or null | no | The show's takedown contact (ADR-0214). Absent keeps what is stored; empty clears it. |
 | `description` | string | no |  |
 | `explicit` | boolean | no |  |
 | `hosts` | array of string | no |  |
 | `layout` | string | no |  |
+| `links` | array of string, or null | no | Links to the presenter's channels (ADR-0219). Absent keeps what is stored. |
 | `name` | string | yes |  |
+| `presenter` | string, or null | no | The presenter's on-air name (ADR-0214). Absent keeps what is stored; empty clears it. |
+| `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218). Absent keeps what is stored; `null` clears it. A member of staff who is not an admin may name only themselves. |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `tags` | array of string | no |  |
 
@@ -4083,6 +4638,24 @@ A show as the studio app sends it; hosts by name.
 | `resolved` | [Resolved](#schema-resolved) | yes |  |
 | `series` | array of [Series](#schema-series) | yes |  |
 | `show` | [Show](#schema-show) | yes |  |
+
+### Schema: Shown
+
+A destination as the studio shows it: never its key.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `created_by` | string | yes |  |
+| `created_ms` | integer (int64) | yes |  |
+| `enabled` | boolean | yes |  |
+| `id` | string (uuid) | yes |  |
+| `name` | string | yes |  |
+| `platform` | string | yes | `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from. |
+| `profile` | string | yes | `compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP). |
+| `updated_ms` | integer (int64) | yes |  |
+| `url` | string | yes | The server URL, without the key. |
+| `desk` | [DeskRtmpDestination](#schema-deskrtmpdestination), or null | no |  |
+| `key_readable` | boolean | yes | The key can be read with the station's key; `false` after the token key changed (enter it again). |
 
 ### Schema: SignIn
 
@@ -4182,6 +4755,8 @@ The playout layer's state, for the studio app (`GET /api/v1/playout`).
 | `automation` | [AutodjStatus](#schema-autodjstatus), or null | no |  |
 | `default_fallback` | boolean | yes | Listeners hear the shipped default loop, not the station's own fallback files (ADR-0130), whether playout or the listener process is playing it. |
 | `gaps` | array of string | yes | What the last generation could not fill, in words. |
+| `icecast_out` | [IcecastOutStatus](#schema-icecastoutstatus) | yes | The programme sent to another Icecast server (ADR-0226). |
+| `icecast_out_error` | string, or null | no | Why the listener process could not be asked about it, if so. |
 | `listeners` | integer (int32) | yes |  |
 | `logger` | [LoggerStatus](#schema-loggerstatus), or null | no |  |
 | `logger_error` | string, or null | no |  |
@@ -4214,6 +4789,34 @@ The slate's still as it is now.
 | `present` | boolean | yes |  |
 | `set_at_ms` | integer (int64) | yes | When it was set, in milliseconds since the Unix epoch. |
 | `width` | integer (int32) | yes |  |
+
+### Schema: StreamChoice
+
+One listener stream the player offers.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `codec` | string | yes | `opus` or `mp3`. |
+| `kbps` | integer (int32) | yes | Its constant bit rate, in kbit/s. |
+| `url` | string | yes |  |
+
+### Schema: StreamPassword
+
+The listener stream's password, where the install route has one.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `asked` | boolean, or null | no | What the page last asked for, if it has; it applies when the station restarts. |
+| `available` | boolean | yes | Whether this install route has a stream password the page can set (the Cloudron package). |
+| `enabled` | boolean, or null | no | Whether the stream asks for a password now; `null` when not available. |
+| `restart_needed` | boolean | yes | Whether an answer is waiting for a restart. |
+
+### Schema: StreamPasswordChange
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | yes | Whether the listener stream asks for a password. |
+| `password` | string, or null | no | A new password: 8 to 64 of letters, digits, `.`, `_`, `~` and `-`. Left out, the password already set is kept. |
 
 ### Schema: StudioShow
 

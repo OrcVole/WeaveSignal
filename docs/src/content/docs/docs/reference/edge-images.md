@@ -12,8 +12,8 @@ Two images from `deploy/images/edge/`, on Alpine 3.24 (ADR-0051).
 
 | Image | Published | Built locally (`just edge-image`) |
 |---|---|---|
-| `weavesignal-edge` | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0` | `localhost/weavesignal-edge:m1` (`WEAVESIGNAL_EDGE_IMAGE` to change) |
-| `weavesignal-relay` | `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0` | `localhost/weavesignal-relay:m1` (`WEAVESIGNAL_RELAY_IMAGE`) |
+| `weavesignal-edge` | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1` | `localhost/weavesignal-edge:m1` (`WEAVESIGNAL_EDGE_IMAGE` to change) |
+| `weavesignal-relay` | `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1` | `localhost/weavesignal-relay:m1` (`WEAVESIGNAL_RELAY_IMAGE`) |
 
 Each writes its server's configuration from the environment at start and refuses to start on a value it cannot use.
 How to run them is in [Run a self-run edge pool](/docs/how-to/run-edges/).
@@ -34,8 +34,8 @@ It ignores the station's cache headers and sends viewers its own `Cache-Control`
 | `EDGE_TLS_DIR` | `/etc/weavesignal-edge/tls` | holds `fullchain.pem` and `privkey.pem`: the edge pool's wildcard certificate |
 | `EDGE_HLS_PATH` | `/hls/` | the only path served from the station |
 | `EDGE_HEALTH_PATH` | `/health` | the station's own health address, which the edge's `/health` passes through to |
-| `EDGE_PLAYLIST_TTL` | `1s` | how long a playlist is cached: half a 2 s segment |
-| `EDGE_SEGMENT_TTL` | `60s` | how long a segment is cached; a live window is about 12 s, so longer gains nothing live |
+| `EDGE_PLAYLIST_TTL` | `1s` | how long a playlist is cached: half a 2 s segment; also the viewers' `Cache-Control: max-age` (from 1.0.1; whole `s`, `m`, `h` or `d`) |
+| `EDGE_SEGMENT_TTL` | `60s` | how long a segment is cached, and the viewers' `max-age` from 1.0.1; a live window is about 12 s, so longer gains nothing live |
 | `EDGE_CACHE_MAX` | `2g` | the cache's size on disk |
 | `EDGE_RELAY` | none | `host:port` of a relay beside the edge; its mounts are then served under `/listen/`, unbuffered and never cached |
 | `EDGE_WORKERS` | `auto` | nginx's worker processes |
@@ -63,7 +63,7 @@ Without the hop (`RELAY_ORIGIN_SCHEME=http`) Icecast pulls from the station's pl
 | `RELAY_ORIGIN_PORT` | `443` (`80` with `http`) | the station's port |
 | `RELAY_ORIGIN_CA_FILE` | the image's roots | `https` only: a file of certificate authorities to trust instead (a station with its own authority, a test) |
 | `RELAY_HOP_PORT` | `RELAY_PORT` + 1 | `https` only: the loopback port the hop listens on, for Icecast alone |
-| `RELAY_MOUNTS` | `/programme.opus` | the mounts to relay, space-separated, each kept under the same name (letters, digits and `. _ ~ - /`) |
+| `RELAY_MOUNTS` | `/programme.opus` | the mounts to relay, space-separated, each kept under the same name (letters, digits and `. _ ~ - /`); add the MP3 streams' mounts (`/programme.mp3 /programme-high.mp3`) to relay them too. The Compose bundle's local edges take it as a setting |
 | `RELAY_PORT` | `8000` | where the relay's listeners connect |
 | `RELAY_BIND` | every interface | the address it listens on; loopback when an edge serves it under `/listen/` |
 | `RELAY_RETRY_S` | `15` | how often a missing mount is tried again; 15 is the least Icecast 2.5 accepts |

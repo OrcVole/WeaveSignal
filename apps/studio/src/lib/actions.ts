@@ -10,8 +10,9 @@ import { cartAt, cartNow, moveSlot } from '../../../../packages/ui/carts.ts';
 import { say, setBank, stationNow, studio, takeView } from './studio.svelte.ts';
 import { moveWeek, today } from './schedule.svelte.ts';
 import { firstName } from './format.ts';
-import { chat, chatSay, entries, mod, needsEntry, noteMyHide, roomLine, studioMsg, type SorTarget } from './chat.svelte.ts';
-import { SOR_REASONS, TIMEOUT_MIN, reasonLabel, sorReasonOf, step, type Entry } from './chatModel.ts';
+import { handoverStep } from './handover.ts';
+import { chat, chatSay, entries, mod, needsEntry, noteMyHide, roomLine, studioMsg, type SorPicture, type SorTarget } from './chat.svelte.ts';
+import { TIMEOUT_MIN, reasonLabel, sorReasonOf, sorReasonsFor, step, type Entry } from './chatModel.ts';
 import type { Msg, Reason } from '../../../../packages/ui/chat.ts';
 import type { SorThen } from '../../../../packages/ui/keymap.ts';
 
@@ -20,7 +21,6 @@ const NOT_BUILT: Partial<Record<Action['type'], [string, string]>> = {
   'restart-encoder': ['Not wired yet', 'The encoder cannot be restarted from here yet; restart the listener process on the server.'],
   'backup-stream': ['Not wired yet', 'Switching listeners to a backup stream is not built yet.'],
   'end-show': ['Not wired yet', 'Ending a show from here is not built yet.'],
-  handover: ['Not wired yet', 'The DJ handover is not built yet (ADR-0074); put the next DJ on air by hand.'],
 };
 
 /** A cart's key, its button, the desk's glance and F1 to F6 all come here: fire the cart in
@@ -46,6 +46,25 @@ export async function fireSlot(slot: number, cue = false): Promise<void> {
 function focusCart(slot: number) {
   studio.cartFocus = slot;
   document.querySelector<HTMLElement>(`[data-cart-slot="${slot}"]`)?.focus();
+}
+
+/** Who each held talk key opened, by key, so letting go closes that same talk even if the
+ *  presenter's seat moved while it was held (the seat follows the air, ADR-0231). */
+const heldTalk = new Map<string, { me: string; to: string }>();
+
+async function talkHeld(key: string, held: boolean, open: { me: string; to: string } | null): Promise<void> {
+  if (!held) {
+    const h = heldTalk.get(key);
+    heldTalk.delete(key);
+    if (!h) return;
+    await send(api.desk({ op: 'talk_to', identity: h.me, to: h.to, on: false }));
+    talkingTo(h.to, false);
+    return;
+  }
+  if (!open) return;
+  heldTalk.set(key, open);
+  await send(api.desk({ op: 'talk_to', identity: open.me, to: open.to, on: true }));
+  talkingTo(open.to, true);
 }
 
 function sourceAt(slot: number) {
@@ -185,6 +204,31 @@ export async function run(a: Action): Promise<void> {
       studio.armed = null;
       if (v) await send(api.chat({ op: 'influx', on: !v.chat.influx }));
       return;
+    case 'handover': {
+      if (!v) return;
+      const step = handoverStep(v.sources, v.seats.presenter, studio.handoverTo);
+      if (step.kind === 'none') {
+        studio.handoverTo = null;
+        return void say('good', 'No DJ to hand over to', 'Invite the next DJ with Invite someone…, beside Not on air, keeping the role DJ. They wait there off air; ⇧⏎ then brings them on air with you.');
+      }
+      const dj = firstName(step.dj.name, step.dj.identity);
+      if (step.kind === 'done') {
+        studio.handoverTo = null;
+        return void say('good', `${dj} has the air`, `The handover is done: ${dj} holds the air and the desk's talk keys.`);
+      }
+      if (step.kind === 'on') {
+        if (await send(api.desk({ op: 'on_air', identity: step.dj.identity, on: true }))) {
+          studio.handoverTo = step.dj.identity;
+          say('good', `${dj} is on air with you`, `The overlap: say hello. Press ⇧⏎ again to take yourself off and hand ${dj} the air.`, 15000);
+        }
+        return;
+      }
+      for (const s of step.off) if (!(await send(api.desk({ op: 'on_air', identity: s.identity, on: false })))) return;
+      studio.handoverTo = null;
+      const off = step.off.map((s) => firstName(s.name, s.identity)).join(' and ');
+      say('good', `Handed over to ${dj}`, `${off} off air; ${dj} holds the air. This window's talk keys now speak as ${dj}: close it, or hand it to them, and close your invite page when you leave (ADR-0239).`, 12000);
+      return;
+    }
     case 'talk-seat': {
       if (!v) return;
       if (studio.tab === 'screener') {
@@ -195,9 +239,8 @@ export async function run(a: Action): Promise<void> {
       } else {
         const me = v.seats.presenter;
         const to = v.seats.screener;
-        if (!me || !to) return void (a.held && say('good', 'Nobody to talk to', 'There is no screener in the room.'));
-        await send(api.desk({ op: 'talk_to', identity: me, to, on: a.held }));
-        talkingTo(to, a.held);
+        if (a.held && (!me || !to)) return void say('good', 'Nobody to talk to', 'There is no screener in the room.');
+        await talkHeld('seat', a.held, me && to ? { me, to } : null);
       }
       return;
     }
@@ -214,9 +257,7 @@ export async function run(a: Action): Promise<void> {
     case 'talk': {
       const s = sourceAt(a.slot);
       const me = v?.seats.presenter;
-      if (!s || !me || s.identity === me) return;
-      await send(api.desk({ op: 'talk_to', identity: me, to: s.identity, on: a.held }));
-      talkingTo(s.identity, a.held);
+      await talkHeld(`talk:${a.slot}`, a.held, s && me && s.identity !== me ? { me, to: s.identity } : null);
       return;
     }
     case 'queue-move':
@@ -303,6 +344,8 @@ export async function run(a: Action): Promise<void> {
     case 'pass':
     case 'newest':
     case 'post':
+    case 'avatar-remove':
+    case 'attachment-remove':
     case 'sor-then':
     case 'sor-reason':
     case 'sor-send':
@@ -340,6 +383,8 @@ type ChatAction = Extract<
       | 'pass'
       | 'newest'
       | 'post'
+      | 'avatar-remove'
+      | 'attachment-remove'
       | 'sor-then'
       | 'sor-reason'
       | 'sor-send'
@@ -430,6 +475,8 @@ export function openStatement(
   returnFocus = el instanceof HTMLElement && el !== document.body ? el : null;
   studio.armed = null;
   chat.sor = {
+    subject: 'message',
+    picture: null,
     bulk: o.bulk ?? null,
     target,
     then: o.then ?? 'none',
@@ -440,6 +487,15 @@ export function openStatement(
     problem: '',
     sending: false,
   };
+}
+
+/** Open the statement of reasons for a chatter's picture (ADR-0235): refuse the one waiting, or
+ *  remove the approved one. The same dialog, with no time-out or ban to add. */
+export function openPictureStatement(picture: SorPicture, reason: Reason | null = null): void {
+  openStatement(null, { reason });
+  if (!chat.sor) return;
+  chat.sor.subject = picture.waiting ? 'avatar-refuse' : 'avatar-remove';
+  chat.sor.picture = picture;
 }
 
 function closeStatement(): void {
@@ -462,6 +518,18 @@ function actOnMessage(then: SorThen): void {
   if (!t) return NOTHING();
   if ('line' in t) return openStatement(targetOf(t.line, null), { then });
   const e = t.entry;
+  if (e.kind === 'avatar') {
+    if (then !== 'none') return chatSay('good', 'Not for a picture', 'Approve it (⏎), or refuse it and tell them why (H).');
+    return openPictureStatement({
+      id: e.avatar.id,
+      waiting: true,
+      account: e.avatar.account.id,
+      name: e.avatar.account.name,
+      report: null,
+      kind: e.avatar.kind,
+      attachment: e.avatar.attachment,
+    });
+  }
   if (e.kind === 'held') {
     return openStatement(targetOf(e.held.m, null), { then, automated: e.held.flagged ? e.held.flagged : null });
   }
@@ -534,12 +602,14 @@ async function chatAction(a: ChatAction): Promise<void> {
       if (e.kind === 'report') void mod({ op: 'dismiss', report: e.item.id });
       else if (e.kind === 'review') void mod({ op: 'dismiss', report: e.item.id, note: 'Decision kept' });
       else if (e.kind === 'held') chatSay('good', 'It releases by itself', 'Release it now (⏎), or hide it (H).');
+      else if (e.kind === 'avatar') chatSay('good', 'It waits for you', 'Approve the picture (⏎), or refuse it and tell them why (H).');
       else chatSay('good', 'Not for a notice', 'Acknowledge it (A), or preserve the evidence and escalate it (⇧E).');
       return;
     }
     case 'mod-release': {
       const e = needsEntry();
       if (e?.kind === 'held') void mod({ op: 'release', id: e.held.m.id });
+      else if (e?.kind === 'avatar') void mod({ op: 'avatar_approve', avatar: e.avatar.id });
       else if (chat.mod.held.length) chatSay('good', 'Select the held message first', 'Click it, or use ↑ ↓ in Needs you.');
       return;
     }
@@ -552,7 +622,7 @@ async function chatAction(a: ChatAction): Promise<void> {
     case 'acknowledge':
     case 'escalate': {
       const e = needsEntry();
-      if (!e || e.kind === 'held' || e.kind === 'review' || (a.type === 'acknowledge' && e.kind !== 'notice')) {
+      if (!e || e.kind === 'held' || e.kind === 'avatar' || e.kind === 'review' || (a.type === 'acknowledge' && e.kind !== 'notice')) {
         return chatSay('good', 'Select a notice first', a.type === 'acknowledge' ? 'Acknowledge is for a notice from someone without an account.' : 'Escalate is for a notice or a report.');
       }
       void mod(a.type === 'acknowledge' ? { op: 'acknowledge', report: e.item.id } : { op: 'escalate', report: e.item.id });
@@ -591,6 +661,15 @@ async function chatAction(a: ChatAction): Promise<void> {
     case 'newest':
       chat.jump++;
       return;
+    case 'avatar-remove':
+      return openPictureStatement({ id: a.picture, waiting: false, account: a.account, name: a.name, report: a.report ?? null });
+    case 'attachment-remove': {
+      // The report's own copy of the message has the attachment to show; the room's line too.
+      const line = chat.room.lines.find((m) => m.attachment?.id === a.attachment);
+      const item = chat.mod.items.find((i) => i.attachment === a.attachment);
+      const attachment = line?.attachment ?? item?.message?.attachment ?? undefined;
+      return openPictureStatement({ id: a.attachment, waiting: false, account: a.account, name: a.name, report: a.report ?? null, kind: a.kind, attachment });
+    }
     case 'post': {
       if (inOtherField('chat-compose')) return;
       const body = chat.compose.trim();
@@ -605,10 +684,11 @@ async function chatAction(a: ChatAction): Promise<void> {
       return;
     }
     case 'sor-then':
-      if (chat.sor && chat.sor.bulk === null) chat.sor.then = a.then;
+      if (chat.sor && chat.sor.bulk === null && chat.sor.subject === 'message') chat.sor.then = a.then;
       return;
     case 'sor-reason':
-      if (chat.sor) {
+      // The reason for suspected child sexual abuse material is for a picture only (ADR-0257).
+      if (chat.sor && (a.reason !== 'suspected_csam' || chat.sor.picture)) {
         chat.sor.reason = a.reason;
         chat.sor.problem = '';
       }
@@ -620,14 +700,24 @@ async function chatAction(a: ChatAction): Promise<void> {
       const s = chat.sor;
       if (!s || s.sending) return;
       if (!s.reason) {
-        s.problem = `Choose why first: ${SOR_REASONS.map((r) => r.key).join(' ')}.`;
+        s.problem = `Choose why first: ${sorReasonsFor(!!s.picture).map((r) => r.key).join(' ')}.`;
         return;
       }
       s.sending = true;
       const reason = s.reason;
       const words = reasonLabel(reason, chat.info);
       let ok: boolean;
-      if (s.bulk !== null || !s.target) {
+      if (s.picture) {
+        const note = s.note.trim() || undefined;
+        const posted = s.picture.kind === 'picture' || s.picture.kind === 'document';
+        ok = await mod(
+          s.picture.waiting
+            ? { op: 'avatar_refuse', avatar: s.picture.id, reason, note }
+            : posted
+              ? { op: 'attachment_remove', attachment: s.picture.id, reason, note, report: s.picture.report ?? undefined }
+              : { op: 'avatar_remove', account: s.picture.account, reason, note, report: s.picture.report ?? undefined },
+        );
+      } else if (s.bulk !== null || !s.target) {
         ok = await mod({ op: 'hide_all_held', reason });
       } else {
         noteMyHide(s.target.id, words);

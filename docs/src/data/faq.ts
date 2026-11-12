@@ -35,7 +35,7 @@ export const questions: Question[] = [
     home: true,
     q: 'Can my existing players, Icecast relays and directory listings still work?',
     a: [
-      'The listener stream is served Icecast-style, as Ogg Opus, with an optional MP3 stream for older players; so an ordinary player, a station website\'s embedded player, or a smart speaker that takes a stream address can use it.',
+      'The listener stream is served Icecast-style, as Ogg Opus, with optional MP3 streams (128 and 320 kbit/s) for older players; so an ordinary player, a station website\'s embedded player, or a smart speaker that takes a stream address can use it.',
       'For relays, WeaveSignal ships its own Icecast 2.5.0 relay image. A third-party Icecast relay should be able to pull the mount as an ordinary listener, with its SHOUTcast-metadata relaying turned off; this has not been tested.',
       'The directory setting (<code>DIRECTORY_LISTING</code>) only marks the stream as public; it does not submit the station to any directory. A directory that takes a stream address by hand can be given the Opus address, or the MP3 one where that stream is on. <a href="/docs/reference/playout/#directory-listing">Playout</a> says more.',
     ],
@@ -87,8 +87,8 @@ export const questions: Question[] = [
     home: true,
     q: 'Is it ready for a real station?',
     a: [
-      'Release 1.0.0 is the first public release. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has not been run on Windows.',
-      'So: run a test show before you put a real one on air, on a server of its own, and read <a href="/docs/reference/release-one-status/">what 1.0.0 does and leaves out</a>.',
+      'Release 1.0.1 is the second public release, after 1.0.0 on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has not been run on Windows.',
+      'So: run a test show before you put a real one on air, on a server of its own, and read <a href="/docs/reference/release-one-status/">what release one does and leaves out</a>.',
     ],
   },
   {

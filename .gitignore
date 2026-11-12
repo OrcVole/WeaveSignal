@@ -28,8 +28,11 @@ spike/talkshow/voices/
 /dist/
 /tests/install/run/
 /tests/screens/run/
+/tests/rtmp/run/
 # Python byte code
 __pycache__/
 
 # The demo video and its clips (tests/demo-video/ makes them); copied in at deploy, too large for git.
 /docs/public/media/
+# icecast-out stack test
+/tests/playout/run-icecast-out/

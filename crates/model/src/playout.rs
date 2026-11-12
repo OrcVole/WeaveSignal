@@ -138,6 +138,74 @@ pub async fn put_settings(
     Ok(())
 }
 
+/// Whether the programme is sent to another Icecast server (ADR-0226).
+///
+/// The server's address and password are the deployment's settings; this is the one choice made
+/// while the station runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum IcecastOutMode {
+    /// Send while the station is live with the desk on air, and no other time.
+    #[default]
+    Auto,
+    /// Send whatever listeners hear, until turned off.
+    On,
+    /// Never send.
+    Off,
+}
+
+impl IcecastOutMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "auto" => Some(Self::Auto),
+            "on" => Some(Self::On),
+            "off" => Some(Self::Off),
+            _ => None,
+        }
+    }
+}
+
+/// The station's choice; `auto` while nobody has made one.
+pub async fn icecast_out_mode(
+    pool: &PgPool,
+    station: StationId,
+) -> Result<IcecastOutMode, sqlx::Error> {
+    let r: Option<(String,)> =
+        sqlx::query_as("SELECT mode FROM icecast_out_setting WHERE station_id = $1")
+            .bind(station.as_uuid())
+            .fetch_optional(pool)
+            .await?;
+    Ok(r.and_then(|(m,)| IcecastOutMode::parse(&m))
+        .unwrap_or_default())
+}
+
+pub async fn set_icecast_out_mode(
+    pool: &PgPool,
+    station: StationId,
+    mode: IcecastOutMode,
+    by: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO icecast_out_setting (station_id, mode, updated_by) VALUES ($1, $2, $3)
+         ON CONFLICT (station_id) DO UPDATE SET mode = EXCLUDED.mode,
+            updated_by = EXCLUDED.updated_by, updated_at = now()",
+    )
+    .bind(station.as_uuid())
+    .bind(mode.as_str())
+    .bind(by)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// A track in the library.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Track {

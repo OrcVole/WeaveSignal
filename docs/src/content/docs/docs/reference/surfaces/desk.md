@@ -102,7 +102,7 @@ A source here keeps its slot and its keys (ADR-0096).
 
 Listeners now: the number connected to the station's stream, counted every five seconds, or "not counted yet" while the listener process does not answer.
 Under the figure, a chip says what listeners hear: HEARING THE DESK, PLAYOUT DOWN, or ON AUTOMATION while the station is in auto mode ([The state vocabulary](/docs/reference/states/)).
-When video is on, more than about 500 are connected and the station has no CDN or edges configured, the panel also warns that video needs a CDN ([Put Bunny in front of the station](/docs/how-to/use-bunny/), ADR-0017).
+When video is on, more than about 500 are connected and the station has no CDN or edges configured (no steering edges, and `join.hls_url` on the station itself), the panel also warns that video needs a CDN ([Put Bunny in front of the station](/docs/how-to/use-bunny/), ADR-0017).
 Counts by mount are [planned](/docs/reference/release-one-status/#not-in-release-one).
 
 ## `desk.picture`

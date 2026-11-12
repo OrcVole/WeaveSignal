@@ -26,6 +26,7 @@ path = [
   "playout/*.json",
   "docs/openapi/*.json",
   "tests/demo-video/script.json",
+  "apps/studio/src/sandbox/lines-to-record.tsv",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
@@ -135,6 +136,21 @@ path = ["assets/stills-demo/night-show.png"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = ["2026 The WeaveSignal contributors", "Vjacheslav Trushkin"]
 SPDX-License-Identifier = "MIT"
+
+# The chat's shipped avatars (packages/ui/avatars, ADR-0235): Fluent Emoji's Flat drawings (MIT,
+# Microsoft Corporation), each set on a square of colour and written as WebP by render.sh. The
+# list of them is ours; provenance is in packages/ui/avatars/README.md.
+[[annotations]]
+path = ["packages/ui/avatars/*.webp"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Microsoft Corporation"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["packages/ui/avatars/manifest.json"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
 
 # Cart demo sounds (assets/carts-demo): each file keeps its source's author and licence, as cut and
 # re-encoded here; the credits are in assets/carts-demo/CREDITS.md and NOTICES.md.

@@ -195,7 +195,7 @@
     display: grid;
   }
   dialog::backdrop {
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--scrim);
   }
   .head {
     display: grid;

@@ -71,11 +71,15 @@ export function cameraCapture(): { resolution: { width: number; height: number; 
 }
 
 /** How the camera is published: AV1 where the browser encodes it (Chromium), VP8 elsewhere;
- * one layer, since only the desk watches it. */
+ * one layer, since only the desk watches it. For AV1 `simulcast: false` is not enough:
+ * livekit-client then sends SVC with two picture sizes (Chromium chose L2T3_KEY), and the desk's
+ * AV1 decoder stops at the first change of size (the talk station, 2026-11-11). L1T3 is one
+ * size with three frame rates. */
 export const CAMERA_PUBLISH = {
   videoCodec: 'av1',
   backupCodec: { codec: 'vp8' },
   simulcast: false,
+  scalabilityMode: 'L1T3',
   videoEncoding: { maxBitrate: 900_000, maxFramerate: 20 },
 } as const;
 

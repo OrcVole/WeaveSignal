@@ -28,6 +28,8 @@ type HmacSha256 = Hmac<Sha256>;
 const TOKEN_LABEL: &[u8] = b"weavesignal-control/api-token/v1";
 const WEBHOOK_LABEL: &[u8] = b"weavesignal-control/webhook-secret/v1";
 const DERIVE_LABEL: &[u8] = b"weavesignal-control/api-key-from-station-key/v1";
+// rtmp-out: the key RTMP stream keys are sealed under (ADR-0230).
+const RTMP_LABEL: &[u8] = b"weavesignal-control/rtmp-stream-key/v1";
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiKey(Vec<u8>);
@@ -84,6 +86,13 @@ impl ApiKey {
         m.update(label);
         m.update(&[0]);
         m
+    }
+
+    /// The key RTMP out's stream keys are sealed under in the database (ADR-0230, `rtmp-out`),
+    /// 32 bytes for ChaCha20-Poly1305; changing the token key leaves them unreadable (an admin
+    /// enters them again).
+    pub fn rtmp_key(&self) -> [u8; 32] {
+        self.mac(RTMP_LABEL).finalize().into_bytes().into()
     }
 
     /// The stored form of a token's secret.

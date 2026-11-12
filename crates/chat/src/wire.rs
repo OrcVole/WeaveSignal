@@ -66,6 +66,16 @@ pub enum ClientFrame {
     Ping,
 }
 
+/// A chatter's avatar as everyone sees it (ADR-0235): one of the shipped set, by its id in
+/// `packages/ui/avatars/manifest.json`, or their own picture once staff approved it, by its id
+/// (`GET /api/v1/chat/avatars/{id}`). None at all is the plain default, their initial.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Avatar {
+    Stock { id: String },
+    Upload { id: String },
+}
+
 /// Who wrote a message, as everyone sees it.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct Author {
@@ -73,6 +83,7 @@ pub struct Author {
     pub name: String,
     pub standing: Standing,
     pub guest: bool,
+    pub avatar: Option<Avatar>,
 }
 
 /// The message a reply answers, named so the reply reads without scrolling.
@@ -105,6 +116,34 @@ pub struct Msg {
     pub featured: bool,
     /// Reaction counts by emoji, in the fixed order of [`REACTIONS`].
     pub reactions: Vec<(String, u32)>,
+    /// A picture or document the message carries (ADR-0262).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Attachment>,
+}
+
+/// A picture or document posted in the chat, as a message carries it (ADR-0262). Its files are
+/// at `/api/v1/chat/pictures/{id}` (and `/thumb`) or `/api/v1/chat/files/{id}`, served only
+/// once staff or a moderator approved it, as long as its message is in view.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Attachment {
+    pub id: String,
+    /// `picture` or `document`.
+    pub kind: String,
+    /// The name the chatter's file had: shown as text, never used to name a file.
+    pub name: String,
+    /// The type the station found in its bytes, and the only one it sends.
+    pub mime: String,
+    /// The type in words ("PDF", "OpenDocument text", "JPEG").
+    pub label: String,
+    pub bytes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb_height: Option<u32>,
 }
 
 /// The reactions a chatter can add (custom emoji come later).
@@ -119,6 +158,13 @@ pub struct RoomRules {
     pub min_age_minutes: u64,
     pub max_chars: usize,
     pub hold_ms: u64,
+    /// When chatters may post (ADR-0234).
+    pub hours: crate::hours::Hours,
+    /// Chatters may upload a picture of their own now (ADR-0259): the studio's switch, so an open
+    /// page learns of it at once.
+    pub avatar_uploads: bool,
+    /// Trusted chatters may attach a picture or document (ADR-0262), by the same kind of switch.
+    pub attachments: bool,
 }
 
 /// The signed-in chatter's own account, as they see it.
@@ -134,6 +180,12 @@ pub struct Me {
     pub banned: bool,
     /// The sentence a moderator or the station's view of "can I post" needs.
     pub moderator: bool,
+    /// What everyone else sees beside their messages (ADR-0235).
+    pub avatar: Option<Avatar>,
+    /// The shipped avatar they chose, shown when no picture of their own is approved.
+    pub avatar_stock: Option<String>,
+    /// Their own picture waiting for staff: only they see it (`GET /api/v1/chat/me/avatar`).
+    pub avatar_held: Option<String>,
 }
 
 /// A statement of reasons (DSA Article 17), as the chatter receives it.
@@ -178,6 +230,12 @@ pub struct Item {
     /// The automated step involved, if any ("rustrict").
     pub automated: Option<String>,
     pub status: String,
+    /// A report about the account's picture (ADR-0260): the picture's id, while it is still the
+    /// one showing; it is fetched like any picture (`GET /api/v1/chat/mod/avatars/{id}`).
+    pub picture: Option<String>,
+    /// A report about a posted picture or document (ADR-0262): its id, while it is still showing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -196,6 +254,7 @@ pub struct AccountRef {
     pub standing: Standing,
     pub guest: bool,
     pub restricted: Option<String>,
+    pub avatar: Option<Avatar>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -214,12 +273,38 @@ pub struct StudioMsg {
     pub invited_ms: Option<i64>,
 }
 
+/// An uploaded picture waiting for staff (ADR-0235). Staff fetch it at
+/// `GET /api/v1/chat/mod/avatars/{id}`.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct HeldAvatar {
+    pub id: String,
+    pub account: AccountRef,
+    pub uploaded_ms: i64,
+    pub bytes: u32,
+    /// `avatar`, or a `picture` or `document` posted in the chat (ADR-0262), in the same queue.
+    pub kind: String,
+    /// What a posted picture or document is, and the message that carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Attachment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<HeldMessage>,
+}
+
+/// The message a waiting picture or document came with.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct HeldMessage {
+    pub id: i64,
+    pub body: String,
+}
+
 /// What a moderator's socket gets on opening, beside `welcome`.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct ModSnapshot {
     pub items: Vec<Item>,
     pub held: Vec<Held>,
     pub studio: Vec<StudioMsg>,
+    /// Pictures waiting for approval, oldest first (staff and moderators both, ADR-0255).
+    pub avatars: Vec<HeldAvatar>,
 }
 
 /// A frame to the browser.
@@ -271,6 +356,13 @@ pub enum ServerFrame {
         offset: u64,
         id: i64,
         reactions: Vec<(String, u32)>,
+    },
+    /// A chatter's avatar changed (a shipped one chosen, a picture approved or removed): every
+    /// message of theirs on the page takes it (public; carries an offset).
+    Avatar {
+        offset: u64,
+        account: String,
+        avatar: Option<Avatar>,
     },
     /// People reading the room.
     Count {
@@ -326,6 +418,14 @@ pub enum ServerFrame {
     ModUnheld {
         ids: Vec<i64>,
     },
+    /// A picture arrived for approval (staff only).
+    ModAvatar {
+        a: HeldAvatar,
+    },
+    /// A waiting picture was approved, refused, replaced or withdrawn (staff only).
+    ModAvatarDone {
+        id: String,
+    },
     ModItem {
         item: Item,
     },
@@ -366,7 +466,8 @@ impl ServerFrame {
             | ServerFrame::Hide { offset, .. }
             | ServerFrame::Pin { offset, .. }
             | ServerFrame::Feature { offset, .. }
-            | ServerFrame::React { offset, .. } => Some(*offset),
+            | ServerFrame::React { offset, .. }
+            | ServerFrame::Avatar { offset, .. } => Some(*offset),
             _ => None,
         }
     }

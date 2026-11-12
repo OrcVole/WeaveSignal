@@ -183,6 +183,74 @@ pub struct DeskVideo {
     /// The slate has a picture (ADR-0010).
     #[serde(default)]
     pub still: bool,
+    /// RTMP out (ADR-0230, `rtmp-out`): each destination (never its key) and the encoders;
+    /// `None` from a desk without it.
+    #[serde(default)]
+    pub rtmp: Option<DeskRtmp>,
+}
+
+// --- rtmp-out ---------------------------------------------------------------------------
+
+/// RTMP out as the desk reports it (ADR-0230).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskRtmp {
+    /// The name of the set of destinations the desk holds (the control plane's; `None` until
+    /// it is sent one).
+    #[serde(default)]
+    pub set: Option<String>,
+    #[serde(default)]
+    pub destinations: Vec<DeskRtmpDestination>,
+    /// The encoders running now: one per profile in use.
+    #[serde(default)]
+    pub encoders: Vec<DeskRtmpEncoder>,
+}
+
+/// One destination at the desk.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskRtmpDestination {
+    pub name: String,
+    /// `compatible` or `open`.
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default)]
+    pub enabled: bool,
+    /// `off`, `waiting` (for its encoder's first keyframe), `connecting`, `live` or
+    /// `retrying`.
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub connected: bool,
+    #[serde(default)]
+    pub connected_ms: Option<u64>,
+    /// The last failure, with the stream key cut out.
+    #[serde(default)]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_error_ms_ago: Option<u64>,
+    /// Bytes sent on this connection, and since the desk started.
+    #[serde(default)]
+    pub bytes: u64,
+    #[serde(default)]
+    pub bytes_total: u64,
+    #[serde(default)]
+    pub connects: u32,
+    #[serde(default)]
+    pub retry_in_ms: Option<u64>,
+}
+
+/// One RTMP encoder at the desk.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskRtmpEncoder {
+    /// `compatible` or `open`.
+    pub profile: String,
+    /// `openh264` or `nvenc` (H.264); `svt` or `nvenc` (AV1).
+    pub encoder: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub video_kbps: u32,
+    #[serde(default)]
+    pub ready: bool,
 }
 
 /// The station's mode as playout runs it (`programme.mode`, ADR-0045): `live`, the desk first
@@ -460,6 +528,12 @@ impl DeskClient {
     async fn ask_ok(&self, req: serde_json::Value) -> Result<Reply, DeskError> {
         let r = self.ask(&req.to_string()).await?;
         if r.ok { Ok(r) } else { Err(r.refused()) }
+    }
+
+    /// RTMP out's destinations, with their keys (`rtmp-out`): a request of its own, never a
+    /// [`DeskCommand`], so no key is ever in the API's description or a command's echo.
+    pub async fn rtmp_set(&self, request: serde_json::Value) -> Result<(), DeskError> {
+        self.ask_ok(request).await.map(|_| ())
     }
 
     /// Fire a cart at the desk: its file (a name the media worker gave it) at its stored gain,

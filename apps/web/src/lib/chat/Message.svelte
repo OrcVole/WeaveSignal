@@ -1,11 +1,15 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // One message in the room: who, when, what it answers, its marks (request, the station, on
-  // air), the reader's @mentions highlighted, and reaction counts. Its actions (react, reply,
-  // report) sit behind one button so a long room stays compact on a phone.
-  import { REACTIONS, type Msg } from '../../../../../packages/ui/chat.ts';
-  import { hhmm, markMentions } from './model.ts';
+  // One message in the room: the sender's avatar (ADR-0235: decoration beside the name, so a
+  // screen reader hears the name once), who, when, what it answers, its marks (request, the station, on
+  // air), the reader's @mentions highlighted, a picture or document it carries (ADR-0262), and
+  // reaction counts. Its actions (react, reply, report) sit behind one button so a long room
+  // stays compact on a phone.
+  import Avatar from '../../../../../packages/ui/Avatar.svelte';
+  import { REACTIONS, type Attachment, type Msg } from '../../../../../packages/ui/chat.ts';
+  import AttachmentBox from './AttachmentBox.svelte';
+  import { hhmm, markMentions, reportablePicture } from './model.ts';
 
   let {
     m,
@@ -16,6 +20,8 @@
     onreact,
     onreply,
     onreport,
+    onview = () => {},
+    preview = null,
   }: {
     m: Msg;
     myName: string;
@@ -24,7 +30,11 @@
     canReply: boolean;
     onreact: (m: Msg, emoji: string) => void;
     onreply: (m: Msg) => void;
-    onreport: (m: Msg) => void;
+    onreport: (m: Msg, what?: 'picture' | 'attachment') => void;
+    /** Open a posted picture full size. */
+    onview?: (a: Attachment) => void;
+    /** A picture this page attached, from the file chosen, while the station decides. */
+    preview?: string | null;
   } = $props();
 
   let open = $state(false);
@@ -33,10 +43,13 @@
   const staff = $derived(m.author.standing === 'staff' || m.kind === 'announcement');
   const counts = $derived(m.reactions.filter(([, n]) => n > 0));
   const held = $derived(m.state === 'held');
+  // A chatter's own picture, not one of the station's set, may be reported (ADR-0260).
+  const picture = $derived(!mine ? reportablePicture(m) : null);
   const actionsId = $derived(`msg-actions-${m.id}`);
 </script>
 
 <li class="msg" class:mentioned class:announce={m.kind === 'announcement'} data-chat="msg" data-id={m.id} data-kind={m.kind}>
+  <Avatar avatar={m.author.avatar} name={m.author.name} size={28} />
   <div class="text">
     <div class="head">
       <span class="who">{mine ? `${m.author.name} (you)` : m.author.name}</span>
@@ -47,9 +60,12 @@
       <time class="when num" datetime={new Date(m.server_ms).toISOString()}>{hhmm(m.server_ms)}</time>
     </div>
     {#if m.reply_to}<p class="replying">Replying to {m.reply_to.name}</p>{/if}
-    <p class="body">{#each parts as p, i (i)}{#if p.mention}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}</p>
+    {#if m.body}<p class="body">{#each parts as p, i (i)}{#if p.mention}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}</p>{/if}
+    {#if m.attachment}<AttachmentBox a={m.attachment} waiting={held} {preview} {onview} />{/if}
     {#if mentioned}<span class="sr-only">Mentions you.</span>{/if}
-    {#if held}<p class="held small" data-chat="held"><svg aria-hidden="true"><use href="#g-hold" /></svg>Waiting for a moderator…</p>{/if}
+    {#if held && m.attachment}<p class="held small" data-chat="held-attachment"
+        ><svg aria-hidden="true"><use href="#g-hold" /></svg>Waiting for the station: nobody else sees it until staff or a moderator approve it.</p
+      >{:else if held}<p class="held small" data-chat="held"><svg aria-hidden="true"><use href="#g-hold" /></svg>Waiting for a moderator…</p>{/if}
     {#if counts.length}
       <p class="reactions small" aria-label="Reactions: {counts.map(([e, n]) => `${e} ${n}`).join(', ')}">
         {#each counts as [e, n] (e)}<span aria-hidden="true">{e} <span class="num">{n}</span></span>{/each}
@@ -81,6 +97,10 @@
         {#if canReply && m.kind !== 'announcement'}<button type="button" class="btn" data-chat="reply" onclick={() => { open = false; onreply(m); }}>Reply</button>{/if}
         <!-- The actions stay open behind the dialog, so focus can come back to this button. -->
         {#if !mine}<button type="button" class="btn quiet" data-chat="report" onclick={() => onreport(m)}><svg aria-hidden="true"><use href="#g-flag" /></svg>Report</button>{/if}
+        {#if picture}<button type="button" class="btn quiet" data-chat="report-picture" onclick={() => onreport(m, 'picture')}><svg aria-hidden="true"><use href="#g-flag" /></svg>Report this picture</button>{/if}
+        {#if !mine && m.attachment}<button type="button" class="btn quiet" data-chat="report-attachment" onclick={() => onreport(m, 'attachment')}
+            ><svg aria-hidden="true"><use href="#g-flag" /></svg>{m.attachment.kind === 'document' ? 'Report this document' : 'Report this posted picture'}</button
+          >{/if}
       </div>
     </div>
   {/if}
@@ -89,8 +109,8 @@
 <style>
   .msg {
     display: grid;
-    grid-template-columns: 1fr auto;
-    column-gap: var(--s-1);
+    grid-template-columns: auto 1fr auto;
+    column-gap: var(--s-2);
     padding: var(--s-2) 0 var(--s-2) var(--s-3);
     border-left: 3px solid transparent;
   }
@@ -158,6 +178,7 @@
     appearance: none;
     align-self: start;
     margin-top: calc(-1 * var(--s-1));
+    margin-left: calc(-1 * var(--s-1));
     width: var(--target-touch);
     height: var(--target-touch);
     display: inline-grid;

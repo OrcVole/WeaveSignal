@@ -271,8 +271,9 @@ describe('Settings and who is looking', () => {
 
   it('tells a presenter that retention and holds are an admin’s, with no refused request', () => {
     const { body } = render(Settings, { props: { me: asFraser, initial: null, initialHolds: null } });
-    const drawn = [...body.matchAll(/data-panel="([^"]+)"/g)].map((m) => m[1]);
-    expect(drawn).toEqual([]);
+    const drawn = [...body.matchAll(/<(\w+)[^>]*?data-panel="([^"]+)"/g)].filter((m) => m[1] !== 'dialog').map((m) => m[2]);
+    // A member of staff signed in as themselves gets Your show (ADR-0218) and nothing of the admin's.
+    expect(drawn).toEqual(['settings.my-show']);
     expect(body).toContain('Only an admin changes how long the station keeps its records');
     expect(body).not.toContain('Loading retention settings');
   });

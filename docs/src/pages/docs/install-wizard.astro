@@ -1,0 +1,590 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// The install wizard (ADR-0237): a new station's questions, asked once, answered in the browser.
+// It gives back the settings file for the chosen route, the DNS records, the ports, the commands
+// in order, and an answers file for the station's own setup page.
+//
+// Nothing leaves the page: the script below reads the form, calls the generator
+// (packages/wizard, the same code the station's setup page uses) and writes the result into the
+// page. No request is made, nothing is stored, and the address never changes
+// (tests/wizard/check.mjs asserts all three). No secret is asked or made: both install routes
+// make them on the server.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { PRESETS } from '../../../../packages/wizard/presets.ts';
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Install wizard',
+    description: 'Answer a new WeaveSignal station’s questions once and get its settings file, DNS records and commands. It runs in your browser and sends nothing anywhere.',
+    tableOfContents: false,
+    // The documentation's own frontmatter (src/content.config.ts): a how-to, kept current.
+    type: 'howto',
+    status: 'draft',
+    last_verified: new Date('2026-11-10'),
+  }}
+>
+  <p>
+    Answer the questions and this page writes your station’s settings file, the DNS records to create, and the commands to run, in order.{' '}
+    <strong>It runs in your browser and sends nothing anywhere</strong>: no answer leaves this page, and it never asks for a password or a key.
+  </p>
+
+  <form id="install-wizard" class="not-content" novalidate>
+    <fieldset>
+      <legend>1. How will you install it?</legend>
+      <div class="routes" role="radiogroup" aria-label="Install route">
+        <label class="route"><input type="radio" name="route" value="compose" checked /><span><b>Compose</b><small>One command on your own Linux server, with Podman or Docker.</small></span></label>
+        <label class="route"><input type="radio" name="route" value="quadlets" /><span><b>Quadlets</b><small>The same station as systemd units, started by Podman at boot.</small></span></label>
+        <label class="route"><input type="radio" name="route" value="cloudron" /><span><b>Cloudron</b><small>An app on a Cloudron you already run.</small></span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. The station</legend>
+      <div class="q">
+        <label for="w-name">Station name</label>
+        <input id="w-name" name="name" type="text" maxlength="200" autocomplete="off" aria-describedby="w-name-hint w-name-err" />
+        <p class="hint" id="w-name-hint">As listeners will read it: on the player, in podcast feeds, on show cards.</p>
+        <p class="err" id="w-name-err" hidden></p>
+      </div>
+      <div class="q">
+        <label for="w-contact">Takedown contact</label>
+        <input id="w-contact" name="contact" type="text" maxlength="200" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="calls@station.example" aria-describedby="w-contact-hint w-contact-err" />
+        <p class="hint" id="w-contact-hint">An email address or a link where a caller can ask for their call to be taken down. Callers read it before they agree to be recorded. Leave it empty and call-in stays closed until you add one.</p>
+        <p class="err" id="w-contact-err" hidden></p>
+      </div>
+      <div class="q">
+        <label for="w-jurisdiction">Jurisdiction</label>
+        <select id="w-jurisdiction" name="jurisdiction" aria-describedby="w-jurisdiction-hint">
+          {PRESETS.map((p) => <option value={p.key}>{p.name}</option>)}
+        </select>
+        <p class="hint" id="w-jurisdiction-hint">It decides how long the station keeps recordings, logs and chat. A licensed broadcaster has to choose one. The station’s setup page explains each and saves it.</p>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3. Where it lives</legend>
+      <div data-for="compose quadlets">
+        <label class="tick"><input type="checkbox" name="isPublic" checked /><span>Reachable from the internet<small>Off: a station for this machine only, to try it. Nobody else can listen or call.</small></span></label>
+        <div class="q" data-when="public">
+          <label for="w-domain">The station’s name on the internet</label>
+          <input id="w-domain" name="domain" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="station.example" aria-describedby="w-domain-hint w-domain-err" />
+          <p class="hint" id="w-domain-hint">One name serves everything: the player, the studio, the stream and the live room.</p>
+          <p class="err" id="w-domain-err" hidden></p>
+        </div>
+        <div class="q" data-when="public">
+          <label for="w-acme">Email for certificate notices (optional)</label>
+          <input id="w-acme" name="acmeEmail" type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="w-acme-hint w-acmeEmail-err" />
+          <p class="hint" id="w-acme-hint">Let’s Encrypt writes here if the certificate is about to lapse. It goes to them, from your server, not to us.</p>
+          <p class="err" id="w-acmeEmail-err" hidden></p>
+        </div>
+      </div>
+      <div data-for="cloudron" hidden>
+        <p class="hint lead">Cloudron gives the app four names. Type each in full.</p>
+        <div class="q">
+          <label for="w-studio">The studio (the app’s own domain)</label>
+          <input id="w-studio" name="studioDomain" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="studio.station.example" aria-describedby="w-studio-hint w-studioDomain-err" />
+          <p class="hint" id="w-studio-hint">Where staff sign in. Guests’ browsers also reach TURN at this name.</p>
+          <p class="err" id="w-studioDomain-err" hidden></p>
+        </div>
+        <div class="q">
+          <label for="w-public">Public pages</label>
+          <input id="w-public" name="publicDomain" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="station.example" aria-describedby="w-public-hint w-publicDomain-err" />
+          <p class="hint" id="w-public-hint">The player, call-in and the chat: the address you give listeners.</p>
+          <p class="err" id="w-publicDomain-err" hidden></p>
+        </div>
+        <div class="q">
+          <label for="w-listen">Listener stream</label>
+          <input id="w-listen" name="listenDomain" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="listen.station.example" aria-describedby="w-listenDomain-err" />
+          <p class="err" id="w-listenDomain-err" hidden></p>
+        </div>
+        <div class="q">
+          <label for="w-room">Live room</label>
+          <input id="w-room" name="roomDomain" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="room.station.example" aria-describedby="w-roomDomain-err" />
+          <p class="err" id="w-roomDomain-err" hidden></p>
+        </div>
+      </div>
+      <label class="tick" data-when="public"><input type="checkbox" name="ipv6" /><span>The server has an IPv6 address<small>It changes the DNS records: guests on some networks can only join if the TURN name answers over IPv4 alone.</small></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>4. What it does</legend>
+      <div class="q">
+        <label for="w-mail">Sign-in codes by email</label>
+        <select id="w-mail" name="mail" aria-describedby="w-mail-hint w-mail-err"></select>
+        <p class="hint" id="w-mail-hint">Chatters sign in with a code sent to their email, and staff may. Off: staff use passwords and the chat is read-only.</p>
+        <p class="err" id="w-mail-err" hidden></p>
+      </div>
+      <div class="q" data-when="mail-from" hidden>
+        <label for="w-from">Sender address</label>
+        <input id="w-from" name="mailFrom" type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="chat@station.example" aria-describedby="w-mailFrom-err" />
+        <p class="err" id="w-mailFrom-err" hidden></p>
+      </div>
+      <label class="tick"><input type="checkbox" name="video" /><span>Turn on video<small>Guests’ cameras, a vision mixer and a picture in the player. It costs memory and CPU; you can turn it on later.</small></span></label>
+      <label class="tick" data-for="cloudron" hidden><input type="checkbox" name="streamPassword" /><span>Ask listeners for a password<small>For a station not ready to be heard. The player page cannot play a stream with a password; radio apps can.</small></span></label>
+      <label class="tick"><input type="checkbox" name="searchListing" /><span>Let search engines list the station<small>Off, every page asks not to be listed.</small></span></label>
+      <label class="tick"><input type="checkbox" name="directoryListing" /><span>Ask radio directories to list the stream</span></label>
+      <details data-when="public">
+        <summary>Ports and address (most stations leave these)</summary>
+        <div class="grid2">
+          <div class="q">
+            <label for="w-media">Live room media, UDP port</label>
+            <input id="w-media" name="mediaPort" type="text" inputmode="numeric" value="7882" aria-describedby="w-mediaPort-err" />
+            <p class="err" id="w-mediaPort-err" hidden></p>
+          </div>
+          <div class="q">
+            <label for="w-turn">TURN over TLS, TCP port</label>
+            <input id="w-turn" name="turnTlsPort" type="text" inputmode="numeric" value="5349" aria-describedby="w-turnTlsPort-err" />
+            <p class="err" id="w-turnTlsPort-err" hidden></p>
+          </div>
+          <div class="q">
+            <label for="w-turnudp">TURN over UDP port (0 is off)</label>
+            <input id="w-turnudp" name="turnUdpPort" type="text" inputmode="numeric" value="0" aria-describedby="w-turnUdpPort-err" />
+            <p class="err" id="w-turnUdpPort-err" hidden></p>
+          </div>
+          <div class="q">
+            <label for="w-icetcp">Media over TCP port (0 is off)</label>
+            <input id="w-icetcp" name="iceTcpPort" type="text" inputmode="numeric" value="0" aria-describedby="w-iceTcpPort-err" />
+            <p class="err" id="w-iceTcpPort-err" hidden></p>
+          </div>
+        </div>
+        <div class="q">
+          <label for="w-nodeip">The server’s public IPv4 address (optional)</label>
+          <input id="w-nodeip" name="nodeIp" type="text" inputmode="decimal" autocomplete="off" placeholder="203.0.113.7" aria-describedby="w-nodeip-hint w-nodeIp-err" />
+          <p class="hint" id="w-nodeip-hint">Only if guests cannot connect: the station finds its address by itself, and this overrides what it finds.</p>
+          <p class="err" id="w-nodeIp-err" hidden></p>
+        </div>
+      </details>
+    </fieldset>
+
+    <fieldset>
+      <legend>5. The look</legend>
+      <p class="hint lead">The player, call-in and guest pages take your colour, icon and banner. Try them here; you set them on the station’s own setup page, which the last command opens.</p>
+      <div class="q">
+        <label for="w-accent">Accent colour</label>
+        <div class="colour">
+          <input type="color" id="w-accent-pick" aria-label="Pick the accent colour" value="#7aa2f7" />
+          <input id="w-accent" name="accent" type="text" maxlength="7" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="#7aa2f7" aria-describedby="w-accent-hint w-accent-err" />
+        </div>
+        <p class="hint" id="w-accent-hint">Used for links, the main button and the focus ring. Leave it empty for WeaveSignal’s own blue.</p>
+        <p class="err" id="w-accent-err" hidden></p>
+      </div>
+      <div class="grid2">
+        <div class="q">
+          <label for="w-icon">Try an icon</label>
+          <input id="w-icon" type="file" accept="image/png,image/jpeg" aria-describedby="w-pictures-hint" />
+        </div>
+        <div class="q">
+          <label for="w-banner">Try a banner</label>
+          <input id="w-banner" type="file" accept="image/png,image/jpeg" aria-describedby="w-pictures-hint" />
+        </div>
+      </div>
+      <p class="hint" id="w-pictures-hint">PNG or JPEG. A picture you choose here is shown below and goes nowhere: it stays in this tab. Icon: square, at least 64 pixels. Banner: three times as wide as tall, at least 600 by 200.</p>
+      <div class="previews" id="w-previews" aria-hidden="true">
+        <div class="frame" data-theme-preview="dark"><span class="tag">Dark theme</span><img class="p-banner" alt="" hidden /><div class="p-top"><img class="p-icon" alt="" hidden /><span class="p-dot"></span><span class="p-name">Your station</span></div><div class="p-btn">Listen live</div><div class="p-card"><span class="p-link">Chat rules and contacts</span></div></div>
+        <div class="frame" data-theme-preview="light"><span class="tag">Light theme</span><img class="p-banner" alt="" hidden /><div class="p-top"><img class="p-icon" alt="" hidden /><span class="p-dot"></span><span class="p-name">Your station</span></div><div class="p-btn">Listen live</div><div class="p-card"><span class="p-link">Chat rules and contacts</span></div></div>
+      </div>
+    </fieldset>
+  </form>
+
+  <h2 id="your-station">Your station</h2>
+  <p class="sr-only" id="wizard-status" role="status" aria-live="polite"></p>
+  <div id="wizard-output" class="not-content">
+    <p class="waiting">Answer the questions above and your settings file, DNS records and commands appear here.</p>
+  </div>
+  <noscript><p>This page needs JavaScript to write your files: it is the page itself that writes them, not a server. The install guides say the same by hand.</p></noscript>
+
+  <h2 id="what-next">What this page does not do</h2>
+  <ul>
+    <li>It makes no secret. The installer makes the station key and every password on your server and tells you where they are.</li>
+    <li>It does not check your DNS or your ports: it cannot see your server. The commands include the checks.</li>
+    <li>It does not upload your icon or banner. The station’s setup page takes them, and re-encodes them itself.</li>
+  </ul>
+  <p>
+    The routes in full: <a href="/docs/how-to/install-with-weavesignal-sh/">install with weavesignal.sh</a>, <a href="/docs/how-to/publish-with-compose/">publish from the Compose bundle</a>,
+    <a href="/docs/how-to/run-with-quadlets/">run with Quadlets</a>, <a href="/docs/how-to/install-on-cloudron/">install on Cloudron</a>. Afterwards: <a href="/docs/how-to/set-up-the-station/">set up the station and its look</a>.
+  </p>
+</StarlightPage>
+
+<script>
+  import { deriveBoth, GROUNDS, normaliseHex, type ThemeName } from '../../../../packages/wizard/accent.ts';
+  import { defaults, generate, problems, type Answers, type Field, type Output, type Route } from '../../../../packages/wizard/generate.ts';
+
+  const form = document.getElementById('install-wizard') as HTMLFormElement;
+  const output = document.getElementById('wizard-output')!;
+  const status = document.getElementById('wizard-status')!;
+  const field = <T extends HTMLElement = HTMLInputElement>(name: string) => form.elements.namedItem(name) as unknown as T;
+  const text = (name: string) => field(name).value;
+  const ticked = (name: string) => field(name).checked;
+  const touched = new Set<string>();
+
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> & { class?: string } = {}, ...kids: (Node | string)[]) => {
+    const node = document.createElement(tag);
+    const { class: cls, ...rest } = props;
+    Object.assign(node, rest);
+    if (cls) node.className = cls;
+    node.append(...kids);
+    return node;
+  };
+
+  // Mail's choices and the ports' defaults follow the route.
+  const MAIL: Record<Route, [string, string][]> = {
+    compose: [['off', 'Off'], ['outbox', 'Written to files, not sent (for a test)']],
+    quadlets: [['off', 'Off'], ['outbox', 'Written to files, not sent (for a test)']],
+    cloudron: [['cloudron', 'Through Cloudron’s mail'], ['outbox', 'Written to files, not sent (for a test)'], ['off', 'Off']],
+  };
+  let route: Route = 'compose';
+  function setRoute(next: Route) {
+    const before = defaults(route);
+    const after = defaults(next);
+    // A port still at the old route's default follows the new route's; one you typed stays.
+    if (text('turnTlsPort') === String(before.turnTlsPort)) field('turnTlsPort').value = String(after.turnTlsPort);
+    const mail = field<HTMLSelectElement>('mail');
+    const had = mail.value;
+    mail.replaceChildren(...MAIL[next].map(([value, label]) => el('option', { value, textContent: label })));
+    mail.value = MAIL[next].some(([v]) => v === had) && route === next ? had : after.mail;
+    route = next;
+  }
+
+  function answers(): Answers {
+    const port = (name: string) => (/^\d+$/.test(text(name).trim()) ? Number(text(name).trim()) : NaN);
+    return {
+      route,
+      name: text('name'),
+      contact: text('contact'),
+      isPublic: ticked('isPublic'),
+      domain: text('domain'),
+      studioDomain: text('studioDomain'),
+      publicDomain: text('publicDomain'),
+      listenDomain: text('listenDomain'),
+      roomDomain: text('roomDomain'),
+      ipv6: ticked('ipv6'),
+      acmeEmail: text('acmeEmail'),
+      nodeIp: text('nodeIp'),
+      jurisdiction: field<HTMLSelectElement>('jurisdiction').value,
+      streamPassword: ticked('streamPassword'),
+      video: ticked('video'),
+      mail: field<HTMLSelectElement>('mail').value as Answers['mail'],
+      mailFrom: text('mailFrom'),
+      searchListing: ticked('searchListing'),
+      directoryListing: ticked('directoryListing'),
+      mediaPort: port('mediaPort'),
+      turnTlsPort: port('turnTlsPort'),
+      turnUdpPort: port('turnUdpPort'),
+      iceTcpPort: port('iceTcpPort'),
+      accent: text('accent'),
+    };
+  }
+
+  function show(a: Answers) {
+    const goesPublic = a.route === 'cloudron' || a.isPublic;
+    for (const node of form.querySelectorAll<HTMLElement>('[data-for]')) node.hidden = !node.dataset.for!.split(' ').includes(a.route);
+    for (const node of form.querySelectorAll<HTMLElement>('[data-when="public"]')) node.hidden = !goesPublic;
+    for (const node of form.querySelectorAll<HTMLElement>('[data-when="mail-from"]')) node.hidden = a.route === 'cloudron' || a.mail === 'off';
+  }
+
+  /** Say each problem on its field, once the field has been visited (or everything was asked for). */
+  function mark(found: { field: Field; message: string }[], all: boolean) {
+    for (const p of form.querySelectorAll<HTMLElement>('.err')) {
+      const name = p.id.replace(/^w-/, '').replace(/-err$/, '');
+      const problem = found.find((f) => f.field === name);
+      const input = field(name);
+      const say = !!problem && (all || touched.has(name));
+      p.hidden = !say;
+      p.textContent = say ? problem!.message : '';
+      if (input instanceof HTMLElement) {
+        if (say) input.setAttribute('aria-invalid', 'true');
+        else input.removeAttribute('aria-invalid');
+      }
+    }
+  }
+
+  // ---- the look's preview ----
+  const pictures: { icon: string | null; banner: string | null } = { icon: null, banner: null };
+  function preview(a: Answers) {
+    const hex = normaliseHex(a.accent);
+    const shades = hex ? deriveBoth(hex) : null;
+    for (const frame of document.querySelectorAll<HTMLElement>('#w-previews .frame')) {
+      const theme = frame.dataset.themePreview as ThemeName;
+      const g = GROUNDS[theme];
+      const d = shades?.[theme];
+      const set = (k: string, v: string) => frame.style.setProperty(k, v);
+      set('--p-plane', g.plane);
+      set('--p-surface', g.surface);
+      set('--p-ink', g.ink);
+      set('--p-accent', d?.accent ?? g.accent);
+      set('--p-accent-ink', d?.ink ?? g.accentInk);
+      frame.querySelector('.p-name')!.textContent = a.name.trim() || 'Your station';
+      const icon = frame.querySelector<HTMLImageElement>('.p-icon')!;
+      const banner = frame.querySelector<HTMLImageElement>('.p-banner')!;
+      icon.hidden = !pictures.icon;
+      frame.querySelector<HTMLElement>('.p-dot')!.hidden = !!pictures.icon;
+      if (pictures.icon && icon.src !== pictures.icon) icon.src = pictures.icon;
+      banner.hidden = !pictures.banner;
+      if (pictures.banner && banner.src !== pictures.banner) banner.src = pictures.banner;
+    }
+    const hint = document.getElementById('w-accent-hint')!;
+    hint.textContent =
+      shades?.dark && shades.light
+        ? `Each theme shows the nearest shade of your colour that stays readable: dark ${shades.dark.accent}${shades.dark.adjusted ? ' (lightened)' : ''}, light ${shades.light.accent}${shades.light.adjusted ? ' (darkened)' : ''}.`
+        : 'Used for links, the main button and the focus ring. Leave it empty for WeaveSignal’s own blue.';
+    if (hex) (document.getElementById('w-accent-pick') as HTMLInputElement).value = hex;
+  }
+  for (const kind of ['icon', 'banner'] as const) {
+    document.getElementById(`w-${kind}`)!.addEventListener('change', (e) => {
+      const file = (e.currentTarget as HTMLInputElement).files?.[0];
+      if (pictures[kind]) URL.revokeObjectURL(pictures[kind]!);
+      // Only PNG and JPEG are shown, as only they are taken by the station.
+      pictures[kind] = file && (file.type === 'image/png' || file.type === 'image/jpeg') ? URL.createObjectURL(file) : null;
+      render();
+    });
+  }
+  document.getElementById('w-accent-pick')!.addEventListener('input', (e) => {
+    field('accent').value = (e.currentTarget as HTMLInputElement).value;
+    touched.add('accent');
+    render();
+  });
+
+  // ---- the output ----
+  function saveAs(name: string, body: string) {
+    // A file made in the page and handed to the browser: no request leaves it.
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+    const a = el('a', { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function copyButton(body: string, what: string) {
+    const b = el('button', { type: 'button', class: 'btn', textContent: 'Copy' });
+    b.setAttribute('aria-label', `Copy ${what}`);
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(body);
+        b.textContent = 'Copied';
+      } catch {
+        b.textContent = 'Select and copy it by hand';
+      }
+      setTimeout(() => (b.textContent = 'Copy'), 2000);
+    });
+    return b;
+  }
+  function code(body: string, what: string, extra: Node[] = []) {
+    // Long lines scroll sideways, so the block takes the keyboard's focus and has a name.
+    const pre = el('pre', { tabIndex: 0 }, el('code', { textContent: body.replace(/\n$/, '') }));
+    pre.setAttribute('role', 'group');
+    pre.setAttribute('aria-label', what);
+    return el('div', { class: 'code' }, pre, el('div', { class: 'acts' }, copyButton(body, what), ...extra));
+  }
+  function table(head: string[], rows: (string | Node)[][]) {
+    return el(
+      'div',
+      { class: 'tablewrap' },
+      el(
+        'table',
+        {},
+        el('thead', {}, el('tr', {}, ...head.map((h) => el('th', { scope: 'col', textContent: h })))),
+        el(
+          'tbody',
+          {},
+          ...rows.map((r) =>
+            el(
+              'tr',
+              {},
+              ...r.map((c, i) => {
+                const cell = i === 0 ? el('th', { scope: 'row' }, c) : el('td', {}, c);
+                // On a phone each row is a block and each cell says its own column (the CSS below).
+                cell.dataset.label = head[i];
+                return cell;
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  const WHEN = { keep: 'Create it', 'install-only': 'Create it, then delete it once the app runs', never: 'Must not exist' } as const;
+
+  function renderOutput(o: Output, a: Answers) {
+    const parts: Node[] = [];
+    const download = el('button', { type: 'button', class: 'btn primary', textContent: `Download ${o.file.name}` });
+    download.addEventListener('click', () => saveAs(o.file.name, o.file.text));
+    parts.push(
+      el('h3', { textContent: 'The settings file' }),
+      el('p', { textContent: `Goes to ${o.file.path}. It holds no secret: the installer adds those on the server.` }),
+      code(o.file.text, 'the settings file', [download]),
+    );
+    if (o.dialog.length) {
+      parts.push(el('h3', { textContent: 'Cloudron’s install dialog' }), el('p', { textContent: 'Cloudron asks for the names and the public ports when you install the app. They are never in the settings file.' }), table(['Cloudron asks for', 'Give it'], o.dialog.map((d) => [d.label, el('code', { textContent: d.value })])));
+    }
+    if (o.dns.length) {
+      parts.push(
+        el('h3', { textContent: 'DNS records' }),
+        table(
+          ['Name', 'Type', 'Points at', 'What to do', 'Why'],
+          o.dns.map((r) => [el('code', { textContent: r.name }), r.type, r.value, r.when === 'never' ? el('strong', { textContent: 'No AAAA record' }) : WHEN[r.when], r.why]),
+        ),
+      );
+    }
+    if (o.ports.length) {
+      parts.push(el('h3', { textContent: 'Ports to open' }), el('p', { textContent: 'In the server’s firewall, and in any cloud firewall or router in front of it.' }), table(['Port', 'Protocol', 'For'], o.ports.map((p) => [String(p.port), p.proto, p.what])));
+    }
+    parts.push(el('h3', { textContent: 'The steps, in order' }));
+    parts.push(
+      el(
+        'ol',
+        { class: 'steps' },
+        ...o.steps.map((s) => el('li', {}, el('strong', { textContent: s.title }), ...(s.text ? [el('p', { textContent: s.text })] : []), ...(s.command ? [code(s.command, `the commands for “${s.title}”`)] : []))),
+      ),
+    );
+    const answersBtn = el('button', { type: 'button', class: 'btn primary', textContent: `Download ${o.answers.name}` });
+    answersBtn.addEventListener('click', () => saveAs(o.answers.name, o.answers.text));
+    parts.push(
+      el('h3', { textContent: 'For the station’s setup page' }),
+      el('p', { textContent: `The jurisdiction and the look are kept by the station itself, not in a file on the server. Keep this answers file; the setup page at ${o.setupUrl} opens it and fills itself in. It holds the name, the contact, the jurisdiction and the colour, and nothing else.` }),
+      el('div', { class: 'acts' }, answersBtn),
+    );
+    if (o.notes.length) parts.push(el('h3', { textContent: 'Worth knowing' }), el('ul', {}, ...o.notes.map((n) => el('li', { textContent: n }))));
+    output.replaceChildren(...parts);
+    status.textContent = `Your files are ready for ${a.route === 'cloudron' ? 'Cloudron' : a.route === 'quadlets' ? 'Quadlets' : 'Compose'}.`;
+  }
+
+  const LABELS: Partial<Record<Field, string>> = {
+    name: 'Station name', contact: 'Takedown contact', domain: 'The station’s name on the internet', acmeEmail: 'Email for certificate notices', studioDomain: 'The studio', publicDomain: 'Public pages', listenDomain: 'Listener stream', roomDomain: 'Live room', mail: 'Sign-in codes by email', mailFrom: 'Sender address', mediaPort: 'Live room media port', turnTlsPort: 'TURN over TLS port', turnUdpPort: 'TURN over UDP port', iceTcpPort: 'Media over TCP port', nodeIp: 'The server’s public IPv4 address', accent: 'Accent colour', jurisdiction: 'Jurisdiction',
+  };
+  function renderWaiting(found: { field: Field; message: string }[]) {
+    const items = found.map((p) => {
+      const input = field(p.field);
+      const link = el('a', { href: `#${input.id}`, textContent: LABELS[p.field] ?? p.field });
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        input.closest('details')?.setAttribute('open', '');
+        touched.add(p.field);
+        render();
+        input.focus();
+      });
+      return el('li', {}, link, `: ${p.message}`);
+    });
+    output.replaceChildren(el('p', { class: 'waiting', textContent: 'Answer the questions above and your settings file, DNS records and commands appear here. Still needed:' }), el('ul', { class: 'needed' }, ...items));
+    status.textContent = '';
+  }
+
+  let shown = '';
+  function render() {
+    const a = answers();
+    show(a);
+    preview(a);
+    const found = problems(a);
+    mark(found, false);
+    const g = generate(a);
+    // The output is rebuilt only when it changes: a rebuild on every blur would replace a
+    // button between the press and the click.
+    const key = JSON.stringify(g);
+    if (key === shown) return;
+    shown = key;
+    if (g.ok) renderOutput(g.output, a);
+    else renderWaiting(g.problems);
+  }
+
+  for (const r of form.querySelectorAll<HTMLInputElement>('input[name="route"]')) {
+    r.addEventListener('change', () => {
+      if (r.checked) setRoute(r.value as Route);
+      render();
+    });
+  }
+  form.addEventListener('input', render);
+  form.addEventListener('change', render);
+  form.addEventListener('focusout', (e) => {
+    const name = (e.target as HTMLInputElement).name;
+    if (name) {
+      touched.add(name);
+      render();
+    }
+  });
+  form.addEventListener('submit', (e) => e.preventDefault());
+  // A reload starts clean: the browser must not put old answers back.
+  form.reset();
+  setRoute('compose');
+  render();
+</script>
+
+<style is:global>
+  /* The wizard's own controls, in the documentation's colours (src/styles/site.css): 44 px
+     targets, the accent for the one main button of each block, a visible ring on focus. */
+  #install-wizard, #wizard-output { display: grid; gap: 1.25rem; margin-top: 1.5rem; }
+  #install-wizard fieldset { border: 1px solid var(--sl-color-hairline-light); border-radius: 12px; padding: 1rem 1.1rem 1.1rem; margin: 0; display: grid; gap: 1rem; background: var(--sl-color-gray-6); min-width: 0; }
+  :root[data-theme='light'] #install-wizard fieldset { background: var(--sl-color-gray-7); }
+  #install-wizard legend { font-weight: 600; font-size: var(--sl-text-lg); color: var(--sl-color-white); padding: 0 0.4rem; }
+  #install-wizard .q { display: grid; gap: 0.3rem; min-width: 0; }
+  #install-wizard [hidden] { display: none !important; }
+  #install-wizard label { font-weight: 600; color: var(--sl-color-white); }
+  #install-wizard :is(input[type='text'], select) { min-height: 44px; padding: 0 0.75rem; border-radius: 8px; border: 1px solid var(--sl-color-gray-4); background: var(--sl-color-black); color: var(--sl-color-white); font: inherit; font-size: 1rem; width: 100%; min-width: 0; }
+  #install-wizard input[type='file'] { min-height: 44px; font: inherit; color: var(--sl-color-gray-2); max-width: 100%; }
+  #install-wizard input[type='file']::file-selector-button { min-height: 44px; padding: 0 1rem; margin-right: 0.75rem; border-radius: 8px; border: 1px solid var(--sl-color-gray-4); background: var(--sl-color-gray-5); color: var(--sl-color-white); font: inherit; font-weight: 600; cursor: pointer; }
+  #install-wizard :is(input, select, summary):focus-visible, #wizard-output :is(button, a, pre):focus-visible { outline: 2px solid var(--sl-color-accent-high); outline-offset: 2px; }
+  #install-wizard [aria-invalid='true'] { border-color: #d03b3b; box-shadow: inset 0 0 0 1px #d03b3b; }
+  #install-wizard .hint { margin: 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); line-height: 1.45; }
+  #install-wizard .hint.lead { color: var(--sl-color-gray-2); }
+  #install-wizard .err { margin: 0; font-size: var(--sl-text-sm); color: var(--sl-color-white); line-height: 1.45; border-left: 3px solid #d03b3b; padding-left: 0.6rem; }
+  #install-wizard .routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.6rem; }
+  #install-wizard .route { position: relative; display: block; cursor: pointer; }
+  #install-wizard .route input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  #install-wizard .route span { display: grid; gap: 0.2rem; height: 100%; min-height: 44px; padding: 0.7rem 0.85rem; border: 1px solid var(--sl-color-gray-4); border-radius: 8px; background: var(--sl-color-black); }
+  #install-wizard .route small, #install-wizard .tick small { display: block; font-weight: 400; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); line-height: 1.4; }
+  #install-wizard .route input:checked + span { border-color: var(--sl-color-accent-high); box-shadow: inset 0 0 0 1px var(--sl-color-accent-high); background: var(--sl-color-accent-low); }
+  #install-wizard .route input:focus-visible + span { outline: 2px solid var(--sl-color-accent-high); outline-offset: 2px; }
+  #install-wizard .tick { display: grid; grid-template-columns: auto 1fr; gap: 0.75rem; align-items: start; min-height: 44px; cursor: pointer; padding: 0.3rem 0; }
+  #install-wizard .tick input { width: 1.5rem; height: 1.5rem; margin: 0.1rem 0 0; accent-color: var(--sl-color-accent); cursor: pointer; }
+  #install-wizard .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+  #install-wizard details { display: grid; gap: 1rem; }
+  #install-wizard details[open] summary { margin-bottom: 1rem; }
+  #install-wizard summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--sl-color-white); }
+  #install-wizard .colour { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem; align-items: center; }
+  #install-wizard .colour input[type='color'] { width: 44px; height: 44px; padding: 2px; border: 1px solid var(--sl-color-gray-4); border-radius: 8px; background: var(--sl-color-black); cursor: pointer; }
+  #install-wizard .colour input[type='text'] { font-family: var(--sl-font-mono); }
+  #install-wizard .previews { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.75rem; }
+  #install-wizard .frame { display: grid; gap: 0.6rem; align-content: start; padding: 0.75rem; border-radius: 12px; border: 1px solid var(--sl-color-gray-4); background: var(--p-plane); color: var(--p-ink); min-width: 0; }
+  #install-wizard .frame .tag { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; opacity: 0.75; }
+  #install-wizard .frame .p-banner { display: block; width: 100%; aspect-ratio: 3 / 1; object-fit: cover; border-radius: 8px; }
+  #install-wizard .frame .p-top { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+  #install-wizard .frame .p-icon { width: 24px; height: 24px; object-fit: contain; border-radius: 4px; flex: none; }
+  #install-wizard .frame .p-dot { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--p-accent); flex: none; }
+  #install-wizard .frame .p-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #install-wizard .frame .p-btn { display: flex; align-items: center; justify-content: center; min-height: 2.5rem; border-radius: 8px; background: var(--p-accent); color: var(--p-accent-ink); font-weight: 600; }
+  #install-wizard .frame .p-card { background: var(--p-surface); border-radius: 8px; padding: 0.6rem 0.75rem; border: 1px solid color-mix(in srgb, var(--p-ink) 12%, transparent); }
+  #install-wizard .frame .p-link { color: var(--p-accent); text-decoration: underline; font-size: 0.875rem; }
+
+  #wizard-output { gap: 0.75rem; }
+  #wizard-output h3 { font-size: var(--sl-text-xl); color: var(--sl-color-white); margin: 1rem 0 0; font-weight: 600; }
+  #wizard-output p, #wizard-output li { color: var(--sl-color-gray-2); line-height: 1.55; margin: 0; }
+  #wizard-output .waiting { padding: 1rem 1.1rem; border: 1px dashed var(--sl-color-gray-4); border-radius: 12px; }
+  #wizard-output ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.35rem; }
+  #wizard-output a { color: var(--sl-color-accent-high); }
+  #wizard-output .code { display: grid; gap: 0.5rem; min-width: 0; }
+  #wizard-output pre { margin: 0; padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--sl-color-hairline-light); background: var(--sl-color-black); color: var(--sl-color-gray-1); font-family: var(--sl-font-mono); font-size: var(--sl-text-sm); line-height: 1.55; overflow-x: auto; white-space: pre; max-height: 28rem; }
+  #wizard-output code { font-family: var(--sl-font-mono); font-size: 0.92em; overflow-wrap: anywhere; }
+  #wizard-output .acts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  #wizard-output .btn { min-height: 44px; padding: 0 1rem; border-radius: 8px; border: 1px solid var(--sl-color-gray-4); background: var(--sl-color-gray-5); color: var(--sl-color-white); font: inherit; font-weight: 600; cursor: pointer; }
+  #wizard-output .btn.primary { background: var(--sl-color-accent-high); color: var(--sl-color-text-invert); border-color: transparent; }
+  :root[data-theme='light'] #wizard-output .btn.primary { background: var(--sl-color-accent); }
+  #wizard-output .tablewrap { overflow-x: auto; }
+  #wizard-output table { border-collapse: collapse; width: 100%; font-size: var(--sl-text-sm); }
+  #wizard-output :is(th, td) { text-align: left; vertical-align: top; padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--sl-color-hairline-light); color: var(--sl-color-gray-2); line-height: 1.45; }
+  #wizard-output thead th { color: var(--sl-color-gray-3); font-weight: 600; font-size: var(--sl-text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+  #wizard-output tbody th { font-weight: 600; color: var(--sl-color-white); }
+  #wizard-output tbody th code { white-space: nowrap; overflow-wrap: normal; }
+  /* A phone: each row a block, each cell under its column's name, so nothing scrolls sideways. */
+  @media (max-width: 40rem) {
+    #wizard-output thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    #wizard-output :is(table, tbody, tr, th, td) { display: block; }
+    #wizard-output tr { padding: 0.6rem 0; border-bottom: 1px solid var(--sl-color-hairline-light); }
+    #wizard-output :is(th, td) { border: 0; padding: 0.15rem 0; }
+    #wizard-output td::before { content: attr(data-label) ': '; color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+    #wizard-output tbody th code { white-space: normal; overflow-wrap: anywhere; }
+  }
+  #wizard-output .steps { margin: 0; padding-left: 1.4rem; display: grid; gap: 1rem; }
+  #wizard-output .steps li { display: list-item; }
+  #wizard-output .steps li > * + * { margin-top: 0.4rem; }
+  #wizard-output .steps strong { color: var(--sl-color-white); }
+</style>

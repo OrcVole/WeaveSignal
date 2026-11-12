@@ -12,6 +12,7 @@ room = "studio"
 [desk]
 identity = "desk"             # the desk's identities: desk-in-<person>-<n>, desk-mm-<person>
 jitter_buffer_ms = 50         # measured in spike 01; LiveKit's 200 ms default doubles a guest's delay
+video_jitter_buffer_ms = 300  # cameras only: a frame spans many packets; at 50 ms a browser camera lost 2.7 % as late
 mix_buffer_ms = 20            # one mixing pass per block for every bus; one Opus frame (10 or 20)
 input_prebuffer_ms = 50       # the longest the mix waits for a late voice before going without it
 workers = 0                   # threads encoding the returns; 0: one per core, at most four
@@ -103,6 +104,9 @@ stale_ms = 1000               # a camera without a new picture this long counts 
 lower_third_ms = 6000         # the name under a person cut to; 0: none
 station = "WeaveSignal"         # on the slate until now-playing arrives
 still_file = "/var/lib/weavesignal/carts/stills/slate.png"  # the slate's picture, watched; the control plane writes it
+# rtmp-out: the picture composed; "": the first HLS rung. "720p30", "720p25" or "1080p30" for
+# RTMP out (the HLS rungs are scaled down from it; every camera and slate is made at its size).
+canvas = ""
 
 [video.switch]
 speaking_lufs = -45.0         # louder than this, a voice is speaking
@@ -133,3 +137,28 @@ cushion_ms = 200              # the feed is placed this far ahead of the mixing 
 crossfade_ms = 300            # each switch between the desk and the feed
 off_air_hold_ms = 3000        # the desk stays this long after the last person goes off air
 absent_ms = 500               # no feed for this long: the desk's programme instead
+
+# --- rtmp-out (ADR-0229, ADR-0230) ------------------------------------------------------------
+# RTMP out: the delayed programme picture and the video's sound to video platforms (Rumble,
+# Odysee, PeerTube, or any RTMP or RTMPS server). The destinations and their stream keys are not
+# here: they are set in the studio app (Settings, RTMP out) and live in the control plane's
+# database, which sends them to the desk. Nothing is encoded while no destination is on.
+# `video.canvas` (in [video] above, empty: the first HLS rung) is the largest picture RTMP can
+# send: for 720p30, set canvas = "720p30" there; the HLS rungs are scaled down from it.
+[video.rtmp]
+rung = ""                     # the picture sent, no larger or faster than the canvas; "": the canvas
+keyframe_s = 2                # a keyframe every 2 s (Rumble asks for it)
+retry_min_s = 2               # a destination that fails is tried again after 2, 4, 8 ... s
+retry_max_s = 60
+backlog_ms = 4000             # a destination this far behind is dropped and connects again
+
+[video.rtmp.compatible]       # H.264 and AAC (ADR-0230's exception, RTMP out only)
+h264 = "auto"                 # auto: NVENC if a session is free, else OpenH264; or "openh264", "nvenc"
+h264_profile = "high"         # OpenH264 makes it without B-frames (constrained high)
+video_kbps = 0                # 0: about 0.09 bit a pixel (720p30: 2500, 480p20: 700); at most 8000
+aac_kbps = 128                # VisualOn's AAC encoder (voaacenc), at 44.1 kHz, as Rumble asks
+aac_rate = 44100
+
+[video.rtmp.open]             # AV1 and Opus over Enhanced RTMP
+video_kbps = 0                # 0: the HLS figure (480p20: 600; 720p30: 1500)
+opus_kbps = 128

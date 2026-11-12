@@ -298,7 +298,7 @@ for (const [role, nameOf, want, wantHead] of [
   const inv = await (await post('/api/v1/invites', { role, name: nameOf })).json();
   const gctx = await browser.newContext({ ...phone, colorScheme: role === 'guest' ? 'light' : 'dark' });
   const g = await gctx.newPage();
-  await g.goto(`${WEB}${inv.link}`);
+  await g.goto((/^https?:/.test(inv.link) ? inv.link : `${WEB}${inv.link}`));
   await g.getByRole('button', { name: 'Join the studio' }).waitFor();
   await shot(g, `join-390-${role}-invite`);
   await g.getByRole('button', { name: 'Join the studio' }).tap();

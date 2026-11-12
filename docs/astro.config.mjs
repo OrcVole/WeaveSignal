@@ -72,6 +72,8 @@ export default defineConfig({
       customCss: ['./src/styles/states.css', './src/styles/site.css'],
       sidebar: [
         { label: 'Overview', link: '/docs/' },
+        // The install wizard (ADR-0237): a page that runs in the browser, src/pages/docs/install-wizard.astro.
+        { label: 'Install wizard', link: '/docs/install-wizard/' },
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'docs/tutorials' } }] },
         { label: 'How-to guides', items: [{ autogenerate: { directory: 'docs/how-to' } }] },
         { label: 'Reference', items: [{ autogenerate: { directory: 'docs/reference' } }] },

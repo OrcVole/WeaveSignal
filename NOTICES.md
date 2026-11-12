@@ -45,6 +45,12 @@ GPL-2.0 only.
   animation's final frame. Both were taken from Iconify on 2026-11-03; the licence texts are in
   `LICENSES/Apache-2.0.txt` and `LICENSES/MIT.txt`, and the table is
   `assets/stills-demo/README.md`.
+- **The chat's shipped avatars** (`packages/ui/avatars/`, ADR-0235) are 72 animals and
+  monsters from Fluent Emoji's Flat style (`https://github.com/microsoft/fluentui-emoji`, commit
+  `1ffb34c`), MIT, Copyright (c) Microsoft Corporation, fetched on 2026-11-10. Each drawing is
+  unchanged, set on a soft square of colour and written as a 128-pixel WebP; the licence text
+  is in `LICENSES/MIT.txt`, and the list with each source file is
+  `packages/ui/avatars/manifest.json` (provenance: `packages/ui/avatars/README.md`).
 
 ## Fonts
 
@@ -57,6 +63,8 @@ GPL-2.0 only.
   `LICENSES/OFL-1.1.txt`. They are compiled into the control plane so every server draws the
   same card; they are not sold on their own, and "Noto" is not used as the name of anything
   derived from them. A binary distribution must carry `LICENSES/OFL-1.1.txt` with this notice.
+  The Cloudron image also carries the Regular, SemiBold and Bold files unmodified, in
+  `/usr/local/share/fonts/noto-sans/` beside `OFL-1.1.txt`, for the video slate's text (ADR-0227).
 - **The station's mark on a card** is the WeaveSignal icon's Boxicons "broadcast" glyph (MIT,
   above), drawn in the show's colour until a station uploads its own logo.
 
@@ -71,7 +79,7 @@ Each keeps its own licence and runs as its own process or library; none is modif
 | GStreamer core, base, good, bad | 1.28.8 | LGPL-2.1-or-later | the desk's media pipeline |
 | gst-plugins-rs (`webrtc`, with LiveKit) | 0.15.4 | MPL-2.0 | `livekitwebrtcsrc` and `livekitwebrtcsink` |
 | gst-plugins-rs (`isobmff`, `hlssink3`, `dav1d`) | 0.15.4 | MPL-2.0 | the video path (M5): `cmafmux`, `hlscmafsink`, `dav1ddec` |
-| SVT-AV1 | 3.1.2 (Fedora's) | BSD-3-Clause-Clear (with the AOM patent licence) | AV1 encoding without a GPU, through `svtav1enc` |
+| SVT-AV1 | 3.1.2 (Fedora's, the Compose images); 2.3.0 (Ubuntu 26.04's `libsvtav1enc2`, the Cloudron image, ADR-0227) | BSD-3-Clause-Clear (with the AOM patent licence) | AV1 encoding without a GPU, through `svtav1enc` |
 | dav1d | as packaged | BSD-2-Clause | decoding guests' AV1 cameras |
 | libvpx | as packaged | BSD-3-Clause | VP8 and VP9 cameras, and the programme picture in the room |
 | NVIDIA driver (NVENC, CUDA) | the host's | proprietary, not shipped | AV1 encoding where the station has an NVIDIA GPU (`nvav1enc`); never in our images |
@@ -88,6 +96,8 @@ Each keeps its own licence and runs as its own process or library; none is modif
 | Event Calendar (`@event-calendar/core`) | 5.18.1 | MIT | the Schedule tab's week grid, behind the adapter in `apps/studio/src/schedule/calendar/` (ADR-0185) |
 | hls.js | 1.7.3 | Apache-2.0 | the player's HLS (AV1 and Opus in fMP4, the audio-only toggle), bundled unmodified, loaded only when play is pressed |
 | livekit-client | 2.23.0 | Apache-2.0 | the join pages' room client (`apps/web`), bundled unmodified; it brings `@livekit/protocol`, `@livekit/mutex` and `rxjs` (Apache-2.0), `@bufbuild/protobuf` (Apache-2.0 and BSD-3-Clause), `webrtc-adapter` (BSD-3-Clause), `events`, `jose`, `loglevel`, `sdp`, `sdp-transform` (MIT), `tslib` (0BSD) and `machina` (MIT or GPL, taken as MIT); `apps/web/pnpm-lock.yaml` pins each |
+| OpenH264 (`libopenh264`) | 2.6.0: Cisco's binary, from Fedora's `fedora-cisco-openh264` repository (the Compose images); Ubuntu 26.04's `libopenh264-8` 2.6.0+dfsg, built from source by Ubuntu (the Cloudron image) | BSD-2-Clause | rtmp-out: RTMP out's `compatible` H.264 (ADR-0230's exception, RTMP out only), through `openh264enc`, only while such a destination is on; also a dependency of libheif (Fedora) and of Ubuntu's gstreamer1.0-plugins-bad. Cisco's binary carries Cisco's AVC patent licence only "for the personal use of a consumer or other uses in which it does not receive remuneration", and only as Cisco distributes it; inside our image it is redistributed, so that licence does not follow it. Ubuntu's build from source never carried it. Either way, a station that streams for remuneration may need its own (research `2026-11-06-rtmp-out.md`) |
+| vo-aacenc | 0.1.3 (built from source in the desk image; Ubuntu 26.04's `libvo-aacenc0` in the Cloudron image) | Apache-2.0 | rtmp-out: RTMP out's `compatible` AAC-LC, through `voaacenc`. FFmpeg's encoder is not used: Fedora's libavcodec-free links fdk-aac. fdk-aac (not free software) is not used anywhere; the server image removes Fedora's `fdk-aac-free` and its GStreamer plugin |
 
 ### What the desktop packages carry (M10)
 
@@ -117,8 +127,10 @@ The desk uses only these elements (ADR-0003 asks for the list); none is GPL.
 | `vp8dec`, `vp9dec`, `qtdemux` | good | LGPL-2.1-or-later |
 | `av1parse`, `av1dec`, `svtav1enc`, `nvav1enc`, `cudaupload` | bad | LGPL-2.1-or-later |
 | `cmafmux`, `hlscmafsink`, `dav1ddec` | gst-plugins-rs `isobmff`, `hlssink3`, `dav1d` | MPL-2.0 |
+| rtmp-out: `openh264enc`, `h264parse`, `aacparse`, `rtmp2sink`, `nvh264enc` | bad (`openh264enc` from Fedora's `gstreamer1-plugin-openh264`, over Cisco's BSD-2-Clause binary; in the Cloudron image, Ubuntu's gstreamer1.0-plugins-bad over Ubuntu's own build) | LGPL-2.1-or-later |
+| rtmp-out: `voaacenc` | bad, built in the desk image against vo-aacenc (Apache-2.0); in the Cloudron image, Ubuntu's gstreamer1.0-plugins-bad | LGPL-2.1-or-later |
 
-`souphttpsrc`, `oggdemux`, `opusdec`, `srtsrc`, `matroskademux` and `qtdemux` appear in tests only. The desk image also carries FFmpeg (Fedora's `ffmpeg-free`, LGPL) for the VMAF measurement; the server image does not.
+`souphttpsrc`, `oggdemux`, `opusdec`, `srtsrc`, `matroskademux` and `qtdemux` appear in tests only (and, for RTMP out, `flvdemux` and `openh264dec`). The FLV tags RTMP out sends, classic and Enhanced RTMP, are written by the desk's own code (`crates/desk/src/flv.rs`). The desk image also carries FFmpeg (Fedora's `ffmpeg-free`, GPL-3.0-or-later as Fedora builds it) for the VMAF measurement; the server image does not.
 
 ## Rust dependencies
 
@@ -129,12 +141,23 @@ platform's TLS rather than rustls. The control plane's webhook deliveries (ADR-0
 the media worker, all unmodified); `just licences` checks it with `cargo deny check licenses`, and `Cargo.lock` names each crate
 and version.
 
-The media worker (`crates/media`) parses untrusted audio with these, all pure Rust and
+rtmp-out: the control plane also calls ring (Apache-2.0 AND ISC, the same crate rustls brings, unmodified) itself, to seal RTMP stream keys with ChaCha20-Poly1305 in the database (ADR-0230).
+
+The media worker (`crates/media`) is linked into the control plane and, since chat avatars
+(ADR-0235), into the chat service too, which runs it on a chatter's uploaded picture (`png`, MIT OR
+Apache-2.0, and `zune-jpeg`, MIT OR Apache-2.0 OR Zlib). It parses untrusted audio with these, all pure Rust and
 unmodified: Symphonia 0.6.1 (MPL-2.0; WAV, FLAC, MP3, Vorbis, AAC), opus-decoder 0.1.1 (MIT OR
 Apache-2.0), ogg 0.9.2 (BSD-3-Clause), ebur128 0.1.10 (MIT), flacenc 0.5.1 (Apache-2.0), and
 landlock 0.4.7 and rustix 1.1.5 (MIT OR Apache-2.0) for its sandbox. Two faults found in them
 are worked around in our code, not patched: opus-decoder's multistream packet split
 (`crates/media/src/multistream.rs`) and flacenc's STREAMINFO minimum block size.
+
+Pictures posted in the chat (ADR-0262) bring two more crates into the media worker, both pure
+Rust, single-threaded and unmodified: image-webp 0.2.4 (MIT OR Apache-2.0), which reads a WebP,
+and jpeg-encoder 0.7.1 ((MIT OR Apache-2.0) AND IJG), which writes a photograph as a JPEG.
+**This software is based in part on the work of the Independent JPEG Group**: jpeg-encoder's
+forward DCT (`src/fdct.rs`) is ported from mozjpeg's IJG code, whose licence asks that the
+documentation say so; `deny.toml` allows `IJG` for this crate.
 
 ## The default loop in `assets/default-loop/`
 

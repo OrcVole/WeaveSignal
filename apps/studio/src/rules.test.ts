@@ -195,6 +195,9 @@ describe('the chat keys on the screener (keymap section 5, M6)', () => {
     expect(at('KeyI').action).toEqual({ type: 'sor-reason', reason: 'illegal' });
     expect(at('KeyM').action).toEqual({ type: 'sor-reason', reason: 'intimate_image' });
     expect(at('KeyE').action).toEqual({ type: 'sor-reason', reason: 'other' });
+    // ADR-0257: C is the reason for a picture suspected of being child sexual abuse material (the
+    // dialog accepts it for a picture only).
+    expect(at('KeyC').action).toEqual({ type: 'sor-reason', reason: 'suspected_csam' });
     expect(at('Enter').action).toEqual({ type: 'sor-send' });
     expect(at('Escape').action).toEqual({ type: 'sor-cancel' });
     // Nothing behind it leaks: not the screener's letters, not a cart, not a dump or a drop.

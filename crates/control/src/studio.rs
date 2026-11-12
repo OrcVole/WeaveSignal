@@ -292,7 +292,8 @@ pub struct View {
 pub struct AudienceView {
     /// Listeners connected to the station's stream now; `None` while not counted.
     pub listeners: Option<u32>,
-    /// The station has edges or a CDN configured (steering has a pathway beside the origin).
+    /// The station has edges or a CDN configured: steering has a pathway beside the origin, or
+    /// `join.hls_url` points the player at another address.
     pub edges: bool,
 }
 
@@ -1002,7 +1003,21 @@ impl Studio {
                 picture: d.video.clone(),
             },
             seats: {
-                let presenter = seat(Role::Presenter);
+                // The presenter's seat (ADR-0074, ADR-0231): as in 1.0.0, the first presenter,
+                // while any presenter is on air; with no presenter on air, the first DJ on air
+                // (after a handover, or a DJ presenting alone). So once the outgoing presenter
+                // takes themselves off, the talk keys, ⌃T and the join page's name pass to the
+                // DJ, but a second presenter never takes the seat from the first.
+                let on_air = |role: Role| {
+                    self.slots.iter().flatten().find(|id| {
+                        person(id).is_some_and(|p| p.role == role && p.on_air && p.present)
+                    })
+                };
+                let presenter = if on_air(Role::Presenter).is_some() {
+                    seat(Role::Presenter)
+                } else {
+                    on_air(Role::Dj).cloned().or_else(|| seat(Role::Presenter))
+                };
                 let screener = seat(Role::Screener);
                 let name_of = |id: &Option<String>| {
                     id.as_deref()
@@ -1190,6 +1205,68 @@ mod tests {
         let v = s.view("Kettle FM", Some(&room), None, 2);
         assert_eq!(v.seats.presenter.as_deref(), Some("eilidh"));
         assert_eq!(v.seats.screener.as_deref(), Some("moira"));
+    }
+
+    #[test]
+    fn the_presenters_seat_follows_the_air_through_a_handover() {
+        let mut s = Studio::new("", vec![]);
+        let on = |id: &str, role: Role, on_air: bool| DeskPerson {
+            on_air,
+            ..person(id, role)
+        };
+        let mut seat_at = |people: Vec<DeskPerson>, now: u64| {
+            let room = desk(people);
+            s.sync(&room, now);
+            s.view("Kettle FM", Some(&room), None, now).seats.presenter
+        };
+        // Finlay joins as a DJ, off air: the seat stays Eilidh's.
+        let eilidh = || person("eilidh", Role::Presenter);
+        assert_eq!(
+            seat_at(vec![eilidh(), on("finlay", Role::Dj, false)], 0).as_deref(),
+            Some("eilidh")
+        );
+        // The overlap: both on air; the presenter keeps the seat.
+        assert_eq!(
+            seat_at(vec![eilidh(), on("finlay", Role::Dj, true)], 1).as_deref(),
+            Some("eilidh")
+        );
+        // Eilidh takes herself off: the seat passes to the DJ on air, before she leaves...
+        let eilidh_off = || on("eilidh", Role::Presenter, false);
+        assert_eq!(
+            seat_at(vec![eilidh_off(), on("finlay", Role::Dj, true)], 2).as_deref(),
+            Some("finlay")
+        );
+        // ...and after.
+        assert_eq!(
+            seat_at(vec![on("finlay", Role::Dj, true)], 3).as_deref(),
+            Some("finlay")
+        );
+        // A DJ off air with no presenter holds no seat: there is nobody to speak as.
+        assert_eq!(seat_at(vec![on("finlay", Role::Dj, false)], 4), None);
+        // A presenter off for a moment, with no DJ on air, keeps it.
+        assert_eq!(
+            seat_at(vec![eilidh_off(), on("finlay", Role::Dj, false)], 5).as_deref(),
+            Some("eilidh")
+        );
+        // Two presenters: the first off air keeps the seat while the second is on (as in 1.0.0),
+        // so the talk keys never speak with the second one's microphone.
+        assert_eq!(
+            seat_at(vec![eilidh_off(), person("rory", Role::Presenter)], 6).as_deref(),
+            Some("eilidh")
+        );
+        // ...and with a DJ on air too, a presenter on air still holds it for the presenters.
+        assert_eq!(
+            seat_at(
+                vec![
+                    eilidh_off(),
+                    person("rory", Role::Presenter),
+                    on("finlay", Role::Dj, true)
+                ],
+                7
+            )
+            .as_deref(),
+            Some("eilidh")
+        );
     }
 
     #[test]

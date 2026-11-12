@@ -211,7 +211,7 @@
   <p class="small" role="status" aria-live="polite">{note}</p>
 </section>
 
-<dialog bind:this={makeEl} aria-labelledby="tk-h">
+<dialog data-panel="settings.tokens.make" bind:this={makeEl} aria-labelledby="tk-h">
   <form onsubmit={onMake} novalidate>
     <h2 id="tk-h">Make an API token</h2>
     <div class="field">
@@ -258,7 +258,7 @@
   </form>
 </dialog>
 
-<dialog bind:this={secretEl} aria-labelledby="tks-h" aria-describedby="tks-d" oncancel={(e) => e.preventDefault()}>
+<dialog data-panel="settings.tokens.secret" bind:this={secretEl} aria-labelledby="tks-h" aria-describedby="tks-d" oncancel={(e) => e.preventDefault()}>
   <h2 id="tks-h">Copy the secret for {shown?.name}</h2>
   <p id="tks-d">This is the only time it is shown. The station keeps a scrambled form, not the secret, so it cannot be read again. Put it where the program can read it; it goes in <span class="mono">Authorization: Bearer …</span>.</p>
   <div class="row">
@@ -270,7 +270,7 @@
   </div>
 </dialog>
 
-<dialog bind:this={revEl} aria-labelledby="tkr-h" aria-describedby="tkr-d">
+<dialog data-panel="settings.tokens.revoke" bind:this={revEl} aria-labelledby="tkr-h" aria-describedby="tkr-d">
   <h2 id="tkr-h">Revoke {revoking?.name}?</h2>
   <p id="tkr-d">Anything using this token is refused from now on, and it cannot be brought back. Make a new token if it is still needed.</p>
   <div class="acts">
@@ -441,7 +441,7 @@
     padding: var(--s-5);
   }
   dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim-strong);
   }
   dialog h2 {
     font-size: var(--fs-20);

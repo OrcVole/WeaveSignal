@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -183,7 +183,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.0)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -204,6 +204,8 @@ token_key=${have[CONTROL_TOKEN_KEY]:-$(secret)}
 [ ${#token_key} -ge 32 ] || die "CONTROL_TOKEN_KEY in $env_file is shorter than 32 characters"
 mail_mode=$(keep MAIL_MODE off)
 mail_from=$(keep MAIL_FROM chat@station.example)
+avatar_uploads=$(keep AVATAR_UPLOADS true)
+chat_attachments=$(keep CHAT_ATTACHMENTS false)
 consent_contact=$(keep CONSENT_CONTACT "")
 search_listing=$(keep SEARCH_LISTING false)
 directory_listing=$(keep DIRECTORY_LISTING false)
@@ -414,6 +416,15 @@ trap 'rm -f "$tmp"' EXIT
   say "MAIL_MODE=$mail_mode"
   say "MAIL_FROM=$mail_from"
   say ""
+  say "# Chat avatars (ADR-0235): true lets a signed-in chatter upload a picture, held until staff"
+  say "# approve it; false leaves the shipped avatars only. Pictures are in the chat-avatars volume."
+  say "AVATAR_UPLOADS=$avatar_uploads"
+  say ""
+  say "# Pictures and documents in the chat (ADR-0262): true lets a trusted chatter attach one, held"
+  say "# until staff approve it (staff see every one); false, the default, words only. They are in"
+  say "# the chat-attachments volume; the studio's switch decides once used."
+  say "CHAT_ATTACHMENTS=$chat_attachments"
+  say ""
   say "# How a caller asks for their call to be taken down (an email address or a link); call-in"
   say "# stays closed until it is set (ADR-0124)."
   say "CONSENT_CONTACT=$consent_contact"
@@ -447,7 +458,7 @@ trap 'rm -f "$tmp"' EXIT
     printf '%s\n' "$derived"
   fi
   # Anything else the file held is kept as it was.
-  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY MAIL_MODE MAIL_FROM CONSENT_CONTACT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP "
+  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY MAIL_MODE MAIL_FROM AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP "
   extra=''
   for k in "${!have[@]}"; do [[ $known == *" $k "* ]] || extra+="$k=${have[$k]}"$'\n'; done
   [ -z "$extra" ] || { say ""; printf '%s' "$extra" | sort; }
@@ -547,6 +558,8 @@ WeaveSignal is running, public (project '$project', $engine): $proxied.
 
 Sign in: the studio uses $origin with the admin token, which is CONTROL_ADMIN_TOKEN in
 $env_file (mode 600). It is not shown here.
+Set the station up: open $origin/setup/ and sign in with the same key. The page takes the
+station's name, the takedown contact that opens call-in, the jurisdiction and the station's look.
 
 Open to the internet: TCP ${port[PROXY_HTTP_PORT]} and ${port[PROXY_HTTPS_PORT]} (the proxy), UDP ${port[LIVEKIT_MEDIA_PORT]} (media) and TCP ${port[TURN_TLS_PORT]} (TURN over TLS);
 TURN over UDP $turn_udp, ICE over TCP $ice_tcp. Nothing else is published. Call-in stays closed until
@@ -568,6 +581,9 @@ WeaveSignal is running (project '$project', $engine).
 
 Sign in: the studio uses the control plane's address above with the admin token, which is
 CONTROL_ADMIN_TOKEN in $env_file (mode 600). It is not shown here.
+Set the station up: open http://127.0.0.1:${port[CONTROL_PORT]}/setup/ and sign in with the same key.
+The page takes the station's name, the takedown contact that opens call-in, the jurisdiction
+and the station's look.
 Every listener is on loopback: nobody off this machine can join or listen. To publish the
 station, run this again with --public and the name that reaches this machine.
 EOF

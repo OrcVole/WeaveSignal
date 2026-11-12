@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // Times and levels as the surfaces print them.
+import { instant, parts } from '../schedule/model.ts';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -23,9 +24,18 @@ export function dur(ms: number): string {
   return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 }
 
-/** A rundown time (`HH:MM` or `HH:MM:SS`) as epoch ms today, around `now`. */
-export function atToday(at: string, now: number): number {
+/** A rundown time (`HH:MM` or `HH:MM:SS`) as epoch ms today, around `now`, on the station's
+ *  wall clock in `zone` (IANA); with no zone, on this machine's (issue 10: it always was). */
+export function atToday(at: string, now: number, zone = ''): number {
   const [h, m, s = 0] = at.split(':').map(Number);
+  if (zone) {
+    try {
+      const p = parts(now, zone);
+      return instant({ y: p.y, m: p.m, d: p.d, hh: h, mm: m }, zone) + s * 1000;
+    } catch {
+      // An unknown zone: this machine's clock, as before.
+    }
+  }
   const d = new Date(now);
   d.setHours(h, m, s, 0);
   return d.getTime();

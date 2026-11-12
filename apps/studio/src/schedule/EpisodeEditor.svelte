@@ -381,7 +381,7 @@
     </Field>
 
     {#if frozen}
-      <Field label="Music used" marker="frozen" from="from the per-play log" hint="Reports › plays gives the hour's tracks; the episode's own list is not built yet.">
+      <Field label="Music used" marker="frozen" from="from the per-play log" hint="The per-play log gives the hour's tracks through the API (/api/v1/reports/plays); the app has no screen for it, and the episode's own list is not built yet.">
         <span class="num">{hm(start, zone)}–{hm(end, zone)} on the per-play log</span>
       </Field>
     {/if}

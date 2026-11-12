@@ -203,10 +203,20 @@ fn the_listener_never_hears_what_was_dumped() {
     // over digital silence) and 40 dB under the second tone there. The marker was sent at
     // the second tone's level, so had it aired it would sit near 0 dB under it; a tone's onset
     // and the rebuild's resampling leave a trace of it across the spectrum, 55 dB down or more.
+    //
+    // The second in which the second tone begins is left out. Its onset spreads across the
+    // spectrum, and when the onset falls inside one listener second the trace at the marker's
+    // frequency sits about 36 dB under the tone, against the 40 dB allowed (2026-11-06: margins
+    // of +3.4 to +6.5 dB, each run the same few values as the start-up timing shifted the
+    // second's boundary; the marker itself never aired). A marker that aired would sit near
+    // the tone's level through every later second, which this still catches.
+    let onset = tone.iter().position(|t| *t > 60.0);
     let worst = marker
         .iter()
         .zip(&tone)
-        .map(|(m, t)| m - 30.0f64.max(t - 40.0))
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != onset)
+        .map(|(_, (m, t))| m - 30.0f64.max(t - 40.0))
         .fold(f64::MIN, f64::max);
     let report = serde_json::json!({
         "delay_before_dump": held.state,

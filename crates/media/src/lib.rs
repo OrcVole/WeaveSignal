@@ -16,7 +16,11 @@
 
 use std::io::Cursor;
 
+pub mod attachment;
+pub mod avatar;
+pub mod brand;
 mod multistream;
+pub mod picture;
 pub mod still;
 pub mod worker;
 
@@ -50,6 +54,9 @@ pub enum MediaError {
     Encode(String),
     #[error("not a picture this worker reads (PNG or JPEG)")]
     NotAnImage,
+    /// A picture that is whole but not what its place takes: the sentence says what.
+    #[error("{0}")]
+    Picture(String),
     #[error(
         "the picture is {width} by {height} pixels; the most is {max_side} on a side and {max_pixels} in all"
     )]
@@ -58,6 +65,12 @@ pub enum MediaError {
         height: usize,
         max_side: usize,
         max_pixels: usize,
+    },
+    #[error("the picture is {width} by {height} pixels; the least is {min_side} on a side")]
+    ImageTooSmall {
+        width: usize,
+        height: usize,
+        min_side: usize,
     },
 }
 

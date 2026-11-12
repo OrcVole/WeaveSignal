@@ -102,7 +102,8 @@
       <div class="back" data-testid="update-rollback">
         <p class="help">
           Version {check.previous} is kept from before the last update. If this version misbehaves, roll back to
-          it; the studio app restarts, and this version is not offered again until a newer one is out.
+          it; the studio app restarts, and stops pointing at this version until a newer one is out (it stays
+          here, marked as the one you rolled back from).
         </p>
         <div class="acts">
           <button type="button" class="btn" disabled={busy || !!g.blocked} onclick={rollbackNow}>

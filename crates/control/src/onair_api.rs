@@ -19,6 +19,8 @@
 //! | `GET /api/v1/reports/plays?from_ms=&to_ms=&format=json\|csv\|soundexchange` | the per-play log |
 //! | `GET /api/v1/reports/audience?from_ms=&to_ms=` | listener hours, sessions, tracks per hour (PPL) |
 //! | `GET /api/v1/logger` | the legal logger's recordings, and the hours missing while it was on |
+//! | `GET /api/v1/icecast-out` | the programme sent to another Icecast server (ADR-0226): connected or not, the last error, bytes sent |
+//! | `PUT /api/v1/icecast-out` | `mode`: `auto` (while live with the desk on air), `on` or `off`; an admin's |
 //!
 //! Public (no bearer): `GET /api/v1/now-playing` and `GET /api/v1/now-playing/events` (server-sent
 //! events), offset by the listener delay; never what comes next for a US statutory webcaster.
@@ -39,11 +41,11 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
 use uuid::Uuid;
-use weavesignal_model::playout::{self as rows, ClockRow, PlayoutSettings, Track};
+use weavesignal_model::playout::{self as rows, ClockRow, IcecastOutMode, PlayoutSettings, Track};
 
 use crate::app::{AppState, problem, refusal};
 use crate::hub::now_ms;
-use crate::onair::{OnAir, fmt_ms, recordings, rules_of};
+use crate::onair::{IcecastOutStatus, OnAir, fmt_ms, recordings, rules_of};
 use crate::schedule::{HOUR_MS, Played, SEPARATION_MAX_MIN, Slot};
 
 type S = State<Arc<AppState>>;
@@ -69,7 +71,7 @@ pub fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 .layer(DefaultBodyLimit::max(upload))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
-                    crate::app::admin_first,
+                    crate::app::staff_first,
                 )),
         )
         .route(
@@ -91,6 +93,10 @@ pub fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/v1/reports/plays", get(report_plays))
         .route("/api/v1/reports/audience", get(report_audience))
         .route("/api/v1/logger", get(logger))
+        .route(
+            "/api/v1/icecast-out",
+            get(get_icecast_out).put(put_icecast_out),
+        )
         .route("/api/v1/now-playing", get(now_playing))
         .route("/api/v1/now-playing/events", get(now_playing_events))
 }
@@ -1194,6 +1200,80 @@ async fn report_audience(State(state): S, headers: HeaderMap, Query(r): Query<Ra
 
 #[utoipa::path(
     get,
+    path = "/api/v1/icecast-out",
+    operation_id = "get_icecast_out",
+    tag = "playout",
+    summary = "The programme sent to another Icecast server",
+    description = "ADR-0226: whether the station sends its programme, as an Icecast source, to a server of the deployment's choosing (a DJ's AzuraCast). Says whether it is set up, the station's choice (`auto`, `on`, `off`), whether it is sending now and why, whether the remote server took the login, the last error in words, and bytes sent. The server's password is never in the answer. Any signed-in staff may read it.",
+    responses(
+        (status = 200, description = "The outgoing source.", body = IcecastOutStatus),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 503, response = crate::openapi::Unavailable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn get_icecast_out(State(state): S, headers: HeaderMap) -> Response {
+    match admin(&state, &headers) {
+        Ok(o) => Json(o.icecast_out()).into_response(),
+        Err(r) => r,
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+struct IcecastOutChoice {
+    /// `auto`: send while the station is live with the desk on air. `on`: send whatever
+    /// listeners hear, until turned off. `off`: never.
+    mode: IcecastOutMode,
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/icecast-out",
+    operation_id = "put_icecast_out",
+    tag = "playout",
+    summary = "Choose when the programme is sent to another Icecast server",
+    description = "Admin only. The choice is kept across restarts. It takes effect at once. The server's address, user and password are the deployment's settings (`ICECAST_OUT_*`), not this route's.",
+    request_body = IcecastOutChoice,
+    responses(
+        (status = 200, description = "The outgoing source after the change.", body = IcecastOutStatus),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 422, response = crate::openapi::Unprocessable),
+        (status = 503, response = crate::openapi::Unavailable),
+        (status = 500, description = "The database refused.", body = crate::openapi::Problem),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+    extensions(("x-admin" = json!(true))),
+)]
+async fn put_icecast_out(
+    State(state): S,
+    headers: HeaderMap,
+    Json(c): Json<IcecastOutChoice>,
+) -> Response {
+    let actor = match state.check(&headers, crate::staff::Need::Admin) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let o = match onair(&state) {
+        Ok(o) => o,
+        Err(r) => return r,
+    };
+    if !o.icecast_out().configured {
+        return problem(
+            StatusCode::CONFLICT,
+            "this station does not send to another Icecast server: set ICECAST_OUT=true, the server and its password (the how-to has the settings)",
+        );
+    }
+    match o.set_icecast_out_mode(c.mode, &actor.label()).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => db_error(e),
+    }
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/logger",
     operation_id = "reports_logger",
     tag = "reports",
@@ -1385,6 +1465,8 @@ struct LoggerBody {
     report_plays,
     report_audience,
     logger,
+    get_icecast_out,
+    put_icecast_out,
     now_playing,
     now_playing_events
 ))]

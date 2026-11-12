@@ -80,13 +80,13 @@ fn gzip(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Pages and routes no search engine should list, even on a listed station: the API, the
-/// invite page (its address is a secret) and the echo test.
+/// invite page (its address is a secret), the echo test and the admin's setup page (ADR-0237).
 fn never_listed(path: &str) -> bool {
     // The open routes for a station's website follow the listing setting (ADR-0195).
     if crate::api::is_open(path) {
         return false;
     }
-    ["/api", "/join", "/echo-test"].iter().any(|p| {
+    ["/api", "/join", "/echo-test", "/setup"].iter().any(|p| {
         path == *p
             || path
                 .strip_prefix(p)
@@ -125,7 +125,7 @@ pub async fn robots(
     let path = req.uri().path().to_owned();
     if path == "/robots.txt" && matches!(*req.method(), Method::GET | Method::HEAD) {
         let body = if listed {
-            "User-agent: *\nAllow: /api/v1/public/\nAllow: /api/v1/now-playing\nDisallow: /api/\nDisallow: /join/\nDisallow: /echo-test/\n"
+            "User-agent: *\nAllow: /api/v1/public/\nAllow: /api/v1/now-playing\nDisallow: /api/\nDisallow: /join/\nDisallow: /echo-test/\nDisallow: /setup/\n"
         } else {
             "User-agent: *\nDisallow: /\n"
         };
@@ -162,6 +162,12 @@ fn origin(url: &str) -> Option<String> {
     .then(|| format!("{}://{host}", scheme.to_ascii_lowercase()))
 }
 
+/// Whether the player's HLS (`join.hls_url`) is on another address, an edge or a CDN, rather
+/// than this station's own `/hls` (ADR-0017): an absolute URL with a host.
+pub fn hls_elsewhere(hls_url: &str) -> bool {
+    origin(hls_url).is_some()
+}
+
 /// The Content-Security-Policy for the pages, given LiveKit's public URL and the stream's.
 pub fn csp(room_public_url: &str, stream_url: &str) -> String {
     csp_with_hls(room_public_url, stream_url, "")
@@ -171,9 +177,34 @@ pub fn csp(room_public_url: &str, stream_url: &str) -> String {
 /// (`connect-src`, when on another origin, an edge or a CDN) and plays them through Media
 /// Source Extensions, whose media is a `blob:` URL (`media-src`).
 pub fn csp_with_hls(room_public_url: &str, stream_url: &str, hls_url: &str) -> String {
+    csp_with_edges(room_public_url, stream_url, hls_url, &[])
+}
+
+/// `img-src` allows `blob:` for one thing: a chatter's own avatar while it waits for a
+/// moderator (ADR-0235), which the page fetches with their session and shows from memory.
+///
+/// The same, with content steering's edges (ADR-0159, issue 3): a steered player fetches
+/// its playlists and segments from each edge's host, keeping the playlist's scheme and port,
+/// so each host is allowed on any port (`host:*`) with the page's own scheme. A host that is
+/// not a plain host name is left out.
+pub fn csp_with_edges(
+    room_public_url: &str,
+    stream_url: &str,
+    hls_url: &str,
+    edge_hosts: &[&str],
+) -> String {
     let mut connect = vec!["'self'".to_owned()];
     if let Some(o) = origin(hls_url) {
         connect.push(o);
+    }
+    for h in edge_hosts {
+        let plain = !h.is_empty()
+            && h.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+        let source = format!("{}:*", h.to_ascii_lowercase());
+        if plain && !connect.contains(&source) {
+            connect.push(source);
+        }
     }
     if let Some(o) = origin(room_public_url) {
         // Signalling is WebSocket; the client also checks the same origin over HTTP when a
@@ -192,7 +223,7 @@ pub fn csp_with_hls(room_public_url: &str, stream_url: &str, hls_url: &str) -> S
     }
     format!(
         "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; \
-         img-src 'self' data:; font-src 'self'; connect-src {}; media-src {}; worker-src 'self'; \
+         img-src 'self' data: blob:; font-src 'self'; connect-src {}; media-src {}; worker-src 'self'; \
          manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'",
         connect.join(" "),
         media.join(" ")
@@ -450,6 +481,38 @@ mod tests {
             .oneshot(req.body(Body::empty()).unwrap())
             .await
             .unwrap()
+    }
+
+    #[test]
+    fn hls_on_a_cdn_counts_as_served_elsewhere() {
+        assert!(hls_elsewhere("https://kettle.b-cdn.net/hls"));
+        assert!(!hls_elsewhere("/hls"));
+        assert!(!hls_elsewhere(""));
+    }
+
+    #[test]
+    fn a_steered_player_may_fetch_from_every_edge_on_any_port() {
+        let c = csp_with_edges(
+            "wss://live.example.org",
+            "",
+            "/hls",
+            &[
+                "edge-1.edges.example",
+                "EDGE-2.edges.example",
+                "https://bad/",
+                "",
+            ],
+        );
+        assert!(
+            c.contains("connect-src 'self' edge-1.edges.example:* edge-2.edges.example:* wss://live.example.org https://live.example.org;"),
+            "{c}"
+        );
+        assert!(!c.contains("bad"), "{c}");
+        // Without edges, as before.
+        assert_eq!(
+            csp_with_edges("", "", "/hls", &[]),
+            csp_with_hls("", "", "/hls")
+        );
     }
 
     #[tokio::test]

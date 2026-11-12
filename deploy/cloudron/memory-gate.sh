@@ -10,10 +10,15 @@
 # station domain), repeated until the window ends. The peak is read through one file
 # descriptor after a reset (cgroup v2). Test tones only. The real gate runs on a Cloudron.
 #
+# With the app run by `VIDEO=true test-local.sh` and CAMERAS=1, each publisher also sends a
+# 640x360, 20 fps VP8 camera (a moving test picture), as a browser would, so the desk decodes
+# three cameras and encodes AV1 with SVT-AV1 (ADR-0227). The desk's CPU and the app's are read
+# over the steady part of the load (after 30 s) from /proc and the cgroup, as a share of one core.
+#
 #   cargo build --release -p weavesignal-chat --bin weavesignal-chat-load   # once, for CHAT_LOAD
 #   deploy/cloudron/memory-gate.sh
 #
-# Settings: LOAD_S=300 LISTENERS=50 CHAT_SOCKETS=1000 HTTP_PORT=27400 LISTEN_PORT=27401
+# Settings: LOAD_S=300 LISTENERS=50 CHAT_SOCKETS=1000 HTTP_PORT=27400 LISTEN_PORT=27401 CAMERAS=0
 #   CHAT_LOAD=<repository>/target/release/weavesignal-chat-load  (missing: no chat load, said so)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -21,6 +26,7 @@ P=weavesignal-cloudron-local-app
 L=weavesignal-cloudron-local-load
 LOAD_S=${LOAD_S:-300}
 LISTENERS=${LISTENERS:-50}
+CAMERAS=${CAMERAS:-0}
 CHAT_SOCKETS=${CHAT_SOCKETS:-1000}
 HTTP_PORT=${HTTP_PORT:-27400}
 LISTEN_PORT=${LISTEN_PORT:-27401}
@@ -64,11 +70,26 @@ tok() { curl -fsS -X POST "http://127.0.0.1:$HTTP_PORT/api/v1/room/tokens" -H "A
 for spec in "eilidh:presenter:440" "morag:guest:1000" "fraser:guest:2500"; do
   IFS=: read -r id role f <<<"$spec"
   t=$(tok "$id" "$role")
-  podman run -d --rm --name "$L-$id" --network container:$P "$DESK_IMAGE" \
-    gst-launch-1.0 -q audiotestsrc is-live=true wave=sine freq="$f" volume=0.3 ! audioconvert ! audioresample \
-    ! livekitwebrtcsink signaller::ws-url=ws://127.0.0.1:8002 signaller::auth-token="$t" \
-      signaller::room-name=studio >/dev/null
+  if [[ $CAMERAS == 1 ]]; then
+    podman run -d --rm --name "$L-$id" --network container:$P "$DESK_IMAGE" \
+      gst-launch-1.0 -q livekitwebrtcsink name=s video-caps=video/x-vp8 signaller::ws-url=ws://127.0.0.1:8002 \
+        signaller::auth-token="$t" signaller::room-name=studio \
+        audiotestsrc is-live=true wave=sine freq="$f" volume=0.3 samplesperbuffer=480 \
+        ! audio/x-raw,format=S16LE,rate=48000,channels=2 ! queue ! s. \
+        videotestsrc is-live=true pattern=ball ! video/x-raw,width=640,height=360,framerate=20/1 ! queue ! s. >/dev/null
+  else
+    podman run -d --rm --name "$L-$id" --network container:$P "$DESK_IMAGE" \
+      gst-launch-1.0 -q audiotestsrc is-live=true wave=sine freq="$f" volume=0.3 ! audioconvert ! audioresample \
+      ! livekitwebrtcsink signaller::ws-url=ws://127.0.0.1:8002 signaller::auth-token="$t" \
+        signaller::room-name=studio >/dev/null
+  fi
 done
+# CPU over the steady part of the load: the desk's utime+stime from /proc, the app's from the cgroup.
+desk_pid=$(podman exec $P supervisorctl -c /app/code/supervisord.conf pid desk)
+tick=$(getconf CLK_TCK)
+desk_cpu() { podman exec $P awk '{print $14 + $15}' "/proc/$desk_pid/stat"; }
+app_cpu() { awk '/^usage_usec/ {print $2}' "$cg/cpu.stat"; }
+
 curl -s -N --max-time "$LOAD_S" -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/studio/events" -o "$out/sse.txt" &
 for n in $(seq 1 "$LISTENERS"); do
   curl -s -u "listener:$lp" --max-time "$LOAD_S" "http://127.0.0.1:$LISTEN_PORT/programme.opus" -o "$out/l$n.opus" &
@@ -84,14 +105,26 @@ if [[ -x $CHAT_LOAD ]]; then
 else
   echo "no chat load: $CHAT_LOAD is missing" > "$out/chat-load.txt"
 fi
-sleep $((LOAD_S / 2))
+sleep 30   # every service loaded; then the CPU window starts
+cpu0_desk=$(desk_cpu); cpu0_app=$(app_cpu); t_cpu0=$(date +%s.%N)
+sleep $((LOAD_S / 2 - 30))
 rss > "$out/rss-mid.txt"
 # shellcheck disable=SC2046  # one pid a word
 wait $(jobs -p | grep -v "^$sampler$") 2>/dev/null || true
+cpu1_desk=$(desk_cpu); cpu1_app=$(app_cpu); t_cpu1=$(date +%s.%N)
+desk_threads=$(podman exec $P sh -c "ls /proc/$desk_pid/task | wc -l")
+python3 - "$cpu0_desk" "$cpu1_desk" "$cpu0_app" "$cpu1_app" "$t_cpu0" "$t_cpu1" "$tick" "$desk_threads" "$CAMERAS" > "$out/cpu.txt" <<'PY'
+import sys
+d0, d1, a0, a1, t0, t1, tick, thr, cams = map(float, sys.argv[1:])
+dt = t1 - t0
+print(f"cpu over {dt:.0f} s of steady load, cameras {'on' if cams else 'off'}: "
+      f"desk {100 * (d1 - d0) / tick / dt:.0f} % of one core ({thr:.0f} threads); "
+      f"whole app {100 * (a1 - a0) / 1e6 / dt:.0f} % of one core")
+PY
 podman rm -f "$L-eilidh" "$L-morag" "$L-fraser" >/dev/null 2>&1 || true
 wait $sampler || true
 { grep '^oom_kill ' "$cg/memory.events"; rss; } > "$out/after.txt"
 peak=$(tail -1 "$out/samples.tsv" | cut -f3)
 echo "loaded peak ${peak} MiB of $((limit / 1048576)) MiB ($((100 * peak * 1048576 / limit)) %); chat load runs: $(grep -c '^# weavesignal-chat load test' "$out/chat-load.txt" 2>/dev/null || echo 0) (enabled: $chat_runs)"
-cat "$out/idle.txt"; tail -3 "$out/samples.tsv"; cat "$out/rss-mid.txt" "$out/after.txt"
+cat "$out/idle.txt" "$out/cpu.txt"; tail -3 "$out/samples.tsv"; cat "$out/rss-mid.txt" "$out/after.txt"
 ls -la "$out"/l1.opus "$out/l$LISTENERS.opus" 2>/dev/null; wc -c < "$out/sse.txt"

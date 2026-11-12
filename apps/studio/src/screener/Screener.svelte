@@ -17,6 +17,7 @@
   import Needs from './Needs.svelte';
   import StudioLane from './StudioLane.svelte';
   import Statement from './Statement.svelte';
+  import AttachmentView from './AttachmentView.svelte';
   import Room from './Room.svelte';
 
   // The chat link starts with the screener and keeps going on the other tabs.
@@ -347,6 +348,7 @@
       <Needs />
       <StudioLane />
       <Statement />
+      <AttachmentView />
     </section>
 
     <Room>

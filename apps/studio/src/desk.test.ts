@@ -128,6 +128,61 @@ describe('desk B', () => {
     for (const m of body.matchAll(/data-panel="([^"]+)"/g)) expect(() => panel(m[1])).not.toThrow();
   });
 
+  it('offers the invite at the head of Not on air, with a DJ as the first role', () => {
+    studio.view = view(true);
+    const { body } = render(DeskB);
+    const waiting = body.slice(body.indexOf('data-panel="desk.waiting"'), body.indexOf('data-panel="desk.audience"'));
+    expect(waiting).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*>Invite someone…<\/button>/);
+    const dialog = waiting.slice(waiting.indexOf('data-panel="desk.invite"'));
+    expect(dialog).toContain('Invite someone to the room');
+    expect(dialog.indexOf('<strong>DJ</strong>')).toBeLessThan(dialog.indexOf('<strong>Guest</strong>'));
+    expect(dialog).toContain('Joins off air, under Not on air.');
+    expect(dialog).toContain('On air the moment they join.');
+  });
+
+  it('puts the handover button on the DJ’s tile and the rundown’s ⇧⏎ row, worded as the next press', () => {
+    const v = view(true);
+    v.show.rundown.push({ at: '14:05', title: 'Handover', detail: 'Finlay on air beside Eilidh', hard_post: false, key: '⇧⏎' });
+    // On the desk's clock at 13:57, so the 14:05 row is still to come whenever the test runs
+    // (it failed every afternoon after 14:05 on the machine's own clock).
+    studio.now = NOW;
+    studio.skew = 0;
+    studio.zone = 'Europe/London';
+    // No DJ in the room: no button anywhere, and the row shows its key as any row does.
+    studio.handoverTo = null;
+    studio.view = v;
+    let body = render(DeskB).body;
+    expect(body).not.toContain('data-handover');
+    expect(body).toContain('<kbd>⇧⏎</kbd>');
+    // Finlay waits off air on strip 5: the first press brings him on.
+    const finlay = { ...person('finlay', 'Finlay Grant', 'dj', false), slot: 5, caller: null };
+    studio.view = { ...v, sources: [...v.sources, finlay] };
+    body = render(DeskB).body;
+    expect(tile(body, 5)).toMatch(/data-handover="on"[^>]*><span>Bring Finlay on air<\/span><kbd>⇧⏎<\/kbd>/);
+    expect(tile(body, 5)).toContain('title="On air beside you: the overlap."');
+    expect(tile(body, 1)).not.toContain('data-handover');
+    const rundown = () => body.slice(body.indexOf('data-panel="desk.rundown"'), body.indexOf('data-panel="desk.playout"'));
+    expect(rundown()).toMatch(/class="row[^"]*hand[^"]*"[\s\S]*data-handover="on"[^>]*>Bring Finlay on air <kbd>⇧⏎<\/kbd>/);
+    // The four live buttons come before it in the tile: it never moves them.
+    expect(tile(body, 5).indexOf('class="controls"')).toBeLessThan(tile(body, 5).indexOf('data-handover'));
+    // The overlap: the second press hands over, and says who comes off.
+    studio.handoverTo = 'finlay';
+    studio.view = { ...v, sources: [...v.sources, { ...finlay, on_air: true }] };
+    body = render(DeskB).body;
+    expect(tile(body, 5)).toMatch(/data-handover="off"[^>]*><span>Hand over to Finlay<\/span><kbd>⇧⏎<\/kbd>/);
+    expect(tile(body, 5)).toContain('title="Eilidh comes off air."');
+    expect(rundown()).toMatch(/data-handover="off"[^>]*>Hand over to Finlay/);
+    // Done: Finlay holds the air and the seat; nothing left to press.
+    studio.handoverTo = null;
+    studio.view = {
+      ...v,
+      seats: { ...v.seats, presenter: 'finlay' },
+      sources: [...v.sources.map((s) => (s.identity === 'eilidh' ? { ...s, on_air: false } : s)), { ...finlay, on_air: true }],
+    };
+    body = render(DeskB).body;
+    expect(body).not.toContain('data-handover');
+  });
+
   it('puts open sources on the stage under ON AIR and keeps each on its slot keys', () => {
     studio.view = view(true);
     const { body } = render(DeskB);
@@ -285,7 +340,7 @@ describe('the screener', () => {
     for (const name of ['screener.status', 'screener.queue', 'screener.screening', 'screener.needs', 'screener.studio', 'screener.room']) {
       expect(body.includes(`data-panel="${name}"`), name).toBe(true);
     }
-    expect(SCREENER.length).toBe(8);
+    expect(SCREENER.length).toBe(9);
     expect(body.indexOf('Dougal Thomson')).toBeLessThan(body.indexOf('Tavish'));
     expect(body).toContain('Desk busy');
     expect(body).toContain('Banned before');

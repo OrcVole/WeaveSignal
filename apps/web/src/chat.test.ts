@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
+import ReportDialog from './lib/chat/ReportDialog.svelte';
 import { mentions, type Msg, type RoomRules, type Statement } from '../../../packages/ui/chat.ts';
 import {
   charCount,
   chatBackoff,
+  closedWords,
   checkName,
   due,
   hhmm,
@@ -12,10 +15,15 @@ import {
   mentionName,
   newBelow,
   noticeLocation,
+  opensWhen,
   parsePrefs,
   playheadMs,
   positionAfter,
+  pictureNoticeLocation,
   postingBlocked,
+  readOnlyNow,
+  reportablePicture,
+  studioLaneClosed,
   reviewOpen,
   rulesLine,
   shownMessages,
@@ -55,6 +63,7 @@ const rules = (over: Partial<RoomRules> = {}): RoomRules => ({
   min_age_minutes: 10,
   max_chars: 500,
   hold_ms: 5000,
+  hours: { shows_only: false, open: true, opens_at_ms: null, zone: '' },
   ...over,
 });
 
@@ -200,5 +209,105 @@ describe('the reader’s settings', () => {
     expect(parsePrefs('{not json')).toEqual({ sync: false, announce: 'mentions' });
     expect(parsePrefs('{"sync":true,"announce":"nothing"}')).toEqual({ sync: true, announce: 'nothing' });
     expect(parsePrefs('{"sync":"yes","announce":"shout"}')).toEqual({ sync: false, announce: 'mentions' });
+  });
+});
+
+describe('the chat between shows (ADR-0234)', () => {
+  const closed = (opens_at_ms: number | null, zone = 'Europe/London') => ({ shows_only: true, open: false, opens_at_ms, zone });
+  const member = { kind: 'email', standing: 'member' };
+  const moderator = { kind: 'email', standing: 'moderator' };
+  const staff = { kind: 'staff', standing: 'staff' };
+
+  it('is read-only for chatters and readers, not for the station staff or its moderators', () => {
+    expect(readOnlyNow(closed(null), member)).toBe(true);
+    expect(readOnlyNow(closed(null), { kind: 'email', standing: 'trusted' })).toBe(true);
+    expect(readOnlyNow(closed(null), moderator)).toBe(false);
+    expect(readOnlyNow(closed(null), null)).toBe(true);
+    expect(readOnlyNow(closed(null), staff)).toBe(false);
+    expect(readOnlyNow({ shows_only: true, open: true, opens_at_ms: null, zone: '' }, member)).toBe(false);
+    expect(readOnlyNow(undefined, member)).toBe(false);
+  });
+
+  it("keeps the private lane to the studio the staff's, a moderator's too (ADR-0253)", () => {
+    expect(studioLaneClosed(closed(null), moderator)).toBe(true);
+    expect(studioLaneClosed(closed(null), member)).toBe(true);
+    expect(studioLaneClosed(closed(null), staff)).toBe(false);
+    expect(studioLaneClosed({ shows_only: true, open: true, opens_at_ms: null, zone: '' }, moderator)).toBe(false);
+    expect(studioLaneClosed(undefined, moderator)).toBe(false);
+  });
+
+  it("says when it opens, in the station's time zone", () => {
+    // 2026-11-10 12:00 UTC; the next show at 19:00 London time (GMT), the same day.
+    const now = Date.UTC(2026, 10, 10, 12, 0);
+    expect(closedWords(closed(Date.UTC(2026, 10, 10, 19, 0)), now)).toBe("The chat is open during shows. It's read-only until the next show starts, at 19:00 GMT today.");
+    expect(opensWhen(closed(Date.UTC(2026, 10, 11, 7, 30)), now)).toBe('at 07:30 GMT tomorrow');
+    expect(opensWhen(closed(Date.UTC(2026, 10, 13, 19, 0)), now)).toBe('at 19:00 GMT on Friday 13 November');
+    // The station's zone, not the reader's: 19:00 in New York is midnight in London.
+    expect(opensWhen(closed(Date.UTC(2026, 10, 11, 0, 0), 'America/New_York'), now)).toBe('at 19:00 GMT-5 today');
+    // Summer time in London.
+    expect(opensWhen(closed(Date.UTC(2026, 6, 1, 18, 0)), Date.UTC(2026, 6, 1, 9, 0))).toBe('at 19:00 BST today');
+  });
+
+  it('says so when no show is scheduled, and copes with a zone the browser lacks', () => {
+    expect(closedWords(closed(null), 0)).toMatch(/none is scheduled yet/);
+    expect(opensWhen(closed(Date.UTC(2026, 10, 10, 19, 0), 'Nowhere/Atlantis'), Date.UTC(2026, 10, 10, 12, 0))).toBe('at 19:00 UTC today');
+  });
+});
+
+describe('avatars (ADR-0235)', () => {
+  it("an avatar event changes that chatter's messages and moves the recovery position", async () => {
+    const { applyEvent } = await import('../../../packages/ui/chat.ts');
+    const list = [msg(1), msg(2, { author: { id: 'a-hamish', name: 'Hamish Murray', standing: 'member', guest: false } })];
+    const f = { t: 'avatar' as const, offset: 7, account: 'a-elspeth', avatar: { kind: 'stock' as const, id: 'owl' } };
+    const next = applyEvent(list, f);
+    expect(next[0].author.avatar).toEqual({ kind: 'stock', id: 'owl' });
+    expect(next[1]).toBe(list[1]);
+    expect(positionAfter({ epoch: 'e', offset: 3 }, f)).toEqual({ epoch: 'e', offset: 7 });
+    // Nobody on the page by that id: the list is left as it was.
+    expect(applyEvent(list, { ...f, account: 'a-nobody' })).toBe(list);
+  });
+
+  it('the shipped set is the manifest, each with a file and a name to say', async () => {
+    const { STOCK, ground, initial, stockLabel, stockUrl } = await import('../../../packages/ui/avatars.ts');
+    expect(STOCK.length).toBeGreaterThanOrEqual(40);
+    expect(STOCK.length).toBeLessThanOrEqual(80);
+    for (const a of STOCK) {
+      expect(stockUrl(a.id), a.id).toBeTruthy();
+      expect(a.label.trim(), a.id).not.toBe('');
+    }
+    expect(stockUrl('../fox')).toBeNull();
+    expect(stockLabel('fox')).toBe('Fox');
+    expect(initial('  morag Fraser')).toBe('M');
+    expect(initial('“Éilidh”')).toBe('É');
+    expect(initial('')).toBe('?');
+    expect(ground('Morag Fraser')).toBe(ground(' morag fraser '));
+    expect(ground('Morag Fraser')).toBeGreaterThanOrEqual(0);
+    expect(ground('Morag Fraser')).toBeLessThan(8);
+  });
+});
+
+describe('reporting a chatter’s picture (ADR-0260)', () => {
+  const own = msg(7, { author: { id: 'a-elspeth', name: 'Elspeth Gordon', standing: 'member', guest: false, avatar: { kind: 'upload', id: '6f1a2c3d-0000-4000-8000-00000000abcd' } } });
+  const shipped = msg(8, { author: { id: 'a-rory', name: 'Rory Bruce', standing: 'member', guest: false, avatar: { kind: 'stock', id: 'fox' } } });
+  const none = msg(9);
+  const info = { station: 'Kettle FM', reasons: [{ reason: 'abuse', words: 'Abuse or harassment', hint: '' }] } as never;
+
+  it('is offered for a chatter’s own picture, never for the shipped set or none', () => {
+    expect(reportablePicture(own)).toBe('6f1a2c3d-0000-4000-8000-00000000abcd');
+    expect(reportablePicture(shipped)).toBeNull();
+    expect(reportablePicture(none)).toBeNull();
+  });
+
+  it('gives a reader with no account the words for a notice that names the picture', () => {
+    expect(pictureNoticeLocation(own)).toContain("The picture beside Elspeth Gordon's chat message 7");
+    expect(pictureNoticeLocation(own)).toContain('6f1a2c3d-0000-4000-8000-00000000abcd');
+  });
+
+  it('adds “This picture” to the report dialog only where there is one', () => {
+    const withPicture = render(ReportDialog, { props: { info, session: 's', target: own, opensOn: 'picture', onclose: () => {} } }).body;
+    expect(withPicture).toContain('data-chat="report-picture-choice"');
+    expect(withPicture).toContain("This picture, beside Elspeth Gordon's messages");
+    const without = render(ReportDialog, { props: { info, session: 's', target: shipped, onclose: () => {} } }).body;
+    expect(without).not.toContain('report-picture-choice');
   });
 });

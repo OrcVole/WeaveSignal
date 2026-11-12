@@ -4,7 +4,8 @@ import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 // The station's public pages (M3): the player with call-in (`/`), the join page for invited
-// guests, remote DJs and presenters (`/join/#<pass>`), and the echo test (`/echo-test/`).
+// guests, remote DJs and presenters (`/join/#<pass>`), the echo test (`/echo-test/`), and the
+// station's setup page for its admin (`/setup/`, ADR-0237).
 // Plain pages, one entry each, so any static server or the station's proxy can serve the build.
 //
 // In development the dev server passes /api to the control plane named by
@@ -35,13 +36,20 @@ export default defineConfig({
     outDir: 'dist',
     // livekit-client is one chunk of about 590 kB, loaded only when a call starts.
     chunkSizeWarningLimit: 700,
+    // The chat's shipped avatars (packages/ui/avatars) are about 1 kB each: kept as files, so a page
+    // fetches only the ones in view instead of carrying all 72 inside its script.
+    assetsInlineLimit: (file: string) => (file.includes('/packages/ui/avatars/') ? false : undefined),
     rollupOptions: {
       input: {
         player: here('index.html'),
         join: here('join/index.html'),
         echo: here('echo-test/index.html'),
+        // The station's setup page (ADR-0237): an admin's, behind the station key.
+        setup: here('setup/index.html'),
       },
     },
   },
-  test: { environment: 'node', include: ['src/**/*.test.ts'] },
+  // The install wizard's shared questions, generator and accent maths (packages/wizard) are tested
+  // here too: this is the project that uses them.
+  test: { environment: 'node', include: ['src/**/*.test.ts', '../../packages/wizard/**/*.test.ts'] },
 });

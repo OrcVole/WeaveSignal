@@ -317,7 +317,7 @@
   <p class="small" role="status" aria-live="polite">{note}</p>
 </section>
 
-<dialog bind:this={addEl} aria-labelledby="ad-h">
+<dialog data-panel="settings.staff.add" bind:this={addEl} aria-labelledby="ad-h">
   <form onsubmit={onAdd} novalidate>
     <h2 id="ad-h">Add someone</h2>
     <div class="field">
@@ -383,7 +383,7 @@
   </form>
 </dialog>
 
-<dialog bind:this={offEl} aria-labelledby="off-h" aria-describedby="off-d">
+<dialog data-panel="settings.staff.off" bind:this={offEl} aria-labelledby="off-h" aria-describedby="off-d">
   <h2 id="off-h">Turn off {turningOff?.name}’s account?</h2>
   <p id="off-d">Their sign-ins end now, everywhere, and they cannot sign in until the account is turned back on. Nothing they did is deleted.</p>
   <div class="acts">
@@ -392,7 +392,7 @@
   </div>
 </dialog>
 
-<dialog bind:this={pwEl} aria-labelledby="sp-h">
+<dialog data-panel="settings.staff.password" bind:this={pwEl} aria-labelledby="sp-h">
   <form onsubmit={onSetPassword} novalidate>
     <h2 id="sp-h">New password for {pwFor?.name}</h2>
     <div class="field">
@@ -420,7 +420,7 @@
   </form>
 </dialog>
 
-<dialog bind:this={emEl} aria-labelledby="se-h">
+<dialog data-panel="settings.staff.email" bind:this={emEl} aria-labelledby="se-h">
   <form onsubmit={(e) => { e.preventDefault(); void saveEmail(em); }} novalidate>
     <h2 id="se-h">Email for {emFor?.name}’s sign-in codes</h2>
     <div class="field">
@@ -606,7 +606,7 @@
     padding: var(--s-5);
   }
   dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim-strong);
   }
   dialog h2 {
     font-size: var(--fs-20);

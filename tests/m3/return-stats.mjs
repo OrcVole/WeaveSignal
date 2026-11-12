@@ -23,7 +23,7 @@ const browser = await chromium.launch({
   args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
 });
 async function onAir(page, link) {
-  await page.goto(`${WEB}${link}`);
+  await page.goto(/^https?:/.test(link) ? link : `${WEB}${link}`);
   await page.getByRole('button', { name: 'Join the studio' }).click();
   const t0 = Date.now();
   while ((await page.locator('.banner').getAttribute('data-phase').catch(() => null)) !== 'on_air') {

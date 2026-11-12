@@ -41,6 +41,9 @@ flate2 = "1.1.10"
 ureq = { workspace = true, features = ["rustls"] }
 url = "2.5.8"
 uuid.workspace = true
+# rtmp-out (ADR-0230): RTMP stream keys sealed with ChaCha20-Poly1305 in the database; the same
+# ring that rustls already brings (ISC AND Apache-2.0).
+ring = "0.17.14"
 
 [dev-dependencies]
 sqlx.workspace = true

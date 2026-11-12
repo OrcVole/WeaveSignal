@@ -1,19 +1,28 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // Report a message, or the person who wrote it (ADR-0032), with the station's reasons. A real
+  // Report a message, the person who wrote it, the picture of their own beside it, or a picture or
+  // document the message carries (ADR-0032, ADR-0260, ADR-0262), with the station's reasons. A real
   // <dialog>: focus moves to its heading on opening and back to the button that opened it.
   import { tick } from 'svelte';
   import type { ChatInfo, Msg, Reason, ReportRequest } from '../../../../../packages/ui/chat.ts';
   import * as api from './api.ts';
-  import { hhmm } from './model.ts';
+  import Avatar from '../../../../../packages/ui/Avatar.svelte';
+  import { hhmm, reportablePicture } from './model.ts';
 
-  let { info, session, target, onclose }: { info: ChatInfo | null; session: string | null; target: Msg | null; onclose: () => void } = $props();
+  let {
+    info,
+    session,
+    target,
+    opensOn = 'message',
+    onclose,
+  }: { info: ChatInfo | null; session: string | null; target: Msg | null; opensOn?: 'message' | 'picture' | 'attachment'; onclose: () => void } = $props();
 
   let dialog = $state<HTMLDialogElement | undefined>();
   let heading = $state<HTMLElement | undefined>();
   let opener: HTMLElement | null = null;
-  let what = $state<'message' | 'account'>('message');
+  let what = $state<'message' | 'account' | 'picture' | 'attachment'>('message');
+  const picture = $derived(target ? reportablePicture(target) : null);
   let reason = $state<Reason | ''>('');
   let detail = $state('');
   let busy = $state(false);
@@ -24,7 +33,12 @@
   $effect(() => {
     if (!target || !dialog || dialog.open) return;
     opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    what = 'message';
+    what =
+      opensOn === 'picture' && target && reportablePicture(target)
+        ? 'picture'
+        : opensOn === 'attachment' && target?.attachment
+          ? 'attachment'
+          : 'message';
     reason = '';
     detail = '';
     error = problem = null;
@@ -48,7 +62,14 @@
       document.querySelector<HTMLInputElement>('#rp-reasons input')?.focus();
       return;
     }
-    const req: ReportRequest = what === 'account' ? { account_id: target.author.id, reason } : { message_id: target.id, reason };
+    const req: ReportRequest =
+      what === 'picture' && picture
+        ? { account_id: target.author.id, avatar_id: picture, reason }
+        : what === 'attachment' && target.attachment
+          ? { message_id: target.id, attachment_id: target.attachment.id, reason }
+          : what === 'account'
+          ? { account_id: target.author.id, reason }
+          : { message_id: target.id, reason };
     if (detail.trim()) req.detail = detail.trim();
     busy = true;
     try {
@@ -84,6 +105,20 @@
           <legend>What are you reporting?</legend>
           <label class="check"><input type="radio" name="rp-what" value="message" bind:group={what} /><span>This message</span></label>
           <label class="check"><input type="radio" name="rp-what" value="account" bind:group={what} data-chat="report-user" /><span>{target.author.name}, for what they post</span></label>
+          {#if target.attachment}
+            <label class="check"
+              ><input type="radio" name="rp-what" value="attachment" bind:group={what} data-chat="report-attachment-choice" /><span
+                >The {target.attachment.kind === 'document' ? 'document' : 'picture'} in this message, “{target.attachment.name}”</span
+              ></label
+            >
+          {/if}
+          {#if picture}
+            <label class="check"
+              ><input type="radio" name="rp-what" value="picture" bind:group={what} data-chat="report-picture-choice" /><span class="pic"
+                ><Avatar avatar={target.author.avatar} name={target.author.name} size={28} />This picture, beside {target.author.name}'s messages</span
+              ></label
+            >
+          {/if}
         </fieldset>
 
         <fieldset class="group" id="rp-reasons" data-chat="report-reason" aria-describedby={error ? 'rp-err' : undefined}>

@@ -70,7 +70,7 @@ weight = 0
 ```
 
 A pathway without `check_url` is never checked and always counted up; Bunny's own nodes fail over among themselves.
-The station's own player page does not follow a steered pathway to another host yet (its Content-Security-Policy allows only the station and `hls_url`), so steering serves players on other pages and apps.
+From 1.0.1 the station's own player page allows each edge's host in its Content-Security-Policy, so it may follow a steered pathway to an edge; in 1.0.0 it allowed only the station and `hls_url`. Not yet tried in a browser against a real edge.
 Every setting is in [Content steering](/docs/reference/steering/).
 
 ## Archive downloads

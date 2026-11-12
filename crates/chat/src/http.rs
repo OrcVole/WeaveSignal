@@ -73,6 +73,8 @@ impl Limiters {
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
+    let upload = state.chat.config.avatars.max_upload_bytes();
+    let attachment = state.chat.config.attachments.max_upload_bytes();
     Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/api/v1/chat/info", get(info))
@@ -83,6 +85,31 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/chat/notices", post(notice))
         .route("/api/v1/chat/me", get(me))
         .route("/api/v1/chat/signout", post(signout))
+        .route(
+            "/api/v1/chat/me/avatar",
+            get(my_avatar)
+                .put(put_avatar)
+                .delete(delete_avatar)
+                .layer(axum::extract::DefaultBodyLimit::max(upload)),
+        )
+        .route(
+            "/api/v1/chat/me/avatar/stock",
+            axum::routing::put(put_stock),
+        )
+        .route("/api/v1/chat/avatars/{id}", get(avatar))
+        // Pictures and documents posted in the chat (ADR-0262).
+        .route(
+            "/api/v1/chat/attachments",
+            post(post_attachment).layer(axum::extract::DefaultBodyLimit::max(attachment)),
+        )
+        .route("/api/v1/chat/pictures/{id}", get(picture))
+        .route("/api/v1/chat/pictures/{id}/thumb", get(picture_thumb))
+        .route("/api/v1/chat/files/{id}", get(document))
+        .route("/api/v1/chat/mod/avatars/{id}", get(mod_avatar))
+        .route("/api/v1/chat/mod/kept-pictures", get(kept_pictures))
+        .route("/api/v1/chat/evidence", get(evidence_list))
+        .route("/api/v1/chat/evidence/{id}/picture", get(evidence_picture))
+        .route("/api/v1/chat/evidence/{id}/export", get(evidence_export))
         .route("/api/v1/chat/reports", post(report))
         .route("/api/v1/chat/statements/{id}/review", post(review))
         .route("/api/v1/chat/staff/session", post(staff_session))
@@ -142,6 +169,8 @@ impl IntoResponse for Problem {
             Problem::Conflict(_) => StatusCode::CONFLICT,
             Problem::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Problem::Forbidden(_) => StatusCode::FORBIDDEN,
+            Problem::TooMany(_) => StatusCode::TOO_MANY_REQUESTS,
+            Problem::Failed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Problem::Db(e) => {
                 tracing::error!(error = %e, "database");
                 StatusCode::SERVICE_UNAVAILABLE
@@ -228,6 +257,8 @@ async fn moderator(state: &AppState, headers: &HeaderMap) -> Result<Actor, Respo
             name,
             account: None,
             staff: true,
+            admin: true,
+            staff_account: None,
         });
     }
     if let Some(member) = staff_member(state, headers).await? {
@@ -245,6 +276,8 @@ async fn moderator(state: &AppState, headers: &HeaderMap) -> Result<Actor, Respo
             name: a.name.clone(),
             account: Some(a.id),
             staff: true,
+            admin: member.account.role.is_admin(),
+            staff_account: Some(member.account.id),
         });
     }
     let a = chatter(state, headers).await?;
@@ -267,6 +300,8 @@ async fn moderator(state: &AppState, headers: &HeaderMap) -> Result<Actor, Respo
         name: a.name.clone(),
         account: Some(a.id),
         staff: a.standing == Standing::Staff,
+        admin: false,
+        staff_account: None,
     })
 }
 
@@ -388,6 +423,8 @@ struct Info {
     mode_words: &'static str,
     retention: Retention,
     email_signin: bool,
+    avatars: crate::avatar::AvatarInfo,
+    attachments: crate::attach::AttachmentInfo,
 }
 
 async fn info(State(state): State<Arc<AppState>>) -> Response {
@@ -417,6 +454,8 @@ async fn info(State(state): State<Arc<AppState>>) -> Response {
             addresses,
         },
         email_signin: c.config.mail.mode != MailMode::Off,
+        avatars: c.avatar_info(),
+        attachments: c.attachment_info(),
     })
     .into_response()
 }
@@ -903,6 +942,462 @@ async fn signout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Resp
     StatusCode::NO_CONTENT.into_response()
 }
 
+// ---- pictures and documents in the chat (ADR-0262) ----
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttachmentQuery {
+    /// The file's own name, shown as text.
+    #[serde(default)]
+    name: String,
+    /// The message's words, which may be empty.
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    nonce: String,
+    #[serde(default)]
+    reply_to: Option<i64>,
+    #[serde(default)]
+    playhead_ms: Option<i64>,
+}
+
+/// A trusted chatter posts a message with a picture or document: the file is the request's body,
+/// the message's words and the file's name are in the query. It is held until staff or a
+/// moderator approve it; the answer is the message's id and the attachment as the room will show
+/// it.
+async fn post_attachment(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<AttachmentQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    let a = match chatter(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let address = kept_address(&state, client_ip(&state, &headers, peer));
+    let up = crate::attach::Upload {
+        nonce: q.nonce.chars().take(64).collect(),
+        name: q.name,
+        body: q.body,
+        reply_to: q.reply_to,
+        playhead_ms: q.playhead_ms,
+    };
+    match state
+        .chat
+        .post_attachment(&a, body.to_vec(), up, address)
+        .await
+    {
+        Ok((id, attachment)) => (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({"id": id, "state": "held", "attachment": attachment})),
+        )
+            .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Who asks for a posted file: anyone with no bearer; with one, its owner, the station's people
+/// or a moderator.
+#[allow(clippy::result_large_err)] // the refusal is the response itself
+async fn file_viewer(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::avatar::Viewer, Response> {
+    use crate::avatar::Viewer;
+    if bearer(headers).is_none() {
+        return Ok(Viewer::Public);
+    }
+    if is_admin(state, headers) || staff_member(state, headers).await?.is_some() {
+        return Ok(Viewer::Staff);
+    }
+    let a = chatter(state, headers).await?;
+    Ok(if a.standing.moderates() {
+        Viewer::Moderator
+    } else {
+        Viewer::Owner(a.id)
+    })
+}
+
+/// A served file: a picture inline, a document only as a download under the station's own name.
+/// Either way the type is the one the station found in its bytes, a browser may not guess
+/// another (`nosniff`), and nothing in it may run (`sandbox`).
+fn served(f: crate::attach::Served, download: bool, headers: &HeaderMap) -> Response {
+    let cache = if f.public {
+        "public, no-cache"
+    } else {
+        "private, no-store"
+    };
+    let tag = format!("\"{}\"", f.id.simple());
+    if f.public
+        && headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.split(',').any(|t| t.trim() == tag))
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, tag),
+                (header::CACHE_CONTROL, cache.to_owned()),
+            ],
+        )
+            .into_response();
+    }
+    let disposition = if download {
+        format!("attachment; filename=\"{}\"", f.download_name)
+    } else {
+        "inline".to_owned()
+    };
+    let mut res = (
+        [
+            (header::CONTENT_TYPE, f.mime),
+            (header::CACHE_CONTROL, cache.to_owned()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; sandbox".to_owned(),
+            ),
+            (header::CONTENT_DISPOSITION, disposition),
+            (
+                header::HeaderName::from_static("cross-origin-resource-policy"),
+                "same-origin".to_owned(),
+            ),
+        ],
+        f.bytes,
+    )
+        .into_response();
+    if f.public
+        && let Ok(v) = tag.parse()
+    {
+        res.headers_mut().insert(header::ETAG, v);
+    }
+    res
+}
+
+async fn attachment_response(
+    state: &AppState,
+    headers: &HeaderMap,
+    id: Uuid,
+    which: crate::attach::Which,
+) -> Response {
+    let who = match file_viewer(state, headers).await {
+        Ok(w) => w,
+        Err(r) => return r,
+    };
+    match state.chat.attachment_file(id, who, which).await {
+        Ok(f) => served(f, which == crate::attach::Which::Document, headers),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// A picture posted in the chat, as the station rewrote it.
+async fn picture(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    attachment_response(&state, &headers, id, crate::attach::Which::Picture).await
+}
+
+/// Its thumbnail.
+async fn picture_thumb(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    attachment_response(&state, &headers, id, crate::attach::Which::Thumb).await
+}
+
+/// A document posted in the chat, as it arrived, only ever as a download.
+async fn document(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    attachment_response(&state, &headers, id, crate::attach::Which::Document).await
+}
+
+// ---- avatars (ADR-0235) ----
+
+/// A picture's bytes as a response: a PNG and nothing a browser could take for anything else.
+fn png(bytes: Vec<u8>, etag: Option<Uuid>, headers: &HeaderMap) -> Response {
+    let cache = if etag.is_some() {
+        // Shown beside every message, so a browser keeps it; but it asks again each time, and
+        // a picture staff removed stops showing at once.
+        "public, no-cache"
+    } else {
+        "private, no-store"
+    };
+    let tag = etag.map(|id| format!("\"{}\"", id.simple()));
+    if let Some(tag) = &tag
+        && headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.split(',').any(|t| t.trim() == tag))
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, tag.clone()),
+                (header::CACHE_CONTROL, cache.to_owned()),
+            ],
+        )
+            .into_response();
+    }
+    let mut res = (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, cache),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; sandbox",
+            ),
+            (header::CONTENT_DISPOSITION, "inline"),
+        ],
+        bytes,
+    )
+        .into_response();
+    if let Some(tag) = tag
+        && let Ok(v) = tag.parse()
+    {
+        res.headers_mut().insert(header::ETAG, v);
+    }
+    res
+}
+
+/// An approved picture, for anyone. A held, refused or removed one answers 404, as an id that
+/// never existed does.
+async fn avatar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    match state
+        .chat
+        .avatar_file(id, crate::avatar::Viewer::Public)
+        .await
+    {
+        Ok(bytes) => png(bytes, Some(id), &headers),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// A picture for the studio's people and the chatters the station made moderators (ADR-0255):
+/// the ones waiting on the Screener tab and the ones showing. The studio's people also get one
+/// withheld under an evidence hold.
+async fn mod_avatar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let actor = match moderator(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let who = if actor.staff {
+        crate::avatar::Viewer::Staff
+    } else {
+        crate::avatar::Viewer::Moderator
+    };
+    match state.chat.avatar_file(id, who).await {
+        Ok(bytes) => png(bytes, None, &headers),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// The pictures the station is keeping out of view, for the studio's people, and who may see the
+/// ones kept as evidence (ADR-0257).
+async fn kept_pictures(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Some(r) = studio_only(&state, &headers, false).await {
+        return r;
+    }
+    let viewer = match state.chat.evidence_viewer().await {
+        Ok(v) => v,
+        Err(e) => return e.into_response(),
+    };
+    let you = match staff_member(&state, &headers).await {
+        Ok(Some(m)) => viewer.as_ref().is_some_and(|v| v.0 == m.account.id),
+        _ => false,
+    };
+    match state.chat.kept_pictures().await {
+        Ok(pictures) => Json(serde_json::json!({
+            "pictures": pictures,
+            "evidence_viewer": viewer.map(|v| serde_json::json!({"id": v.0, "name": v.1})),
+            "you_are_the_evidence_viewer": you,
+        }))
+        .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// The one person the settings name (else the first admin), signed in as themselves: not the
+/// station key, not another admin (ADR-0257).
+#[allow(clippy::result_large_err)] // the refusal is the response itself
+async fn evidence_person(state: &AppState, headers: &HeaderMap) -> Result<String, Response> {
+    let Some(member) = staff_member(state, headers).await? else {
+        return Err(problem(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to the studio as yourself. The station key cannot open the evidence.",
+        ));
+    };
+    match state.chat.evidence_viewer().await {
+        Ok(Some((id, _))) if id == member.account.id => Ok(member.account.name),
+        Ok(Some((_, name))) => Err(problem(
+            StatusCode::FORBIDDEN,
+            format!(
+                "Only {name}, named in the chat's settings, can see a picture kept as evidence."
+            ),
+        )),
+        Ok(None) => Err(problem(
+            StatusCode::FORBIDDEN,
+            "The station has no admin to see a picture kept as evidence: add one.",
+        )),
+        Err(e) => Err(e.into_response()),
+    }
+}
+
+async fn evidence_list(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Err(r) = evidence_person(&state, &headers).await {
+        return r;
+    }
+    match state.chat.evidence_cases().await {
+        Ok(cases) => Json(serde_json::json!({"cases": cases})).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn evidence_picture(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let by = match evidence_person(&state, &headers).await {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+    match state.chat.evidence_picture(id).await {
+        Ok((mime, bytes)) => {
+            let _ = state.chat.evidence_viewed(id, &by).await;
+            if mime == "image/png" {
+                png(bytes, None, &headers)
+            } else {
+                // A posted picture shown as a JPEG, or a document: never opened in the page.
+                served(
+                    crate::attach::Served {
+                        download_name: format!("evidence-{}", id.simple()),
+                        mime,
+                        bytes,
+                        public: false,
+                        id,
+                    },
+                    true,
+                    &headers,
+                )
+            }
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn evidence_export(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let by = match evidence_person(&state, &headers).await {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+    match state.chat.evidence_export(id, &by).await {
+        Ok((name, zip)) => (
+            [
+                (header::CONTENT_TYPE, "application/zip".to_owned()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{name}\""),
+                ),
+                (header::CACHE_CONTROL, "no-store".to_owned()),
+            ],
+            zip,
+        )
+            .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// The chatter's own picture: the one waiting for staff if there is one, else the approved one.
+async fn my_avatar(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let a = match chatter(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match state.chat.own_avatar(&a).await {
+        Ok((_, bytes)) => png(bytes, None, &headers),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct MeOnly {
+    me: Me,
+}
+
+/// Upload a picture: the body is the PNG or JPEG itself. It waits for staff.
+async fn put_avatar(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let a = match chatter(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    // The uploader's address is kept with the picture only where the station keeps addresses
+    // (ADR-0115), for a report to the authorities if the picture proves to be evidence.
+    let address = kept_address(&state, client_ip(&state, &headers, peer));
+    match state.chat.upload_avatar(&a, body.to_vec(), address).await {
+        Ok(me) => (StatusCode::ACCEPTED, Json(MeOnly { me })).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn delete_avatar(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let a = match chatter(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match state.chat.withdraw_avatar(&a).await {
+        Ok(me) => Json(MeOnly { me }).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StockReq {
+    /// One of the shipped avatars, or null for the plain default.
+    id: Option<String>,
+}
+
+async fn put_stock(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<StockReq>,
+) -> Response {
+    let a = match chatter(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match state.chat.choose_stock(&a, req.id.as_deref()).await {
+        Ok(me) => Json(MeOnly { me }).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReportReq {
@@ -910,6 +1405,12 @@ struct ReportReq {
     message_id: Option<i64>,
     #[serde(default)]
     account_id: Option<Uuid>,
+    /// With `account_id`: report their picture, which must be the one showing (ADR-0260).
+    #[serde(default)]
+    avatar_id: Option<Uuid>,
+    /// With `message_id`: report the picture or document the message carries (ADR-0262).
+    #[serde(default)]
+    attachment_id: Option<Uuid>,
     reason: Reason,
     #[serde(default)]
     detail: String,
@@ -930,6 +1431,8 @@ async fn report(
             &a,
             req.message_id,
             req.account_id,
+            req.avatar_id,
+            req.attachment_id,
             req.reason,
             req.detail.trim(),
         )
@@ -1015,15 +1518,33 @@ async fn staff_session(
     signed_in(&state, &a, ip, 1).await
 }
 
+/// Whether the bearer is an API token (ADR-0195), by its prefix alone: whether it is a live
+/// one is the control plane's to say.
+fn api_token(headers: &HeaderMap) -> bool {
+    bearer(headers).is_some_and(|t| t.starts_with(weavesignal_model::tokens::TOKEN_PREFIX))
+}
+
 /// The room's modes live in the control plane (the screener's S, K, L and influx's G G, with
 /// its undo, ADR-0068); its route shares this service's prefix, so the station's proxy sends
-/// it here and the chat passes it on unchanged, the admin bearer with it.
+/// it here and the chat passes it on unchanged, the caller's bearer with it.
+///
+/// An API token with `chat:moderate` may switch them (issue 2). The chat does not check the
+/// token itself: the control plane holds the live tokens and the key their hashes are made
+/// under, and the request passed on meets its gate like any other, which checks the token is
+/// known, unexpired and unrevoked, holds the scope this route needs, and is within its
+/// per-minute limit, and records its use. Checking it here as well would mean giving the chat
+/// that key (`WEAVESIGNAL_CONTROL_TOKEN_KEY` where a station sets one) and keeping two copies
+/// of the rules in step, for a check the control plane makes on this same call anyway. So a
+/// token passes this door unchecked, and only this one: every other studio route of the chat
+/// still refuses it.
 async fn modes(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
-    if let Some(r) = studio_only(&state, &headers, false).await {
+    if !api_token(&headers)
+        && let Some(r) = studio_only(&state, &headers, false).await
+    {
         return r;
     }
     let base = state
@@ -1041,7 +1562,8 @@ async fn modes(
     }
     // The caller's own bearer, so the control plane knows who switched the mode.
     let token = bearer(&headers).unwrap_or_default().to_owned();
-    let out = tokio::task::spawn_blocking(move || -> Result<(u16, String), String> {
+    type Answer = (u16, Option<String>, String);
+    let out = tokio::task::spawn_blocking(move || -> Result<Answer, String> {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(std::time::Duration::from_secs(5)))
@@ -1054,16 +1576,32 @@ async fn modes(
             .send(&body[..])
             .map_err(|e| e.to_string())?;
         let code = r.status().as_u16();
-        Ok((code, r.body_mut().read_to_string().unwrap_or_default()))
+        // A token over its per-minute limit is told when to try again (429).
+        let retry = r
+            .headers()
+            .get(header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        Ok((
+            code,
+            retry,
+            r.body_mut().read_to_string().unwrap_or_default(),
+        ))
     })
     .await;
     match out {
-        Ok(Ok((code, text))) => (
-            StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY),
-            [(header::CONTENT_TYPE, "application/json")],
-            text,
-        )
-            .into_response(),
+        Ok(Ok((code, retry, text))) => {
+            let mut res = (
+                StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY),
+                [(header::CONTENT_TYPE, "application/json")],
+                text,
+            )
+                .into_response();
+            if let Some(v) = retry.and_then(|v| header::HeaderValue::from_str(&v).ok()) {
+                res.headers_mut().insert(header::RETRY_AFTER, v);
+            }
+            res
+        }
         _ => problem(
             StatusCode::BAD_GATEWAY,
             "The control plane did not answer; the modes are unchanged.",
@@ -1148,12 +1686,37 @@ async fn get_settings(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
 async fn put_settings(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(s): Json<StationSettings>,
+    Json(mut doc): Json<serde_json::Value>,
 ) -> Response {
     if let Some(r) = studio_only(&state, &headers, true).await {
         return r;
     }
-    match state.chat.save_settings(s).await {
+    // A document that leaves out one of the studio's switches or the evidence viewer keeps what
+    // is stored (the operator, 2026-11-10): a script that writes the terms does not turn them off.
+    if let (Some(given), Ok(serde_json::Value::Object(stored))) = (
+        doc.as_object_mut(),
+        serde_json::to_value(state.chat.settings()),
+    ) {
+        for key in ["avatar_uploads", "evidence_viewer", "attachments"] {
+            if !given.contains_key(key)
+                && let Some(v) = stored.get(key)
+            {
+                given.insert(key.to_owned(), v.clone());
+            }
+        }
+    }
+    let s: StationSettings = match serde_json::from_value(doc) {
+        Ok(s) => s,
+        Err(e) => {
+            return Problem::Invalid(format!("The settings are not valid: {e}")).into_response();
+        }
+    };
+    // The record names who: the staff member, else the station key's own name.
+    let by = match staff_member(&state, &headers).await {
+        Ok(Some(m)) => m.account.name,
+        _ => "station admin".to_owned(),
+    };
+    match state.chat.save_settings(&by, s).await {
         Ok(()) => Json(state.chat.settings()).into_response(),
         Err(e) => e.into_response(),
     }

@@ -106,7 +106,7 @@
     <p class="hint">Reading the log…</p>
   {:else if !items.length}
     <div class="nothing">
-      <p><b>Nothing generated for these hours yet.</b> {future ? 'Playout generates 26 hours ahead by itself; generate now to see the hour and check its rules.' : 'These hours have passed; the per-play log under Reports says what played.'}</p>
+      <p><b>Nothing generated for these hours yet.</b> {future ? 'Playout generates 26 hours ahead by itself; generate now to see the hour and check its rules.' : 'These hours have passed; the per-play log says what played (the API\'s /api/v1/reports/plays; the app has no screen for it yet).'}</p>
       {#if !tracks.length}<p>The library has no tracks: import some (Playout › library) before a clock can fill an hour.</p>{/if}
     </div>
   {:else}

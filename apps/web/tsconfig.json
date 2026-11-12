@@ -10,7 +10,9 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "../../packages/ui/**/*.ts", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "../../packages/ui/**/*.ts", "../../packages/ui/**/*.svelte", "../../packages/wizard/**/*.ts", "vite.config.ts"],
+  "exclude": ["../../packages/wizard/**/*.test.ts"]
 }

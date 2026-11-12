@@ -11,6 +11,7 @@ sidebar:
 Every state has one shape, one word and one colour, used the same way on every surface.
 The word is always there, so nothing depends on colour, and each shape reads in greyscale and to colour-blind eyes.
 This page draws all fifteen words as the studio app does, in the dark theme (the app's default) and the light one, and says what each means and what to do.
+The Night theme (ADR-0270) is not drawn here: it keeps every word, glyph and shape, and changes only the colours, to warm ones with no blue.
 The rules that choose a word follow the fifteen, and are in `packages/ui/states.ts`.
 
 ## The fifteen words
@@ -183,7 +184,7 @@ Then, when they apply:
 | Chip | When |
 |---|---|
 | **DESK BUSY** | the presenter declined them; they stay ready until sent again (ADR-0069, ADR-0098) |
-| **LINK DEGRADED** | in the room, but no audio reaches the desk |
+| **LINK DEGRADED** | in the room, but no audio reaches the desk: no packets for the link timeout (8 s at first). A quiet guest, or a microphone muted on the page, still sends packets and is not degraded; nor is a voice muted in the room once the desk has heard it (one muted before the desk first hears it still shows LINK DEGRADED until it is unmuted) |
 | **BANNED BEFORE** | their identity was banned before, with the date and reason (ADR-0069) |
 
 ## The delay

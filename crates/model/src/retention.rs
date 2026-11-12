@@ -1365,10 +1365,21 @@ pub async fn open_on_air(
         == 1)
 }
 
-type ConsentRow = (String, String, String, String, String, String, f64);
+type ConsentRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    f64,
+    Option<uuid::Uuid>,
+    String,
+    String,
+);
 
 fn consent_of_row(r: ConsentRow) -> ConsentRecord {
-    let (identity, name, topic, by, words, words_version, at) = r;
+    let (identity, name, topic, by, words, words_version, at, show_id, presenter, contact) = r;
     ConsentRecord {
         identity,
         name,
@@ -1377,11 +1388,14 @@ fn consent_of_row(r: ConsentRow) -> ConsentRecord {
         words,
         words_version,
         accepted_at_ms: ms(Some(at)).unwrap_or(0),
+        show_id,
+        presenter,
+        contact,
     }
 }
 
 const CONSENT_COLUMNS: &str = "identity, name, topic, given_by, words, words_version,
-    extract(epoch FROM accepted_at)::double precision * 1000";
+    extract(epoch FROM accepted_at)::double precision * 1000, show_id, presenter, contact";
 
 /// The consents of calls that may still be going: given within the longest a pass lives, and
 /// the call not ended. A restarted control plane reads these back, so a waiting caller's

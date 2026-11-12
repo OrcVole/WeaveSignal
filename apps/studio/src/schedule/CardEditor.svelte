@@ -130,7 +130,7 @@
         <button type="button" aria-pressed={layout === 'slate'} onclick={() => (layout = 'slate')}>Slate</button>
       </span>
     </div>
-    <div class="hint">Poster: the dark plane, the type carries it. Slate: the light surface, the people show. The square is always Slate stacked.</div>
+    <div class="hint">Poster: the dark plane, the type carries it. Slate: the light surface, the people show. The podcast square follows the layout chosen here (ADR-0179).</div>
   </div>
 
   <div class="field">

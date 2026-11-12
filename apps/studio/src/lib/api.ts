@@ -341,8 +341,16 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 204) return undefined as T;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new FieldError(res.status, data.error ?? `${res.status} ${res.statusText}`, data.field ?? null);
+  // A refusal from the framework (a body it could not read) is plain text: keep its words.
+  const text = await res.text().catch(() => '');
+  let data: { error?: string; field?: string } = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {};
+  }
+  const plain = data.error === undefined && !text.trimStart().startsWith('{') ? text.trim().slice(0, 200) : '';
+  if (!res.ok) throw new FieldError(res.status, data.error ?? (plain || `${res.status} ${res.statusText}`), data.field ?? null);
   return data as T;
 }
 
@@ -591,6 +599,24 @@ export const chat = (c: ChatCommand) => post('/api/v1/chat/modes', c);
 export const carts = (c: CartCommand) => post('/api/v1/carts/commands', c);
 export const endPass = (c: EndPassCommand) => post('/api/v1/passes/end', c);
 
+/** The roles an invite may carry; a caller joins from the player page instead. */
+export type InviteRole = 'dj' | 'guest' | 'presenter';
+
+/** An invite as the station made it: `link` is the join page's path with the pass in its
+ *  fragment, to be put after the station's address. */
+export interface Invite {
+  pass: string;
+  identity: string;
+  role: InviteRole;
+  name: string;
+  expires_at_ms: number;
+  link: string;
+}
+
+/** Make an invite link for a remote DJ, a guest or a presenter (any member of staff). It lasts
+ *  the station's `join.invite_ttl_s`. A refusal throws a `FieldError` with the station's sentence. */
+export const makeInvite = (role: InviteRole, name: string) => call<Invite>('POST', '/api/v1/invites', { role, name });
+
 /** The banks and carts; fetched again when the view's `carts.version` moves. */
 export async function catalogue(): Promise<Catalogue> {
   const res = await netFetch(`${base()}/api/v1/carts`, { headers: headers(false) });
@@ -657,3 +683,77 @@ export function follow(onView: (v: View) => void, onLink: (s: LinkState, why?: s
     ctrl?.abort();
   };
 }
+
+// --- rtmp-out (ADR-0230) -------------------------------------------------------------------
+
+/** The desk's view of one RTMP destination (never its key). */
+export interface RtmpDeskState {
+  name: string;
+  profile: string;
+  enabled: boolean;
+  /** `off`, `waiting`, `connecting`, `live` or `retrying`. */
+  state: string;
+  connected: boolean;
+  connected_ms: number | null;
+  last_error: string | null;
+  last_error_ms_ago: number | null;
+  bytes: number;
+  bytes_total: number;
+  connects: number;
+  retry_in_ms: number | null;
+}
+
+export interface RtmpDestinationInfo {
+  id: string;
+  name: string;
+  /** `rumble`, `odysee`, `peertube` or `custom`. */
+  platform: string;
+  url: string;
+  /** `compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP). */
+  profile: string;
+  enabled: boolean;
+  created_by: string;
+  created_ms: number;
+  updated_ms: number;
+  /** False after the station's token key changed: enter the key again. */
+  key_readable: boolean;
+  desk: RtmpDeskState | null;
+}
+
+export interface RtmpEncoderInfo {
+  profile: string;
+  encoder: string;
+  width: number;
+  height: number;
+  fps: number;
+  video_kbps: number;
+  ready: boolean;
+}
+
+export interface RtmpPlatform {
+  platform: string;
+  name: string;
+  url: string;
+  profile: string;
+  where_to_find: string;
+}
+
+export interface RtmpList {
+  destinations: RtmpDestinationInfo[];
+  video: boolean;
+  encoders: RtmpEncoderInfo[];
+  platforms: RtmpPlatform[];
+}
+
+/** RTMP out's destinations, with the desk's view of each (admin only). */
+export const listRtmp = () => call<RtmpList>('GET', '/api/v1/rtmp');
+/** Add one; errors name `name`, `platform`, `url`, `key` or `profile`. The key is never shown again. */
+export const addRtmp = (d: { name: string; platform: string; url: string; key: string; profile: string; enabled: boolean }) =>
+  call<RtmpDestinationInfo>('POST', '/api/v1/rtmp/destinations', d);
+/** Change one; a field left out (the key too) is kept. */
+export const changeRtmp = (id: string, d: Partial<{ name: string; platform: string; url: string; key: string; profile: string; enabled: boolean }>) =>
+  call<RtmpDestinationInfo>('PUT', `/api/v1/rtmp/destinations/${encodeURIComponent(id)}`, d);
+/** Turn one on or off. */
+export const turnRtmp = (id: string, enabled: boolean) =>
+  call<RtmpDestinationInfo>('PUT', `/api/v1/rtmp/destinations/${encodeURIComponent(id)}/enabled`, { enabled });
+export const removeRtmp = (id: string) => call<void>('DELETE', `/api/v1/rtmp/destinations/${encodeURIComponent(id)}`);

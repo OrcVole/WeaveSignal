@@ -24,7 +24,7 @@ The station's multivariant playlists, `/hls/live.m3u8` and `/hls/audio.m3u8`, ca
 With no edges the playlists have no steering line and players do not ask.
 Media playlists are not changed.
 Whether Safari's own player applies pathway clones has not been tested.
-The station's own player page cannot follow a clone to another host yet: its Content-Security-Policy allows HLS from the station and from `[join] hls_url` only, so a browser refuses an edge's host name. Steering serves players on other pages, and apps.
+The station's own player page may follow a clone to another host from 1.0.1: its Content-Security-Policy allows each edge's `host` on any port, with the page's scheme (`host:*`), beside the station and `[join] hls_url`. In 1.0.0 it allowed only those two, so a browser refused an edge's host name. The player's steering has not been tried in a browser against a real edge yet.
 
 ## How the order is chosen
 
@@ -100,7 +100,7 @@ The station's proxy must publish `/health` to the edges: a login redirect counts
 | Route | Who | What |
 |---|---|---|
 | `GET /api/v1/steering` | public | the steering manifest, `application/json`, `Cache-Control: no-store`, `Access-Control-Allow-Origin: *`; 404 while steering is off |
-| `GET /api/v1/steering/edges` | the station key only (not a staff session) | `enabled`, `ttl_s`, and every edge with its `pathway`, `host`, `weight`, `checked` (whether it has a `check_url`) and health: `up`, `failures` in a row, `last_check`, `last_error`, `last_ms`, `since` (when `up` last changed), and `first`, the manifests since start that put it first |
+| `GET /api/v1/steering/edges` | an admin: the station key or an admin's session (the station key only until 1.0.1) | `enabled`, `ttl_s`, and every edge with its `pathway`, `host`, `weight`, `checked` (whether it has a `check_url`) and health: `up`, `failures` in a row, `last_check`, `last_error`, `last_ms`, `since` (when `up` last changed), and `first`, the manifests since start that put it first |
 
 A manifest:
 
@@ -118,7 +118,7 @@ A manifest:
 }
 ```
 
-The reverse proxy publishes `/api/v1/steering`; `/api/v1/steering/edges` answers only the station key (`WEAVESIGNAL_CONTROL_ADMIN_TOKEN`), and 503 when none is set.
+The reverse proxy publishes `/api/v1/steering`; `/api/v1/steering/edges` answers an admin: the station key (`WEAVESIGNAL_CONTROL_ADMIN_TOKEN`) or an admin's session.
 
 ## See also
 

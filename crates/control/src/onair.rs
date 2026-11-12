@@ -36,7 +36,7 @@ use sqlx::PgPool;
 use tokio::sync::watch;
 use uuid::Uuid;
 use weavesignal_model::StationId;
-use weavesignal_model::playout::{self as rows, LogItem, Play, PlayoutSettings};
+use weavesignal_model::playout::{self as rows, IcecastOutMode, LogItem, Play, PlayoutSettings};
 
 use crate::desk::DeskCommand;
 use crate::hub::{Hub, now_ms};
@@ -186,6 +186,94 @@ pub struct LoggerStatus {
     pub dir: String,
 }
 
+/// The outgoing Icecast source (ADR-0226): the programme sent to another Icecast server as a
+/// source, for a DJ's AzuraCast. The listener process holds the connection and says how it is
+/// doing (`icecast_out.status`); the control plane decides when it sends. The remote password
+/// is never in here.
+#[derive(Clone, Debug, Default, Serialize, utoipa::ToSchema)]
+pub struct IcecastOutStatus {
+    /// The deployment sends to a server and has its password (`ICECAST_OUT` in the settings).
+    /// Everything below is empty when it is false.
+    pub configured: bool,
+    /// The station's choice: `auto` (while live with the desk on air), `on` or `off`.
+    pub mode: IcecastOutMode,
+    /// The control plane is asking the listener process to send now.
+    pub wanted: bool,
+    /// Why, in words: "live with the desk on air", "off", and so on.
+    pub reason: String,
+    /// The remote server accepted the login and takes the stream.
+    pub connected: bool,
+    pub host: String,
+    pub port: u16,
+    pub mount: String,
+    pub tls: bool,
+    /// Constant MP3 bit rate, kbit/s.
+    pub bitrate: u32,
+    /// Counted from the stream's constant bit rate while connected, since the listener process
+    /// started; not read from the socket.
+    pub bytes_sent: u64,
+    /// When the current connection was made, in milliseconds since the Unix epoch.
+    pub connected_since_ms: Option<i64>,
+    /// Failed tries in a row; the pause between tries grows from 5 s to 30 s.
+    pub failures: u32,
+    /// The last error, in words; kept after a reconnect, with its time. Empty if none yet.
+    pub last_error: String,
+    pub last_error_at_ms: Option<i64>,
+}
+
+/// What the listener process answers to `icecast_out.status`.
+#[derive(Deserialize)]
+struct IcecastOutRaw {
+    configured: bool,
+    #[serde(default)]
+    host: String,
+    #[serde(default)]
+    port: u16,
+    #[serde(default)]
+    mount: String,
+    #[serde(default)]
+    tls: bool,
+    #[serde(default)]
+    bitrate: u32,
+    #[serde(default)]
+    sending: bool,
+    #[serde(default)]
+    connected: bool,
+    #[serde(default)]
+    connected_since: f64,
+    #[serde(default)]
+    bytes_sent: u64,
+    #[serde(default)]
+    failures: u32,
+    #[serde(default)]
+    last_error: String,
+    #[serde(default)]
+    last_error_at: f64,
+}
+
+/// How long one `icecast_out.send` lasts. The control plane repeats it every pass; if it stops
+/// (it died, it lost the listener process), the remote station is let go within this time.
+const ICECAST_OUT_LEASE_S: u32 = 10;
+
+/// Whether the programme should be going to the remote server now, and why. `auto` follows
+/// playout: live mode, and the desk is what listeners hear (it is connected and sounding, so
+/// dead air and automation do not count).
+pub fn icecast_out_wanted(
+    mode: IcecastOutMode,
+    playout: Option<&ProgrammeStatus>,
+) -> (bool, &'static str) {
+    match mode {
+        IcecastOutMode::Off => (false, "turned off"),
+        IcecastOutMode::On => (true, "turned on"),
+        IcecastOutMode::Auto => match playout {
+            None => (false, "playout is not answering"),
+            Some(p) if p.mode != "live" => (false, "the station is on automation"),
+            Some(p) if p.on_air != "desk" => (false, "the desk is not on air"),
+            Some(_) => (true, "live with the desk on air"),
+        },
+    }
+}
+
 /// What retention decides for the playout layer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Retained {
@@ -231,6 +319,10 @@ pub struct Status {
     pub default_fallback: bool,
     pub logger: Option<LoggerStatus>,
     pub logger_error: Option<String>,
+    /// The programme sent to another Icecast server (ADR-0226).
+    pub icecast_out: IcecastOutStatus,
+    /// Why the listener process could not be asked about it, if so.
+    pub icecast_out_error: Option<String>,
     pub settings: PlayoutSettings,
     /// What the last generation could not fill, in words.
     pub gaps: Vec<String>,
@@ -247,6 +339,8 @@ struct State {
     /// When automation last generated the log and made nothing (no clock, no tracks): it tries
     /// again at most once a minute, not every pass.
     empty_generate_ms: Option<i64>,
+    /// The station's outgoing-Icecast choice, read once and kept (ADR-0226).
+    icecast_mode: Option<IcecastOutMode>,
 }
 
 /// Where the playout layer's parts are.
@@ -326,6 +420,16 @@ impl OnAir {
             loop {
                 me.count_listeners().await;
                 tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+        let me = self.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = me.keep_icecast_out().await {
+                    tracing::debug!(error = %e, "outgoing Icecast source");
+                    me.state.lock().unwrap().status.icecast_out_error = Some(e.to_string());
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
             }
         });
         let me = self.clone();
@@ -1219,6 +1323,87 @@ impl OnAir {
         }
     }
 
+    // ---- The outgoing Icecast source (ADR-0226) ----
+
+    /// The station's choice, read from the database the first time and kept.
+    pub async fn icecast_out_mode(&self) -> anyhow::Result<IcecastOutMode> {
+        if let Some(m) = self.state.lock().unwrap().icecast_mode {
+            return Ok(m);
+        }
+        let m = rows::icecast_out_mode(&self.db, self.station).await?;
+        self.state.lock().unwrap().icecast_mode = Some(m);
+        Ok(m)
+    }
+
+    /// Choose, and act on it now rather than at the next pass.
+    pub async fn set_icecast_out_mode(
+        &self,
+        mode: IcecastOutMode,
+        by: &str,
+    ) -> anyhow::Result<IcecastOutStatus> {
+        rows::set_icecast_out_mode(&self.db, self.station, mode, by).await?;
+        self.state.lock().unwrap().icecast_mode = Some(mode);
+        tracing::info!(mode = mode.as_str(), by, "outgoing Icecast source");
+        self.keep_icecast_out().await?;
+        Ok(self.icecast_out())
+    }
+
+    pub fn icecast_out(&self) -> IcecastOutStatus {
+        self.state.lock().unwrap().status.icecast_out.clone()
+    }
+
+    /// Ask the listener process to send or stop, as the mode and playout say, and keep what it
+    /// reports. The listener process sends for a few seconds at a time (see
+    /// [`ICECAST_OUT_LEASE_S`]), so this runs every pass.
+    async fn keep_icecast_out(&self) -> anyhow::Result<()> {
+        let raw: IcecastOutRaw =
+            serde_json::from_str(&self.links.listeners.command("icecast_out.status").await?)?;
+        let mode = self.icecast_out_mode().await?;
+        let (wanted, reason) = {
+            let st = self.state.lock().unwrap();
+            icecast_out_wanted(mode, st.status.playout.as_ref())
+        };
+        let (wanted, reason) = if raw.configured {
+            (wanted, reason)
+        } else {
+            (false, "not set up on this station")
+        };
+        if raw.configured {
+            if wanted {
+                let a = self
+                    .links
+                    .listeners
+                    .command(&format!("icecast_out.send {ICECAST_OUT_LEASE_S}"))
+                    .await?;
+                anyhow::ensure!(a.starts_with("ok"), "the listener process refused: {a}");
+            } else if raw.sending {
+                self.links.listeners.command("icecast_out.stop").await?;
+            }
+        }
+        let ms = |s: f64| (s > 0.0).then_some((s * 1000.0) as i64);
+        let view = IcecastOutStatus {
+            configured: raw.configured,
+            mode,
+            wanted,
+            reason: reason.to_owned(),
+            connected: raw.connected,
+            host: raw.host,
+            port: raw.port,
+            mount: raw.mount,
+            tls: raw.tls,
+            bitrate: raw.bitrate,
+            bytes_sent: raw.bytes_sent,
+            connected_since_ms: ms(raw.connected_since),
+            failures: raw.failures,
+            last_error: raw.last_error,
+            last_error_at_ms: ms(raw.last_error_at),
+        };
+        let mut st = self.state.lock().unwrap();
+        st.status.icecast_out = view;
+        st.status.icecast_out_error = None;
+        Ok(())
+    }
+
     // ---- Retention: the legal logger, the per-play log ----
 
     pub async fn retained(&self) -> anyhow::Result<Retained> {
@@ -1542,6 +1727,53 @@ mod tests {
                 .as_millisecond()
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn programme(mode: &str, on_air: &str) -> ProgrammeStatus {
+        ProgrammeStatus {
+            boot: "b".into(),
+            mode: mode.into(),
+            on_air: on_air.into(),
+            dead_air: false,
+            desk_connected: true,
+            desk_sounding: on_air == "desk",
+        }
+    }
+
+    #[test]
+    fn the_programme_goes_to_the_other_server_only_when_the_desk_is_on_air() {
+        use IcecastOutMode::{Auto, Off, On};
+        // Automatic: live, with the desk what listeners hear.
+        assert!(icecast_out_wanted(Auto, Some(&programme("live", "desk"))).0);
+        // Dead air, the station's files, the default loop, silence: let the other station go.
+        for on_air in ["automation", "fallback", "default", "silence"] {
+            let (wanted, why) = icecast_out_wanted(Auto, Some(&programme("live", on_air)));
+            assert!(!wanted, "{on_air}: {why}");
+        }
+        // On automation by choice, even with a desk that sounds.
+        assert!(!icecast_out_wanted(Auto, Some(&programme("auto", "desk"))).0);
+        // Playout not answering: nothing to send that is the show.
+        assert!(!icecast_out_wanted(Auto, None).0);
+        // The manual choices do not look at playout.
+        assert!(icecast_out_wanted(On, None).0);
+        assert!(icecast_out_wanted(On, Some(&programme("auto", "automation"))).0);
+        assert!(!icecast_out_wanted(Off, Some(&programme("live", "desk"))).0);
+    }
+
+    #[test]
+    fn the_listener_process_status_is_read_and_the_password_is_not_in_ours() {
+        let raw: IcecastOutRaw = serde_json::from_str(
+            r#"{"configured":true,"host":"radio.example.org","port":8005,"mount":"/","tls":false,"bitrate":128,"sending":true,"connected":true,"connected_since":1793969310.93,"bytes_sent":96000,"failures":0,"last_error":"","last_error_at":0.0}"#,
+        )
+        .unwrap();
+        assert!(raw.connected && raw.sending && raw.configured);
+        assert_eq!(raw.port, 8005);
+        // A listener process that does not set it up says only that.
+        let none: IcecastOutRaw = serde_json::from_str(r#"{"configured":false}"#).unwrap();
+        assert!(!none.configured && none.host.is_empty());
+        // Nothing of ours has a field that could carry the password.
+        let view = serde_json::to_string(&IcecastOutStatus::default()).unwrap();
+        assert!(!view.contains("password"), "{view}");
     }
 
     #[test]

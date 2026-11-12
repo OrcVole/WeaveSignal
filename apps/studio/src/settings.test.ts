@@ -129,9 +129,12 @@ const hold: Hold = {
 describe('Settings > Retention', () => {
   it('draws its panels under their registered names', () => {
     const { body } = render(Settings, { props: { initial: view('none'), initialHolds: [] } });
-    const drawn = [...body.matchAll(/data-panel="([^"]+)"/g)].map((m) => m[1]);
-    expect(drawn).toEqual(SETTINGS.map((p) => p.name));
-    for (const name of drawn) expect(panel(name).name).toBe(name);
+    // The page's own panels, in order; its dialogs carry names too (ADR-0245), checked below.
+    const all = [...body.matchAll(/<(\w+)[^>]*?data-panel="([^"]+)"/g)];
+    const drawn = all.filter((m) => m[1] !== 'dialog').map((m) => m[2]);
+    expect(drawn).toEqual(SETTINGS.filter((p) => p.name.split('.').length === 2).map((p) => p.name));
+    for (const m of all) expect(panel(m[2]).name).toBe(m[2]);
+    expect(all.filter((m) => m[1] === 'dialog').map((m) => m[2])).toEqual(['settings.periods.confirm', 'settings.holds.extend', 'settings.holds.release']);
   });
 
   it('offers the fourteen presets under the Jurisdiction label, No retention as the default', () => {

@@ -85,6 +85,20 @@ fn choose_encoders(settings: &Settings, rungs: &[Rung]) -> Vec<Encoder> {
         .collect()
 }
 
+/// Hold one NVENC session if one is free under `limit` (RTMP out's encoders, `rtmp-out`).
+pub(crate) fn take_nvenc(limit: u32) -> bool {
+    let held = NVENC_IN_USE.fetch_add(1, Ordering::SeqCst);
+    if held < limit {
+        return true;
+    }
+    NVENC_IN_USE.fetch_sub(1, Ordering::SeqCst);
+    false
+}
+
+pub(crate) fn release_nvenc() {
+    NVENC_IN_USE.fetch_sub(1, Ordering::SeqCst);
+}
+
 fn release_encoders(encoders: &[Encoder]) {
     for e in encoders {
         if *e == Encoder::Nvenc {
@@ -116,6 +130,9 @@ pub trait DeskSide: Send + Sync {
     fn hls_audio(&self, pad: Option<gst::Pad>);
     /// Whether anyone is at the desk (the room picture runs only then).
     fn anyone(&self) -> bool;
+    /// Hand an RTMP profile's sound encoder (its slot, [`crate::rtmp::Profile::slot`]) to the
+    /// mixing pass; `None` takes it away (`rtmp-out`).
+    fn rtmp_audio(&self, slot: usize, pad: Option<gst::Pad>);
 }
 
 /// The now-playing text on the slate (ADR-0010).
@@ -150,6 +167,8 @@ pub struct VideoStatus {
     pub now_playing: NowPlaying,
     /// The slate has a picture (ADR-0010).
     pub still: bool,
+    /// RTMP out (ADR-0230): each destination and the encoders running.
+    pub rtmp: crate::rtmp::RtmpStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -189,6 +208,8 @@ struct Decode {
     pipeline: gst::Pipeline,
     src: gst_app::AppSrc,
     caps_name: String,
+    /// When it started: a decoder that has put out no picture since is stalled too.
+    started: Instant,
 }
 
 impl Decode {
@@ -329,6 +350,8 @@ struct Inner {
     thumbs: Mutex<Thumbs>,
     stop: AtomicBool,
     pushed: AtomicU64,
+    /// RTMP out (`rtmp-out`).
+    rtmp: crate::rtmp::Rtmp,
 }
 
 /// The video path. Cheap to clone.
@@ -341,7 +364,7 @@ const SLATE_BG: (u8, u8, u8) = (0x15, 0x17, 0x1c);
 const STRAP_BG: (u8, u8, u8) = (0x10, 0x12, 0x16);
 const ACCENT: (u8, u8, u8) = (0xd9, 0x3a, 0x2b);
 
-fn caps_raw(r: &Rung) -> gst::Caps {
+pub(crate) fn caps_raw(r: &Rung) -> gst::Caps {
     gst::Caps::builder("video/x-raw")
         .field("format", "I420")
         .field("width", r.width as i32)
@@ -351,7 +374,7 @@ fn caps_raw(r: &Rung) -> gst::Caps {
         .build()
 }
 
-fn el(factory: &str) -> Result<gst::Element> {
+pub(crate) fn el(factory: &str) -> Result<gst::Element> {
     gst::ElementFactory::make(factory)
         .build()
         .with_context(|| format!("GStreamer element `{factory}` is missing"))
@@ -364,13 +387,13 @@ fn named(factory: &str, name: &str) -> Result<gst::Element> {
         .with_context(|| format!("GStreamer element `{factory}` is missing"))
 }
 
-fn capsfilter(caps: gst::Caps) -> Result<gst::Element> {
+pub(crate) fn capsfilter(caps: gst::Caps) -> Result<gst::Element> {
     Ok(gst::ElementFactory::make("capsfilter")
         .property("caps", caps)
         .build()?)
 }
 
-fn leaky(ms: u64) -> Result<gst::Element> {
+pub(crate) fn leaky(ms: u64) -> Result<gst::Element> {
     Ok(gst::ElementFactory::make("queue")
         .property("max-size-buffers", 0u32)
         .property("max-size-bytes", 0u32)
@@ -380,7 +403,7 @@ fn leaky(ms: u64) -> Result<gst::Element> {
 }
 
 /// The first error waiting on a pipeline's bus, as a line.
-fn bus_error(p: &gst::Pipeline) -> Option<String> {
+pub(crate) fn bus_error(p: &gst::Pipeline) -> Option<String> {
     let bus = p.bus()?;
     while let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error]) {
         if let gst::MessageView::Error(e) = msg.view() {
@@ -647,7 +670,8 @@ fn render_strap(canvas: &Rung, name: &str) -> Result<Frame> {
 impl Video {
     /// The video path for a desk; nothing runs until [`Video::start`].
     pub fn new(config: &Config, to_room: bool) -> Video {
-        let settings = config.video.clone();
+        let mut settings = config.video.clone();
+        settings.camera_codecs = usable_camera_codecs(&settings.camera_codecs);
         let canvas = settings.canvas();
         let s = &settings.switch;
         let rule = Rule {
@@ -694,6 +718,7 @@ impl Video {
                 thumbs: Mutex::new(Thumbs::default()),
                 stop: AtomicBool::new(false),
                 pushed: AtomicU64::new(0),
+                rtmp: crate::rtmp::Rtmp::new(&settings, canvas),
                 settings,
             }),
         }
@@ -701,6 +726,11 @@ impl Video {
 
     pub fn settings(&self) -> &Settings {
         &self.inner.settings
+    }
+
+    /// RTMP out (`rtmp-out`).
+    pub fn rtmp(&self) -> &crate::rtmp::Rtmp {
+        &self.inner.rtmp
     }
 
     /// The picture's size and rate.
@@ -730,6 +760,7 @@ impl Video {
     pub fn stop(&self) {
         self.inner.stop.store(true, Ordering::SeqCst);
         self.inner.thumbs.lock().expect("thumbs lock").pipe = None;
+        self.inner.rtmp.stop(None);
         self.stop_hls(None);
         if let Some(r) = self.inner.room.lock().expect("room lock").take() {
             let _ = r.pipeline.set_state(gst::State::Null);
@@ -848,6 +879,7 @@ impl Video {
             skipped: v.skipped,
             now_playing: v.now_playing.clone(),
             still: v.still.is_some(),
+            rtmp: self.inner.rtmp.status(),
         }
     }
 
@@ -961,7 +993,15 @@ impl Video {
             .structure(0)
             .map(|s| s.name().to_string())
             .unwrap_or_default();
-        let key = !buf.flags().contains(gst::BufferFlags::DELTA_UNIT);
+        // AV1 from the room carries no delta flags (rtpav1depay marks none), so every buffer
+        // would look like a keyframe and a decoder started again mid-stream never finds its
+        // sequence header. A keyframe is where the sender's sequence header is.
+        let key = if caps_name == "video/x-av1" {
+            buf.map_readable()
+                .is_ok_and(|m| av1_has_sequence_header(m.as_slice()))
+        } else {
+            !buf.flags().contains(gst::BufferFlags::DELTA_UNIT)
+        };
         let src = {
             let mut cams = self.cams();
             let Some(cam) = cams.get_mut(identity).filter(|c| c.serial == serial) else {
@@ -977,6 +1017,37 @@ impl Video {
                     d.stop();
                 }
                 cam.waiting_key = true;
+            }
+            // A decoder that stopped putting out pictures while the camera still sends: after a
+            // lost packet an AV1 decoder discards what it cannot parse, says nothing, and never
+            // starts again by itself (the talk station, 2026-11-11: the picture went back to the
+            // slate for good). Ask for a keyframe; if that is not enough, start the decoder again
+            // on the next one.
+            let stale = Duration::from_millis(u64::from(self.inner.settings.stale_ms));
+            if let Some(d) = &cam.decode {
+                let since = cam
+                    .last_frame
+                    .lock()
+                    .expect("camera clock")
+                    .map_or(Duration::MAX, |t| t.elapsed())
+                    .min(d.started.elapsed());
+                if since > stale * 3 {
+                    let jitter = cam.pad.as_ref().map(video_jitter_stats).unwrap_or_default();
+                    tracing::warn!(participant = %identity, stalled_ms = since.as_millis() as u64, %jitter, "a camera's decoder stalled; it starts again on the next keyframe");
+                    if let Some(d) = cam.decode.take() {
+                        d.stop();
+                    }
+                    cam.waiting_key = true;
+                } else if since > stale
+                    && cam
+                        .asked_key
+                        .is_none_or(|t| t.elapsed() > Duration::from_secs(1))
+                {
+                    cam.asked_key = Some(Instant::now());
+                    if let Some(pad) = &cam.pad {
+                        ask_keyframe(pad);
+                    }
+                }
             }
             if cam.decode.is_none() {
                 if cam
@@ -1080,10 +1151,16 @@ impl Video {
         let keep =
             Duration::from_millis(u64::from(self.inner.settings.lag_ms) + 400).as_nanos() as u64;
         let (w, h) = (canvas.width as usize, canvas.height as usize);
+        // Said once per decoder: "decoding a camera" alone does not mean a picture came out.
+        let first = AtomicBool::new(false);
+        let who = identity.to_owned();
         sink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |s| {
                     let sample = s.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                    if !first.swap(true, Ordering::Relaxed) {
+                        tracing::info!(participant = %who, "a camera's first picture");
+                    }
                     let Some(buf) = sample.buffer() else {
                         return Ok(gst::FlowSuccess::Ok);
                     };
@@ -1111,11 +1188,12 @@ impl Video {
         gst::Element::link_many(&chain)?;
         p.set_state(gst::State::Playing)
             .context("a camera's decoder would not start")?;
-        tracing::info!(participant = %identity, codec = %caps_name, "decoding a camera");
+        tracing::info!(participant = %identity, codec = %caps_name, caps = %caps, "decoding a camera");
         Ok(Decode {
             pipeline: p,
             src,
             caps_name: caps_name.to_owned(),
+            started: Instant::now(),
         })
     }
 
@@ -1315,6 +1393,7 @@ impl Video {
         self.check_cameras();
         self.check_hls(desk);
         self.check_room();
+        self.inner.rtmp.housekeeping(desk);
         let now = Instant::now();
         let hls_due = {
             let v = self.vision();
@@ -1537,16 +1616,18 @@ impl Video {
                 .expect("hls lock")
                 .as_ref()
                 .map(|h| h.src.clone());
-            if let Some(src) = src {
-                let mut b = gst::Buffer::from_slice(FrameBytes(out));
-                {
-                    let b = b.get_mut().expect("a new buffer is writable");
-                    b.set_pts(gst::ClockTime::from_nseconds(t));
-                    b.set_duration(gst::ClockTime::from_nseconds(frame_ns));
-                }
-                if src.push_buffer(b).is_ok() {
-                    self.inner.pushed.fetch_add(1, Ordering::Relaxed);
-                }
+            let mut b = gst::Buffer::from_slice(FrameBytes(out));
+            {
+                let b = b.get_mut().expect("a new buffer is writable");
+                b.set_pts(gst::ClockTime::from_nseconds(t));
+                b.set_duration(gst::ClockTime::from_nseconds(frame_ns));
+            }
+            // RTMP out takes the same delayed frame (`rtmp-out`).
+            self.inner.rtmp.picture(&b);
+            if let Some(src) = src
+                && src.push_buffer(b).is_ok()
+            {
+                self.inner.pushed.fetch_add(1, Ordering::Relaxed);
             }
         }
         let room = self
@@ -1604,13 +1685,169 @@ impl Video {
 
 /// Ask the sender of a camera for a keyframe: a force-key-unit event upstream, which the
 /// room's element turns into a picture-loss indication.
+/// The GStreamer elements a camera in `codec` needs at the desk: its RTP depayloader, and a
+/// decoder (any one of the last list).
+fn camera_elements(codec: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match codec {
+        "VP8" => (&["rtpvp8depay"], &["vp8dec"]),
+        "VP9" => (&["rtpvp9depay"], &["vp9dec"]),
+        _ => (&["rtpav1depay", "av1parse"], &["dav1ddec", "av1dec"]),
+    }
+}
+
+/// Of the configured camera codecs, those this machine's GStreamer can take from the room and
+/// decode. Offering the room a codec without its depayloader breaks that person's whole
+/// subscription, voice included ("not-linked", made again about three times a second: the
+/// talk station's AV1 cameras from Chromium, 2026-11-11); left out, a browser's page sends its
+/// backup codec (VP8) instead. Never empties the list: with nothing usable, it is kept as set.
+pub fn usable_camera_codecs(codecs: &[String]) -> Vec<String> {
+    let have = |e: &&str| gst::ElementFactory::find(e).is_some();
+    let usable: Vec<String> = codecs
+        .iter()
+        .filter(|c| {
+            let (need, decoders) = camera_elements(c);
+            let mut missing: Vec<String> = need
+                .iter()
+                .filter(|e| !have(e))
+                .map(|e| (*e).to_owned())
+                .collect();
+            if !decoders.iter().any(have) {
+                missing.push(decoders.join(" or "));
+            }
+            if missing.is_empty() {
+                true
+            } else {
+                tracing::error!(codec = %c, missing = ?missing, "video: this machine cannot take cameras in this codec, so the desk does not offer it to the room");
+                false
+            }
+        })
+        .cloned()
+        .collect();
+    if usable.is_empty() {
+        tracing::error!("video: no camera codec can be taken here; cameras will fail");
+        return codecs.to_vec();
+    }
+    usable
+}
+
+/// Whether an AV1 buffer (OBUs in low-overhead format, each with its size) holds a sequence
+/// header (OBU type 1): what a decoder needs to start, and what a sender puts before a keyframe.
+fn av1_has_sequence_header(mut b: &[u8]) -> bool {
+    while let Some(&h) = b.first() {
+        let obu_type = (h >> 3) & 0x0f;
+        if obu_type == 1 {
+            return true;
+        }
+        let ext = h & 0x04 != 0;
+        let has_size = h & 0x02 != 0;
+        let mut at = 1 + usize::from(ext);
+        if !has_size {
+            return false; // the rest of the buffer is this OBU
+        }
+        let mut size = 0usize;
+        for i in 0..8 {
+            let Some(&byte) = b.get(at) else { return false };
+            at += 1;
+            size |= usize::from(byte & 0x7f) << (7 * i);
+            if byte & 0x80 == 0 {
+                break;
+            }
+        }
+        let Some(rest) = b.get(at.saturating_add(size)..) else {
+            return false;
+        };
+        b = rest;
+    }
+    false
+}
+
+/// The room's element a camera comes from (`livekitwebrtcsrc`), from the desk's sink for it,
+/// behind its queue.
+fn room_bin(pad: &gst::Pad) -> Option<gst::Bin> {
+    pad.peer()
+        .and_then(|p| p.parent_element())
+        .and_then(|q| q.static_pad("sink"))
+        .and_then(|s| s.peer())
+        .and_then(|p| p.parent_element())
+        .and_then(|e| e.downcast::<gst::Bin>().ok())
+}
+
+/// The video jitter buffers' own counts inside a camera's room element (lost, late, resent),
+/// for the log when a camera stalls: what the network did to it at the desk.
+fn video_jitter_stats(pad: &gst::Pad) -> String {
+    let Some(bin) = room_bin(pad) else {
+        return String::new();
+    };
+    let mut out = Vec::new();
+    for e in bin.iterate_recurse().into_iter().flatten() {
+        if e.factory().is_none_or(|f| f.name() != "rtpjitterbuffer") {
+            continue;
+        }
+        if e.find_property("stats").is_none() {
+            continue;
+        }
+        let caps = e
+            .static_pad("sink")
+            .and_then(|p| p.current_caps())
+            .and_then(|c| {
+                c.structure(0).map(|s| {
+                    format!(
+                        "{}/{}",
+                        s.get::<String>("media").unwrap_or_default(),
+                        s.get::<String>("encoding-name").unwrap_or_default()
+                    )
+                })
+            })
+            .unwrap_or_default();
+        let st = e.property::<gst::Structure>("stats");
+        let n = |k: &str| st.get::<u64>(k).unwrap_or_default();
+        out.push(format!(
+            "{} {caps}: pushed {} lost {} late {} dup {} rtx {} rtx-ok {} rtx-late {} latency {} ms",
+            e.name(),
+            n("num-pushed"),
+            n("num-lost"),
+            n("num-late"),
+            n("num-duplicates"),
+            n("rtx-count"),
+            n("rtx-success-count"),
+            n("rtx-late-count"),
+            e.property::<u32>("latency")
+        ));
+    }
+    out.join("; ")
+}
+
+/// Ask a camera's sender for a keyframe. `pad` is the desk's sink for the camera, behind a queue
+/// fed by the room's element. Sent up from there the request is lost inside `livekitwebrtcsrc`
+/// (its decodebin3, parsebin and depayloader stand between; 2026-11-12: no PLI ever left), so it
+/// also goes straight into the element's `webrtcbin`, whose video pads lead to the RTP session
+/// that turns it into a PLI for LiveKit to pass on.
 fn ask_keyframe(pad: &gst::Pad) {
-    let ev = gst::event::CustomUpstream::new(
-        gst::Structure::builder("GstForceKeyUnit")
-            .field("all-headers", true)
-            .build(),
-    );
-    pad.send_event(ev);
+    let event = || {
+        gst::event::CustomUpstream::new(
+            gst::Structure::builder("GstForceKeyUnit")
+                .field("all-headers", false)
+                .build(),
+        )
+    };
+    pad.send_event(event());
+    let Some(bin) = room_bin(pad) else {
+        return;
+    };
+    for e in bin.iterate_recurse().into_iter().flatten() {
+        if e.factory().is_none_or(|f| f.name() != "webrtcbin") {
+            continue;
+        }
+        for p in e.src_pads() {
+            let video = p
+                .current_caps()
+                .and_then(|c| c.structure(0).and_then(|s| s.get::<String>("media").ok()))
+                .is_some_and(|m| m == "video");
+            if video {
+                p.send_event(event());
+            }
+        }
+    }
 }
 
 /// Every file the writer made before, so a start does not mix old segments with new.
@@ -1833,6 +2070,50 @@ mod tests {
         assert!(audio.contains("CODECS=\"opus\"\naudio/index.m3u8"));
         assert!(!audio.contains("av01"));
         assert_eq!(live.matches("#EXT-X-STREAM-INF").count(), 2);
+    }
+
+    #[test]
+    fn an_av1_keyframe_is_where_the_sequence_header_is() {
+        // OBU header: type << 3 | has_size (0x02); then the size as leb128.
+        let td = [2 << 3 | 0x02, 0];
+        let seq = [1 << 3 | 0x02, 3, 0xaa, 0xbb, 0xcc];
+        let frame = [6 << 3 | 0x02, 2, 0x10, 0x20];
+        let ext_frame = [6 << 3 | 0x02 | 0x04, 0x08, 2, 0x10, 0x20];
+        assert!(av1_has_sequence_header(
+            &[td.as_slice(), &seq, &frame].concat()
+        ));
+        assert!(av1_has_sequence_header(&seq));
+        assert!(!av1_has_sequence_header(&[td.as_slice(), &frame].concat()));
+        assert!(!av1_has_sequence_header(
+            &[ext_frame.as_slice(), &frame].concat()
+        ));
+        // After an OBU with an extension byte, the next is still found.
+        assert!(av1_has_sequence_header(
+            &[ext_frame.as_slice(), &seq].concat()
+        ));
+        // A size past the end, or an OBU without a size, ends the walk.
+        assert!(!av1_has_sequence_header(&[6 << 3 | 0x02, 9, 1]));
+        assert!(!av1_has_sequence_header(&[6 << 3, 1, 2, 3]));
+        assert!(!av1_has_sequence_header(&[]));
+    }
+
+    #[test]
+    fn a_camera_codec_is_offered_only_with_its_depayloader_and_a_decoder() {
+        gst::init().unwrap();
+        let all: Vec<String> = ["VP8", "AV1", "VP9"].map(String::from).to_vec();
+        let usable = usable_camera_codecs(&all);
+        let have = |e: &str| gst::ElementFactory::find(e).is_some();
+        assert_eq!(
+            usable.contains(&"AV1".to_owned()),
+            have("rtpav1depay") && have("av1parse") && (have("dav1ddec") || have("av1dec")),
+            "{usable:?}"
+        );
+        assert!(usable.contains(&"VP8".to_owned()), "{usable:?}");
+        // Nothing usable: the list stays as set rather than empty.
+        let none = vec!["AV1".to_owned()];
+        if !usable.contains(&"AV1".to_owned()) {
+            assert_eq!(usable_camera_codecs(&none), none);
+        }
     }
 
     /// A PNG of one colour, as the media worker writes them.

@@ -32,6 +32,12 @@ enum Command {
 }
 
 fn main() -> ExitCode {
+    // The media worker (ADR-0048 rule 2; a chatter's picture, ADR-0235) reads no settings and
+    // restricts itself before anything else runs.
+    let raw: Vec<String> = std::env::args().collect();
+    if raw.get(1).map(String::as_str) == Some("media-worker") {
+        return weavesignal_media::worker::run(&raw[2..]);
+    }
     let cli = Cli::parse();
     if let Some(Command::SampleConfig) = cli.command {
         print!("{}", config::SAMPLE);

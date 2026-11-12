@@ -21,9 +21,14 @@ path = "src/bin/load.rs"
 [dependencies]
 weavesignal-model.workspace = true
 weavesignal-proto.workspace = true
+# The media worker (ADR-0048 rule 2): a chatter's uploaded picture is parsed in its restricted
+# process, `weavesignal-chat media-worker avatar` (ADR-0235).
+weavesignal-media = { path = "../media" }
 anyhow.workspace = true
 axum = { workspace = true, features = ["ws"] }
 clap.workspace = true
+# The evidence export's ZIP checksums (ADR-0257); already in the lock through the PNG codec.
+crc32fast = "1.5.3"
 hmac.workspace = true
 futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
 rustrict = "0.7.39"
@@ -42,8 +47,13 @@ ureq.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+# Pictures made for the avatar tests (ADR-0235); the media worker's own PNG crate.
+png = "0.18.1"
 http-body-util.workspace = true
 tower.workspace = true
+# The control plane behind the chat, as the station runs them: an API token's way through the
+# chat to the room's modes (issue 2).
+weavesignal-control = { path = "../control" }
 
 [lints]
 workspace = true

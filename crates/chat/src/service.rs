@@ -46,6 +46,12 @@ pub enum Problem {
     Invalid(String),
     #[error("{0}")]
     Forbidden(String),
+    /// A limit met: try again later (429).
+    #[error("{0}")]
+    TooMany(String),
+    /// The station's own fault, said without its details (500).
+    #[error("{0}")]
+    Failed(String),
     #[error("the chat's database did not answer")]
     Db(#[from] sqlx::Error),
 }
@@ -56,6 +62,10 @@ pub struct Actor {
     pub name: String,
     pub account: Option<Uuid>,
     pub staff: bool,
+    /// An admin: the station key, or a staff member whose role is admin.
+    pub admin: bool,
+    /// The staff account a staff member signed in with (not the station key, not a chatter).
+    pub staff_account: Option<Uuid>,
 }
 
 /// Studio messages' fate, kept in memory (the lane is live, not a record of its own).
@@ -85,12 +95,20 @@ pub struct Chat {
     lane: Mutex<std::collections::HashMap<i64, LaneNote>>,
     /// Reactions per chatter in the last ten seconds (ADR-0120), in memory only.
     reactions: crate::limits::Window<Uuid>,
+    /// The schedule as last read, for the chat's hours (ADR-0234; read only with `shows`).
+    schedule: RwLock<crate::hours::Schedule>,
+    /// Pictures uploaded per chatter in the last ten minutes (ADR-0235), in memory only.
+    pub(crate) avatar_uploads: crate::limits::Window<Uuid>,
+    /// Pictures and documents posted per chatter in the last ten minutes (ADR-0262).
+    pub(crate) attachment_uploads: crate::limits::Window<Uuid>,
 }
 
 impl Chat {
     /// Forget the reaction counts whose window has passed.
     pub fn forget_old_limits(&self, now_ms: i64) {
         self.reactions.forget_old(now_ms);
+        self.avatar_uploads.forget_old(now_ms);
+        self.attachment_uploads.forget_old(now_ms);
     }
 }
 
@@ -177,6 +195,48 @@ pub enum ModCommand {
         id: i64,
         body: String,
     },
+    /// Approve a waiting picture (ADR-0235): everyone sees it from now on. Staff or a moderator
+    /// (ADR-0255).
+    AvatarApprove {
+        avatar: Uuid,
+    },
+    /// Refuse a waiting picture and tell its owner why. Staff or a moderator (ADR-0255).
+    AvatarRefuse {
+        avatar: Uuid,
+        reason: Reason,
+        #[serde(default)]
+        note: String,
+    },
+    /// Take down a chatter's approved picture and tell them why; their messages show the
+    /// shipped avatar they chose again.
+    AvatarRemove {
+        account: Uuid,
+        reason: Reason,
+        #[serde(default)]
+        note: String,
+        #[serde(default)]
+        report: Option<Uuid>,
+    },
+    /// Take down a picture or document posted in the chat that was approved and shown, and its
+    /// message with it, and tell its author why (ADR-0262). Staff or a moderator; the reasons for
+    /// a picture only (suspected child sexual abuse material) apply, as for an avatar.
+    AttachmentRemove {
+        attachment: Uuid,
+        reason: Reason,
+        #[serde(default)]
+        note: String,
+        #[serde(default)]
+        report: Option<Uuid>,
+    },
+    /// Delete a picture the station is keeping (ADR-0257) from the server at once, with why. Staff
+    /// only. One kept as evidence of suspected child sexual abuse material is deleted only with
+    /// `confirm_evidence`, after the words that say what the law asks.
+    AvatarDelete {
+        avatar: Uuid,
+        why: String,
+        #[serde(default)]
+        confirm_evidence: bool,
+    },
     Pass {
         id: i64,
     },
@@ -201,6 +261,8 @@ pub struct PostRequest {
     pub body: String,
     pub reply_to: Option<i64>,
     pub playhead_ms: Option<i64>,
+    /// A picture or document already checked and kept (ADR-0262): the message is held with it.
+    pub attachment: Option<crate::wire::Attachment>,
 }
 
 fn ack(nonce: &str, id: Option<i64>, state: AckState) -> ServerFrame {
@@ -231,6 +293,7 @@ pub fn author(a: &Account) -> Author {
         name: a.name.clone(),
         standing: a.standing,
         guest: a.kind == Kind::Guest,
+        avatar: a.avatar(),
     }
 }
 
@@ -252,6 +315,10 @@ impl Chat {
             .await?
             .map(|r| msg_of(&r, None));
         let reactions = crate::limits::Window::new(config.limits.reactions_per_chatter, 10_000);
+        let avatar_uploads =
+            crate::limits::Window::new(config.avatars.uploads_per_chatter, 600_000);
+        let attachment_uploads =
+            crate::limits::Window::new(config.attachments.per_chatter, 600_000);
         let chat = Arc::new(Chat {
             station,
             db,
@@ -265,6 +332,9 @@ impl Chat {
             next_id: AtomicI64::new(next),
             lane: Mutex::new(Default::default()),
             reactions,
+            schedule: RwLock::new(Default::default()),
+            avatar_uploads,
+            attachment_uploads,
         });
         chat.reload_retention().await?;
         // Messages held when the service stopped wait for a moderator now: their countdown
@@ -318,7 +388,7 @@ impl Chat {
         self.min_age()
     }
 
-    fn room(&self) -> std::sync::MutexGuard<'_, Room> {
+    pub(crate) fn room(&self) -> std::sync::MutexGuard<'_, Room> {
         self.room.lock().expect("the room's lock")
     }
 
@@ -346,18 +416,48 @@ impl Chat {
         };
         m.comments_only = st.comments_only;
         m.guests = st.guests;
+        m.closed = !self.hours().open;
         m
+    }
+
+    /// When chatters may post now (ADR-0234): always, or while a scheduled show is on air.
+    pub fn hours(&self) -> crate::hours::Hours {
+        match self.config.hours.open {
+            crate::config::Open::Always => crate::hours::Hours::always(),
+            crate::config::Open::Shows => crate::hours::Hours::shows(
+                &self.schedule.read().expect("schedule"),
+                now_ms() / 1000,
+            ),
+        }
+    }
+
+    /// Keep a schedule just read (the hours task).
+    pub fn set_schedule(&self, s: crate::hours::Schedule) {
+        *self.schedule.write().expect("schedule") = s;
     }
 
     pub fn rules(&self) -> RoomRules {
         let modes = self.modes();
         RoomRules {
             min_age_minutes: modes.min_age_minutes(),
+            hours: self.hours(),
             modes,
             slow_s: rules::SLOW_S,
             max_chars: rules::MAX_CHARS,
             hold_ms: rules::HOLD_MS,
+            avatar_uploads: self.avatar_uploads_on(),
+            attachments: self.attachments_on(),
         }
+    }
+
+    /// Whether chatters may upload a picture of their own now (ADR-0259): the studio's switch
+    /// once it has been used, else the install setting.
+    pub fn avatar_uploads_on(&self) -> bool {
+        self.settings
+            .read()
+            .expect("settings")
+            .avatar_uploads
+            .unwrap_or(self.config.avatars.uploads)
     }
 
     pub fn show(&self) -> String {
@@ -471,6 +571,7 @@ impl Chat {
                 kind: p.kind,
                 body: &body,
                 reply: reply.is_some(),
+                attachment: p.attachment.is_some(),
             };
             let verdict = rules::judge(now as u64, &modes, poster, &draft, |_| hit.clone());
             if !matches!(verdict, Verdict::Refuse(_)) {
@@ -486,6 +587,20 @@ impl Chat {
             Verdict::Refuse(r) => return refused(&p.nonce, r.code(), r.words(), r.retry_ms()),
             Verdict::Hold(h) => Some(h),
             Verdict::Post => None,
+        };
+        let attachment_id = match &p.attachment {
+            Some(at) => match Uuid::parse_str(&at.id) {
+                Ok(id) if p.kind == MessageKind::Chat => Some(id),
+                _ => {
+                    return refused(
+                        &p.nonce,
+                        "attachment",
+                        "A picture or document goes in an ordinary chat message.".into(),
+                        None,
+                    );
+                }
+            },
+            None => None,
         };
         // A sender's playhead from the future or more than an hour back is not a playhead.
         let playhead = p
@@ -506,8 +621,10 @@ impl Chat {
                 reply_to: reply.as_ref().map(|r| r.id),
                 server_ms: now,
                 playhead_ms: playhead,
-                held: hold.is_some(),
+                // A message with a picture or document waits for staff, whatever the rules said.
+                held: hold.is_some() || attachment_id.is_some(),
                 flagged,
+                attachment: attachment_id,
             },
         )
         .await
@@ -536,8 +653,31 @@ impl Chat {
             pinned: false,
             featured: false,
             reactions: vec![],
+            attachment: p.attachment.clone(),
         };
         let mut room = self.room();
+        // A picture or document is held for staff and moderators in the avatars' queue
+        // (ADR-0262), not in the hold for new chatters: only approving it shows the message. Its
+        // author sees it waiting.
+        if let (Some(at), Some(aid)) = (p.attachment, attachment_id) {
+            let mut mine = m.clone();
+            mine.state = MsgState::Held;
+            room.send(Audience::Account(who), &ServerFrame::Mine { m: mine });
+            let queued = crate::wire::HeldAvatar {
+                id: aid.to_string(),
+                account: crate::avatar::account_ref(&account, None),
+                uploaded_ms: now,
+                bytes: at.bytes,
+                kind: at.kind.clone(),
+                message: Some(crate::wire::HeldMessage {
+                    id,
+                    body: m.body.clone(),
+                }),
+                attachment: Some(at),
+            };
+            room.send(Audience::Mods, &ServerFrame::ModAvatar { a: queued });
+            return ack(&p.nonce, Some(id), AckState::Held);
+        }
         match hold {
             Some(h) => {
                 let release_at_ms = h.auto_release_ms().map(|d| now + d as i64);
@@ -576,6 +716,38 @@ impl Chat {
                 room.show(m);
                 ack(&p.nonce, Some(id), AckState::Visible)
             }
+        }
+    }
+
+    /// The rules' answer to a message with a picture or document, before the file is worked on
+    /// (ADR-0262): a refusal (its code, words and when to try again), or `None` to go on. Nothing
+    /// is remembered; [`Self::post`] judges it again when it is stored.
+    pub(crate) fn precheck(
+        &self,
+        who: Uuid,
+        body: &str,
+        reply: bool,
+    ) -> Option<(&'static str, String, Option<u64>)> {
+        let modes = self.modes();
+        let room = self.room();
+        let ch = room.chatters.get(&who)?;
+        let fresh = Poster {
+            kind: ch.account.kind,
+            standing: ch.account.standing,
+            created_ms: ch.account.created_ms.max(0) as u64,
+            restriction: ch.restriction,
+            recent: Default::default(),
+        };
+        let poster = room.posters.get(&who).unwrap_or(&fresh);
+        let draft = Draft {
+            kind: MessageKind::Chat,
+            body: body.trim(),
+            reply,
+            attachment: true,
+        };
+        match rules::judge(now_ms() as u64, &modes, poster, &draft, |_| None) {
+            Verdict::Refuse(r) => Some((r.code(), r.words(), r.retry_ms())),
+            _ => None,
         }
     }
 
@@ -635,6 +807,7 @@ impl Chat {
                 words: "Slow down: wait a few seconds before reacting again.".into(),
             });
         }
+        let closed = !self.hours().open;
         let mut room = self.room();
         if room
             .chatters
@@ -643,6 +816,18 @@ impl Chat {
         {
             return Some(ServerFrame::Error {
                 words: "You can't react: this account is banned.".into(),
+            });
+        }
+        // Between shows the room is read-only, reactions too (ADR-0234), but for the staff and
+        // the chatters the station made moderators (ADR-0253).
+        if closed
+            && !room
+                .chatters
+                .get(&who)
+                .is_some_and(|c| c.account.kind == Kind::Staff || c.account.standing.moderates())
+        {
+            return Some(ServerFrame::Error {
+                words: rules::Refusal::Closed.words(),
             });
         }
         match room.react(id, who, emoji) {
@@ -688,10 +873,13 @@ impl Chat {
             vec![]
         };
         let held = self.room().held.values().map(|(h, _)| h.clone()).collect();
+        // Pictures waiting for approval are for the staff and the moderators to see (ADR-0255).
+        let avatars = self.held_avatars().await?;
         Ok(ModSnapshot {
             items,
             held,
             studio,
+            avatars,
         })
     }
 
@@ -714,6 +902,7 @@ impl Chat {
                         standing: a.standing,
                         guest: a.kind == Kind::Guest,
                         restricted,
+                        avatar: a.avatar(),
                     })
                 }
             },
@@ -727,6 +916,18 @@ impl Chat {
                 .ok()
                 .map(|e| e.into_msg())
         });
+        // A report about a picture (ADR-0260): its id, while it is still the one showing.
+        let picture = match (r.kind.as_str(), r.account_id, r.message_id) {
+            // Only the report about the picture itself, not one about a message of theirs.
+            ("report", Some(a), None) => self.reported_picture(a).await?,
+            _ => None,
+        };
+        // A report about a posted picture or document (ADR-0262), while it is still showing.
+        let attachment = if r.kind == "report" {
+            self.reported_attachment(&r.evidence).await?
+        } else {
+            None
+        };
         let automated = r
             .evidence
             .get("flagged")
@@ -753,6 +954,8 @@ impl Chat {
             due_ms: r.due_ms,
             automated,
             status: r.status.clone(),
+            picture,
+            attachment,
         })
     }
 
@@ -863,6 +1066,19 @@ impl Chat {
                 Err(Problem::Forbidden(format!("Only the studio can {what}.")))
             }
         };
+        // A reason only for a picture (ADR-0257) is no reason to hide a message or restrict a person.
+        let picture_reason_elsewhere = match &cmd {
+            ModCommand::Hide { reason, .. }
+            | ModCommand::HideAllHeld { reason }
+            | ModCommand::Timeout { reason, .. }
+            | ModCommand::Ban { reason, .. } => reason.staff_only(),
+            _ => false,
+        };
+        if picture_reason_elsewhere {
+            return Err(Problem::Invalid(
+                "That reason is only for a picture: choose another.".into(),
+            ));
+        }
         match cmd {
             ModCommand::Hide {
                 id,
@@ -878,6 +1094,8 @@ impl Chat {
                 let automated = row.flagged.is_some() || automated_disclosed;
                 let was_held = row.state == "held";
                 self.take_out(&[id]).await?;
+                // Its picture or document goes with it (ADR-0262).
+                self.attachment_goes_with(id, by, reason).await?;
                 let account = row.account.as_ref().map(|a| a.id);
                 let action = store::log(
                     &self.db,
@@ -972,6 +1190,41 @@ impl Chat {
                     by,
                     format!("Hid {who}'s message · {}", reason.words().to_lowercase()),
                 ))
+            }
+            ModCommand::AvatarApprove { avatar } => self.avatar_approve(actor, avatar).await,
+            ModCommand::AttachmentRemove {
+                attachment,
+                reason,
+                note,
+                report,
+            } => {
+                self.attachment_remove(by, attachment, reason, &note, report)
+                    .await
+            }
+            ModCommand::AvatarRefuse {
+                avatar,
+                reason,
+                note,
+            } => self.avatar_refuse(by, avatar, reason, &note).await,
+            ModCommand::AvatarRemove {
+                account,
+                reason,
+                note,
+                report,
+            } => self.avatar_remove(by, account, reason, &note, report).await,
+            ModCommand::AvatarDelete {
+                avatar,
+                why,
+                confirm_evidence,
+            } => {
+                staff_only("delete a kept picture")?;
+                // One kept as suspected child sexual abuse material: only the person named to see
+                // the evidence, or an admin (the operator, 2026-11-10).
+                let viewer = self.evidence_viewer().await?.map(|v| v.0);
+                let may_delete_evidence =
+                    actor.admin || (actor.staff_account.is_some() && actor.staff_account == viewer);
+                self.avatar_delete(by, avatar, &why, confirm_evidence, may_delete_evidence)
+                    .await
             }
             ModCommand::Release { id } => {
                 let done = self.release(&[id]).await?;
@@ -1374,6 +1627,7 @@ impl Chat {
                         playhead_ms: None,
                         held: false,
                         flagged: None,
+                        attachment: None,
                     },
                 )
                 .await?;
@@ -1389,6 +1643,7 @@ impl Chat {
                     pinned: false,
                     featured: false,
                     reactions: vec![],
+                    attachment: None,
                 };
                 self.room().show(m);
                 if pin {
@@ -1629,21 +1884,84 @@ impl Chat {
     // ---- reports, notices, reviews ----
 
     /// A chatter reports a message or a user. Reports on the same message join one item.
+    #[allow(clippy::too_many_arguments)]
     pub async fn report_by_chatter(
         &self,
         reporter: &Account,
         message_id: Option<i64>,
         account_id: Option<Uuid>,
+        picture: Option<Uuid>,
+        attachment: Option<Uuid>,
         reason: Reason,
         detail: &str,
     ) -> Result<Uuid, Problem> {
         let st = self.station.id;
+        if reason.staff_only() {
+            return Err(Problem::Invalid("Choose one of the reasons listed.".into()));
+        }
         if detail.chars().count() > 2000 {
             return Err(Problem::Invalid(
                 "Keep the detail under 2,000 characters.".into(),
             ));
         }
         let (subject, evidence) = match (message_id, account_id) {
+            // A chatter's picture (ADR-0260): the one showing beside their messages now.
+            (None, Some(aid)) if picture.is_some() => {
+                let pid = picture.expect("checked");
+                let a = self.account(aid).await?;
+                let showing = crate::avatar::by_id(&self.db, st, pid)
+                    .await?
+                    .filter(|r| r.account == aid && r.state == "approved");
+                if showing.is_none() {
+                    return Err(Problem::NotFound(
+                        "That picture isn't showing any more.".into(),
+                    ));
+                }
+                (
+                    Some(a.id),
+                    serde_json::json!({
+                        "account": {"id": a.id, "name": a.name},
+                        "picture": {"id": pid},
+                    }),
+                )
+            }
+            _ if picture.is_some() => {
+                return Err(Problem::Invalid(
+                    "Say whose picture you are reporting, and nothing else with it.".into(),
+                ));
+            }
+            // A picture or document posted in the chat (ADR-0262): the one the message carries,
+            // while it is showing. The report is about the message, so it joins any other report
+            // about that message, and says it is about what the message carried.
+            (Some(mid), None) if attachment.is_some() => {
+                let aid = attachment.expect("checked");
+                let row = store::message(&self.db, st, mid)
+                    .await?
+                    .filter(|r| r.state == "visible")
+                    .ok_or_else(|| Problem::NotFound("That message is gone.".into()))?;
+                let carried = row
+                    .attachment
+                    .as_ref()
+                    .and_then(crate::attach::from_json)
+                    .filter(|a| a.id == aid.to_string());
+                let Some(carried) = carried else {
+                    return Err(Problem::NotFound(
+                        "That picture or document isn't showing any more.".into(),
+                    ));
+                };
+                let ev = serde_json::json!({
+                    "message": msg_of(&row, None),
+                    "flagged": row.flagged,
+                    "state": row.state,
+                    "attachment": {"id": carried.id, "kind": carried.kind, "name": carried.name, "mime": carried.mime},
+                });
+                (row.account.map(|a| a.id), ev)
+            }
+            _ if attachment.is_some() => {
+                return Err(Problem::Invalid(
+                    "Say which message's picture or document you are reporting, and nothing else with it.".into(),
+                ));
+            }
             (Some(mid), _) => {
                 let row = store::message(&self.db, st, mid)
                     .await?
@@ -1831,7 +2149,16 @@ impl Chat {
 
     pub async fn erase(&self, id: Uuid, by: &str) -> Result<usize, Problem> {
         self.account(id).await?;
+        let pictures = crate::avatar::ids_of(&self.db, self.station.id, id).await?;
         let gone = store::erase(&self.db, self.station.id, id).await?;
+        self.forget_avatar_files(&pictures).await;
+        // A picture of theirs that was waiting leaves every open screener's queue.
+        for id in &pictures {
+            self.room().send(
+                Audience::Mods,
+                &ServerFrame::ModAvatarDone { id: id.to_string() },
+            );
+        }
         store::log(
             &self.db,
             self.station.id,
@@ -1868,10 +2195,97 @@ impl Chat {
         Ok(gone.len())
     }
 
-    pub async fn save_settings(&self, s: StationSettings) -> Result<(), Problem> {
+    pub async fn save_settings(&self, by: &str, s: StationSettings) -> Result<(), Problem> {
         s.validate().map_err(Problem::Invalid)?;
+        // The person who sees the evidence is a staff account that is on (ADR-0257).
+        if let Some(id) = s.evidence_viewer
+            && weavesignal_model::staff::get_account(&self.db, self.station.id, id)
+                .await?
+                .is_none_or(|a| a.disabled_ms.is_some())
+        {
+            return Err(Problem::Invalid(
+                "The person who sees the evidence must be a member of staff whose account is on."
+                    .into(),
+            ));
+        }
+        let uploads_before = self.avatar_uploads_on();
+        let attachments_before = self.attachments_on();
+        let viewer_before = self.evidence_viewer().await?;
         store::save_settings(&self.db, self.station.id, &s).await?;
         *self.settings.write().expect("settings") = s;
+        let viewer_now = self.evidence_viewer().await?;
+        if viewer_now != viewer_before {
+            let name = |v: &Option<(Uuid, String)>| {
+                v.as_ref().map_or("nobody".to_owned(), |v| v.1.clone())
+            };
+            store::log(
+                &self.db,
+                self.station.id,
+                &NewAction {
+                    actor: by,
+                    action: "evidence_viewer_set",
+                    account_id: None,
+                    message_id: None,
+                    report_id: None,
+                    reason: "",
+                    ground: "",
+                    note: &format!("from {} to {}", name(&viewer_before), name(&viewer_now)),
+                    automated: false,
+                    until_ms: None,
+                },
+            )
+            .await?;
+        }
+        // Effective at once: every open page is told, and a switch is a line in the record.
+        let uploads_now = self.avatar_uploads_on();
+        if uploads_now != uploads_before {
+            store::log(
+                &self.db,
+                self.station.id,
+                &NewAction {
+                    actor: by,
+                    action: if uploads_now {
+                        "avatar_uploads_on"
+                    } else {
+                        "avatar_uploads_off"
+                    },
+                    account_id: None,
+                    message_id: None,
+                    report_id: None,
+                    reason: "",
+                    ground: "",
+                    note: "",
+                    automated: false,
+                    until_ms: None,
+                },
+            )
+            .await?;
+        }
+        // Pictures and documents in the chat (ADR-0262), by the same kind of switch.
+        let attachments_now = self.attachments_on();
+        if attachments_now != attachments_before {
+            store::log(
+                &self.db,
+                self.station.id,
+                &NewAction {
+                    actor: by,
+                    action: if attachments_now {
+                        "attachments_on"
+                    } else {
+                        "attachments_off"
+                    },
+                    account_id: None,
+                    message_id: None,
+                    report_id: None,
+                    reason: "",
+                    ground: "",
+                    note: "",
+                    automated: false,
+                    until_ms: None,
+                },
+            )
+            .await?;
+        }
         self.announce_rules();
         Ok(())
     }
@@ -1900,6 +2314,9 @@ struct MsgEvidence {
     server_ms: i64,
     #[serde(default)]
     playhead_ms: Option<i64>,
+    /// The picture or document it carried, as it was when reported (ADR-0262).
+    #[serde(default)]
+    attachment: Option<crate::wire::Attachment>,
 }
 #[derive(Deserialize)]
 struct AuthorEvidence {
@@ -1920,6 +2337,8 @@ impl MsgEvidence {
                 name: self.author.name,
                 standing: self.author.standing,
                 guest: self.author.guest,
+                // The evidence keeps the words, not the picture beside them.
+                avatar: None,
             },
             reply_to: None,
             server_ms: self.server_ms,
@@ -1928,6 +2347,7 @@ impl MsgEvidence {
             pinned: false,
             featured: false,
             reactions: vec![],
+            attachment: self.attachment,
         }
     }
 }
@@ -1945,6 +2365,9 @@ pub fn me_of(a: &Account, r: Option<Restriction>) -> Me {
         },
         banned: matches!(r, Some(Restriction::Banned)),
         moderator: a.standing.moderates(),
+        avatar: a.avatar(),
+        avatar_stock: a.avatar_stock.clone(),
+        avatar_held: a.avatar_held.map(|id| id.to_string()),
     }
 }
 
@@ -1954,6 +2377,7 @@ pub fn msg_of(r: &store::Row, reply_name: Option<String>) -> Msg {
         name: "erased".into(),
         standing: Standing::Member,
         guest: false,
+        avatar: None,
     });
     Msg {
         id: r.id,
@@ -1974,5 +2398,6 @@ pub fn msg_of(r: &store::Row, reply_name: Option<String>) -> Msg {
         pinned: r.pinned,
         featured: r.featured,
         reactions: reaction_list(&[]),
+        attachment: r.attachment.as_ref().and_then(crate::attach::from_json),
     }
 }

@@ -21,9 +21,13 @@ pub enum Reason {
     ThreatToLife,
     ChildSafety,
     Other,
+    /// Suspected child sexual abuse material in an uploaded picture (ADR-0257): a moderator's
+    /// reason for a picture only, never offered on the report form.
+    SuspectedCsam,
 }
 
 impl Reason {
+    /// The reasons a chatter or the public can give on a report or a notice.
     pub const ALL: [Reason; 8] = [
         Reason::Abuse,
         Reason::Spam,
@@ -35,8 +39,12 @@ impl Reason {
         Reason::Other,
     ];
 
+    /// The reasons only a moderator gives, and only about a picture.
+    pub const STAFF: [Reason; 1] = [Reason::SuspectedCsam];
+
     pub fn as_str(self) -> &'static str {
         match self {
+            Reason::SuspectedCsam => "suspected_csam",
             Reason::Abuse => "abuse",
             Reason::Spam => "spam",
             Reason::OffTopic => "off_topic",
@@ -48,8 +56,20 @@ impl Reason {
         }
     }
 
+    /// A reason the public may give (the report form, a notice).
     pub fn parse(s: &str) -> Option<Reason> {
         Reason::ALL.into_iter().find(|r| r.as_str() == s)
+    }
+
+    /// Whether only a moderator may give it, and only for a picture (ADR-0257).
+    pub fn staff_only(self) -> bool {
+        Reason::STAFF.contains(&self)
+    }
+
+    /// Whether a picture refused or removed for it is kept, with the original and the uploader's
+    /// details, for the year the law asks (ADR-0257), viewable by one named person.
+    pub fn keeps_evidence(self) -> bool {
+        self == Reason::SuspectedCsam
     }
 
     /// The reason as a chatter and a moderator read it.
@@ -63,6 +83,7 @@ impl Reason {
             Reason::ThreatToLife => "A threat to someone's life or safety",
             Reason::ChildSafety => "Sexual content involving a child",
             Reason::Other => "Something else",
+            Reason::SuspectedCsam => "Suspected child sexual abuse material",
         }
     }
 
@@ -81,6 +102,9 @@ impl Reason {
             }
             Reason::ChildSafety => "Sexual content involving anyone under 18.",
             Reason::Other => "Tell the station what is wrong.",
+            Reason::SuspectedCsam => {
+                "Keeps the picture and the uploader's details for a year, for a report to the authorities."
+            }
         }
     }
 
@@ -88,7 +112,11 @@ impl Reason {
     pub fn unlawful(self) -> bool {
         matches!(
             self,
-            Reason::Illegal | Reason::IntimateImage | Reason::ThreatToLife | Reason::ChildSafety
+            Reason::Illegal
+                | Reason::IntimateImage
+                | Reason::ThreatToLife
+                | Reason::ChildSafety
+                | Reason::SuspectedCsam
         )
     }
 
@@ -102,7 +130,10 @@ impl Reason {
     pub fn preserve_at_once(self) -> bool {
         matches!(
             self,
-            Reason::IntimateImage | Reason::ThreatToLife | Reason::ChildSafety
+            Reason::IntimateImage
+                | Reason::ThreatToLife
+                | Reason::ChildSafety
+                | Reason::SuspectedCsam
         )
     }
 }
@@ -121,6 +152,34 @@ pub enum Outcome {
     Banned,
     /// A held message rejected before anyone saw it.
     Rejected,
+    /// An uploaded picture refused before anyone else saw it (ADR-0235).
+    AvatarRefused,
+    /// An approved picture taken down later.
+    AvatarRemoved,
+    /// A picture or document posted in the chat, refused before anyone else saw it (ADR-0262).
+    AttachmentRefused {
+        document: bool,
+    },
+    /// A picture or document posted in the chat, taken down after it was shown.
+    AttachmentRemoved {
+        document: bool,
+    },
+}
+
+impl Outcome {
+    fn about_a_picture(self) -> bool {
+        matches!(self, Outcome::AvatarRefused | Outcome::AvatarRemoved)
+    }
+
+    /// The thing posted, for an attachment's outcome.
+    fn attachment(self) -> Option<&'static str> {
+        match self {
+            Outcome::AttachmentRefused { document } | Outcome::AttachmentRemoved { document } => {
+                Some(if document { "document" } else { "picture" })
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The statement of reasons a chatter receives at once (DSA Article 17: the decision, the
@@ -134,6 +193,25 @@ pub fn statement(
     automated: bool,
     retention: &Retention,
 ) -> String {
+    // Suspected child sexual abuse material: the uploader is told less (the operator,
+    // 2026-11-10): that it was removed under the rules on illegal content, and how to ask for a
+    // review; nothing about the reason's words, keeping it or reporting it.
+    if reason.keeps_evidence() {
+        let thing = match outcome {
+            Outcome::AvatarRefused => "the picture you uploaded".to_owned(),
+            Outcome::AttachmentRefused { document } | Outcome::AttachmentRemoved { document } => {
+                format!(
+                    "the {} you posted",
+                    if document { "document" } else { "picture" }
+                )
+            }
+            _ => "your picture".to_owned(),
+        };
+        return format!(
+            "{station} removed {thing} for breaking the station's rules on illegal content. A moderator decided. \
+             You can ask for a review within {REVIEW_DAYS} days. This notice is kept until the review period ends, then deleted."
+        );
+    }
     let what = match quoted {
         Some(q) => format!("your message “{}”", excerpt(q, 60)),
         None => "your account".to_owned(),
@@ -156,6 +234,16 @@ pub fn statement(
             format!("{station} stopped you posting for {minutes} minutes")
         }
         Outcome::Banned => format!("{station} banned you from its chat"),
+        Outcome::AvatarRefused => format!("{station} did not approve the picture you uploaded"),
+        Outcome::AvatarRemoved => format!("{station} removed your picture from its chat"),
+        Outcome::AttachmentRefused { document } => format!(
+            "{station} did not show the {} you posted{in_show}",
+            if document { "document" } else { "picture" }
+        ),
+        Outcome::AttachmentRemoved { document } => format!(
+            "{station} removed the {} you posted{in_show}, and the message with it",
+            if document { "document" } else { "picture" }
+        ),
     };
     let ground = if reason.unlawful() {
         "we believe it is unlawful"
@@ -168,6 +256,14 @@ pub fn statement(
         "A moderator decided."
     };
     let kept = match retention.moderation {
+        _ if outcome.attachment().is_some() => format!(
+            "Nobody else can see the {} now. This notice is kept until the review period ends, then deleted.",
+            outcome.attachment().unwrap_or("picture")
+        ),
+        _ if outcome.about_a_picture() => {
+            "Nobody else can see the picture now; your messages show the avatar you chose from our set. This notice is kept until the review period ends, then deleted."
+                .to_owned()
+        }
         Keep::None => "This notice is kept until the review period ends, then deleted.".to_owned(),
         k => format!(
             "The message, this notice and any review are kept for {}, then deleted.",
@@ -177,6 +273,28 @@ pub fn statement(
     format!(
         "{done} because {ground} ({}). {who} You can ask for a review within {REVIEW_DAYS} days. {kept}",
         reason.words().to_lowercase()
+    )
+}
+
+/// What a chatter reads when the picture they uploaded waited so long for a decision that the chat
+/// deleted it (ADR-0254). It is not a judgement of the picture.
+pub fn avatar_expired(station: &str, days: u32) -> String {
+    format!(
+        "{station} deleted the picture you uploaded because nobody had decided on it after {days} days. \
+         That is not a judgement of the picture: you can upload it again. Your messages show the avatar \
+         you chose from our set. An automatic step did this, with no moderator involved. You can ask for \
+         a review within {REVIEW_DAYS} days. This notice is kept until the review period ends, then deleted."
+    )
+}
+
+/// What a chatter reads when a picture or document they posted waited so long for a decision that
+/// the chat deleted it, with its message (ADR-0254, ADR-0262).
+pub fn attachment_expired(station: &str, days: u32, document: bool) -> String {
+    let what = if document { "document" } else { "picture" };
+    format!(
+        "{station} deleted the {what} you posted, and the message with it, because nobody had decided on it after {days} days. \
+         That is not a judgement of the {what}: you can post it again. An automatic step did this, with no moderator \
+         involved. You can ask for a review within {REVIEW_DAYS} days. This notice is kept until the review period ends, then deleted."
     )
 }
 
@@ -314,6 +432,41 @@ mod tests {
     }
 
     #[test]
+    fn a_posted_picture_or_document_is_named_as_what_it_is() {
+        let r = Retention::default();
+        let s = statement(
+            "Kettle FM",
+            "The Kettle Phone-In",
+            None,
+            Outcome::AttachmentRefused { document: true },
+            Reason::Spam,
+            false,
+            &r,
+        );
+        assert!(
+            s.starts_with("Kettle FM did not show the document you posted in The Kettle Phone-In"),
+            "{s}"
+        );
+        assert!(s.contains("Nobody else can see the document now."));
+        assert!(!s.contains("avatar"));
+        let s = statement(
+            "Kettle FM",
+            "",
+            None,
+            Outcome::AttachmentRemoved { document: false },
+            Reason::SuspectedCsam,
+            false,
+            &r,
+        );
+        assert_eq!(
+            s,
+            "Kettle FM removed the picture you posted for breaking the station's rules on illegal content. A moderator decided. You can ask for a review within 14 days. This notice is kept until the review period ends, then deleted."
+        );
+        let e = attachment_expired("Kettle FM", 30, false);
+        assert!(e.contains("deleted the picture you posted") && e.contains("30 days"));
+    }
+
+    #[test]
     fn reasons_round_trip_and_only_intimate_images_have_a_clock() {
         for r in Reason::ALL {
             assert_eq!(Reason::parse(r.as_str()), Some(r));
@@ -321,6 +474,52 @@ mod tests {
         }
         assert_eq!(Reason::IntimateImage.due_hours(), Some(48));
         assert_eq!(Reason::Abuse.due_hours(), None);
+    }
+
+    #[test]
+    fn the_csam_reason_is_a_moderators_for_a_picture_and_keeps_its_evidence() {
+        // ADR-0257: not on the report form, not parsed from the public's words, but kept at once.
+        let r = Reason::SuspectedCsam;
+        assert!(!Reason::ALL.contains(&r));
+        assert_eq!(Reason::parse("suspected_csam"), None);
+        assert!(r.staff_only() && r.keeps_evidence() && r.preserve_at_once() && r.unlawful());
+        assert!(Reason::STAFF.contains(&r));
+        assert!(!Reason::ChildSafety.staff_only() && !Reason::ChildSafety.keeps_evidence());
+        assert_eq!(r.as_str(), "suspected_csam");
+        let said = statement(
+            "Kettle FM",
+            "",
+            None,
+            Outcome::AvatarRefused,
+            r,
+            false,
+            &Retention::default(),
+        );
+        // Told less (the operator, 2026-11-10): the rules on illegal content and the review,
+        // nothing about the reason's words, keeping or reporting.
+        assert!(
+            said.starts_with("Kettle FM removed the picture you uploaded for breaking the station's rules on illegal content."),
+            "{said}"
+        );
+        assert!(said.contains("ask for a review within 14 days"), "{said}");
+        for never in [
+            "child",
+            "keep the picture",
+            "at least a year",
+            "authorities",
+        ] {
+            assert!(!said.contains(never), "{never}: {said}");
+        }
+        let other = statement(
+            "Kettle FM",
+            "",
+            None,
+            Outcome::AvatarRefused,
+            Reason::Abuse,
+            false,
+            &Retention::default(),
+        );
+        assert!(!other.contains("at least a year"), "{other}");
     }
 
     #[test]

@@ -12,7 +12,7 @@ carries, is in `CHANGELOG.md`.
 
 | File | What it is |
 |---|---|
-| `Dockerfile` | Built from the repository's root. Every Rust and runtime stage is `cloudron/base` 6.0.1 (Ubuntu 26.04): GStreamer 1.28.2 from Ubuntu, gst-plugins-rs 0.15.4+fixup's webrtc plugin (LiveKit) built against it, libsrt 1.5.7 from source in place of Ubuntu's 1.5.4, Liquidsoap 2.5.0-rc1 from upstream's Ubuntu 26.04 package (it carries libsrt 1.5.7), LiveKit 1.13.10's binary, msmtp from Ubuntu. The public pages (`apps/web`) are built in a Node 24 stage with pnpm 10.30.2. Sources are pinned by hash, except pnpm itself (by version; the pages' dependencies by its lockfile). |
+| `Dockerfile` | Built from the repository's root. Every Rust and runtime stage is `cloudron/base` 6.0.1 (Ubuntu 26.04): GStreamer 1.28.2 from Ubuntu, gst-plugins-rs 0.15.4+fixup's webrtc plugin (LiveKit) built against it with its `isobmff`, `hlssink3` and `dav1d` plugins for the video path (ADR-0227; `hlscmafsink` is the HLS writer, SVT-AV1 is Ubuntu's `svtav1enc`), libsrt 1.5.7 from source in place of Ubuntu's 1.5.4, Liquidsoap 2.5.0-rc1 from upstream's Ubuntu 26.04 package (it carries libsrt 1.5.7), LiveKit 1.13.10's binary, msmtp from Ubuntu. The public pages (`apps/web`) are built in a Node 24 stage with pnpm 10.30.2. Sources are pinned by hash, except pnpm itself (by version; the pages' dependencies by its lockfile). |
 | `CloudronManifest.json` | Ports, domains, addons, the memory limit. The `id` is `top.weavesignal.cloudronapp` since 1.0.0. |
 | `CHANGELOG.md` | What each package version changed. |
 | `start.sh` | Writes every service's settings from Cloudron's environment on each start, appends settings new to this version to `weavesignal.env`, generates the station identifier and secrets on the first start, and checks the control plane's settings and ports before supervisord starts. |
@@ -79,6 +79,20 @@ the chat's moderation and admin routes, retention, carts, `/health`. Cards and f
 app's origin, which a podcast app cannot pass when the login is on, and `start.sh` says so.
 `PUBLISHING_URL` in `weavesignal.env` overrides both.
 
+## Video (1.0.1, ADR-0227)
+
+`VIDEO=true` in `/app/data/weavesignal.env` (default `false`) turns on, at the next start: the
+desk's `[video]` section (the Compose bundle's defaults: the 480p20 rung, 2 s segments, SVT-AV1,
+`video.still_file` under `/app/data/carts/stills/`), playout's `desk_feed` and the desk's
+`[video.playout_feed]` (ADR-0172, with the listener source password as the feed's password), the
+room's codecs (Opus, VP8, VP9, AV1; no H.264), and the HLS directory `/run/weavesignal/hls`, which
+the desk writes and the control plane serves (`join.hls_dir`) at `/hls/`. nginx passes `/hls/` on
+the public domain to the control plane, which sets the caching (playlists not cached, segments
+30 s) and answers 404 while the desk has video off; the join pages offer the camera check when
+the control plane says video is on. The image carries the plugins either way (`cmafmux`,
+`hlscmafsink`, `dav1ddec`, `svtav1enc`, the pango `textoverlay`, Noto Sans), and the build checks
+each. NVENC is not in the package (no GPU in a Cloudron app yet, ADR-0228).
+
 Every surface still answers `noindex` while the station is private (ADR-0078).
 
 ## Privacy and access
@@ -129,6 +143,8 @@ defaults on the first start of 0.2.0; the administrator's lines are left as they
 podman build -t localhost/weavesignal-cloudron:0.2.0-local -f deploy/cloudron/Dockerfile .
 deploy/cloudron/test-local.sh          # needs localhost/weavesignal-desk-dev:m1 for the tone guest
 deploy/cloudron/memory-gate.sh         # then, with the app still running
+VIDEO=true deploy/cloudron/test-local.sh   # the same with the video path on (ADR-0227) ...
+CAMERAS=1 deploy/cloudron/memory-gate.sh   # ... and the gate with a camera on each publisher
 deploy/cloudron/test-local.sh cold 3   # three cold starts, each with the room test
 deploy/cloudron/test-local.sh down
 ```
@@ -153,8 +169,9 @@ and 27482/udp (each a setting; it refuses a port already in use). It checks:
 - the two email keys added to a `secrets.env` that lacked them, as a station installed before
   0.8.0 has, and the chat starting with its key;
 - the default loop (ADR-0130) on the stream while the room is empty (not silence, not the tone);
-- with `COMPAT=true` (the main run; cold starts leave it off, as installed), the MP3 stream:
-  401 without the password, MP3 at 44.1 kHz, no ICY metadata;
+- with `COMPAT=true` (the main run; cold starts leave them off, as installed), both MP3 streams
+  (ADR-0232): each 401 without the password, MP3 at 44.1 kHz at its rate (128 and 320 kbit/s), no
+  ICY metadata, and the player offering Opus and both;
 - the chat's sign-in email through msmtp to the SMTP sink, authenticated, with the right `To`
   and `From`;
 - the room test: a guest publishing a 1 kHz tone through the room domain with a publish-only
@@ -163,6 +180,12 @@ and 27482/udp (each a setting; it refuses a port already in use). It checks:
   one connection, a clean decode, at most one gap with the programme back after it, the
   listener process untouched (since 0.8.0 the listener process decodes the feed natively and
   playout is back in about 0.3 s: one run heard a single 100 ms dropout, the next none);
+- video (ADR-0227), `VIDEO=false` (the default): the player is told of no HLS and `/hls/live.m3u8`
+  is 404. `VIDEO=true`: the player is told where the HLS is within a minute; the public domain
+  serves `live.m3u8` (not cached), a rung's playlist and an initialisation segment, and a segment
+  (`max-age=30`) that decodes as AV1; the desk's log says SVT-AV1 writes it; the desk's status
+  shows playout's feed connected and the sound from playout while nobody is live; a guest's VP8
+  camera through the room reaches the desk's decoder;
 - the faults in the log (`non-monotonic DTS`, `Generator max buffered length exceeded`,
   `EPIPE`) and the cgroup's `oom_kill`.
 
@@ -208,6 +231,34 @@ Two things seen and not fixed here:
 
 ## The memory limit
 
+**1.0.1, a second MP3 stream (ADR-0232)**: the listener process can now run two MP3 encoders
+beside the Opus one; `test-local.sh` turns both on for its main run. The gate is to be run again
+with both on before the package is published; `memoryLimit` is unchanged until it is.
+
+**1.0.1, video on (2026-11-06, ADR-0227)**: the limit is raised to **2 GiB** (`memoryLimit`
+2147483648), because with `VIDEO=true` the gate asks for more. `memory-gate.sh` with `CAMERAS=1` (each of the three publishers also sends a
+640x360, 20 fps VP8 camera, which the desk decodes and encodes with SVT-AV1 at the one 480p20
+rung), on `VIDEO=true test-local.sh`'s app, cgroup v2, read-only root, PostgreSQL outside,
+50 listeners, the chat load, 300 s, a 32-thread workstation:
+
+| | Run 1 | Run 2 (the desk kept to 4 CPUs with `taskset`) |
+|---|---|---|
+| Idle: current / peak since start | 893 MiB / 895 MiB | 881 MiB / 993 MiB |
+| Loaded peak | 1,221 MiB (79 % of 1.5 GiB) | 1,256 MiB (81 %) |
+| `oom_kill` | 0 | 0 |
+| Desk RSS, idle / mid-load / end | 373 / 578 / 474 MB | 375 / 497 / 543 MB |
+| Others, mid-load | listener process 319 MB, playout 253 MB, LiveKit 88 MB, control 42 MB, chat 38 MB | the same within 15 MB |
+| Desk CPU over the last 270 s, threads | 26 % of one core, 205 | 22 %, 220 |
+| Whole app CPU, same window | 42 % of one core | 37 % |
+
+Peak ÷ 0.7 is 1,744 MiB and 1,794 MiB: 1.70 to 1.75 GiB, over the 1.5 GiB limit (video off: 699 MiB
+loaded, 1 GiB by the rule). The desk is the difference: 373 MB at rest, against about 60 MB with video
+off, and up to 578 MB with three cameras. `memory.peak` includes page cache, which moved the idle
+figure by about 100 MiB between runs; the desk's own RSS did not depend on the CPUs it was given.
+The gate does not say how the desk's memory grows with more cameras or more rungs, nor on a real Cloudron.
+Cloudron lets an administrator raise an app's memory limit, so a station can set 2 GiB itself before
+turning video on (the install guide says so); the manifest's default decides what every other install gets.
+
 **0.8.0 (2026-11-02)**: the limit stays 1.5 GiB. `memory-gate.sh` on the 0.8.0 image, with
 the MP3 stream on (a second encoder in the listener process) and the processing chain on:
 idle 526 MiB current, 527 MiB peak; loaded (300 s) peak 699 MiB, 45 % of the limit;
@@ -242,8 +293,9 @@ The gate's rule (peak ÷ 0.7) gives 1.27 GiB. The limit stays at 1.5 GiB because
 process grows under listeners (271 to 339 MB here) and `icecast.server` grew at rest in 0.1.x (about 1.5 MB a minute), a cold
 start without the script cache needs about 1.3 GB, the chat was measured at 97 MiB resident
 for 4,000 sockets (0020) beside 1,000 here, the load was gentle beside 2,000 listeners (who
-reach the station through edges or a CDN, ADR-0051, not this container), and video is not in
-the image yet. A test install repeats the gate on a Cloudron itself, over hours.
+reach the station through edges or a CDN, ADR-0051, not this container), and video was not in
+the image (it is since 1.0.1, off by default: see the 1.0.1 figures above). A test install repeats
+the gate on a Cloudron itself, over hours.
 
 ## Not tested here, for the server
 

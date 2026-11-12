@@ -5,13 +5,18 @@
   // (ADR-0066), the card layout (ADR-0067), the weekly rule, the hosts, the tags, the explicit
   // flag. Saved with PUT; the control plane draws the show's cards first and refuses a name
   // that does not fit them, with the field named (422), which is shown here. An existing
-  // show also carries its own slate picture (ShowStill, ADR-0200), set by its own route.
+  // show also carries its own slate picture (ShowStill, ADR-0200), set by its own route, and
+  // its presenter's fields (ADR-0214, ADR-0219): the on-air name and takedown contact the
+  // consent words name while it is on air, the links to the presenter's channels, and whether
+  // it plays commercial music. The account the show is tied to (ADR-0218) is the wizard's
+  // and is left out here, which keeps it.
   import { untrack } from 'svelte';
   import Field from './Field.svelte';
   import ShowStill from './ShowStill.svelte';
   import * as api from '../lib/schedule.ts';
   import type { Show, ShowInput, ShowView, Slot } from '../lib/schedule.ts';
   import { slotWords, slugOf, splitList } from './model.ts';
+  import { MUSIC_REMINDER } from '../lib/wizard.ts';
 
   let {
     slug,
@@ -41,6 +46,10 @@
     hosts: [],
     tags: seed.show?.tags ?? [],
     explicit: seed.show?.explicit ?? false,
+    presenter: seed.show?.presenter ?? '',
+    contact: seed.show?.contact ?? '',
+    links: seed.show?.links ?? [],
+    commercial_music: seed.show?.commercial_music ?? false,
   });
   let newSlug = $state(seed.slug ?? '');
   let slugTouched = $state(false);
@@ -67,6 +76,10 @@
           hosts: v.resolved.hosts,
           tags: v.show.tags,
           explicit: v.show.explicit,
+          presenter: v.show.presenter ?? '',
+          contact: v.show.contact ?? '',
+          links: v.show.links ?? [],
+          commercial_music: v.show.commercial_music ?? false,
         };
       })
       .catch((e) => (problem = e instanceof Error ? e.message : String(e)));
@@ -159,6 +172,21 @@
   <Field label="Hosts" marker={draft.hosts.length ? 'set' : 'own'} plain>
     <input type="text" value={draft.hosts.join(', ')} placeholder="Names, separated by commas" aria-label="Hosts, separated by commas" onchange={(e) => (draft = { ...draft, hosts: splitList((e.currentTarget as HTMLInputElement).value) })} />
   </Field>
+  <fieldset class="group" data-panel="calendar.show-presenter">
+    <legend data-panel-title>Presenter</legend>
+    <Field label="On-air name" marker={draft.presenter ? 'set' : 'own'} plain hint="The consent words name the presenter of the show on air (ADR-0214).">
+      <input type="text" value={draft.presenter} placeholder="The name they go by on air" aria-label="Presenter's on-air name" maxlength="120" oninput={(e) => (draft = { ...draft, presenter: (e.currentTarget as HTMLInputElement).value })} />
+    </Field>
+    <Field label="Takedown contact" marker={draft.contact ? 'set' : 'own'} plain hint="An email address or a link. While this show is on air the consent words give it first, then the station’s own as the host; empty, the station’s alone (ADR-0215).">
+      <input type="text" value={draft.contact} placeholder="the station’s contact alone" aria-label="Takedown contact" maxlength="200" autocapitalize="none" spellcheck="false" oninput={(e) => (draft = { ...draft, contact: (e.currentTarget as HTMLInputElement).value })} />
+    </Field>
+    <Field label="Channel links" marker={draft.links?.length ? 'set' : 'own'} plain hint="One per line: Rumble, Odysee, AzuraCast…">
+      <textarea value={(draft.links ?? []).join('\n')} aria-label="Links to the presenter's channels, one per line" autocapitalize="none" spellcheck="false" onchange={(e) => (draft = { ...draft, links: splitList((e.currentTarget as HTMLTextAreaElement).value) })}></textarea>
+    </Field>
+    <Field label="Commercial music" marker="own" hint={draft.commercial_music ? MUSIC_REMINDER : 'A reminder for the station (ADR-0219); it blocks nothing.'}>
+      <label class="row"><input type="checkbox" checked={draft.commercial_music} onchange={(e) => (draft = { ...draft, commercial_music: (e.currentTarget as HTMLInputElement).checked })} style="width:auto" /> plays commercial music</label>
+    </Field>
+  </fieldset>
   <Field label="Description" marker={draft.description ? 'set' : 'own'} plain>
     <textarea value={draft.description} aria-label="Description" onchange={(e) => (draft = { ...draft, description: (e.currentTarget as HTMLTextAreaElement).value })}></textarea>
   </Field>

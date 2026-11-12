@@ -76,6 +76,103 @@ pub struct Video {
     /// media worker), shown on the slate while nobody is on camera (ADR-0010). Watched, so it
     /// can come, change and go while the desk runs; no file, a slate of text.
     pub still_file: PathBuf,
+    // --- rtmp-out (ADR-0229, ADR-0230) -------------------------------------------------
+    /// The picture the vision mixer composes, from [`Rung::PRESETS`] or [`Rung::CANVASES`];
+    /// empty, the first HLS rung's (as before). A canvas larger than the first rung is
+    /// scaled down for HLS, so the HLS rungs do not change; it is what RTMP out can send at
+    /// most, and every camera, slate and frame is made at its size.
+    pub canvas: String,
+    /// RTMP out: the programme's picture and sound, behind the delay, to video platforms.
+    pub rtmp: RtmpOut,
+}
+
+/// RTMP out (ADR-0229, ADR-0230; `rtmp-out`): the delayed programme picture and the video's
+/// sound (ADR-0172) to each destination the control plane sends. The destinations are not
+/// here: they and their stream keys live in the control plane's database and reach the desk
+/// over its socket. Nothing is encoded while no destination is on.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct RtmpOut {
+    /// The picture sent, no larger and no faster than the canvas; empty, the canvas.
+    pub rung: String,
+    /// The `compatible` profile: H.264 and AAC, classic RTMP (Rumble, Odysee, PeerTube).
+    pub compatible: RtmpCompatible,
+    /// The `open` profile: AV1 and Opus over Enhanced RTMP.
+    pub open: RtmpOpen,
+    /// A picture keyframe this often (Rumble asks for 2 s).
+    pub keyframe_s: u32,
+    /// A destination that fails is tried again after this, doubling to `retry_max_s`.
+    pub retry_min_s: u32,
+    pub retry_max_s: u32,
+    /// A destination that has not taken this much (milliseconds of the stream) is too slow:
+    /// it is dropped and connects again.
+    pub backlog_ms: u32,
+}
+
+impl Default for RtmpOut {
+    fn default() -> Self {
+        Self {
+            rung: String::new(),
+            compatible: RtmpCompatible::default(),
+            open: RtmpOpen::default(),
+            keyframe_s: 2,
+            retry_min_s: 2,
+            retry_max_s: 60,
+            backlog_ms: 4_000,
+        }
+    }
+}
+
+/// What encodes H.264 for `compatible`.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum H264Choice {
+    /// NVENC when this machine has a session free, else OpenH264.
+    Auto,
+    Openh264,
+    Nvenc,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct RtmpCompatible {
+    pub h264: H264Choice,
+    /// `high`, `main` or `baseline` (OpenH264 makes `high` without B-frames).
+    pub h264_profile: String,
+    /// The picture's bitrate at constant rate; 0, the rung's default ([`Rung::h264_kbps`]).
+    pub video_kbps: u32,
+    /// AAC-LC, as Rumble asks: 128 kbit/s at 44.1 kHz, stereo.
+    pub aac_kbps: u32,
+    pub aac_rate: u32,
+}
+
+impl Default for RtmpCompatible {
+    fn default() -> Self {
+        Self {
+            h264: H264Choice::Auto,
+            h264_profile: "high".into(),
+            video_kbps: 0,
+            aac_kbps: 128,
+            aac_rate: 44_100,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct RtmpOpen {
+    /// 0, the rung's default ([`Rung::av1_kbps`]).
+    pub video_kbps: u32,
+    pub opus_kbps: u32,
+}
+
+impl Default for RtmpOpen {
+    fn default() -> Self {
+        Self {
+            video_kbps: 0,
+            opus_kbps: 128,
+        }
+    }
 }
 
 /// Playout's output back to the desk (ADR-0172): the video stream's sound (and the audio-only
@@ -168,6 +265,8 @@ impl Default for Video {
             playout_feed: PlayoutFeed::default(),
             station: "WeaveSignal".to_owned(),
             still_file: PathBuf::from("/var/lib/weavesignal/carts/stills/slate.png"),
+            canvas: String::new(),
+            rtmp: RtmpOut::default(),
         }
     }
 }
@@ -289,6 +388,54 @@ impl Rung {
     pub fn named(name: &str) -> Option<Rung> {
         Self::PRESETS.iter().copied().find(|r| r.name == name)
     }
+
+    /// Larger pictures, for the canvas and RTMP out only (not HLS rungs; `rtmp-out`). Their
+    /// `kbps` is the AV1 figure [`Rung::av1_kbps`] uses for them.
+    pub const CANVASES: [Rung; 3] = [
+        Rung {
+            name: "720p30",
+            width: 1280,
+            height: 720,
+            fps: 30,
+            kbps: 1_500,
+        },
+        Rung {
+            name: "720p25",
+            width: 1280,
+            height: 720,
+            fps: 25,
+            kbps: 1_300,
+        },
+        Rung {
+            name: "1080p30",
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            kbps: 2_700,
+        },
+    ];
+
+    /// A rung or a canvas by name.
+    pub fn any(name: &str) -> Option<Rung> {
+        Self::named(name).or_else(|| Self::CANVASES.iter().copied().find(|r| r.name == name))
+    }
+
+    /// H.264's bitrate for RTMP out at this size and rate, about 0.09 bits a pixel (720p30:
+    /// 2,500 kbit/s, in Rumble's 2,000–3,000), in hundreds.
+    pub fn h264_kbps(&self) -> u32 {
+        let px = u64::from(self.width) * u64::from(self.height) * u64::from(self.fps);
+        (((px * 9 / 100_000 + 50) / 100).max(3) * 100) as u32
+    }
+
+    /// AV1's bitrate for RTMP out: the HLS figure for a preset, the canvas's own otherwise.
+    pub fn av1_kbps(&self) -> u32 {
+        self.kbps
+    }
+
+    /// Fits inside `outer`: no larger, no faster.
+    pub fn fits(&self, outer: &Rung) -> bool {
+        self.width <= outer.width && self.height <= outer.height && self.fps <= outer.fps
+    }
 }
 
 impl Video {
@@ -297,12 +444,21 @@ impl Video {
         self.rungs.iter().filter_map(|n| Rung::named(n)).collect()
     }
 
-    /// The picture the vision mixer composes: the first rung's size and rate.
+    /// The picture the vision mixer composes: `canvas` if set, else the first rung's size
+    /// and rate.
     pub fn canvas(&self) -> Rung {
+        if let Some(c) = Rung::any(&self.canvas) {
+            return c;
+        }
         self.rung_list()
             .first()
             .copied()
             .unwrap_or(Rung::PRESETS[0])
+    }
+
+    /// RTMP out's picture: `rtmp.rung` if set, else the canvas.
+    pub fn rtmp_rung(&self) -> Rung {
+        Rung::any(&self.rtmp.rung).unwrap_or_else(|| self.canvas())
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -352,7 +508,75 @@ impl Video {
         if self.nvenc_sessions > 64 {
             return Err("video.nvenc_sessions must be 0 to 64".into());
         }
+        self.validate_rtmp()?;
         self.playout_feed.validate()
+    }
+
+    /// The canvas and RTMP out (`rtmp-out`): nothing is ever scaled up.
+    fn validate_rtmp(&self) -> Result<(), String> {
+        let all: Vec<&str> = Rung::PRESETS
+            .iter()
+            .chain(&Rung::CANVASES)
+            .map(|r| r.name)
+            .collect();
+        if !self.canvas.is_empty() && Rung::any(&self.canvas).is_none() {
+            return Err(format!(
+                "video.canvas: `{}` is not one of {all:?}",
+                self.canvas
+            ));
+        }
+        let canvas = self.canvas();
+        if let Some(first) = self.rung_list().first()
+            && !first.fits(&canvas)
+        {
+            return Err(format!(
+                "video.canvas {} is smaller or slower than the first HLS rung {}: pictures are never scaled up",
+                canvas.name, first.name
+            ));
+        }
+        let r = &self.rtmp;
+        if !r.rung.is_empty() {
+            let Some(rung) = Rung::any(&r.rung) else {
+                return Err(format!(
+                    "video.rtmp.rung: `{}` is not one of {all:?}",
+                    r.rung
+                ));
+            };
+            if !rung.fits(&canvas) {
+                return Err(format!(
+                    "video.rtmp.rung {} is larger or faster than the canvas {}: set video.canvas to it (pictures are never scaled up)",
+                    rung.name, canvas.name
+                ));
+            }
+        }
+        if !["high", "main", "baseline"].contains(&r.compatible.h264_profile.as_str()) {
+            return Err("video.rtmp.compatible.h264_profile is high, main or baseline".into());
+        }
+        if r.compatible.video_kbps != 0 && !(300..=8_000).contains(&r.compatible.video_kbps) {
+            return Err("video.rtmp.compatible.video_kbps must be 0 (the rung's) or 300 to 8000 (Rumble's ceiling)".into());
+        }
+        if r.open.video_kbps != 0 && !(200..=8_000).contains(&r.open.video_kbps) {
+            return Err("video.rtmp.open.video_kbps must be 0 (the rung's) or 200 to 8000".into());
+        }
+        if !(64..=320).contains(&r.compatible.aac_kbps) {
+            return Err("video.rtmp.compatible.aac_kbps must be 64 to 320".into());
+        }
+        if ![44_100, 48_000].contains(&r.compatible.aac_rate) {
+            return Err("video.rtmp.compatible.aac_rate is 44100 or 48000".into());
+        }
+        if !(32..=510).contains(&r.open.opus_kbps) {
+            return Err("video.rtmp.open.opus_kbps must be 32 to 510".into());
+        }
+        if !(1..=10).contains(&r.keyframe_s) {
+            return Err("video.rtmp.keyframe_s must be 1 to 10".into());
+        }
+        if r.retry_min_s == 0 || r.retry_max_s < r.retry_min_s || r.retry_max_s > 3_600 {
+            return Err("video.rtmp: retry_min_s at least 1, retry_max_s from it to 3600".into());
+        }
+        if !(1_000..=30_000).contains(&r.backlog_ms) {
+            return Err("video.rtmp.backlog_ms must be 1000 to 30000".into());
+        }
+        Ok(())
     }
 }
 
@@ -438,6 +662,13 @@ pub struct DeskSettings {
     /// The receive jitter buffer, set inside LiveKit's bins. LiveKit's own default of 200 ms
     /// doubled a guest's delay in spike 01 (503 ms against 165 ms at 50 ms).
     pub jitter_buffer_ms: u32,
+    /// The receive jitter buffer for cameras, set on each video stream once its caps say
+    /// video. A camera's frame spans many packets and one missing packet loses the frame (and,
+    /// for AV1, every frame after it until the next keyframe): at the voices' 50 ms a
+    /// browser's camera on the talk station lost 2.7 % of its packets as late and flickered to
+    /// the slate every few seconds (2026-11-12), while its retransmissions all came too late.
+    /// The picture is not conversational: it may wait for them.
+    pub video_jitter_buffer_ms: u32,
     /// The desk's tick: one mixing pass computes every bus for a block this long, and each
     /// block is one Opus frame (10 or 20 ms).
     pub mix_buffer_ms: u32,
@@ -460,6 +691,7 @@ impl Default for DeskSettings {
         Self {
             identity: "desk".to_owned(),
             jitter_buffer_ms: 50,
+            video_jitter_buffer_ms: 300,
             mix_buffer_ms: 20,
             input_prebuffer_ms: 50,
             workers: 0,
@@ -619,6 +851,12 @@ impl Config {
             return invalid(format!(
                 "desk.jitter_buffer_ms is {}; above 1000 ms the room is unusable",
                 self.desk.jitter_buffer_ms
+            ));
+        }
+        if self.desk.video_jitter_buffer_ms > 2000 {
+            return invalid(format!(
+                "desk.video_jitter_buffer_ms is {}; above 2000 ms the picture is too far behind",
+                self.desk.video_jitter_buffer_ms
             ));
         }
         if ![10, 20].contains(&self.desk.mix_buffer_ms) {
@@ -806,5 +1044,42 @@ room = "studio"
             format!("{MINIMAL}\n[video]\nenabled = true\nrungs = [\"480p20\", \"240p15\"]\n");
         let c = Config::from_toml(&text, "t").unwrap();
         assert_eq!(c.video.rung_list().len(), 2);
+    }
+
+    // rtmp-out
+    #[test]
+    fn rtmp_out_sends_the_canvas_by_default_and_never_scales_up() {
+        let c = Config::from_toml(MINIMAL, "t").unwrap();
+        assert_eq!(c.video.rtmp_rung().name, "480p20");
+        assert_eq!(c.video.rtmp.keyframe_s, 2);
+        assert_eq!(
+            (
+                c.video.rtmp.compatible.aac_kbps,
+                c.video.rtmp.compatible.aac_rate
+            ),
+            (128, 44_100)
+        );
+        // 720p30 for RTMP out: a larger canvas; HLS keeps its 480p20.
+        let text = format!(
+            "{MINIMAL}\n[video]\nenabled = true\ncanvas = \"720p30\"\n[video.rtmp]\nrung = \"720p30\"\n"
+        );
+        let c = Config::from_toml(&text, "t").unwrap();
+        assert_eq!(c.video.canvas().name, "720p30");
+        assert_eq!(c.video.rung_list()[0].name, "480p20");
+        assert_eq!(c.video.rtmp_rung().h264_kbps(), 2_500);
+        assert_eq!(Rung::named("480p20").unwrap().h264_kbps(), 700);
+        for bad in [
+            "[video]\n[video.rtmp]\nrung = \"720p30\"",
+            "[video]\ncanvas = \"240p15\"",
+            "[video]\ncanvas = \"4k\"",
+            "[video]\n[video.rtmp]\nkeyframe_s = 0",
+            "[video]\n[video.rtmp.compatible]\nh264_profile = \"extended\"",
+            "[video]\n[video.rtmp.compatible]\nvideo_kbps = 9000",
+            "[video]\n[video.rtmp.compatible]\naac_rate = 32000",
+            "[video]\n[video.rtmp]\nretry_min_s = 10\nretry_max_s = 5",
+        ] {
+            let text = format!("{MINIMAL}\n{bad}\n");
+            assert!(Config::from_toml(&text, "t").is_err(), "{bad}");
+        }
     }
 }

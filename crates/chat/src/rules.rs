@@ -56,6 +56,11 @@ pub struct Modes {
     pub comments_only: bool,
     /// The station lets people post as guests, held every time (ADR-0034).
     pub guests: bool,
+    /// Posting is closed between shows (ADR-0234, `hours.open = "shows"`): only the station's
+    /// staff and the chatters it made moderators may post, and a moderator not the private lane
+    /// to the studio (ADR-0253). The page reads the hours from [`crate::wire::RoomRules::hours`].
+    #[serde(skip)]
+    pub closed: bool,
 }
 
 impl Default for Modes {
@@ -70,6 +75,7 @@ impl Default for Modes {
             influx: false,
             comments_only: false,
             guests: false,
+            closed: false,
         }
     }
 }
@@ -150,6 +156,11 @@ pub struct Poster {
 }
 
 impl Poster {
+    /// The station's own people, signed in from the studio.
+    pub fn is_staff(&self) -> bool {
+        self.kind == Kind::Staff || self.standing == Standing::Staff
+    }
+
     /// Remember a post that was accepted (posted or held), keeping only what the rules read.
     pub fn remember(&mut self, now: u64, words_hash: u64) {
         self.recent.push_back((now, words_hash));
@@ -201,6 +212,9 @@ pub struct Draft<'a> {
     pub kind: MessageKind,
     pub body: &'a str,
     pub reply: bool,
+    /// It carries a picture or document (ADR-0262): its words may be empty, and it is never a
+    /// repeat of the last.
+    pub attachment: bool,
 }
 
 /// Why the word filter stopped a message.
@@ -225,17 +239,28 @@ impl FilterHit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
     Banned,
-    TimedOut { until_ms: u64 },
+    TimedOut {
+        until_ms: u64,
+    },
     AccountsOnly,
     GuestsOff,
-    TooNew { wait_ms: u64, minutes: u64 },
+    TooNew {
+        wait_ms: u64,
+        minutes: u64,
+    },
     Empty,
     TooLong,
     RepliesOff,
     StaffOnly,
+    /// Between shows, with the chat open during shows only (ADR-0234).
+    Closed,
     Links,
-    TooFast { retry_ms: u64 },
-    Slow { retry_ms: u64 },
+    TooFast {
+        retry_ms: u64,
+    },
+    Slow {
+        retry_ms: u64,
+    },
     Repeat,
     Run,
 }
@@ -253,6 +278,7 @@ impl Refusal {
             Refusal::TooLong => "too_long",
             Refusal::RepliesOff => "replies_off",
             Refusal::StaffOnly => "staff_only",
+            Refusal::Closed => "closed",
             Refusal::Links => "links",
             Refusal::TooFast { .. } => "too_fast",
             Refusal::Slow { .. } => "slow",
@@ -298,6 +324,10 @@ impl Refusal {
                 "Replies are off: this chat takes comments on the show only.".into()
             }
             Refusal::StaffOnly => "Only the station posts announcements.".into(),
+            Refusal::Closed => {
+                "The chat is read-only between shows. You can post again when the next show starts."
+                    .into()
+            }
             Refusal::Links => {
                 "Links are for trusted chatters only. Send it without the link.".into()
             }
@@ -379,6 +409,11 @@ pub fn judge(
         }
         _ => {}
     }
+    // Between shows only the station's own people and its moderators post (ADR-0234, ADR-0253);
+    // the private lane to the studio stays the staff's, a moderator is not the station's staff.
+    if modes.closed && !poster.is_staff() && !(staff && draft.kind != MessageKind::Studio) {
+        return Refuse(Refusal::Closed);
+    }
     let guest = poster.kind == Kind::Guest;
     if guest {
         if !modes.guests {
@@ -402,7 +437,7 @@ pub fn judge(
 
     // ---- what ----
     let body = draft.body.trim();
-    if body.is_empty() {
+    if body.is_empty() && !draft.attachment {
         return Refuse(Refusal::Empty);
     }
     if body.chars().count() > MAX_CHARS {
@@ -454,10 +489,11 @@ pub fn judge(
             });
         }
         let fp = words_hash(body);
-        if poster
-            .recent
-            .iter()
-            .any(|(t, f)| *f == fp && now.saturating_sub(*t) < REPEAT_WINDOW_MS)
+        if !draft.attachment
+            && poster
+                .recent
+                .iter()
+                .any(|(t, f)| *f == fp && now.saturating_sub(*t) < REPEAT_WINDOW_MS)
         {
             return Refuse(Refusal::Repeat);
         }
@@ -628,6 +664,7 @@ mod tests {
             kind: MessageKind::Chat,
             body,
             reply: false,
+            attachment: false,
         }
     }
     fn clean(_: &str) -> Option<FilterHit> {
@@ -824,6 +861,7 @@ mod tests {
             kind: MessageKind::Studio,
             body: "Rory, my dad drove the N22",
             reply: false,
+            attachment: false,
         };
         assert_eq!(judge_clean(&m, &p, &studio), Verdict::Post);
         p.recent.clear();
@@ -867,6 +905,66 @@ mod tests {
     }
 
     #[test]
+    fn between_shows_only_the_stations_staff_and_moderators_post() {
+        // ADR-0234: with the chat open during shows only, the room closes between them.
+        let m = Modes {
+            closed: true,
+            ..Modes::default()
+        };
+        let p = member(MIN * 60);
+        assert_eq!(
+            judge_clean(&m, &p, &chat("hello?")),
+            Verdict::Refuse(Refusal::Closed)
+        );
+        let lane = Draft {
+            kind: MessageKind::Studio,
+            body: "a private word",
+            reply: false,
+            attachment: false,
+        };
+        assert_eq!(judge_clean(&m, &p, &lane), Verdict::Refuse(Refusal::Closed));
+        let moderator = Poster {
+            standing: Standing::Moderator,
+            ..member(MIN * 60)
+        };
+        assert_eq!(
+            judge_clean(&m, &moderator, &chat("hello?")),
+            Verdict::Post,
+            "a chatter made a moderator posts between shows (ADR-0253)"
+        );
+        assert_eq!(
+            judge_clean(&m, &moderator, &lane),
+            Verdict::Refuse(Refusal::Closed),
+            "but not in the private lane to the studio, which is the staff's"
+        );
+        let trusted = Poster {
+            standing: Standing::Trusted,
+            ..member(MIN * 60)
+        };
+        assert_eq!(
+            judge_clean(&m, &trusted, &chat("hello?")),
+            Verdict::Refuse(Refusal::Closed),
+            "trusted is not a moderator"
+        );
+        let staff = Poster {
+            kind: Kind::Staff,
+            standing: Standing::Staff,
+            ..member(0)
+        };
+        assert_eq!(
+            judge_clean(&m, &staff, &chat("Back at seven.")),
+            Verdict::Post
+        );
+        assert_eq!(Refusal::Closed.code(), "closed");
+        assert!(Refusal::Closed.retry_ms().is_none());
+        // Open, the same member posts.
+        assert_eq!(
+            judge_clean(&Modes::default(), &p, &chat("hello?")),
+            Verdict::Post
+        );
+    }
+
+    #[test]
     fn comments_only_refuses_replies_between_chatters() {
         let m = Modes {
             comments_only: true,
@@ -877,6 +975,7 @@ mod tests {
             kind: MessageKind::Chat,
             body: "agreed",
             reply: true,
+            attachment: false,
         };
         assert_eq!(
             judge_clean(&m, &p, &reply),
@@ -939,6 +1038,7 @@ mod tests {
             kind: MessageKind::Announcement,
             body: "Slow mode is on for a bit.",
             reply: false,
+            attachment: false,
         };
         assert_eq!(judge_clean(&m, &s, &ann), Verdict::Post);
         assert_eq!(

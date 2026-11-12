@@ -40,6 +40,11 @@ fn show_input() -> ShowInput {
         ],
         tags: vec!["music".into()],
         explicit: false,
+        presenter: None,
+        contact: None,
+        links: None,
+        commercial_music: None,
+        presenter_account: None,
     }
 }
 

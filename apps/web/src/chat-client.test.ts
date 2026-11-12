@@ -39,6 +39,7 @@ class FakeSocket {
 const rules: RoomRules = {
   slow: false, hold_new: false, links_trusted: true, accounts_only: false, min_age_24h: false, influx: false,
   comments_only: false, guests: true, slow_s: 10, min_age_minutes: 10, max_chars: 500, hold_ms: 5000,
+  hours: { shows_only: false, open: true, opens_at_ms: null, zone: '' },
 };
 const me: Me = { id: 'a-jessie', name: 'Jessie Brown', kind: 'guest', standing: 'member', created_ms: 0, timed_out_until_ms: null, banned: false, moderator: false };
 const msg = (id: number, body = 'Hiya'): Msg => ({
@@ -148,6 +149,21 @@ describe('the chat socket', () => {
     ws.get({ t: 'msg', offset: 3, m: msg(9, 'Play Tide’s Out') });
     expect(c.held).toEqual([]);
     expect(c.list.at(-1)?.id).toBe(9);
+    c.stop();
+  });
+
+  it('keeps its own message with a picture waiting in the room, not in the lane to the studio', () => {
+    const c = new ChatClient('tok-1');
+    c.start();
+    const ws = FakeSocket.all[0];
+    ws.open();
+    ws.get(welcome({ me }));
+    const attachment = { id: 'p-1', kind: 'picture' as const, name: 'map.png', mime: 'image/png', label: 'PNG', bytes: 9000, width: 800, height: 600 };
+    ws.get({ t: 'mine', m: { ...msg(11, 'Where we are'), state: 'held', attachment } });
+    expect(c.held.map((m) => [m.id, m.state, m.attachment?.id])).toEqual([[11, 'held', 'p-1']]);
+    expect(c.lane).toEqual([]);
+    ws.get({ t: 'rejected', ids: [11] });
+    expect(c.held).toEqual([]);
     c.stop();
   });
 

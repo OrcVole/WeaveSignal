@@ -1,12 +1,13 @@
 {
   "station_id": "00000000-0000-0000-0000-000000000000",
   "srt": { "host": "127.0.0.1", "port": 7313 },
-  "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": 7312, "mount": "programme.opus", "feed_port": 7315, "feed_buffer_s": 0.5, "directory": false, "compat": { "enabled": false, "mount": "programme.mp3", "bitrate": 128 }, "control_socket": "/tmp/weavesignal-listeners.sock" },
+  "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": 7312, "mount": "programme.opus", "feed_port": 7315, "feed_buffer_s": 0.5, "directory": false, "bitrate": 96, "compat": { "enabled": false, "mount": "programme.mp3", "bitrate": 128 }, "compat_high": { "enabled": false, "mount": "programme-high.mp3", "bitrate": 320 }, "control_socket": "/tmp/weavesignal-listeners.sock" },
   "desk_feed": { "host": "127.0.0.1", "port": 7317, "enabled": true },
   "control_socket": "/tmp/weavesignal-playout.sock",
   "carts": { "dir": "/var/lib/weavesignal/carts" },
   "library": { "dir": "/var/lib/weavesignal/library" },
   "fallback": { "dir": "/var/lib/weavesignal/fallback", "default_file": "/opt/weavesignal/assets/default-loop/default-loop.flac" },
+  "icecast_out": { "enabled": false, "host": "azuracast.example", "port": 8005, "mount": "/", "user": "dj", "tls": false, "bitrate": 128, "name": "WeaveSignal" },
   "logger": { "dir": "/var/lib/weavesignal/logger", "bitrate": 64 },
   "programme": { "mode": "live", "dead_air_s": 10.0, "dead_air_db": -50.0 }
 }

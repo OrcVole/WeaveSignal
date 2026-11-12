@@ -6,7 +6,7 @@ status: draft
 last_verified: 2026-11-04
 ---
 
-Video is off unless a station turns it on (ADR-0009): `[video] enabled = true` in the desk's settings, or `VIDEO=true` in the Compose bundle's `.env`.
+Video is off unless a station turns it on (ADR-0009): `[video] enabled = true` in the desk's settings, `VIDEO=true` in the Compose bundle's `.env`, or `VIDEO=true` in the Cloudron package's `weavesignal.env` ([Install on Cloudron](/docs/how-to/install-on-cloudron/#video)).
 Sound comes first: nothing on the video path runs in the desk's audio pipeline or its mixing pass, and a video failure takes down only the video pipeline it happened in.
 
 ## The path
@@ -14,7 +14,7 @@ Sound comes first: nothing on the video path runs in the desk's audio pipeline o
 1. **Cameras.** The desk subscribes to each person as before; their camera arrives on the same room connection and is handed over still encoded (VP8, VP9 or AV1; never H.264 or H.265, which LiveKit is told to refuse) to a small decoding pipeline of its own, which scales it to the picture's size with borders kept.
 2. **The vision mixer.** Twenty times a second one thread picks the shot: the loudest person on air with a camera, cut to once they have been at least 3 dB louder than the shot for 600 ms and the shot has held 2 s. Taking the shot's person off air cuts away at once. Nobody on air on camera: the slate.
 3. **The delay.** Every frame goes into a short history; the frame sent on is the one from the profanity delay's length ago, read afresh each frame, so pictures are dumped with the sound and build back up with it (ADR-0008).
-4. **The encoders.** AV1, one encoder per rung: NVENC where the desk can reach an NVIDIA GPU, SVT-AV1 on the CPU otherwise, a keyframe every 2 s, no B-frames. The Compose bundle does not hand the desk's container the GPU, so there it is SVT-AV1 ([planned](/docs/reference/release-one-status/#not-in-release-one)).
+4. **The encoders.** AV1, one encoder per rung: NVENC where the desk can reach an NVIDIA GPU, SVT-AV1 on the CPU otherwise, a keyframe every 2 s, no B-frames. The Compose bundle does not hand the desk's container the GPU, so there it is SVT-AV1 ([planned](/docs/reference/release-one-status/#not-in-release-one)). The Cloudron package is SVT-AV1 too, Ubuntu's 2.3.0 (a Cloudron app cannot reach a GPU yet, ADR-0228).
 5. **CMAF HLS.** `hlscmafsink` writes 2 s segments per rung and for the sound: Opus at 96 kbit/s, stamped on the same clock as the pictures. The sound is the desk's delayed programme while someone is live, and playout's output while nobody is ([The sound](#the-sound)). The desk writes `live.m3u8` (each rung, with the audio) and `audio.m3u8` (the audio alone). While [content steering](/docs/reference/steering/) has edges, the control plane adds the steering line to both as it serves them.
 6. **The room.** The live picture, before the delay, is published into the room as `desk-pgm` in VP8, with small pictures of the other cameras along the bottom: what the people on the show see (ADR-0028).
 
@@ -110,6 +110,12 @@ Whether Safari plays Opus in fMP4 this way is not measured on a real device ([No
 While the desk has video on, the join page shows presenters, DJs and guests their own camera before they join (panel `join.camera-check`), asked for when the page opens. Nothing leaves the browser until they press **Join the studio**; they can untick **Camera on when I join**. A camera the browser refuses or cannot find costs only the picture: they still join, with sound, and the page says why. Callers are heard, not seen.
 Once joined, the page sends the camera they were shown as AV1 from Chromium and VP8 elsewhere, one layer, on by default, and offers **Turn your camera off**.
 It watches `desk-pgm` and no other camera, so one guest's browser cannot pull everyone's camera down to VP8.
+
+## RTMP out
+
+The same delayed picture and sound can also go to RTMP servers such as Rumble, Odysee and PeerTube, as H.264 and AAC or as AV1 and Opus over Enhanced RTMP, each destination on its own and off until an admin turns it on (ADR-0230).
+`[video] canvas` lets the desk compose a larger picture than the first HLS rung (720p30, say), which HLS is scaled down from.
+See [RTMP out](/docs/reference/rtmp-out/).
 
 ## What it costs
 

@@ -571,6 +571,9 @@ fn consent(identity: &str, accepted_ms: u64) -> ConsentRecord {
         words: "Your call may be broadcast live and recorded.".into(),
         words_version: "0123456789abcdef".into(),
         accepted_at_ms: accepted_ms,
+        show_id: None,
+        presenter: String::new(),
+        contact: String::new(),
     }
 }
 

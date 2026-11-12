@@ -11,8 +11,10 @@
 #
 # Every stage is Ubuntu 26.04 (cloudron/base 6.0.1), so what the build stage links is what
 # the final stage runs: GStreamer 1.28.2 from Ubuntu, gst-plugins-rs's webrtc plugin (LiveKit)
-# built against it, and libsrt 1.5.7 built from source in place of Ubuntu's 1.5.4 (ADR-0048:
-# libsrt 1.5.7 or later in every image).
+# and, for the video path (ADR-0227), its isobmff, hlssink3 and dav1d plugins, all built
+# against it at one tag, and libsrt 1.5.7 built from source in place of Ubuntu's 1.5.4
+# (ADR-0048: libsrt 1.5.7 or later in every image). SVT-AV1 (svtav1enc) comes from Ubuntu's
+# gst-plugins-bad.
 
 ARG BASE=docker.io/cloudron/base:6.0.1@sha256:7b1e729960c3ca312d26e886917ba89483241bba0219ff292858e10d9d5768ee
 ARG LIVEKIT=docker.io/livekit/livekit-server:v1.13.10@sha256:89ca9ce0791e18d6e03bf6e2c49ceb27e1c754eae8bd50c989386c1a5963791a
@@ -31,6 +33,8 @@ ARG PNPM_VERSION=10.30.2
 RUN npm install -g pnpm@${PNPM_VERSION}
 WORKDIR /src
 COPY packages/ui packages/ui
+# The station's look and setup page take the accent and the shared questions (ADR-0237).
+COPY packages/wizard packages/wizard
 COPY apps/studio/src/lib apps/studio/src/lib
 COPY apps/web apps/web
 RUN rm -rf apps/web/node_modules apps/web/dist \
@@ -54,7 +58,7 @@ RUN apt-get update \
         build-essential pkg-config cmake git curl ca-certificates tcl \
         libssl-dev libgnutls28-dev nettle-dev libgmp-dev \
         libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-        libgstreamer-plugins-bad1.0-dev \
+        libgstreamer-plugins-bad1.0-dev libdav1d-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Rust, pinned: the workspace needs 1.98 and Ubuntu 26.04 carries 1.93.
@@ -100,10 +104,25 @@ RUN --mount=type=cache,target=/opt/cargo/registry \
     && install -D -m 0644 /stage/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstrswebrtc.so \
          /out/gst/libgstrswebrtc.so
 
+# The video path's plugins from the same tree, so the same tag as the webrtc plugin (ADR-0227):
+# isobmff (`cmafmux`), hlssink3 (`hlscmafsink`, the CMAF HLS writer), dav1d (`dav1ddec`,
+# the guests' AV1 cameras) and rtp (`rtpav1depay`: those cameras out of RTP; without it a
+# Chromium camera failed at the desk, 2026-11-11). They are installed whether or not a station turns video on
+# (`VIDEO` in weavesignal.env); a separate step keeps the webrtc plugin's layer cached.
+RUN --mount=type=cache,target=/opt/cargo/registry \
+    --mount=type=cache,target=/src/gst-plugins-rs/target \
+    cargo cinstall --locked -p gst-plugin-isobmff -p gst-plugin-hlssink3 -p gst-plugin-dav1d -p gst-plugin-rtp --release \
+        --prefix /usr --libdir /usr/lib/x86_64-linux-gnu --destdir /stage \
+    && for p in isobmff hlssink3 dav1d rsrtp; do \
+         install -D -m 0644 /stage/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgst$p.so /out/gst/libgst$p.so; \
+       done
+
 # The desk, the control plane and the chat (M6).
 WORKDIR /src/weavesignal
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+# The chat builds in the list of shipped avatars the pages draw from (ADR-0235).
+COPY packages/ui/avatars/manifest.json packages/ui/avatars/manifest.json
 COPY apps/studio/src-tauri/Cargo.toml apps/studio/src-tauri/Cargo.toml
 RUN mkdir -p apps/studio/src-tauri/src && echo 'fn main() {}' > apps/studio/src-tauri/src/main.rs
 RUN --mount=type=cache,target=/opt/cargo/registry \
@@ -126,6 +145,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
         gstreamer1.0-nice gstreamer1.0-tools libsrt1.5-gnutls ca-certificates msmtp \
+        gstreamer1.0-x libdav1d7 fontconfig \
     && curl -fsSL -o /tmp/${LIQUIDSOAP_DEB} \
         https://github.com/savonet/liquidsoap/releases/download/${LIQUIDSOAP_TAG}/${LIQUIDSOAP_DEB} \
     && echo "${LIQUIDSOAP_SHA256}  /tmp/${LIQUIDSOAP_DEB}" | sha256sum -c - \
@@ -142,16 +162,29 @@ RUN set -e; lib=/usr/lib/x86_64-linux-gnu; \
     ln -sf libsrt-gnutls.so.${SRT_VERSION} $lib/libsrt-gnutls.so.1.5; ldconfig; \
     readlink -f $lib/libsrt-gnutls.so.1.5 | grep -q "${SRT_VERSION}$"
 
-COPY --from=build /out/gst/libgstrswebrtc.so /usr/lib/x86_64-linux-gnu/gstreamer-1.0/
+COPY --from=build /out/gst/ /usr/lib/x86_64-linux-gnu/gstreamer-1.0/
+# The slate's text is drawn with Noto Sans (the desk asks pango for it by name); without it
+# pango falls back to DejaVu. The three files are the ones compiled into the control plane for
+# the show cards, unmodified, with the licence text (SIL OFL 1.1, NOTICES.md).
+COPY crates/cards/fonts/NotoSans-Regular.ttf crates/cards/fonts/NotoSans-SemiBold.ttf \
+     crates/cards/fonts/NotoSans-Bold.ttf LICENSES/OFL-1.1.txt /usr/local/share/fonts/noto-sans/
+RUN fc-cache -f && fc-match "Noto Sans" | grep -q '^NotoSans-'
 COPY --from=build /out/bin/ /app/code/bin/
 COPY --from=livekit /livekit-server /app/code/bin/livekit-server
 
-# Every element the desk makes (carts included: filesrc, flacparse, flacdec), and srtsrc for
-# the check below, must load; then the registry is
-# dropped, since the image is read-only at run time and the registry lives in /run.
+# Every element the desk makes (carts included: filesrc, flacparse, flacdec; and the video path's
+# writer, encoder, decoders and slate, ADR-0227; RTMP out's encoders and sender, ADR-0230), and
+# srtsrc for the check below, must load; then the registry is dropped, since the image is
+# read-only at run time and the registry lives in /run. `svtav1enc` is Ubuntu's (libsvtav1enc2);
+# `nvav1enc` and `nvh264enc` are not here (no GPU). `openh264enc` and `voaacenc` come with
+# Ubuntu's gstreamer1.0-plugins-bad, over Ubuntu's own builds of OpenH264 (`libopenh264-8`)
+# and vo-aacenc (`libvo-aacenc0`): see NOTICES.md for what that means for H.264's patents.
 RUN for e in livekitwebrtcsrc livekitwebrtcsink webrtcbin srtsink srtsrc matroskamux audiomixer \
              audioconvert audioresample audiotestsrc capsfilter opusenc opusdec queue tee fakesink \
-             filesrc flacparse flacdec jpegenc; do \
+             filesrc flacparse flacdec jpegenc \
+             cmafmux hlscmafsink dav1ddec av1dec av1parse rtpav1depay svtav1enc vp8dec vp9dec textoverlay \
+             videotestsrc videoconvert videoscale videorate \
+             openh264enc h264parse voaacenc aacparse appsrc rtmp2sink; do \
         gst-inspect-1.0 --exists "$e" || { echo "MISSING: $e"; exit 1; }; \
     done \
     && ldd /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstsrt.so | grep -q 'libsrt-gnutls.so.1.5 => /usr/lib/x86_64-linux-gnu/libsrt-gnutls.so.1.5 ' \

@@ -2,8 +2,11 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
   // The studio app's frame: the tabs with their keys (⌃1 to ⌃5), the link to the station and
-  // the theme toggle (dark by default, never the system's, ADR-0065), over the surface of the
+  // the theme toggle (Dark, Light or Night; dark by default, never the system's; ADR-0065,
+  // ADR-0270), over the surface of the
   // tab. One keyboard handler for every surface, from the keymap (ADR-0063).
+  import { setupState, stationZone } from './lib/schedule.ts';
+  import { dialogLets } from './lib/dialogKeys.ts';
   import { onMount } from 'svelte';
   import Glyphs from './lib/Glyphs.svelte';
   import Mark from './lib/Mark.svelte';
@@ -14,14 +17,17 @@
   import StationSetup from './lib/StationSetup.svelte';
   import Account from './lib/Account.svelte';
   import SessionEnded from './lib/SessionEnded.svelte';
+  import ShowWizard from './settings/ShowWizard.svelte';
   import Schedule from './schedule/Schedule.svelte';
-  import { follow, packaged, sandboxed, savedStation } from './lib/api.ts';
-  import { installSessionWatch, loadMe } from './lib/account.svelte.ts';
+  import { base, follow, packaged, sandboxed, savedStation } from './lib/api.ts';
+  import { isAdmin } from './lib/account.ts';
+  import { account, installSessionWatch, loadMe } from './lib/account.svelte.ts';
+  import { closeSetup, decideSetup, loadShows, mine, rememberSkip, setup } from './lib/wizard.svelte.ts';
   import { installUpdateCheck, updateNag } from './lib/update.svelte.ts';
   import { run } from './lib/actions.ts';
-  import { studio, takeView } from './lib/studio.svelte.ts';
+  import { say, studio, takeView } from './lib/studio.svelte.ts';
   import { chat } from './lib/chat.svelte.ts';
-  import { theme, setTheme } from './lib/theme.svelte.ts';
+  import { theme, setTheme, THEMES, THEME_WORDS } from './lib/theme.svelte.ts';
   import { zoom, zoomIn, zoomOut, zoomReset, installZoom } from './lib/zoom.svelte.ts';
   import { installPanelNames } from './lib/panelNames.ts';
   import { PANELS } from '../../../packages/ui/panels.ts';
@@ -63,13 +69,22 @@
     return { code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey, repeat: e.repeat };
   }
 
+  function setupNotice() {
+    const where = `${base() || location.origin}/setup/`;
+    void navigator.clipboard?.writeText(where).catch(() => {});
+    const missing = studio.setupPending?.length ? ` Still to set: ${studio.setupPending.join(', ')}.` : '';
+    say('warning', 'The station’s setup is not finished', `Open ${where} in your browser and sign in as an admin (the address is copied).${missing}`, 15000);
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    // A modal dialog owns the keyboard: only ⌃T reaches the desk while one is open (U1).
+    if (document.querySelector('dialog[open]') && !dialogLets(input(e))) return;
     // Settings is a form: only the global chords (⌃) reach the keymap, and as from a text field,
     // so no bare letter, Space or F-key acts on the desk, and Esc stays the dialog's and the
     // drop-down's own.
     if (studio.settings && !(e.ctrlKey || e.metaKey)) return;
-    // The account and session dialogs are forms too: their keys are their own.
-    if ((e.target as Element | null)?.closest?.('[data-panel="studio.account"], [data-panel="studio.session-ended"]') && !(e.ctrlKey || e.metaKey)) return;
+    // The account, session, show-setup and invite dialogs are forms too: their keys are their own.
+    if ((e.target as Element | null)?.closest?.('[data-panel="studio.account"], [data-panel="studio.session-ended"], [data-panel="studio.show-setup"], [data-panel="desk.invite"]') && !(e.ctrlKey || e.metaKey)) return;
     const ctx = {
       tab: studio.tab,
       inTextField: studio.settings || inTextField(document.activeElement),
@@ -109,7 +124,17 @@
     document.documentElement.dataset.surface = studio.tab;
     // Who this window runs as, and the 401 watch, before the first request goes out.
     installSessionWatch();
-    void loadMe();
+    // Then, for a presenter signed in as themselves with no show of their own, the setup wizard (ADR-0218).
+    void loadMe()
+      .then(decideSetup)
+      // The station's setup page not yet finished: say so to an admin (ADR-0267).
+      .then(() => (isAdmin(account.me) ? setupState() : null))
+      .then((s) => (studio.setupPending = s && s.status === 'pending' ? s.missing : null))
+      .catch(() => {});
+    // The station's time zone, so the rundown's times are the station's (issue 10).
+    void stationZone()
+      .then((z) => (studio.zone = z.zone))
+      .catch(() => {});
     const stop = follow(takeView, (s, why) => {
       studio.link = s;
       studio.linkWhy = why ?? '';
@@ -175,6 +200,12 @@
       >
     </nav>
     <span class="spacer"></span>
+    {#if studio.setupPending}
+      <!-- The setup page is the station's web page: the address to open in a browser (ADR-0267). -->
+      <button type="button" class="update-nag" onclick={setupNotice} title={`Still to set: ${studio.setupPending.join(', ')}`}
+        >Finish the station’s setup</button
+      >
+    {/if}
     {#if updateNag()}
       <!-- Points at Settings; the install itself waits for a yes there, and for a quiet desk. -->
       <button type="button" class="update-nag" onclick={() => (studio.settings = true)}
@@ -193,8 +224,11 @@
       <button type="button" onclick={zoomIn} aria-label="Larger text" title="Larger text (Ctrl++)">A+</button>
     </div>
     <div class="seg" role="group" aria-label="Theme">
-      <button type="button" aria-pressed={theme.current === 'dark'} onclick={() => setTheme('dark')}>Dark</button>
-      <button type="button" aria-pressed={theme.current === 'light'} onclick={() => setTheme('light')}>Light</button>
+      {#each THEMES as t (t)}
+        <button type="button" aria-pressed={theme.current === t} onclick={() => setTheme(t)} title={t === 'night' ? 'Night: warm, with no blue' : undefined}
+          >{THEME_WORDS[t]}</button
+        >
+      {/each}
     </div>
   </header>
 
@@ -210,17 +244,33 @@
     <Screener />
   {/if}
   <SessionEnded />
+  {#if setup.open && account.me?.kind === 'staff'}
+    <ShowWizard
+      me={account.me}
+      shows={setup.shows}
+      initial={mine()}
+      onDone={() => void loadShows()}
+      onSkip={() => rememberSkip(account.me)}
+      onClose={closeSetup}
+    />
+  {/if}
 </div>
 {/if}
 
 <style>
+  /* Pinned to the window rather than 100vh: under the text size (zoom on <html>) 100vh is the
+     window's height times the zoom, and at 120 % the bottom fifth was cut off (the 1.0.1 test run).
+     The tabs' narrow layouts are container queries on it, so they follow the text size too. */
   .shell {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    height: 100vh;
+    position: fixed;
+    inset: 0;
+    container-type: inline-size;
   }
+  /* The sandbox's guide bar and its caption row above the frame (ADR-0212, ADR-0222). */
   .shell.with-guide {
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
   }
   /* As tall as the design pages' mock-up bar, so each surface keeps the height it was drawn in. */
   .frame {
@@ -310,6 +360,8 @@
     border-radius: var(--r-pill);
     overflow: hidden;
     background: var(--surface);
+    /* Three themes and the text size stay whole in a narrow frame: the name beside them gives way first. */
+    flex: none;
   }
   .seg button {
     appearance: none;

@@ -64,6 +64,11 @@ fieldset.group legend {
   padding: 0;
   margin-bottom: var(--s-1);
 }
+fieldset.group .check .pic {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
 fieldset.group .check {
   padding-top: var(--s-2);
 }

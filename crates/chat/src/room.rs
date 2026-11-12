@@ -238,6 +238,27 @@ impl Room {
         self.publish(|offset| ServerFrame::Hide { offset, ids });
     }
 
+    /// A chatter's avatar changed (ADR-0235): the messages the room still holds take it, so a
+    /// page that opens later sees it, and every open page is told.
+    pub fn set_avatar(&mut self, account: Uuid, avatar: Option<crate::wire::Avatar>) {
+        let id = account.to_string();
+        for m in self.recent.iter_mut().chain(self.pinned.iter_mut()) {
+            if m.author.id == id {
+                m.author.avatar = avatar.clone();
+            }
+        }
+        for (h, who) in self.held.values_mut() {
+            if *who == account {
+                h.m.author.avatar = avatar.clone();
+            }
+        }
+        self.publish(|offset| ServerFrame::Avatar {
+            offset,
+            account: id,
+            avatar,
+        });
+    }
+
     /// Erasure: the messages go, and a new epoch starts so recovery cannot replay them.
     pub fn forget(&mut self, ids: &[i64]) {
         self.hide(ids);
@@ -306,6 +327,7 @@ mod tests {
                 name: "Lesley Kerr".into(),
                 standing: Standing::Member,
                 guest: false,
+                avatar: None,
             },
             reply_to: None,
             server_ms: 0,
@@ -314,6 +336,7 @@ mod tests {
             pinned: false,
             featured: false,
             reactions: vec![],
+            attachment: None,
         }
     }
 

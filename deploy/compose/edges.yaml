@@ -22,11 +22,14 @@
 # (EDGE1_ADDR, EDGE2_ADDR), which a player on this machine reaches; the relays sit on
 # 7323-7324. On a real edge machine the edge is the public listener on the station's port. The
 # relays pull the listener process's mount on loopback, without the station's source
-# password: a relay is a listener (deploy/images/edge/relay.sh).
+# password: a relay is a listener (deploy/images/edge/relay.sh). They relay the Opus mount;
+# RELAY_MOUNTS names more, space-separated, such as the MP3 streams when they are on
+# (`/programme.opus /programme.mp3 /programme-high.mp3`, ADR-0232); each edge serves every
+# mount its relay holds under /listen/.
 
 services:
   edge-1:
-    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0}
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1}
     network_mode: host
     environment:
       EDGE_ORIGIN: http://127.0.0.1:${CONTROL_PORT:-7310}
@@ -38,21 +41,21 @@ services:
     restart: unless-stopped
 
   relay-1:
-    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0}
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1}
     network_mode: host
     environment:
       RELAY_ORIGIN_HOST: 127.0.0.1
       # The station is on this machine's loopback, plain HTTP: no hop to encrypt (ADR-0162).
       RELAY_ORIGIN_SCHEME: http
       RELAY_ORIGIN_PORT: ${LISTENERS_PORT:-7312}
-      RELAY_MOUNTS: /programme.opus
+      RELAY_MOUNTS: ${RELAY_MOUNTS:-/programme.opus}
       RELAY_PORT: ${RELAY1_PORT:-7323}
       RELAY_BIND: 127.0.0.1
     depends_on: [listeners]
     restart: unless-stopped
 
   edge-2:
-    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.0}
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1}
     network_mode: host
     environment:
       EDGE_ORIGIN: http://127.0.0.1:${CONTROL_PORT:-7310}
@@ -64,13 +67,13 @@ services:
     restart: unless-stopped
 
   relay-2:
-    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.0}
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1}
     network_mode: host
     environment:
       RELAY_ORIGIN_HOST: 127.0.0.1
       RELAY_ORIGIN_SCHEME: http
       RELAY_ORIGIN_PORT: ${LISTENERS_PORT:-7312}
-      RELAY_MOUNTS: /programme.opus
+      RELAY_MOUNTS: ${RELAY_MOUNTS:-/programme.opus}
       RELAY_PORT: ${RELAY2_PORT:-7324}
       RELAY_BIND: 127.0.0.1
     depends_on: [listeners]

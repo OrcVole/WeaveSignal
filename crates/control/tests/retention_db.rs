@@ -132,6 +132,9 @@ async fn a_waiting_callers_consent_survives_a_restart() {
             words: "Your call may be broadcast live and recorded.".into(),
             words_version: "0123456789abcdef".into(),
             accepted_at_ms: now_ms(),
+            show_id: None,
+            presenter: String::new(),
+            contact: String::new(),
         },
     )
     .await
@@ -574,6 +577,9 @@ async fn the_desks_status_records_who_was_on_air_and_only_they_are_linked_to_a_r
                 words: "Your call may be broadcast live and recorded.".into(),
                 words_version: "0123456789abcdef".into(),
                 accepted_at_ms: now - 60_000,
+                show_id: None,
+                presenter: String::new(),
+                contact: String::new(),
             },
         )
         .await

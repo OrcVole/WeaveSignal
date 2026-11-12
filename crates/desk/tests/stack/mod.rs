@@ -143,6 +143,58 @@ target_ms = 0
             .unwrap_or_default()
     }
 
+    /// One call to LiveKit's room service as an admin of `room`: the reply as JSON, and its
+    /// status.
+    pub fn twirp(
+        &self,
+        method: &str,
+        room: &str,
+        body: serde_json::Value,
+    ) -> (u16, serde_json::Value) {
+        let api = format!(
+            "{}/twirp/livekit.RoomService/{method}",
+            self.url.replacen("ws://", "http://", 1)
+        );
+        let token = self.keys.room_admin(room, 60);
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(3)))
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let mut res = agent
+            .post(&api)
+            .header("Authorization", &format!("Bearer {token}"))
+            .send_json(body)
+            .expect("LiveKit's server API answers");
+        let status = res.status().as_u16();
+        let text = res.body_mut().read_to_string().unwrap_or_default();
+        (status, serde_json::from_str(&text).unwrap_or_default())
+    }
+
+    /// Mute or unmute a person's audio in the studio room, as LiveKit's server API does it
+    /// (a page's own mute does the same through its client).
+    pub fn mute_audio(&self, identity: &str, muted: bool) {
+        let (_, list) = self.twirp(
+            "ListParticipants",
+            &self.name,
+            serde_json::json!({ "room": self.name }),
+        );
+        let track = list["participants"]
+            .as_array()
+            .and_then(|a| a.iter().find(|p| p["identity"] == identity))
+            .and_then(|p| p["tracks"].as_array())
+            .and_then(|t| t.iter().find(|t| t["type"] == "AUDIO"))
+            .and_then(|t| t["sid"].as_str())
+            .unwrap_or_else(|| panic!("{identity} publishes no audio track: {list}"))
+            .to_owned();
+        let (status, reply) = self.twirp(
+            "MutePublishedTrack",
+            &self.name,
+            serde_json::json!({ "room": self.name, "identity": identity, "track_sid": track, "muted": muted }),
+        );
+        assert_eq!(status, 200, "MutePublishedTrack answered {status}: {reply}");
+    }
+
     /// Every identity LiveKit lists in one room.
     pub fn identities_in(&self, room: &str) -> Vec<String> {
         let api = format!(
@@ -219,6 +271,18 @@ impl Person {
         Self::launch(room, &in_room, identity, freq, &token, Some(argb))
     }
 
+    /// A person whose microphone carries digital silence (every sample zero) the whole time:
+    /// a muted or quiet page, whose packets still arrive (issue 13).
+    pub fn join_silent(room: &Room, identity: &str, role: Role) -> Person {
+        let in_room = weavesignal_proto::room_for(&room.name, role, identity);
+        let token = room
+            .keys
+            .participant_with(&in_room, identity, identity, role, 600, false)
+            .unwrap();
+        Self::launch(room, &in_room, identity, 0.0, &token, None)
+    }
+
+    /// `freq` 0: digital silence rather than a tone.
     fn launch(
         room: &Room,
         in_room: &str,
@@ -242,11 +306,16 @@ impl Person {
             format!("signaller::auth-token={token}"),
             format!("signaller::room-name={in_room}"),
         ]);
+        let sound = if freq > 0.0 {
+            format!("freq={freq}")
+        } else {
+            "wave=silence".to_owned()
+        };
         args.extend(
             [
                 "audiotestsrc",
                 "is-live=true",
-                &format!("freq={freq}"),
+                &sound,
                 "volume=0.1",
                 "samplesperbuffer=480",
                 "!",

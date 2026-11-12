@@ -169,6 +169,27 @@ pub async fn still(
     Ok((out, report))
 }
 
+/// Make one upload into the station's brand icon or banner (ADR-0237): the clean PNG the
+/// worker wrote and its report. The upload itself is never kept.
+pub async fn brand(
+    cfg: &CartsConfig,
+    bytes: Vec<u8>,
+    kind: weavesignal_media::brand::Kind,
+) -> Result<(Vec<u8>, weavesignal_media::brand::BrandReport), WorkerError> {
+    let (out, json) = run_worker(
+        cfg,
+        vec!["brand".to_owned(), kind.as_str().to_owned()],
+        bytes,
+    )
+    .await?;
+    let report: weavesignal_media::brand::BrandReport = serde_json::from_value(json)
+        .map_err(|e| WorkerError::Failed(format!("not a report: {e}")))?;
+    if !out.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err(WorkerError::Failed("its output is not a PNG".into()));
+    }
+    Ok((out, report))
+}
+
 /// Write a worker's FLAC into the cart directory under a fresh name, all or nothing.
 pub async fn store(dir: &Path, flac: &[u8]) -> std::io::Result<String> {
     tokio::fs::create_dir_all(dir).await?;

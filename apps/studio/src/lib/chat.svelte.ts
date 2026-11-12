@@ -26,9 +26,23 @@ import type { SorReason, SorThen } from '../../../../packages/ui/keymap.ts';
 import { base, headers, netFetch } from './api.ts';
 import { studio } from './studio.svelte.ts';
 import { account } from './account.svelte.ts';
-import { EMPTY_MOD, EMPTY_ROOM, applyMod, applyRoom, needsList, roomFrom, type Entry, type Room } from './chatModel.ts';
+import { EMPTY_MOD, EMPTY_ROOM, applyMod, applyRoom, needsList, roomFrom, type Entry, type Room, type SorSubject } from './chatModel.ts';
 
-export type ChatLink = 'off' | 'connecting' | 'live' | 'lost';
+/** `none`: the station has no chat (its chat routes answer 404), checked again now and then. */
+export type ChatLink = 'off' | 'connecting' | 'live' | 'lost' | 'none';
+
+/** How often a station with no chat is asked again, in case one has been added (issue 14). */
+export const NO_CHAT_RETRY_MS = 5 * 60_000;
+
+/** A refused chat request, with its HTTP status. */
+export class ChatHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 /** What the statement of reasons acts on: one message, or every held message at once. */
 export interface SorTarget {
@@ -41,7 +55,27 @@ export interface SorTarget {
   count: number;
 }
 
+/** The picture a statement of reasons is about (ADR-0235), or a picture or document posted in the
+ *  chat (ADR-0262). */
+export interface SorPicture {
+  /** The picture's id. */
+  id: string;
+  /** An avatar (absent), or a posted picture or document. */
+  kind?: 'avatar' | 'picture' | 'document';
+  /** A posted one, to show in the dialog. */
+  attachment?: import('../../../../packages/ui/chat.ts').Attachment;
+  /** Waiting for approval (it is being refused); false for an approved one being removed. */
+  waiting: boolean;
+  account: string;
+  name: string;
+  /** The report that led here, if one did. */
+  report: string | null;
+}
+
 export interface Sor {
+  /** A message (the default), or a chatter's picture refused or removed. */
+  subject: SorSubject;
+  picture: SorPicture | null;
   /** Every held message (⇧X): the number when opened; null for one message. */
   bulk: number | null;
   target: SorTarget | null;
@@ -98,11 +132,19 @@ export const chat = $state({
   /** Bumped by `End`: the room scrolls to its newest line. */
   jump: 0,
   toast: null as ChatToast | null,
+  /** Chatters' own pictures as fetched with the studio's bearer, by id: an object URL, or null
+   *  for one that could not be fetched (gone, or no chat behind the address). */
+  pictures: {} as Record<string, string | null>,
+  /** Pictures posted in the chat (ADR-0262), as fetched with the bearer: `<id>:thumb` and
+   *  `<id>:full`, an object URL or null. */
+  attachments: {} as Record<string, string | null>,
+  /** The posted picture shown full size (screener.attachment), or null. */
+  viewing: null as import('../../../../packages/ui/chat.ts').Attachment | null,
 });
 
 // ---- the address ----
 
-function chatBase(): string {
+export function chatBase(): string {
   const q = new URLSearchParams(globalThis.location?.search ?? '');
   return (q.get('chat') ?? '').replace(/\/$/, '') || base();
 }
@@ -115,7 +157,7 @@ function socketUrl(): string {
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await netFetch(`${chatBase()}${path}`, init);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ChatHttpError(res.status, data.error ?? `${res.status} ${res.statusText}`);
   return data as T;
 }
 
@@ -205,6 +247,15 @@ async function run(): Promise<void> {
       chat.why = out.why;
     } catch (e) {
       chat.why = e instanceof Error ? e.message : String(e);
+      // No chat service behind the station's address (issue 14): say so quietly, not as a
+      // fault, and look again now and then.
+      if (e instanceof ChatHttpError && e.status === 404) {
+        chat.link = 'none';
+        chat.why = '';
+        chat.retryAt = Date.now() + NO_CHAT_RETRY_MS;
+        await sleep(NO_CHAT_RETRY_MS);
+        continue;
+      }
     }
     socket = null;
     // A client that fell behind reconnects at once and recovers (4008).
@@ -280,6 +331,7 @@ export function take(f: ServerFrame): void {
     case 'hide':
     case 'pin':
     case 'feature':
+    case 'avatar':
     case 'react': {
       advance(f.offset);
       if (f.t === 'msg' && !chat.room.lines.some((m) => m.id === f.m.id)) {
@@ -301,6 +353,8 @@ export function take(f: ServerFrame): void {
       return;
     case 'mod_held':
     case 'mod_unheld':
+    case 'mod_avatar':
+    case 'mod_avatar_done':
     case 'mod_item':
     case 'mod_item_done':
     case 'mod_studio':
@@ -343,6 +397,70 @@ export async function mod(cmd: ModCommand): Promise<boolean> {
     chatSay('warning', 'Not done', e instanceof Error ? e.message : String(e));
     return false;
   }
+}
+
+// ---- chatters' own pictures (ADR-0235) ----
+
+const asked = new Set<string>();
+
+/** A chatter's own picture, waiting or approved, as an object URL; undefined until it has been
+ *  fetched. The studio fetches every one with its bearer (`/mod/avatars/{id}`): a held picture
+ *  is for staff only, and behind Cloudron's login a plain <img> request never reaches the
+ *  station. Kept for the life of the window; a picture's bytes never change under an id. */
+export function pictureOf(id: string): string | null | undefined {
+  if (!asked.has(id)) {
+    asked.add(id);
+    void (async () => {
+      try {
+        const res = await netFetch(`${chatBase()}/api/v1/chat/mod/avatars/${encodeURIComponent(id)}`, { headers: headers(false) });
+        chat.pictures[id] = res.ok ? URL.createObjectURL(await res.blob()) : null;
+      } catch {
+        chat.pictures[id] = null;
+      }
+    })();
+  }
+  return chat.pictures[id];
+}
+
+// ---- pictures and documents posted in the chat (ADR-0262) ----
+
+const askedFiles = new Set<string>();
+
+/** A posted picture's thumbnail or full size as an object URL, fetched with the studio's bearer
+ *  (a waiting one is for staff and moderators only); undefined until fetched, null if it cannot
+ *  be. A picture's bytes never change under an id. */
+export function attachmentOf(id: string, which: 'thumb' | 'full' = 'thumb'): string | null | undefined {
+  const key = `${id}:${which}`;
+  if (!askedFiles.has(key)) {
+    askedFiles.add(key);
+    void (async () => {
+      try {
+        const path = `/api/v1/chat/pictures/${encodeURIComponent(id)}${which === 'thumb' ? '/thumb' : ''}`;
+        const res = await netFetch(`${chatBase()}${path}`, { headers: headers(false) });
+        chat.attachments[key] = res.ok ? URL.createObjectURL(await res.blob()) : null;
+      } catch {
+        chat.attachments[key] = null;
+      }
+    })();
+  }
+  return chat.attachments[key];
+}
+
+/** Save a posted document to look at it before deciding: fetched with the bearer, saved under the
+ *  station's own name (never the chatter's), never opened here. */
+export async function saveAttachment(id: string): Promise<void> {
+  const res = await netFetch(`${chatBase()}/api/v1/chat/files/${encodeURIComponent(id)}`, { headers: headers(false) });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.error ?? `${res.status} ${res.statusText}`);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? `chat-document-${id.slice(0, 8)}`;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 /** Remember a hide this window sends, so its line reads "Hidden by you". */

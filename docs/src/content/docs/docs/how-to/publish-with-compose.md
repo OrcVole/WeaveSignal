@@ -3,10 +3,12 @@ title: "Publish a station from the Compose bundle"
 description: "Put the Compose bundle on the internet with one command: a reverse proxy with a certificate for your domain, TURN over TLS, and the ports to open."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-10
 sidebar:
   order: 34
 ---
+
+> **New to this?** The [install wizard](/docs/install-wizard/) asks the questions and gives you the settings file, the DNS record and these commands filled in (from 1.0.1).
 
 `weavesignal.sh --public` turns the loopback bundle into a station that people off the machine can listen to, call, chat with and sign in to (ADR-0022).
 It adds a reverse proxy, **Caddy**, which gets and renews the certificate for your domain by itself, and turns on LiveKit's TURN over TLS for guests whose networks block UDP (ADR-0059, ADR-0080).
@@ -64,6 +66,7 @@ Running it again keeps the route on; `--public station.example` need only be giv
 | `/rtc`, `/rtc/*` | LiveKit's signalling: a browser's join and its connection check |
 | `/api/v1/chat/*` | the chat, its socket included |
 | `/programme.opus` | the listener stream, read only (`GET` and `HEAD`); an `Icy-MetaData` request header is dropped, as ICY blocks would be spliced into the Ogg stream |
+| `/programme.mp3`, `/programme-high.mp3` | the two MP3 streams, by their mounts' settings (`COMPAT_MOUNT`, `COMPAT_HIGH_MOUNT`), the same way; a stream that is off answers 404 |
 | everything else | the control plane: the pages, `/api/`, `/health`, `/hls/`, feeds and cards; an upload may be up to 200 MB (a library track) |
 
 Never published: LiveKit's server API (`/twirp`), the listener process's `/status.json` and admin pages, the playout feed, the desk's feed, the SRT ingest port and the ports next to them.
