@@ -71,7 +71,7 @@ async function open(width, height, theme = 'dark') {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => check('no page errors', false, e.message));
   await page.goto(STUDIO);
-  await page.getByText('Control plane connected').waitFor({ timeout: 15000 });
+  await page.locator('[data-panel="studio.frame"] [data-link="live"]').waitFor({ timeout: 15000 });
   await sleep(800);
   return { ctx, page };
 }
@@ -193,7 +193,7 @@ for (const theme of ['dark', 'light']) {
 const audit = await (await ctx.newPage());
 await audit.setViewportSize({ width: 1440, height: 900 });
 await audit.goto(STUDIO + '?audit=1');
-await audit.getByText('Control plane connected').waitFor({ timeout: 15000 });
+await audit.locator('[data-panel="studio.frame"] [data-link="live"]').waitFor({ timeout: 15000 });
 await sleep(1500);
 await audit.screenshot({ path: join(OUT, 'desk-1440-dark-plates.png') });
 const auditText = await audit.locator('#pn-audit').textContent();

@@ -29,6 +29,52 @@ fn track(n: u8, artist: &str) -> Track {
 
 #[tokio::test]
 #[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn handing_the_air_over_changes_the_mode_and_nothing_else() {
+    // ADR-0272: End show and the button by the lamp are any staff member's, so they must not
+    // fix the time zone the admin is asked to choose once (ADR-0189), nor rewrite the other
+    // settings from a read.
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    weavesignal_model::MIGRATOR.run(&pool).await.unwrap();
+    let id = StationId::new_random();
+    ensure_station(&pool, &Station::new(id, "Kettle FM").unwrap())
+        .await
+        .unwrap();
+    // A station nobody has set up yet: the row is made, in the mode asked for.
+    rows::put_mode(&pool, id, "auto").await.unwrap();
+    let s = rows::settings(&pool, id).await.unwrap();
+    assert_eq!(s.mode, "auto");
+    assert_eq!(s.time_zone, "UTC");
+    assert!(
+        !rows::zone_is_set(&pool, id).await.unwrap(),
+        "the zone is still to be chosen"
+    );
+    // A configured zone still seeds, since nobody chose one.
+    assert_eq!(
+        rows::seed_time_zone(&pool, id, "Europe/London")
+            .await
+            .unwrap(),
+        "Europe/London"
+    );
+    // Back to live; the admin's settings, once saved, are untouched by a mode change.
+    let saved = PlayoutSettings {
+        artist_separation_min: 77,
+        default_clock: None,
+        ..rows::settings(&pool, id).await.unwrap()
+    };
+    rows::put_settings(&pool, id, &saved).await.unwrap();
+    assert!(rows::zone_is_set(&pool, id).await.unwrap());
+    rows::put_mode(&pool, id, "live").await.unwrap();
+    let after = rows::settings(&pool, id).await.unwrap();
+    assert_eq!(after.mode, "live");
+    assert_eq!(after.artist_separation_min, 77);
+    assert_eq!(after.time_zone, "Europe/London");
+    assert!(rows::zone_is_set(&pool, id).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
 async fn the_configured_zone_holds_until_the_studio_sets_one() {
     // Review 0025, S1: automation reads the settings first and creates the row with the
     // column's UTC; that UTC was never chosen, so the configuration's zone replaces it at start.

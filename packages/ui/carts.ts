@@ -22,6 +22,9 @@ export interface Cart {
   origin: string;
   licence: string;
   missing: boolean;
+  /** The show whose own bank holds it, by its slug; null (or absent, from a station older
+   *  than 1.0.2) for the station's. */
+  show?: string | null;
 }
 
 export interface Bank {
@@ -29,10 +32,15 @@ export interface Bank {
   name: string;
   /** 1 to 12: the bank's (and its show's) slot in the cart palette (ADR-0066). */
   colour_slot: number;
+  /** The show whose own bank this is, by its slug; null (or absent) for the station's, which
+   *  every show shares. */
+  show?: string | null;
 }
 
 export interface Sounding {
   cart: string;
+  /** The cart's label, so a window whose banks do not hold it can name it (1.0.2). */
+  label?: string;
   pool: 'shot' | 'bed';
   player: number;
   mode: CartMode;
@@ -61,6 +69,8 @@ export interface CartsView {
 
 export interface Catalogue {
   version: number;
+  /** The show whose own banks are here beside the station's; null: the station's alone. */
+  show?: string | null;
   banks: Bank[];
   carts: Cart[];
   loudness_lufs: number;
@@ -107,9 +117,51 @@ export const MODE: Record<CartMode, { word: string; glyph: string }> = {
   sweeper: { word: 'sweeper', glyph: 'g-sweep' },
 };
 
-/** The slot's cart in a bank, or null. */
+// ---- a cart wall per show (1.0.2) ----
+//
+// A window works with the station's banks and its show's own, each numbered 1 to 5 apart. The
+// wall has five tabs, ⌃F1 to ⌃F5 (cart-wall.md: "banks are per show, with a station bank"):
+// tab N is the show's bank N where the show has made one, and the station's bank N otherwise.
+// F1 to F6 fire the top row of the tab this window shows, as before.
+
+const ownerOf = (x: { show?: string | null }): string | null => x.show ?? null;
+
+/** Tab `n`'s bank in this window: the show's own bank `n`, else the station's, else null. */
+export function bankAt(cat: Catalogue | null, n: number): Bank | null {
+  const banks = cat?.banks.filter((b) => b.number === n) ?? [];
+  return banks.find((b) => ownerOf(b) !== null) ?? banks.find((b) => ownerOf(b) === null) ?? null;
+}
+
+/** Whose a bank is, in the strip's word: the show's own, or the station's (shared by every
+ *  show). */
+export function bankOwner(b: Bank): 'show' | 'station' {
+  return ownerOf(b) === null ? 'station' : 'show';
+}
+
+/** The station's bank `n` when the show's own bank `n` takes its tab in this window. */
+export function stationBankUnder(cat: Catalogue | null, n: number): Bank | null {
+  const tab = bankAt(cat, n);
+  if (!tab || ownerOf(tab) === null) return null;
+  return cat?.banks.find((b) => b.number === n && ownerOf(b) === null) ?? null;
+}
+
+/** The carts of tab `n`'s bank. */
+export function cartsAt(cat: Catalogue | null, n: number): Cart[] {
+  const bank = bankAt(cat, n);
+  if (!bank) return [];
+  return cat?.carts.filter((c) => c.bank === n && ownerOf(c) === ownerOf(bank)) ?? [];
+}
+
+/** The slot's cart in tab `bank`, or null. */
 export function cartAt(cat: Catalogue | null, bank: number, slot: number): Cart | null {
-  return cat?.carts.find((c) => c.bank === bank && c.slot === slot) ?? null;
+  return cartsAt(cat, bank).find((c) => c.slot === slot) ?? null;
+}
+
+/** The tab a cart sits on in this window, or null when its bank is not one of the five (another
+ *  show's, or a station bank the show's own takes the place of). */
+export function tabOf(cat: Catalogue | null, cart: Cart): number | null {
+  const bank = bankAt(cat, cart.bank);
+  return bank && ownerOf(bank) === ownerOf(cart) ? cart.bank : null;
 }
 
 /** Move a focus on the six-by-four grid, clamped at the edges. */

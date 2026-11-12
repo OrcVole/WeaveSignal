@@ -32,7 +32,7 @@
 //! is capped before it is read, and the caller is checked before the body is.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Query, State};
@@ -55,7 +55,18 @@ pub const DEMO_NAME: &str = "Kettle FM";
 
 /// The name and takedown contact in force, shared by every route that says either.
 #[derive(Debug)]
-pub struct Live(RwLock<Inner>);
+pub struct Live(RwLock<Inner>, StepWake);
+
+/// What wakes the step reconciler (ADR-0271) when a route changes a show's step, and who
+/// did it, for the notice every window gets. Kept here because the shows' routes and the studio's
+/// hub already share this object.
+#[derive(Debug, Default)]
+struct StepWake {
+    wake: tokio::sync::Notify,
+    mover: Mutex<Option<(std::time::Instant, String)>>,
+    /// One reconciliation at a time: a later look must not be undone by an earlier one.
+    gate: tokio::sync::Mutex<()>,
+}
 
 #[derive(Debug)]
 struct Inner {
@@ -67,11 +78,49 @@ struct Inner {
 impl Live {
     /// A station whose name is the settings file's and which has set nothing on the page.
     pub fn new(file_name: &str) -> Self {
-        Self(RwLock::new(Inner {
-            file_name: file_name.to_owned(),
-            name: None,
-            contact: None,
-        }))
+        Self(
+            RwLock::new(Inner {
+                file_name: file_name.to_owned(),
+                name: None,
+                contact: None,
+            }),
+            StepWake::default(),
+        )
+    }
+
+    /// A show's step was changed by `who`: wake the step reconciler now, and keep the name for
+    /// the notice.
+    pub fn step_moved(&self, who: &str) {
+        *self.1.mover.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some((std::time::Instant::now(), who.to_owned()));
+        self.1.wake.notify_one();
+    }
+
+    /// Look at the schedule again now (a show was made or changed).
+    pub fn wake_steps(&self) {
+        self.1.wake.notify_one();
+    }
+
+    /// Wait until a route says a step changed.
+    pub async fn step_woken(&self) {
+        self.1.wake.notified().await;
+    }
+
+    /// Hold this while the step is read and applied.
+    pub async fn step_gate(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.1.gate.lock().await
+    }
+
+    /// Who last changed a step, once, if it was within the last half minute (a name left
+    /// behind by a change that moved nothing must not be given to a later one).
+    pub fn take_step_mover(&self) -> Option<String> {
+        let (at, who) = self
+            .1
+            .mover
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()?;
+        (at.elapsed() < std::time::Duration::from_secs(30)).then_some(who)
     }
 
     fn read(&self) -> std::sync::RwLockReadGuard<'_, Inner> {

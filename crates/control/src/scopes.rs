@@ -8,7 +8,7 @@
 //! helper its handler calls; so a new route is closed to tokens until someone decides. Never in
 //! the table, on purpose ([`NEVER`]): staff accounts and sessions, retention, holds and
 //! erasure, people, station settings (`/api/v1/playout/settings`), the room's tokens (they
-//! mint presenters), invites, API tokens and webhooks. A token is never an admin.
+//! mint presenters), invitations, API tokens and webhooks. A token is never an admin.
 //!
 //! The scope covers one resource and one kind of use. `:write` does not imply `:read`.
 
@@ -187,6 +187,13 @@ pub const NEVER: &[&str] = &[
     "/api/v1/station",
     "/api/v1/room/tokens",
     "/api/v1/invites",
+    // A show's step (ADR-0271) closes call-in and releases waiting callers: a staff session's,
+    // never a token's.
+    "/api/v1/shows/{show}/step",
+    // A show's own cart banks (1.0.2) are changed by those who may change its step, as a person;
+    // an integration fills the station's banks (`carts:write`).
+    "/api/v1/shows/{show}/carts/banks/{number}",
+    "/api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}",
     "/api/v1/player",
     "/api/v1/call-in",
     "/api/v1/call-in/challenge",
@@ -195,6 +202,10 @@ pub const NEVER: &[&str] = &[
     "/api/v1/pass/events",
     "/api/v1/pass/leave",
     "/api/v1/playout/settings",
+    // Ending a show and handing the air to automation are a person's at the studio (ADR-0272),
+    // not an integration's: a token can take people off air one at a time (`desk:control`).
+    "/api/v1/show/end",
+    "/api/v1/playout/mode",
     // The outgoing Icecast source (ADR-0226) shows the remote server's address and starts a
     // stream to it: a staff session's, never a token's.
     "/api/v1/icecast-out",
@@ -207,6 +218,7 @@ pub const NEVER: &[&str] = &[
     "/api/v1/sessions/code/finish",
     "/api/v1/sessions/me",
     "/api/v1/sessions/me/email",
+    "/api/v1/sessions/me/mode",
     "/api/v1/sessions/me/password",
     "/api/v1/staff",
     "/api/v1/staff/{id}",
@@ -290,6 +302,7 @@ mod tests {
             ("app.rs", include_str!("app.rs")),
             ("onair_api.rs", include_str!("onair_api.rs")),
             ("shows.rs", include_str!("shows.rs")),
+            ("steps.rs", include_str!("steps.rs")),
             ("video.rs", include_str!("video.rs")),
             ("retention.rs", include_str!("retention.rs")),
             ("staff.rs", include_str!("staff.rs")),

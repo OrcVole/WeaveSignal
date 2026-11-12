@@ -5,8 +5,8 @@
   "author": "The WeaveSignal contributors",
   "tagline": "An internet radio and video studio: a live room with callers, the desk, playout, streams and chat",
   "description": "file://DESCRIPTION.md",
-  "version": "1.0.1",
-  "upstreamVersion": "1.0.1",
+  "version": "1.0.2",
+  "upstreamVersion": "1.0.2",
   "website": "https://weavesignal.top",
   "contactEmail": "info@weavesignal.top",
   "packagerName": "The WeaveSignal contributors",
@@ -14,7 +14,7 @@
   "packageUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/deploy/cloudron",
   "documentationUrl": "https://weavesignal.top/docs/how-to/install-on-cloudron/",
   "icon": "file://logo.png",
-  "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/deploy/cloudron/logo.png",
+  "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.2/deploy/cloudron/logo.png",
   "healthCheckPath": "/health",
   "httpPort": 8000,
   "httpPorts": {
@@ -86,10 +86,10 @@
     "chat"
   ],
   "mediaLinks": [
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-desk-window.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-screener-queue.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-public-pages-player.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-calendar-week.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.1/docs/src/assets/screens/reference-carts-window.png"
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.2/docs/src/assets/screens/reference-desk-window.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.2/docs/src/assets/screens/reference-screener-queue.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.2/docs/src/assets/screens/reference-public-pages-player.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.2/docs/src/assets/screens/reference-calendar-week.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.2/docs/src/assets/screens/reference-carts-window.png"
   ]
 }

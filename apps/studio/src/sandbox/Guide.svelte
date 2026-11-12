@@ -7,8 +7,15 @@
   // room yet, ADR-0013); the switch between what the studio hears and what listeners hear; a
   // caption for every line said; and the cards around a scenario: the chooser, the start card
   // (what you will learn, whose press starts the sound), and the end card (what you did).
-  import { begin, choose, hear, pull, sandbox, scenario, setMic, station } from './sandbox.svelte.ts';
-  import { SCENARIOS, type GuideFacts, type Step } from './scenarios/index.ts';
+  //
+  // The scenarios follow the four steps a show can run at (ADR-0271): Learn, a ladder of the
+  // four at the start of the bar (`sandbox.steps`), opens the chooser at a step, and the chooser
+  // is four rungs, Solo at the top, each with its scenarios.
+  import { begin, choose, hear, opened, pull, sandbox, scenario, setMic, station } from './sandbox.svelte.ts';
+  import { RUNG_HEAD, SCENARIOS, rungs, type GuideFacts, type Step } from './scenarios/index.ts';
+  import type { ShowStep } from '../lib/api.ts';
+  import { STEPS, STEP_WORD } from '../lib/steps.ts';
+  import Pips from '../lib/Pips.svelte';
   import { firstName } from '../lib/format.ts';
   import { say } from '../lib/studio.svelte.ts';
 
@@ -28,7 +35,7 @@
   /** The end card was closed, or the scenario was left running after it. */
   let endClosed = $state(false);
   /** The chooser's list, or the chosen scenario's start card. */
-  let picked: string | null = $state(location.hash.replace(/^#/, '') ? scenario.id : null);
+  let picked: string | null = $state(opened ? scenario.id : null);
   let dialog: HTMLElement | null = $state(null);
 
   const facts = $derived<GuideFacts>({ hear: sandbox.hear, listened, heardListenersAfterDump: dumpedHeard });
@@ -84,15 +91,27 @@
   const showCards = $derived(!sandbox.started || sandbox.chooser);
   const showEnd = $derived(finished && !endClosed && !sandbox.chooser);
   const pickedScenario = $derived(SCENARIOS.find((s) => s.id === picked) ?? null);
+  const ladder = rungs();
+  /** The step lit on the ladder: the running scenario's. */
+  const lit = $derived(sandbox.started ? scenario.step : null);
 
-  // A card takes the keyboard when it opens or changes: its first button, so keys do not reach
-  // the desk behind it.
+  /** Learn: a step on the ladder opens the chooser at that rung. */
+  function openRung(step: ShowStep) {
+    sandbox.rung = step;
+    if (sandbox.started) sandbox.chooser = true;
+    else picked = null;
+  }
+
+  // A card takes the keyboard when it opens or changes: its first button (the first scenario
+  // of the rung asked for, on the chooser), so keys do not reach the desk behind it.
   $effect(() => {
     void picked;
     void sandbox.chooser;
+    const rung = sandbox.rung;
     if (!dialog) return;
-    const b = dialog.querySelector<HTMLElement>('button, a');
+    const b = (rung ? dialog.querySelector<HTMLElement>(`[data-rung="${rung}"] .pick`) : null) ?? dialog.querySelector<HTMLElement>('button, a');
     b?.focus();
+    if (rung) b?.scrollIntoView({ block: 'nearest' });
   });
 
   // A card owns the keyboard while it is up (keymap rule 5): no key reaches the desk behind
@@ -102,7 +121,7 @@
     if (e.key === 'Escape') {
       if (sandbox.chooser) sandbox.chooser = false;
       else if (showEnd) endClosed = true;
-      else if (picked && !location.hash.replace(/^#/, '')) picked = null;
+      else if (picked && !opened) picked = null;
     }
     e.stopPropagation();
   }
@@ -115,6 +134,12 @@
     <span class="badge">Sandbox</span>
     <span class="sr-only">Back to the WeaveSignal website</span>
   </a>
+  <div class="hear steps" data-panel="sandbox.steps" role="group" aria-label="Scenarios by step">
+    <span class="caps">Learn</span>
+    {#each STEPS as s (s)}
+      <button type="button" aria-pressed={s === lit} title="{STEP_WORD[s]}: {RUNG_HEAD[s].toLowerCase()}. Opens its scenarios." onclick={() => openRung(s)}>{STEP_WORD[s]}</button>
+    {/each}
+  </div>
   <div class="step" aria-live="polite">
     {#if step}
       <span class="count num">{at + 1}<span class="of">/{steps.length}</span></span>
@@ -152,7 +177,6 @@
     <button type="button" aria-pressed={sandbox.hear === 'studio'} onclick={() => hear('studio')} title="What the presenter hears: everyone open, cue and the caller's booth">Studio</button>
     <button type="button" aria-pressed={sandbox.hear === 'listeners'} onclick={() => hear('listeners')} title="What listeners hear: the programme, behind the delay">Listeners</button>
   </div>
-  <button type="button" class="btn sm quiet scen" onclick={() => (sandbox.chooser = true)} title="Pick another scenario">Scenarios</button>
 </section>
 
 <!-- The caption row: its own row under the bar, so it never covers a control and nothing moves
@@ -207,35 +231,45 @@
         <p class="small">Kettle FM and its people are fictional: sample names, designed voices, the repository's licence-clean sounds.</p>
       </div>
     {:else}
-      <!-- The chooser: the show first, then the training scenarios (ADR-0222). -->
-      <div class="card wide" data-panel="sandbox.chooser">
+      <!-- The chooser: four rungs, Solo at the top, each with its scenarios (ADR-0222, ADR-0271). -->
+      <div class="card wide ladder" data-panel="sandbox.chooser">
         <p class="caps">WeaveSignal · Try the desk</p>
         <h1 id="sandbox-title">{sandbox.started ? 'Pick another scenario' : 'Pick a scenario'}</h1>
         <p class="ink2">
-          The studio app, in your browser, against a station simulated in the page. The show is the demo video's; the rest teach one job or
-          one skill each, a few minutes apiece.
+          The studio app, in your browser, against a station simulated in the page. The scenarios follow the four steps a show can run at: at
+          Solo the desk shows only what one DJ needs, and each step adds one kind of person. Start at the top, or go straight to the whole show.
         </p>
-        <ol class="list" aria-label="Scenarios">
-          {#each SCENARIOS as sc, i (sc.id)}
-            <li>
-              <button type="button" class="pick" class:current={sandbox.started && sc.id === scenario.id} onclick={() => (sandbox.started ? choose(sc.id) : (picked = sc.id))}>
-                <span class="n num">{i + 1}</span>
-                <span class="pick-text">
-                  <span class="pick-title">{sc.title}{#if sandbox.started && sc.id === scenario.id}<span class="now">running</span>{/if}</span>
-                  <span class="pick-blurb">{sc.blurb}</span>
-                </span>
-                <span class="min num">{sc.minutes} min</span>
-              </button>
-            </li>
-          {/each}
-        </ol>
+        {#each ladder as rung (rung.step)}
+          <section class="rung" data-rung={rung.step} aria-labelledby="rung-{rung.step}">
+            <div class="runghead">
+              <b id="rung-{rung.step}"><Pips step={rung.step} />{STEP_WORD[rung.step]}</b>
+              <span>{rung.head}</span>
+            </div>
+            <ol class="list" aria-label="{STEP_WORD[rung.step]} scenarios">
+              {#each rung.scenarios as { n, scenario: sc } (sc.id)}
+                <li>
+                  <button type="button" class="pick" class:current={sandbox.started && sc.id === scenario.id} onclick={() => (sandbox.started ? choose(sc.id) : (picked = sc.id))}>
+                    <span class="n num">{n}</span>
+                    <span class="pick-text">
+                      <span class="pick-title"
+                        >{sc.title}{#if sandbox.started && sc.id === scenario.id}<span class="now">running</span>{:else if sc.id === 'show'}<span class="now">the video’s show</span>{/if}</span
+                      >
+                      <span class="pick-blurb">{sc.blurb}</span>
+                    </span>
+                    <span class="min num">{sc.minutes} min</span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+          </section>
+        {/each}
         <div class="row">
           {#if sandbox.started}
             <button type="button" class="btn" onclick={() => (sandbox.chooser = false)}>Back to {scenario.title}</button>
           {/if}
           <a class="btn quiet" href="https://weavesignal.top/try/">Back to the website</a>
+          <span class="small">Picking a scenario starts the station afresh, at that scenario’s step. Kettle FM and its people are fictional.</span>
         </div>
-        <p class="small">Picking a scenario starts the station afresh. Kettle FM and its people are fictional.</p>
       </div>
     {/if}
   </div>
@@ -386,17 +420,16 @@
   .hear button:first-of-type {
     border-radius: var(--r-pill) 0 0 var(--r-pill);
   }
+  .hear button + button {
+    border-left: 0;
+  }
   .hear button:last-of-type {
     border-radius: 0 var(--r-pill) var(--r-pill) 0;
-    border-left: 0;
   }
   .hear button[aria-pressed='true'] {
     background: var(--accent);
     color: var(--accent-ink);
     border-color: var(--accent);
-  }
-  .scen {
-    flex: none;
   }
 
   /* The caption row: one line under the bar, kept even when nobody speaks. */
@@ -568,5 +601,65 @@
     color: var(--muted);
     font-size: var(--fs-13);
     white-space: nowrap;
+  }
+
+  /* The chooser as four rungs (ADR-0271): the step's pips and word at the left, its scenarios beside it. */
+  .card.wide.ladder {
+    max-width: 76rem;
+    gap: var(--s-3);
+  }
+  .ladder .rung {
+    display: grid;
+    grid-template-columns: 9.5rem minmax(0, 1fr);
+    gap: var(--s-3);
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--hairline);
+    align-items: start;
+  }
+  .ladder .runghead {
+    display: grid;
+    gap: 2px;
+    padding-top: 0.45rem;
+  }
+  .ladder .runghead b {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--fs-16);
+  }
+  .ladder .runghead span {
+    color: var(--ink-2);
+    font-size: var(--fs-13);
+    line-height: 1.4;
+  }
+  .ladder .rung .list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--s-2);
+  }
+  .ladder .pick {
+    align-items: start;
+    height: 100%;
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    gap: var(--s-2);
+  }
+  .ladder .pick-title {
+    flex-wrap: wrap;
+    gap: 0 var(--s-2);
+  }
+  .ladder .row .small {
+    flex: 1 1 16rem;
+  }
+  /* A narrow window (a phone held upright): the rungs stack, one scenario a row. */
+  @media (max-width: 60rem) {
+    .ladder .rung {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--s-2);
+    }
+    .ladder .runghead {
+      padding-top: 0;
+    }
+    .ladder .rung .list {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 </style>

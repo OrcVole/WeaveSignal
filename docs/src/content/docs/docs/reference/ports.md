@@ -82,7 +82,7 @@ Inside the container every port above is on loopback, behind the package's nginx
 | The app's domain | HTTPS | Cloudron's 443 | yes | the studio: `/health` and `/api/`; TURN is reached at this name |
 | Listener stream domain | HTTPS | Cloudron's 443 | yes | serves `/programme.opus` only |
 | Live room signalling domain | HTTPS | Cloudron's 443 | yes | LiveKit's WebSocket |
-| Public pages domain | HTTPS | Cloudron's 443 | yes | the player, call-in, the chat, the invite page, the echo test, feeds, cards and episode files |
+| Public pages domain | HTTPS | Cloudron's 443 | yes | the player, call-in, the chat, the invitation page, the echo test, feeds, cards and episode files |
 | `LIVEKIT_MEDIA_PORT` | UDP | 7882 | yes | keep it out of 50000–51000, Cloudron's own TURN relay range |
 | `TURN_TLS_PORT` | TCP | **15349** | yes | Cloudron's own TURN holds 5349 (ADR-0106) |
 | `TURN_UDP_PORT` | UDP | 3479 | no | Cloudron's own TURN holds 3478 |

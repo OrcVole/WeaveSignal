@@ -9,11 +9,11 @@
 //! | `GET /api/v1/player` | anyone | the station, the show, the stream, whether call-in is open, and the consent words with their version |
 //! | `GET /api/v1/call-in/challenge` | a listener | a proof-of-work challenge for the next call ([`crate::challenge`]) |
 //! | `POST /api/v1/call-in` | a listener | name, topic, consent and the answered challenge: the consent is logged, then a caller's room token and pass |
-//! | `GET /api/v1/pass` | a pass | what the pass is for: role, name, station, expiry (the invite page) |
+//! | `GET /api/v1/pass` | a pass | what the pass is for: role, name, station, expiry (the join page) |
 //! | `POST /api/v1/pass/token` | a pass | a fresh room token for the pass's identity: joining, and rejoining within the held 5 min |
 //! | `GET /api/v1/pass/events` | a pass | that person's own state as server-sent events ([`MeState`]) |
 //! | `POST /api/v1/pass/leave` | a pass | a caller hangs up: out of the queue, no held place, the pass ended |
-//! | `POST /api/v1/invites` | admin | an invite pass for a guest, a remote DJ or a presenter, and its link |
+//! | `POST /api/v1/invites` | staff | an invitation pass for a guest, a remote DJ or a presenter (or the signed-in account's own presenter link), and its link |
 //!
 //! **The consent rule.** No caller token is signed without a consent on file: the call-in
 //! route refuses a request without `consent.accepted = true` against the words' current
@@ -40,7 +40,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::IntervalStream;
 use weavesignal_proto::{PassClaims, PassKind, Role};
 
-use crate::app::{AppState, TokenRequest, problem, refusal};
+use crate::app::{AppState, TokenRequest, problem};
 use crate::hub::now_ms;
 use crate::join::{
     Limiter, MeState, NAME_MAX, TOPIC_MAX, clean_line, consent_version, consent_words, me_state,
@@ -58,6 +58,8 @@ const ENDED_KEEP_MS: u64 = 24 * 3600 * 1000;
 pub struct Joins {
     limiter: Mutex<Limiter>,
     ended: Mutex<BTreeMap<String, u64>>,
+    /// Waiting callers a step let go (ADR-0271), and why, for their page.
+    released: Mutex<BTreeMap<String, (u64, crate::steps::ReleaseCause)>>,
     /// Call-in's challenges: the key and the answers already used (ADR-0006).
     challenges: crate::challenge::Challenges,
 }
@@ -69,6 +71,24 @@ impl Joins {
         let mut ended = self.ended.lock().expect("joins lock");
         ended.retain(|_, at| now.saturating_sub(*at) < ENDED_KEEP_MS);
         ended.insert(identity.to_owned(), now);
+    }
+
+    /// Note that a step let a waiting caller go, and why; their pass is ended separately.
+    pub fn release(&self, identity: &str, cause: crate::steps::ReleaseCause) {
+        let now = now_ms();
+        let mut released = self.released.lock().expect("joins lock");
+        released.retain(|_, (at, _)| now.saturating_sub(*at) < ENDED_KEEP_MS);
+        released.insert(identity.to_owned(), (now, cause));
+    }
+
+    /// Why a step let this identity go, if it did (and the pass in question was issued before).
+    pub fn released(&self, identity: &str, since_s: u64) -> Option<crate::steps::ReleaseCause> {
+        self.released
+            .lock()
+            .expect("joins lock")
+            .get(identity)
+            .filter(|(at, _)| *at >= since_s * 1000)
+            .map(|(_, cause)| *cause)
     }
 
     /// Put back an end read from the database at start (a later end in memory wins).
@@ -402,6 +422,9 @@ fn call_in_closed(state: &AppState) -> Option<String> {
         Some("This station does not take calls from the player page.".to_owned())
     } else if state.room.is_none() {
         Some("Calls are not set up at this station yet.".to_owned())
+    } else if !crate::steps::call_in_open(state.hub.read_studio(|s| s.step_policy().step)) {
+        // The show on air runs below Callers (ADR-0271): the lines are closed for it.
+        Some(crate::steps::LINES_CLOSED.to_owned())
     } else if contact_missing(state) {
         Some("Calls are not set up at this station yet: it has not said how to ask for a call to be taken down.".to_owned())
     } else if !state.hub.view().desk.reachable {
@@ -856,6 +879,21 @@ pub struct PassInfo {
     pub expires_at_ms: u64,
     pub ended: bool,
     pub relay: RelayInfo,
+    /// Why the pass cannot join the room now, in a sentence for its page, while the show on
+    /// air runs at a step that has switched its seat off (ADR-0271); the pass stays good for
+    /// later. `None` when it can join.
+    pub not_now: Option<String>,
+}
+
+/// The seat the step hides from this pass, if it does and the person is not already in the
+/// room (a step never removes anyone).
+fn step_refusal(state: &AppState, c: &PassClaims) -> Option<crate::steps::Hidden> {
+    let policy = state.hub.read_studio(|s| s.step_policy());
+    let in_room = state
+        .hub
+        .desk_status()
+        .is_some_and(|d| d.people.iter().any(|p| p.identity == c.id));
+    crate::steps::pass_refusal(policy, c.role, &c.id, in_room)
 }
 
 #[utoipa::path(
@@ -864,7 +902,7 @@ pub struct PassInfo {
     operation_id = "public_pass_info",
     tag = "join",
     summary = "What a pass is",
-    description = "The pass is the bearer: from an invite's link or a call-in. Says who it is for and whether the studio has ended it.",
+    description = "The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.",
     responses(
         (status = 200, description = "The pass.", body = PassInfo),
         (status = 401, response = crate::openapi::Unauthorized),
@@ -890,6 +928,7 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         relay: RelayInfo {
             turn_tls_port: state.turn_tls_port,
         },
+        not_now: step_refusal(&state, &c).map(|h| h.at_join().to_owned()),
     })
     .into_response()
 }
@@ -903,10 +942,11 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
     operation_id = "public_pass_token",
     tag = "join",
     summary = "A room token for a pass",
-    description = "Signs a token for the person's room: a caller's booth, or the studio. 410 when the studio has ended the pass or no longer has the call on file.",
+    description = "Signs a token for the person's room: a caller's booth, or the studio. 410 when the studio has ended the pass or no longer has the call on file, or when the lines have closed on a caller. 409 when the show on air runs at a step that has switched this seat off (ADR-0271): the sentence says so, and the pass stays good for later. Someone already in the room is never refused.",
     responses(
         (status = 201, description = "The pass and the token.", body = Joined),
         (status = 401, response = crate::openapi::Unauthorized),
+        (status = 409, response = crate::openapi::Conflict),
         (status = 410, description = "This link has expired, or the studio has ended it.", body = crate::openapi::Problem),
         (status = 503, response = crate::openapi::Unavailable),
         (status = 500, description = "The token could not be signed.", body = crate::openapi::Problem),
@@ -924,8 +964,20 @@ pub async fn pass_token(State(state): State<Arc<AppState>>, headers: HeaderMap) 
             if c.role == Role::Caller {
                 "This call has ended. To call again, start from the player page."
             } else {
-                "The studio has ended this invite. Ask the station for a new link."
+                "The studio has ended this invitation. Ask the station for a new link."
             },
+        );
+    }
+    // A seat the show on air's step has switched off (ADR-0271). A caller's wait is over (410);
+    // an invitation stays good for later (409).
+    if let Some(hidden) = step_refusal(&state, &c) {
+        return problem(
+            if c.role == Role::Caller {
+                StatusCode::GONE
+            } else {
+                StatusCode::CONFLICT
+            },
+            hidden.at_join(),
         );
     }
     if c.role == Role::Caller
@@ -971,6 +1023,8 @@ pub async fn pass_events(State(state): State<Arc<AppState>>, headers: HeaderMap)
             state.hub.desk_status().as_ref(),
             ended,
         );
+        let mut me = me;
+        me.released = state.joins.released(&c.id, c.iat);
         let json = serde_json::to_string(&me).expect("the state serialises");
         if json == last {
             None
@@ -1020,17 +1074,25 @@ pub async fn pass_leave(State(state): State<Arc<AppState>>, headers: HeaderMap) 
     StatusCode::NO_CONTENT.into_response()
 }
 
-// ---- invites (admin) ----
+// ---- invitations (staff) ----
 
 #[derive(Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InviteRequest {
-    pub role: Role,
+    /// `guest`, `dj` or `presenter`. Left out only with `for_me`, where it is `presenter`.
+    #[serde(default)]
+    pub role: Option<Role>,
     #[serde(default)]
     pub name: String,
     /// Seconds; the station's `join.invite_ttl_s` when left out, and never more.
     #[serde(default)]
     pub ttl_s: Option<u64>,
+    /// A presenter's invitation for the signed-in account itself (ADR-0274): the Solo DJ's own
+    /// microphone link, allowed at every step for the show's presenter. The name is the
+    /// account's unless one is given, and the identity is the account's own, so the same link
+    /// can be made again. Needs a staff session, not the station key.
+    #[serde(default)]
+    pub for_me: bool,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -1045,7 +1107,7 @@ pub struct Invite {
     pub link: String,
 }
 
-/// An invite's link: on the station's public address when one is set (on Cloudron the join
+/// An invitation's link: on the station's public address when one is set (on Cloudron the join
 /// page is only there, outside the login), else relative to the address the caller reached.
 fn invite_link(public_url: &str, pass: &str) -> String {
     format!("{}/join/#{pass}", public_url.trim_end_matches('/'))
@@ -1056,12 +1118,13 @@ fn invite_link(public_url: &str, pass: &str) -> String {
     path = "/api/v1/invites",
     operation_id = "public_invite",
     tag = "join",
-    summary = "An invite link",
-    description = "A link for a guest, a remote DJ or a presenter. A caller joins another way (422).",
+    summary = "An invitation link",
+    description = "A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link.",
     request_body = InviteRequest,
     responses(
-        (status = 201, description = "The invite.", body = Invite),
+        (status = 201, description = "The invitation.", body = Invite),
         (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
         (status = 422, response = crate::openapi::Unprocessable),
         (status = 503, response = crate::openapi::Unavailable),
     ),
@@ -1072,46 +1135,101 @@ pub async fn invite(
     headers: HeaderMap,
     Json(req): Json<InviteRequest>,
 ) -> Response {
-    if let Some(r) = refusal(&state, &headers) {
-        return r;
-    }
+    let actor = match state.check(&headers, crate::staff::Need::Staff) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
     let Some(room) = &state.room else {
         return problem(
             StatusCode::SERVICE_UNAVAILABLE,
             "the room is not configured: set WEAVESIGNAL_LIVEKIT_API_SECRET",
         );
     };
-    if !matches!(req.role, Role::Guest | Role::Dj | Role::Presenter) {
-        return problem(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            format!(
-                "an invite is for a guest, a remote DJ or a presenter; a {} joins another way",
-                req.role
-            ),
-        );
-    }
+    let policy = state.hub.read_studio(|s| s.step_policy());
     let name = match clean_line(&req.name, 120, "a name") {
         Ok(n) => n,
         Err(e) => return problem(StatusCode::UNPROCESSABLE_ENTITY, e),
+    };
+    let (role, identity, name) = if req.for_me {
+        if !matches!(req.role, None | Some(Role::Presenter)) {
+            return field_problem(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "role",
+                "an invitation for yourself is a presenter's",
+            );
+        }
+        let crate::staff::Actor::Staff(account) = &actor else {
+            return problem(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "an invitation for yourself needs a signed-in account, not the station key",
+            );
+        };
+        if !crate::steps::own_link_allowed(policy, account.id) {
+            return problem(
+                StatusCode::FORBIDDEN,
+                "While this show runs at Solo, only its presenter makes their own microphone link. Ask an admin to name you its presenter, or move the show up a step.",
+            );
+        }
+        let name = if name.is_empty() {
+            let own = account.name.trim();
+            let shown = if own.is_empty() {
+                account.username.as_str()
+            } else {
+                own
+            };
+            shown.to_owned()
+        } else {
+            name
+        };
+        (
+            Role::Presenter,
+            crate::steps::own_identity(account.id),
+            name,
+        )
+    } else {
+        let Some(role) = req.role else {
+            return field_problem(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "role",
+                "an invitation is for a guest, a remote DJ or a presenter: say which, or ask for one for yourself",
+            );
+        };
+        if !matches!(role, Role::Guest | Role::Dj | Role::Presenter) {
+            return field_problem(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "role",
+                format!(
+                    "an invitation is for a guest, a remote DJ or a presenter; a {role} joins another way"
+                ),
+            );
+        }
+        // The show on air's step may have switched the seat off (ADR-0271).
+        if let Some(hidden) = crate::steps::hidden_seat(policy.step, role, false) {
+            return field_problem(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "role",
+                hidden.when_making(policy.step),
+            );
+        }
+        (role, mint_identity(role), name)
     };
     let ttl = req
         .ttl_s
         .unwrap_or(state.join.invite_ttl_s)
         .min(state.join.invite_ttl_s);
-    let identity = mint_identity(req.role);
     match room
         .keys
-        .pass(PassKind::Invite, req.role, &identity, &name, ttl)
+        .pass(PassKind::Invite, role, &identity, &name, ttl)
     {
         Ok((pass, claims)) => {
-            tracing::info!(identity = %identity, role = %req.role, ttl_s = ttl, "invite made");
+            tracing::info!(identity = %identity, %role, ttl_s = ttl, for_me = req.for_me, "invitation made");
             (
                 StatusCode::CREATED,
                 Json(Invite {
                     link: invite_link(&state.join.public_url, &pass),
                     pass,
                     identity,
-                    role: req.role,
+                    role,
                     name,
                     expires_at_ms: claims.exp * 1000,
                 }),
@@ -1141,7 +1259,7 @@ pub(crate) struct Api;
 #[cfg(test)]
 mod tests {
     #[test]
-    fn an_invite_link_is_on_the_public_address_when_there_is_one() {
+    fn an_invitation_link_is_on_the_public_address_when_there_is_one() {
         // Cloudron: the join page is on the public domain, outside the login.
         assert_eq!(
             super::invite_link("https://kettle.example/", "p.q.r"),

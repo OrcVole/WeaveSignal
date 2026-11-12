@@ -4,7 +4,9 @@
 // Drives every training scenario of the sandbox desk (ADR-0222) from its start card to its end
 // card in a browser, with the keys its guide names, checking the simulated station at each
 // step and the words the interface shows (AUTO, OPEN, LINK DEGRADED, DESK BUSY, BANNED BEFORE,
-// DUMPED, MUTED); the chooser and the stand-in tab panel; both themes once; no page errors.
+// DUMPED, MUTED); the chooser's four rungs, Learn and the stand-in tab panel; the beginner steps
+// (ADR-0271: what the frame and the desk show at Solo, Guests and Callers, a hidden part's key,
+// the step dialog, Show everything); both themes once; no page errors.
 // The show itself is drive.mjs's. Needs the sandbox build served with its sounds, as drive.mjs
 // says:
 //
@@ -33,7 +35,10 @@ async function ended(id) {
 await page.goto(`${SITE}/`);
 await until('the chooser opens with no hash', () => !!document.querySelector('[data-panel="sandbox.chooser"]'), 10_000);
 const n = await st(() => document.querySelectorAll('[data-panel="sandbox.chooser"] .pick').length);
-check(n === 11, `eleven scenarios listed (${n})`);
+check(n === 12, `twelve scenarios listed (${n})`);
+check(await st(() => [...document.querySelectorAll('[data-panel="sandbox.chooser"] .rung')].map((r) => `${r.dataset.rung}:${r.querySelectorAll('.pick').length}`).join(' ')) === 'solo:3 guests:1 callers:3 full:5', 'the chooser is four rungs, Solo at the top: 3, 1, 3 and 5 scenarios');
+check(await st(() => !!document.querySelector('[data-panel="sandbox.steps"]') && [...document.querySelectorAll('[data-panel="sandbox.steps"] button')].map((b) => b.textContent.trim()).join(' ') === 'Solo Guests Callers Full'), 'Learn is a ladder of the four steps in the guide bar');
+check(await st(() => ![...document.querySelectorAll('[data-panel="sandbox.guide"] button')].some((b) => b.textContent.trim() === 'Scenarios')), 'the Scenarios button has gone');
 await snap('chooser');
 await page.keyboard.press('1');
 await page.keyboard.press('Delete');
@@ -41,11 +46,18 @@ await page.waitForTimeout(300);
 check(await st(() => !globalThis.__kettle.person('eilidh').on_air && globalThis.__kettle.delay.dumps === 0), 'keys pressed on a card never reach the desk behind it');
 check(await st(() => document.activeElement?.classList.contains('pick')), 'the chooser takes the keyboard: the first scenario is focused');
 await page.keyboard.press('Enter');
-await until('the first pick opens the show’s start card', () => /presenting The Morning Kettle/.test(document.querySelector('[data-panel="sandbox.start"]')?.textContent ?? ''), 5_000);
+await until('the first pick, at Solo, opens Your own microphone’s start card', () => /Your own microphone/.test(document.querySelector('[data-panel="sandbox.start"] h1')?.textContent ?? ''), 5_000);
 await page.getByRole('button', { name: 'Other scenarios' }).click();
 await until('back to the chooser', () => !!document.querySelector('[data-panel="sandbox.chooser"]'), 5_000);
-await page.locator('[data-panel="sandbox.chooser"] .pick').nth(1).click();
-await until('the second pick is Running everything alone', () => /Running everything alone/.test(document.querySelector('[data-panel="sandbox.start"] h1')?.textContent ?? ''), 5_000);
+await page.locator('[data-panel="sandbox.chooser"] [data-rung="full"] .pick').first().click();
+await until('the Full rung’s first pick is the show', () => /presenting The Morning Kettle/.test(document.querySelector('[data-panel="sandbox.start"]')?.textContent ?? ''), 5_000);
+await page.getByRole('button', { name: 'Other scenarios' }).click();
+// A link may name a step: the chooser opens at that rung.
+await page.goto('about:blank');
+await page.goto(`${SITE}/#callers`);
+await until('#callers opens the chooser at the Callers rung', () => document.activeElement?.closest('[data-rung]')?.dataset.rung === 'callers', 10_000);
+await page.keyboard.press('Enter');
+await until('the Callers rung’s first pick is Running everything alone', () => /Running everything alone/.test(document.querySelector('[data-panel="sandbox.start"] h1')?.textContent ?? ''), 5_000);
 check(await st(() => /two windows/.test(document.querySelector('[data-panel="sandbox.start"]')?.textContent ?? '')), 'the start card says a DJ runs two windows');
 await snap('start-alone');
 
@@ -60,13 +72,21 @@ await until('alone: a caption shows her line', () => /Eilidh/.test(document.quer
 await until('alone: the unrecorded line is captioned and marked', () => /not recorded/.test(document.querySelector('[data-panel="sandbox.caption"]')?.textContent ?? ''), 20_000);
 await snap('alone-caption');
 await until('alone: Niall rings', () => globalThis.__kettle.callerState('niall') === 'waiting', 20_000);
-await press('Control+2');
-await press('1');
-await hold('t', 300);
+// The Callers step: no Screener tab, the queue on the desk, the delay with Dump, no picture.
 check(await st(() => globalThis.__kettle.person('shona') === undefined && globalThis.__kettle.view(Date.now()).seats.screener === null), 'alone: nobody is in the screener’s seat');
+check(await st(() => [...document.querySelectorAll('[data-panel="studio.frame"] .tab')].map((t) => t.textContent.trim().split(/\s+/)[0]).join(' ') === 'Desk Carts Schedule Settings'), 'alone: the frame has Desk, Carts and Schedule at the Callers step');
+check(await st(() => document.querySelector('[data-panel="studio.step"] .stepbtn')?.getAttribute('aria-label') === 'Step: Callers, 3 of 4. Change the step'), 'alone: the frame says the step, Callers');
+check(await st(() => /Connected/.test(document.querySelector('[data-panel="studio.frame"] .link')?.textContent ?? '') && !/Control plane/.test(document.querySelector('[data-panel="studio.frame"] .link')?.textContent ?? '')), 'alone: the frame says Connected');
+await until('alone: Niall waits in Callers on the desk', () => /Niall Anderson/.test(document.querySelector('[data-panel="desk.callers"]')?.textContent ?? '') && /1 waiting · lines open/.test(document.querySelector('[data-panel="desk.callers"]')?.textContent ?? ''), 5_000);
+check(await st(() => !!document.querySelector('[data-panel="desk.delay"]') && !document.querySelector('[data-panel="desk.picture"]') && !!document.querySelector('[data-panel="desk.waiting"]')), 'alone: the delay and Not on air are drawn, the picture is not');
+await press('Control+2');
+check(await st(() => document.documentElement.dataset.surface === 'desk' && !!document.querySelector('[data-panel="desk.stage"]')), 'alone: Ctrl+2 does nothing at the Callers step');
+await until('alone: its first press says the Screener tab is off', () => /The Screener tab is off at Callers/.test(document.querySelector('[data-panel="desk.toast"]')?.textContent ?? ''), 3_000);
+await press('Escape');
 await press('p');
-await until('alone: Niall is sent to the strip', () => globalThis.__kettle.callerState('niall') === 'ready');
-await press('Control+1');
+await until('alone: P takes Niall to strip 4, off air', () => globalThis.__kettle.callerState('niall') === 'ready' && globalThis.__kettle.slots[3] === 'niall' && !globalThis.__kettle.person('niall').on_air);
+await until('alone: his tile says the DJ took the call', () => /you took the call/.test(document.querySelector('[data-panel="desk.tile.4"]')?.textContent ?? ''), 3_000);
+check(await st(() => !document.querySelector('[data-panel="desk.toast"]')), 'alone: no "ready for you" toast for a call the DJ took');
 await press('r');
 await until('alone: Niall is cued and heard on the strip', () => globalThis.__kettle.person('niall').cue && globalThis.__kettle.speaking?.line.id === 'l-n1', 10_000);
 await snap('alone-cued');
@@ -74,8 +94,9 @@ await snap('alone-cued');
 await page.getByRole('button', { name: 'Light' }).click();
 await page.waitForTimeout(300);
 await snap('alone-cued-light');
-await page.getByRole('button', { name: 'Scenarios' }).click();
-await until('alone: the chooser opens over the running scenario', () => !!document.querySelector('[data-panel="sandbox.chooser"]'), 5_000);
+check(await st(() => document.querySelector('[data-panel="sandbox.steps"] [aria-pressed="true"]')?.textContent.trim() === 'Callers'), 'alone: Learn lights the running scenario’s step');
+await page.locator('[data-panel="sandbox.steps"]').getByRole('button', { name: 'Guests' }).click();
+await until('alone: Learn opens the chooser over the running scenario, at the rung pressed', () => document.activeElement?.closest('[data-rung]')?.dataset.rung === 'guests', 5_000);
 await snap('chooser-light');
 await page.keyboard.press('Escape');
 await until('alone: Escape closes the chooser', () => !document.querySelector('[data-panel="sandbox.chooser"]'), 5_000);
@@ -197,9 +218,8 @@ await page.getByRole('button', { name: 'Listeners' }).click();
 await page.getByRole('button', { name: 'Studio' }).click();
 await page.getByRole('button', { name: 'Take the station live' }).click();
 await until('auto: the station is live and the lamp ON AIR', () => globalThis.__kettle.mode === 'live' && /ON AIR/.test(document.body.innerText), 5_000);
-await press('t');
-await until('auto: Finlay is cued and heard', () => globalThis.__kettle.speaking?.line.id === 'i-finlay', 20_000);
-await until('auto: Finlay’s line ends', () => globalThis.__kettle.done('finlay'), 10_000);
+await until('auto: Eilidh says the station is live', () => globalThis.__kettle.done('live'), 30_000);
+check(await st(() => globalThis.__kettle.person('finlay') === undefined), 'auto: nobody stands by at Solo');
 await press('1');
 await page.getByRole('button', { name: 'Back to auto' }).click();
 await until('auto: handed back to automation', () => globalThis.__kettle.has('handed-back'), 5_000);
@@ -285,14 +305,83 @@ await until('link: the tile and status line say LINK DEGRADED', () => (document.
 await snap('link-degraded');
 await press('4');
 await until('link: her link drops', () => globalThis.__kettle.has('dropped'), 20_000);
-await press('Control+2');
-await until('link: the queue says DROPPED with the place held', () => /dropped/i.test(document.body.innerText) && /within 5 min/.test(document.body.innerText), 5_000);
-await press('Control+1');
+await until('link: Callers on the desk says her link is lost', () => /Iona MacIntosh/.test(document.querySelector('[data-panel="desk.callers"]')?.textContent ?? '') && /link lost/.test(document.querySelector('[data-panel="desk.callers"]')?.textContent ?? ''), 5_000);
 await until('link: she is back on strip 4', () => globalThis.__kettle.has('returned') && globalThis.__kettle.slots[3] === 'iona', 30_000);
 await press('4');
 await until('link: she finishes', () => globalThis.__kettle.done('iona-back'), 30_000);
 await press('4');
 await ended('link');
+
+// ---- guest: a guest by link, at the Guests step ----
+await d.start('guest');
+check(await st(() => globalThis.__kettle.person('gregor') === undefined && globalThis.__kettle.step === 'guests'), 'guest: Gregor is not in the room, and the show runs at Guests');
+check(await st(() => !!document.querySelector('[data-panel="desk.waiting"]') && !document.querySelector('[data-panel="desk.delay"]') && !document.querySelector('[data-panel="desk.callers"]')), 'guest: Not on air is drawn; the delay and Callers are not');
+await press('1');
+await until('guest: Eilidh opens', () => globalThis.__kettle.speaking?.line.id === 't-guest-open', 10_000);
+await press('Delete');
+await until('guest: Dump’s key says it is off at Guests, and arms nothing', () => /Dump is off at Guests/.test(document.querySelector('[data-panel="desk.toast"]')?.textContent ?? '') && globalThis.__kettle.delay.dumps === 0, 3_000);
+await press('Escape');
+await page.getByRole('button', { name: 'Invite someone…' }).click();
+await until('guest: the invitation dialog offers a guest and a presenter, the guest picked', () => [...document.querySelectorAll('input[name="inv-role"]')].map((i) => i.value).join(' ') === 'guest presenter' && document.querySelector('input[name="inv-role"]:checked')?.value === 'guest', 5_000);
+check(await st(() => /An invitation for the next show’s DJ comes with Full\./.test(document.querySelector('[data-panel="desk.invite"]').textContent)), 'guest: the dialog says the DJ’s invitation comes with Full');
+await page.keyboard.type('Gregor Stewart');
+await snap('guest-invitation');
+await page.keyboard.press('Enter');
+await until('guest: the link is shown', () => /\/join\/#sandbox-guest-/.test(document.getElementById('inv-link')?.value ?? ''), 5_000);
+await page.keyboard.press('Escape');
+await until('guest: Gregor joins on air, on strip 2', () => globalThis.__kettle.view(Date.now()).sources.some((x) => x.identity === 'gregor' && x.slot === 2 && x.on_air), 15_000);
+await until('guest: he is introduced and speaks', () => globalThis.__kettle.done('gregor'), 40_000);
+await snap('guest-on-air');
+await press('2');
+await hold('s', 900);
+await until('guest: talkback off air', () => globalThis.__kettle.has('talked'), 20_000);
+await press('2');
+await until('guest: back on air', () => globalThis.__kettle.done('back'), 20_000);
+await press('x');
+await until('guest: muted', () => globalThis.__kettle.has('muted'), 5_000);
+await press('x');
+await until('guest: thanked', () => globalThis.__kettle.done('thanks'), 15_000);
+const endPass = page.locator('[data-panel="desk.tile.2"]').getByRole('button', { name: /End pass/ });
+await endPass.click();
+await page.locator('[data-panel="desk.tile.2"]').getByRole('button', { name: /Press again/ }).click();
+await until('guest: his pass is ended and he is out of the room', () => globalThis.__kettle.person('gregor') === undefined, 5_000);
+await ended('guest');
+
+// ---- the steps in the frame: Solo, the dialog, Show everything ----
+await d.start('carts');
+check(await st(() => document.querySelector('[data-panel="studio.step"] .stepbtn')?.dataset.step === 'solo'), 'steps: Carts and a bed runs at Solo');
+check(await st(() => !!document.querySelector('[data-panel="desk.step-note"]') && !document.querySelector('[data-panel="desk.waiting"]') && !document.querySelector('[data-panel="desk.delay"]') && !document.querySelector('[data-panel="desk.picture"]')), 'steps: the Solo desk has the empty seat, and no Not on air row, delay or picture');
+check(await st(() => document.querySelector('[data-panel="desk.tile.1"] [aria-label^="Talk"]')?.getAttribute('aria-disabled') === 'true'), 'steps: Talk is disabled on the Solo tile');
+check(await st(() => /End show/.test(document.querySelector('[data-panel="desk.stage"]').textContent) && !!document.querySelector('[data-panel="desk.air"]')), 'steps: End show and the air control are on the Solo desk');
+await snap('steps-solo');
+// The dialog: opened from the seat, the arrows move, the changes are said before the move.
+await page.getByRole('button', { name: 'Move up a step…' }).click();
+await until('steps: the dialog opens on the step in force', () => document.querySelector('[data-panel="studio.step.menu"]')?.open && document.activeElement?.dataset.step === 'solo', 5_000);
+await page.keyboard.press('ArrowDown');
+await until('steps: ↓ picks Guests and says what changes', () => document.activeElement?.dataset.step === 'guests' && /Moving to Guests, at once:/.test(document.querySelector('[data-panel="studio.step.menu"]').textContent), 3_000);
+check(await st(() => globalThis.__kettle.step === 'solo'), 'steps: picking changes nothing yet');
+await snap('steps-menu');
+await page.keyboard.press('Escape');
+await until('steps: Esc keeps the step', () => !document.querySelector('[data-panel="studio.step.menu"]').open && globalThis.__kettle.step === 'solo', 3_000);
+// Show everything: a look. The tabs return, the tags say what is off, the station stays at Solo.
+await page.getByRole('button', { name: 'Show everything' }).click();
+await until('steps: everything is shown, with the row that says so', () => !!document.querySelector('[data-panel="studio.step.banner"]') && !!document.querySelector('[data-panel="desk.picture"]'), 3_000);
+check(await st(() => globalThis.__kettle.step === 'solo' && document.querySelectorAll('[data-panel="desk.stage"] .offtag, [data-panel="desk.picture"] .offtag').length >= 3), 'steps: the station stays at Solo, and the parts it keeps off are tagged');
+await press('Delete');
+check(await st(() => globalThis.__kettle.delay.dumps === 0), 'steps: Dump stays off while everything is shown');
+await press('Escape');
+await press('Control+2');
+await until('steps: Ctrl+2 reaches the Screener tab while everything is shown', () => document.documentElement.dataset.surface === 'screener', 3_000);
+await snap('steps-all-screener');
+await page.getByRole('button', { name: 'Back to Solo' }).click();
+await until('steps: Back to Solo returns to the desk', () => !document.querySelector('[data-panel="studio.step.banner"]') && document.documentElement.dataset.surface === 'desk', 3_000);
+// Move up for real: the station's step moves, and the desk follows.
+await page.locator('[data-panel="studio.step"] .stepbtn').click();
+await page.keyboard.press('ArrowDown');
+await page.keyboard.press('Enter');
+await until('steps: ⏎ moves the show to Guests', () => globalThis.__kettle.step === 'guests' && !!document.querySelector('[data-panel="desk.waiting"]') && !document.querySelector('[data-panel="desk.step-note"]'), 5_000);
+await until('steps: every window is told who moved it', () => /Eilidh moved The Morning Kettle to Guests\./.test(document.body.innerText), 5_000);
+check(d.errors.length === 0, `steps: no page errors${d.errors.length ? `: ${d.errors.slice(0, 3).join(' | ')}` : ''}`);
 
 // ---- mic ----
 await d.start('mic');

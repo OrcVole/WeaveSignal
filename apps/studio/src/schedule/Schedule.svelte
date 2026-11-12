@@ -28,7 +28,11 @@
 
   /** Only an admin (or the station key) can choose the zone; for anyone else the button would lead nowhere. */
   const canChooseZone = $derived(!account.loaded || account.me === null || isAdmin(account.me));
-  const now = $derived(stationNow());
+  // The week to the minute, not the studio clock's tenth: the clock ticks every 100 ms, and the
+  // week's blocks rebuilt from it redrew the whole calendar ten times a second, which made typing in
+  // the editors lag and lost clicks on blocks (the operator's 1.0.2 run). A derived number that does
+  // not change stops here, so the grid and the editors update once a minute.
+  const now = $derived(Math.floor(stationNow() / 60_000) * 60_000);
   const week = $derived(weekBlocks(now));
   const dst = $derived.by(() => {
     const i = week.days.findIndex((_, k) => k < 7 && Math.round((week.days[k + 1] - week.days[k]) / 3_600_000) !== 24);
@@ -38,6 +42,8 @@
   const selectedEpisode = $derived(
     selectedBlock?.kind === 'episode' ? sched.episodes.find((e) => `ep:${e.episode.id}` === selectedBlock.id) ?? null : null,
   );
+  /** Shows with no weekly rule: nothing of them is drawn in the week, so the pane lists them. */
+  const unruled = $derived(sched.shows.filter((s) => !s.slot));
   const ruleShow = $derived(selectedBlock?.kind === 'rule' ? sched.shows.find((s) => s.slug === selectedBlock.slug) ?? null : null);
 
   onMount(() => {
@@ -92,7 +98,16 @@
       const view = await api.show(s.slug);
       const last = view.series.at(-1);
       const n = last?.number ?? 1;
-      if (!last) await api.putSeries(s.slug, 1, {});
+      // The control plane drafts the rule's next slot after the series' last episode, or after
+      // its start date, or after now. A block selected in the week is a slot of its own, perhaps
+      // one already under way (the operator's 1.0.2 run drafted next week's instead of today's), so
+      // the series starts on that block's day unless it starts earlier already.
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: sched.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(b.start);
+      if (!last) await api.putSeries(s.slug, 1, { starts_on: day });
+      else if (!last.starts_on || last.starts_on > day) {
+        const { title, description, hosts, slot, planned_episodes, tags } = last;
+        await api.putSeries(s.slug, n, { title, description, hosts, slot, planned_episodes, tags, starts_on: day });
+      }
       const made = await api.createEpisodes(s.slug, n, { count: 1 });
       await changed();
       const ep = made[0]?.episode;
@@ -153,6 +168,11 @@
       <aside class="editor" data-panel="calendar.episode-editor" aria-label="New show">
         <ShowEditor slug={null} show={null} onSaved={async (v) => { await changed(); sched.pane = 'episode'; const s = v.show; sched.selected = null; say('good', 'Show saved', `${s.name} is a show now; draft its first episode from its weekly rule.`); }} onCancel={() => (sched.pane = 'episode')} onCard={() => {}} />
       </aside>
+    {:else if sched.pane === 'edit-show' && unruled.find((s) => s.slug === sched.editShow)}
+      {@const s = unruled.find((x) => x.slug === sched.editShow)!}
+      <aside class="editor" data-panel="calendar.episode-editor" aria-label="Show editor">
+        <ShowEditor slug={s.slug} show={s} onSaved={async (v) => { await changed(); sched.pane = 'episode'; sched.editShow = null; say('good', 'Show saved', v.show.slot ? `${v.show.name}'s weekly rule is in the week now: select its dotted block to draft an episode.` : `${v.show.name} still has no weekly rule.`); }} onCancel={() => { sched.pane = 'episode'; sched.editShow = null; }} onCard={() => {}} />
+      </aside>
     {:else if sched.pane === 'card' && (selectedEpisode || ruleShow)}
       <aside class="editor" data-panel="calendar.card-editor" aria-label="Card editor">
         <CardEditor
@@ -188,14 +208,36 @@
       </aside>
     {:else}
       <aside class="editor" data-panel="calendar.episode-editor" aria-label="Episode editor">
-        <div class="head"><h2 data-panel-title>Nothing selected</h2></div>
-        <div class="nothing">
-          <p>Select a block in the week: an <b>episode</b> opens its editor, with its series and show a level away; an <b>automation</b> block opens the generated hour with its rule checks; a dotted <b>weekly rule</b> offers to draft the episode.</p>
-          <p>Keys on this tab: <kbd>←</kbd> <kbd>→</kbd> move a week, <kbd>T</kbd> is today. The grid's blocks take focus with <kbd>Tab</kbd> and open with <kbd>⏎</kbd>.</p>
-          {#if !sched.shows.length && !sched.loading && !sched.error}
-            <p><b>No shows yet.</b> New show, above, makes the first; give it a weekly rule and its instances appear here to draft.</p>
-          {/if}
-        </div>
+        {#if !sched.shows.length && !sched.loading && !sched.error}
+          <!-- An empty station says how to start first (the operator's 1.0.2 run: "we can't see any blocks"). -->
+          <div class="head"><h2 data-panel-title>No shows yet</h2></div>
+          <div class="nothing">
+            <p>The week fills from shows. Make the first one:</p>
+            <ol>
+              <li><button type="button" class="btn primary" onclick={() => { sched.pane = 'new-show'; }}>New show</button> and give it a name.</li>
+              <li>Give it a <b>weekly rule</b>: a day, a start time and a length.</li>
+              <li>Its weeks appear here as <b>dotted blocks</b>: select one and draft the episode.</li>
+            </ol>
+            <p>While an episode's time holds, its show is on air, and its step (a new show starts at Solo) shapes the studio.</p>
+          </div>
+        {:else}
+          <div class="head"><h2 data-panel-title>Nothing selected</h2></div>
+          <div class="nothing">
+            {#if unruled.length}
+              <!-- A show without a weekly rule draws nothing in the week (the operator's 1.0.2 run). -->
+              <div class="unruled" data-testid="unruled-shows">
+                <p><b>{unruled.length === 1 ? 'A show has' : 'Shows have'} no weekly rule yet</b>, so nothing of {unruled.length === 1 ? 'it' : 'them'} is in the week:</p>
+                <ul>
+                  {#each unruled as s (s.slug)}
+                    <li><span>{s.name}</span> <button type="button" class="btn primary sm" onclick={() => { sched.editShow = s.slug; sched.pane = 'edit-show'; }}>Set its weekly rule…</button></li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+            <p>Select a block in the week: an <b>episode</b> opens its editor, with its series and show a level away; an <b>automation</b> block opens the generated hour with its rule checks; a dotted <b>weekly rule</b> offers to draft the episode.</p>
+            <p>Keys on this tab: <kbd>←</kbd> <kbd>→</kbd> move a week, <kbd>T</kbd> is today. The grid's blocks take focus with <kbd>Tab</kbd> and open with <kbd>⏎</kbd>.</p>
+          </div>
+        {/if}
       </aside>
     {/if}
   </div>

@@ -13,6 +13,7 @@ import Screener from './screener/Screener.svelte';
 import { studio } from './lib/studio.svelte.ts';
 import { theme } from './lib/theme.svelte.ts';
 import type { DeskPerson, View } from './lib/api.ts';
+import { NO_SHOW } from './lib/steps.ts';
 
 const person = (identity: string, name: string, role: DeskPerson['role'], on_air: boolean): DeskPerson => ({
   identity,
@@ -64,6 +65,7 @@ function view(playoutUp: boolean): View {
     notices: [],
     carts: { version: 0, desk: true, desk_error: null, sounding: [], ducked: false, mic_open: false, missing: [], importing: null },
     listener_delay: { ms: 15_000, measured: false },
+    step: NO_SHOW,
   };
 }
 
@@ -105,6 +107,8 @@ function wall(): { view: View; catalogue: Catalogue } {
 }
 
 beforeEach(() => {
+  studio.showAll = false;
+  studio.offNote = null;
   studio.note = null;
   studio.selected = null;
   studio.armed = null;
@@ -120,15 +124,18 @@ function tile(body: string, slot: number): string {
 
 describe('desk B', () => {
   it('draws every registered desk panel under its name, and only registered names', () => {
+    // At Full, the studio of 1.0.1: everything but the two panels that belong to a lower step.
+    const lower = ['desk.step-note', 'desk.callers'];
     studio.view = view(true);
     const { body } = render(DeskB);
-    for (const p of DESK_B.filter((p) => p.name !== 'desk.tile.3' && p.name !== 'desk.tile.5')) {
+    for (const name of lower) expect(body.includes(`data-panel="${name}"`), name).toBe(false);
+    for (const p of DESK_B.filter((p) => p.name !== 'desk.tile.3' && p.name !== 'desk.tile.5' && !lower.includes(p.name))) {
       expect(body.includes(`data-panel="${p.name}"`), p.name).toBe(true);
     }
     for (const m of body.matchAll(/data-panel="([^"]+)"/g)) expect(() => panel(m[1])).not.toThrow();
   });
 
-  it('offers the invite at the head of Not on air, with a DJ as the first role', () => {
+  it('offers the invitation at the head of Not on air, with a DJ as the first role', () => {
     studio.view = view(true);
     const { body } = render(DeskB);
     const waiting = body.slice(body.indexOf('data-panel="desk.waiting"'), body.indexOf('data-panel="desk.audience"'));

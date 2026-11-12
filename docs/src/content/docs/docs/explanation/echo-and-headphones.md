@@ -27,7 +27,7 @@ The same held in the third live rehearsal and in the live News and Moos show.
    A loudspeaker in the room is the loudest possible leak.
    Closed-back headphones at a sensible level leak least.
 2. **The browser's echo cancelling on, its noise suppression on, and its automatic gain control off.**
-   These are the station's defaults for every page that sends a voice into the room (`packages/ui/media.ts`), and the invite page and the call-in page use them.
+   These are the station's defaults for every page that sends a voice into the room (`packages/ui/media.ts`), and the invitation page and the call-in page use them.
    Only the echo-test page (`/echo-test/`) turns echo cancelling off, so a person can hear what the room would.
    The desk levels voices itself, so gain control in the browser has nothing to add.
 3. **The presenter's gate at the desk.**

@@ -1,15 +1,15 @@
 ---
 title: "Set up your show"
-description: "A DJ's first sign-in: three short steps that tell the station your on-air name, your takedown contact, your show and when it is on; the answers become the defaults for you and your show."
+description: "A DJ's first sign-in: three short parts that tell the station your on-air name, your takedown contact, your show, when it is on and how much of the studio to start with; the answers become the defaults for you and your show."
 type: howto
 status: draft
-last_verified: 2026-11-06
+last_verified: 2026-11-11
 sidebar:
   order: 6
 ---
 
 You present a show on a station someone else runs.
-The station's admin has made you a staff account with a password ([Add staff and sign in](/docs/how-to/add-staff/)), and the first time you sign in to the studio app as a presenter it asks three short steps (ADR-0218).
+The station's admin has made you a staff account with a password ([Add staff and sign in](/docs/how-to/add-staff/)), and the first time you sign in to the studio app as a presenter it asks three short parts (ADR-0218).
 Nothing is emailed, and nothing is asked that an online station does not need (ADR-0219).
 
 The answers are kept in the station as the defaults for you and your show:
@@ -24,7 +24,7 @@ The answers are kept in the station as the defaults for you and your show:
 - Where someone should write to have a call of yours taken down: an email address or a link.
   You can leave it empty; the station's own contact is then the only one said.
 
-## The three steps
+## The three parts
 
 The wizard opens by itself the first time a presenter with no show of their own signs in.
 Run it again at any time from **Settings** › **Your show** › **Change…**.
@@ -33,10 +33,14 @@ Run it again at any time from **Settings** › **Your show** › **Change…**.
    Your on-air name (your account's name is offered), and your takedown contact.
    **Skip for now** closes it; it does not open again on this computer, and **Settings** › **Your show** still has it.
 2. **Your show.**
-   Its name; links to your channels, one per line (Rumble, Odysee, AzuraCast, wherever your audience already is); the usual day, start and end in station time, or none yet; and whether the show plays commercial music.
+   Its name; links to your channels, one per line (Rumble, Odysee, AzuraCast, wherever your audience already is); the usual day, start and end in station time, or none yet; whether the show plays commercial music; and **how much of the studio to start with**, with Solo picked.
    **Save my show** keeps it in the station.
 3. **Done.**
-   What the answers now do, and where to change them.
+   What the answers now do, where the studio starts, and where to change them.
+
+Start at **Solo** and the studio shows only what one DJ needs: your microphone, the music and carts, the listener count and the chat.
+Guests, callers and the rest are switched off, so nobody can call in or join before you are ready.
+Move up a step whenever you like, at the top of the studio ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)).
 
 The music question is a reminder for the station: a UK webcast of commercial music needs PPL and PRS for Music licences.
 It blocks nothing.
@@ -67,8 +71,16 @@ A member of staff with no show of their own finds **Set up your show…** there,
 The station key has no account to tie a show to, so it has no **Your show** panel; an admin sets a show's presenter name and contact in the show editor instead.
 Only an admin or the show's own presenter may change its presenter name and takedown contact, since the consent words name them to callers (ADR-0241, from 1.0.1).
 
+## What your show's step switches off
+
+A show the wizard makes starts at **Solo** (ADR-0271): while it is on air, the studio holds only what one DJ needs.
+The call page says "The lines are closed for this show.", and the station refuses invitations and passes for guests, the next DJ and the screener's seat.
+Callers and guests come back as you move the show up a step: **Guests**, then **Callers**, then **Full**.
+The steps, what each switches on, and how to change them are in [Choose how much of the studio a show uses](/docs/how-to/choose-a-step/).
+Shows that existed before steps arrived stay at Full.
+
 ## What has been tried
 
-- **The three steps**: unit tests of the wizard's rules and its screens (`wizard.test.ts`), and a browser review against a stand-in station (2026-11-10).
+- **The three parts**: unit tests of the wizard's rules and its screens (`wizard.test.ts`), and a browser review against a stand-in station (2026-11-10).
 - **The consent words naming the show's contact**: the control plane's database test (`consent_db.rs`): the words name the show on air, and a caller's record keeps the words they agreed to when the contact changes. The change at the post itself was checked by reading the code, not by a test.
 - **Not yet:** a DJ following this on a real station.

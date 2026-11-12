@@ -126,6 +126,13 @@ const hold: Hold = {
   consents: 2,
 };
 
+describe('Settings: the way back', () => {
+  it('offers a way back to the tab it came from, with its key (the 1.0.1 test run)', () => {
+    const { body } = render(Settings, { props: { initial: view('none'), initialHolds: [] } });
+    expect(body).toMatch(/<button[^>]*class="btn back[^"]*"[^>]*>Back to the desk <kbd>⌃1<\/kbd><\/button>/);
+  });
+});
+
 describe('Settings > Retention', () => {
   it('draws its panels under their registered names', () => {
     const { body } = render(Settings, { props: { initial: view('none'), initialHolds: [] } });

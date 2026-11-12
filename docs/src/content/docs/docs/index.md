@@ -15,6 +15,7 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 
 ## Start here
 
+- [The simple guides](/guides/): short, plain guides for presenters, guests and whoever looks after the station; start there if you are not technical.
 - [Run a first show](/docs/tutorials/first-show/): the studio app against the real desk on your own machine, with a room of synthetic people from Kettle FM, the sample station.
 - [How the parts fit together](/docs/explanation/architecture/): the processes, what each does, and why the people talking and the people listening run on two different clocks.
 

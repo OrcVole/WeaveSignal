@@ -6,7 +6,8 @@
 // station as the show's own fields, so the consent words name the DJ while the show is on
 // air (ADR-0214) and new episodes take the usual slot.
 
-import type { Me } from './api.ts';
+import type { Me, ShowStep } from './api.ts';
+import { STEP_WORD, asStep } from './steps.ts';
 import type { Show, ShowInput, ShowView, Slot } from './schedule.ts';
 import { slugOf } from '../schedule/model.ts';
 
@@ -23,6 +24,8 @@ export interface Answers {
   /** `HH:MM`; empty leaves the length open. */
   until: string;
   commercial_music: boolean;
+  /** How much of the studio to start with (ADR-0271): Solo for a new show. */
+  step: ShowStep;
 }
 
 export const PRESENTER_MAX = 120;
@@ -64,7 +67,30 @@ export function fromShow(show: Show | null, me: Me | null | undefined): Answers 
     from: slot ? hhmm(slot.start) : '',
     until: slot?.minutes ? hhmm(slot.start + slot.minutes) : '',
     commercial_music: show?.commercial_music ?? false,
+    // A new show starts at Solo; the wizard run again shows the step the show has.
+    step: show ? asStep(show.step) : 'solo',
   };
+}
+
+/** The question the second page asks, and its hint (design section 5). */
+export const STEP_QUESTION = 'How much of the studio to start with';
+export const STEP_HINT =
+  'Start at Solo and the studio shows only what one DJ needs; the rest is switched off, so nobody can call in or join before you are ready. Move up a step whenever you like, at the top of the studio.';
+
+/** The last page's line on where the studio starts: the lead in bold, then what that means. */
+export function startsAt(step: ShowStep): { lead: string; rest: string } {
+  const lead = `The studio starts at ${STEP_WORD[step]}:`;
+  const up = 'until you move up a step, at the top of the studio.';
+  switch (step) {
+    case 'solo':
+      return { lead, rest: `your microphone, the music and carts, the listener count and the chat. Guests, callers and the rest are switched off ${up}` };
+    case 'guests':
+      return { lead, rest: `everything at Solo, and guests you invite by link. Callers and the rest are switched off ${up}` };
+    case 'callers':
+      return { lead, rest: `guests you invite by link, and listeners who call in, whom you answer at the desk. The screener’s seat, the picture and the handover are switched off ${up}` };
+    case 'full':
+      return { lead, rest: 'the whole studio, with a screener on the phones, the picture and the next DJ. Nothing is switched off.' };
+  }
 }
 
 /** `HH:MM` as minutes after midnight, or null when it is not a time. */
@@ -168,6 +194,7 @@ export function toShowInput(a: Answers, me: Me, existing: ShowView | null, colou
     links: splitLinks(a.links),
     commercial_music: a.commercial_music,
     presenter_account: me.account?.id ?? null,
+    step: a.step,
   };
 }
 

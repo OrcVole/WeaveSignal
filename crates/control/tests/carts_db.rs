@@ -208,3 +208,302 @@ async fn an_upload_becomes_a_cart_through_the_media_worker() {
     assert_eq!(cat["carts"].as_array().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// A cart wall per show (1.0.2): a show's own banks beside the station's, changed only by those
+/// who may change its step (a preparing window among them), and never touching another show's
+/// or the station's.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_shows_own_banks_are_kept_apart_and_changed_by_its_people() {
+    use weavesignal_model::staff::{self, Role};
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    let station = ensure_station(
+        &pool,
+        &Station::new(StationId::new_random(), "Kettle FM").unwrap(),
+    )
+    .await
+    .unwrap();
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("carts-{}", uuid::Uuid::new_v4()));
+    let config = CartsConfig {
+        media_dir: dir.clone(),
+        worker: Some(env!("CARGO_BIN_EXE_weavesignal-control").into()),
+        ..CartsConfig::default()
+    };
+    let hub = Hub::new(
+        &station.name,
+        Studio::default(),
+        DeskClient::new(None),
+        None,
+        Duration::from_millis(250),
+        CartsLink::new(config, Some((pool.clone(), station.id))),
+    );
+    hub.start_carts().await;
+    let staff = Arc::new(weavesignal_control::staff::Staff::new(Some(pool.clone())));
+    // Three signed-in members of staff: Iona presents Steeped, Eilidh presents The Morning
+    // Kettle, Calum produces.
+    let mut tokens = std::collections::HashMap::new();
+    let mut ids = std::collections::HashMap::new();
+    for (username, name, role) in [
+        ("iona", "Iona MacIntosh", Role::Presenter),
+        ("eilidh", "Eilidh Fraser-MacLeod", Role::Presenter),
+        ("calum", "Calum Robertson", Role::Producer),
+    ] {
+        let account = staff::create_account(
+            &pool,
+            station.id,
+            username,
+            name,
+            role,
+            &staff::hash_password("a long enough phrase").unwrap(),
+        )
+        .await
+        .unwrap();
+        let token = staff::new_token();
+        staff::create_session(
+            &pool,
+            station.id,
+            account.id,
+            &staff::token_hash(&token),
+            weavesignal_control::hub::now_ms() + 3_600_000,
+        )
+        .await
+        .unwrap();
+        tokens.insert(username, token);
+        ids.insert(username, account.id);
+    }
+    staff.restore(station.id).await;
+    for (slug, name, presenter) in [
+        ("steeped", "Steeped", "iona"),
+        ("morning-kettle", "The Morning Kettle", "eilidh"),
+    ] {
+        let input: weavesignal_model::shows::ShowInput = serde_json::from_value(
+            serde_json::json!({"name": name, "colour_slot": 2, "presenter_account": ids[presenter]}),
+        )
+        .unwrap();
+        weavesignal_model::shows::put_show(&pool, station.id, slug, &input)
+            .await
+            .unwrap();
+    }
+    let app = router(Arc::new(AppState {
+        station: station.clone(),
+        db: Some(pool),
+        room: None,
+        admin_token: Some(ADMIN.into()),
+        staff,
+        hub: hub.clone(),
+        join: weavesignal_control::config::JoinConfig::default(),
+        video: Default::default(),
+        joins: Default::default(),
+        turn_tls_port: 5349,
+        steering: Default::default(),
+    }));
+    let as_ = |who: &str, method: &str, uri: &str, body: Body| {
+        let bearer = tokens.get(who).cloned().unwrap_or_else(|| ADMIN.to_owned());
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("authorization", format!("Bearer {bearer}"))
+            .header("content-type", "application/json")
+            .body(body)
+            .unwrap()
+    };
+    let bank =
+        |name: &str| Body::from(serde_json::json!({"name": name, "colour_slot": 4}).to_string());
+
+    // The station's bank 1, shared by every show.
+    let (code, _) = send(
+        &app,
+        req("PUT", "/api/v1/carts/banks/1", bank("Station effects")),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    // Iona prepares Steeped in a preparing window: her show's bank 1 is hers to make.
+    let (code, me) = send(
+        &app,
+        as_(
+            "iona",
+            "PUT",
+            "/api/v1/sessions/me/mode",
+            Body::from(r#"{"preparing": true}"#),
+        ),
+    )
+    .await;
+    assert_eq!(
+        (code, &me["preparing"]),
+        (StatusCode::OK, &serde_json::json!(true))
+    );
+    let (code, cat) = send(
+        &app,
+        as_(
+            "iona",
+            "PUT",
+            "/api/v1/shows/steeped/carts/banks/1",
+            bank("Dog woofs"),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{cat}");
+    assert_eq!(cat["show"], "steeped");
+    let banks: Vec<(serde_json::Value, String)> = cat["banks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| (b["show"].clone(), b["name"].as_str().unwrap().to_owned()))
+        .collect();
+    assert_eq!(
+        banks,
+        vec![
+            (serde_json::Value::Null, "Station effects".to_owned()),
+            (serde_json::json!("steeped"), "Dog woofs".to_owned()),
+        ]
+    );
+    // An upload into her bank goes through the worker as the station's do.
+    let wav = weavesignal_media::wav_sine(44_100, 2, 1.0, 330.0, 0.5);
+    let (code, woof) = send(
+        &app,
+        as_(
+            "iona",
+            "PUT",
+            "/api/v1/shows/steeped/carts/banks/1/slots/1?label=Woof&mode=one_shot",
+            Body::from(wav.clone()),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{woof}");
+    assert_eq!(woof["show"], "steeped");
+    // Eilidh, another show's presenter, may not touch Steeped's banks; Calum, a producer, may.
+    let (code, _) = send(
+        &app,
+        as_(
+            "eilidh",
+            "PUT",
+            "/api/v1/shows/steeped/carts/banks/2",
+            bank("Not hers"),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let (code, _) = send(
+        &app,
+        as_(
+            "eilidh",
+            "DELETE",
+            "/api/v1/shows/steeped/carts/banks/1/slots/1",
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let (code, _) = send(
+        &app,
+        as_(
+            "calum",
+            "PUT",
+            "/api/v1/shows/steeped/carts/banks/2",
+            bank("Producer's"),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    // Eilidh's own show's bank 1 is apart from Steeped's and the station's.
+    let (code, _) = send(
+        &app,
+        as_(
+            "eilidh",
+            "PUT",
+            "/api/v1/shows/morning-kettle/carts/banks/1",
+            bank("Cat noises"),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    let (code, miaow) = send(
+        &app,
+        as_(
+            "eilidh",
+            "PUT",
+            "/api/v1/shows/morning-kettle/carts/banks/1/slots/1?label=Miaow&mode=one_shot",
+            Body::from(wav),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{miaow}");
+    let labels = |cat: &serde_json::Value| -> Vec<String> {
+        cat["carts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["label"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let (_, steeped) = send(
+        &app,
+        req("GET", "/api/v1/carts?show=steeped", Body::empty()),
+    )
+    .await;
+    assert_eq!(labels(&steeped), vec!["Woof"]);
+    let (_, kettle) = send(
+        &app,
+        req("GET", "/api/v1/carts?show=morning-kettle", Body::empty()),
+    )
+    .await;
+    assert_eq!(labels(&kettle), vec!["Miaow"]);
+    let (_, station_only) = send(&app, req("GET", "/api/v1/carts", Body::empty())).await;
+    assert_eq!(station_only["banks"].as_array().unwrap().len(), 1);
+    assert!(labels(&station_only).is_empty());
+
+    // Removing Steeped's bank 1 takes Woof and its file, and leaves Miaow.
+    let woof_file = woof["file"].as_str().unwrap().to_owned();
+    assert!(dir.join(&woof_file).exists());
+    let (code, cat) = send(
+        &app,
+        as_(
+            "iona",
+            "DELETE",
+            "/api/v1/shows/steeped/carts/banks/1",
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{cat}");
+    assert!(!dir.join(woof_file).exists());
+    assert!(labels(&cat).is_empty());
+    let (code, _) = send(
+        &app,
+        as_(
+            "iona",
+            "DELETE",
+            "/api/v1/shows/steeped/carts/banks/1",
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    let (_, kettle) = send(
+        &app,
+        req("GET", "/api/v1/carts?show=morning-kettle", Body::empty()),
+    )
+    .await;
+    assert_eq!(labels(&kettle), vec!["Miaow"]);
+    // A show that does not exist is 404, and the station key may change any show's banks.
+    let (code, _) = send(
+        &app,
+        req("PUT", "/api/v1/shows/no-such-show/carts/banks/1", bank("x")),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    let (code, _) = send(
+        &app,
+        req(
+            "PUT",
+            "/api/v1/shows/steeped/carts/banks/3",
+            bank("By the key"),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -52,8 +52,9 @@ async fn carts_are_kept_per_station_and_a_slot_holds_one() {
         number: 1,
         name: "Reactions".into(),
         colour_slot: 1,
+        show: None,
     };
-    carts::put_bank(&pool, a.id, &bank).await.unwrap();
+    carts::put_bank(&pool, a.id, None, &bank).await.unwrap();
     let file = |n: u128| format!("{}.flac", uuid::Uuid::from_u128(n).hyphenated());
     let mut cart = Cart {
         id: uuid::Uuid::new_v4(),
@@ -70,15 +71,19 @@ async fn carts_are_kept_per_station_and_a_slot_holds_one() {
         ramp_ms: Some(1200),
         origin: "demo:applause-1".into(),
         licence: "CC0 1.0".into(),
+        show: None,
     };
-    assert_eq!(carts::put_cart(&pool, a.id, &cart).await.unwrap(), None);
+    assert_eq!(
+        carts::put_cart(&pool, a.id, None, &cart).await.unwrap(),
+        None
+    );
     // A new cart in the same slot replaces it, and hands back the old file to delete.
     let old = cart.clone();
     cart.id = uuid::Uuid::new_v4();
     cart.file = Some(file(2));
     cart.mode = CartMode::Bed;
     assert_eq!(
-        carts::put_cart(&pool, a.id, &cart).await.unwrap(),
+        carts::put_cart(&pool, a.id, None, &cart).await.unwrap(),
         old.file.clone()
     );
     let (banks, list) = carts::load(&pool, a.id).await.unwrap();
@@ -86,16 +91,16 @@ async fn carts_are_kept_per_station_and_a_slot_holds_one() {
     assert_eq!(list, vec![cart.clone()]);
     // Another station sees none of it, and cannot use a bank it has not made.
     assert_eq!(carts::load(&pool, b.id).await.unwrap(), (vec![], vec![]));
-    assert!(carts::put_cart(&pool, b.id, &cart).await.is_err());
+    assert!(carts::put_cart(&pool, b.id, None, &cart).await.is_err());
     // The table refuses what the checks refuse.
     let mut bad = cart.clone();
     bad.id = uuid::Uuid::new_v4();
     bad.slot = 2;
     bad.file = Some("../x.flac".into());
-    assert!(carts::put_cart(&pool, a.id, &bad).await.is_err());
+    assert!(carts::put_cart(&pool, a.id, None, &bad).await.is_err());
     assert_eq!(
-        carts::delete_cart(&pool, a.id, 1, 1).await.unwrap(),
-        Some(cart.id)
+        carts::delete_cart(&pool, a.id, None, 1, 1).await.unwrap(),
+        Some((cart.id, cart.file.clone()))
     );
     assert_eq!(carts::load(&pool, a.id).await.unwrap().1, vec![]);
 }

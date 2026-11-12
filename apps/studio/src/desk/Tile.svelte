@@ -11,8 +11,11 @@
   import { slotKeys } from '../../../../packages/ui/keymap.ts';
   import { dur, meterPct, signed } from '../lib/format.ts';
   import { run } from '../lib/actions.ts';
-  import { studio } from '../lib/studio.svelte.ts';
+  import { look, studio } from '../lib/studio.svelte.ts';
   import { HANDOVER_KEY, type HandoverButton } from '../lib/handover.ts';
+  import { STEP_WORD, stationStep } from '../lib/steps.ts';
+  import { preparing } from '../lib/prepare.svelte.ts';
+  import { OFF_WHY } from '../lib/prepare.ts';
 
   interface Props {
     /** The source, or null for slot 6, playout. */
@@ -25,10 +28,15 @@
     /** The handover button, on the incoming DJ's tile only (ADR-0074): the same action as ⇧⏎.
      *  It sits in the lines row, under the controls, so the four live buttons never move. */
     handover?: HandoverButton | null;
+    /** The handover is drawn because everything is shown, and the show's step keeps it off. */
+    handoverOff?: boolean;
   }
-  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null }: Props = $props();
+  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null, handoverOff = false }: Props = $props();
 
   const keys = $derived(slotKeys(slot));
+  /** This window is preparing (ADR-0276): the tile shows the live desk, and its controls are off. */
+  const prep = $derived(preparing());
+  const prepWhy = $derived(prep ? OFF_WHY : undefined);
   const isPlayout = $derived(source === null);
   const ready = $derived(!!source?.caller?.sent && !source.caller.taken);
   const chip: Chip = $derived(
@@ -49,9 +57,18 @@
     caller: ['g-phone', 'Caller'],
   };
   const role = $derived(source ? (ROLE[source.role] ?? ['g-standby', source.role]) : ['g-playout', 'Liquidsoap 2.5']);
+  // At the Callers step the DJ took the call themselves: no screener sent it. The station's
+  // step, so the line holds while everything is shown.
   const roleLine = $derived(
-    source?.role === 'caller' ? `Caller · ${source.caller?.sent ? 'sent by the screener' : 'from the screener'}` : role[1],
+    source?.role === 'caller'
+      ? stationStep(studio.view) === 'callers'
+        ? 'Caller · you took the call'
+        : `Caller · ${source.caller?.sent ? 'sent by the screener' : 'from the screener'}`
+      : role[1],
   );
+  // At Solo the DJ's tile is whole, so the four buttons keep their row and their keys from the
+  // first day; Talk is disabled, as playout's buttons are, because there is nobody to talk to.
+  const talkOff = $derived(look() === 'solo' && source?.role === 'presenter');
   const name = $derived(source ? source.caller?.name_on_air || source.name || source.identity : 'Playout');
   const hears = $derived(
     !source
@@ -100,6 +117,8 @@
           type="button"
           class="btn quiet"
           class:armed={armedDrop}
+          disabled={prep}
+          title={prepWhy}
           onclick={() => run(armedDrop ? { type: 'drop' } : { type: 'arm', what: 'drop' })}
           >{armedDrop ? 'Press again' : 'Drop'} <kbd>⌃D</kbd><kbd>⌃D</kbd></button
         >
@@ -108,6 +127,8 @@
           type="button"
           class="btn quiet"
           class:armed={armedEnd}
+          disabled={prep}
+          title={prepWhy}
           aria-label={armedEnd ? `Press again to end pass for ${name}` : `End pass for ${name}`}
           onclick={() =>
             run(armedEnd ? { type: 'end-pass', identity: source.identity } : { type: 'arm', what: 'end-pass', identity: source.identity })}
@@ -154,6 +175,8 @@
       class:lit-open={!!source?.on_air && !heard}
       aria-pressed={!!source?.on_air}
       aria-disabled={isPlayout}
+      disabled={prep}
+      title={prepWhy}
       onclick={() => run({ type: 'on', slot })}
       ><span><svg aria-hidden="true"><use href={heard ? '#g-onair' : '#g-open'} /></svg> On</span><kbd>{keys.on}</kbd></button
     >
@@ -163,6 +186,8 @@
       class:lit-cue={!!source?.cue}
       aria-pressed={!!source?.cue}
       aria-disabled={isPlayout}
+      disabled={prep}
+      title={prepWhy}
       onclick={() => run({ type: 'cue', slot })}
       ><span><svg aria-hidden="true"><use href="#g-cue" /></svg> Cue</span><kbd>{keys.cue}</kbd></button
     >
@@ -171,7 +196,9 @@
       class="btn"
       class:lit-talk={talking}
       aria-pressed={talking}
-      aria-disabled={isPlayout}
+      aria-disabled={isPlayout || talkOff}
+      disabled={prep}
+      title={prepWhy ?? (talkOff ? 'Talk needs someone to talk to. It comes with Guests.' : undefined)}
       aria-label="Talk to {name}, held"
       onpointerdown={() => run({ type: 'talk', slot, held: true })}
       onpointerup={() => run({ type: 'talk', slot, held: false })}
@@ -184,6 +211,8 @@
       class:lit-off={!!source?.mute}
       aria-pressed={!!source?.mute}
       aria-disabled={isPlayout}
+      disabled={prep}
+      title={prepWhy}
       onclick={() => run({ type: 'mute', slot })}
       ><span><svg aria-hidden="true"><use href="#g-muted" /></svg> Mute</span><kbd>{keys.mute}</kbd></button
     >
@@ -193,9 +222,17 @@
     {#if handover}
       <!-- The handover (ADR-0074), the same action as ⇧⏎: in the lines row, under the four live
            buttons, where it fits a full stage too; it takes the place of the line on what they hear. -->
-      <button type="button" class="btn primary hand" data-handover={handover.kind} title={handover.then} aria-describedby="hand-then-{slot}" onclick={() => run({ type: 'handover' })}
-        ><span>{handover.label}</span><kbd>{HANDOVER_KEY}</kbd></button
-      ><span id="hand-then-{slot}" class="sr-only">{handover.then}</span>
+      {@const offWhy = prep ? OFF_WHY : handoverOff ? `The handover is off at ${STEP_WORD[stationStep(studio.view)]}. It comes on at Full.` : ''}
+      <button
+        type="button"
+        class="btn primary hand"
+        data-handover={handover.kind}
+        title={offWhy || handover.then}
+        aria-disabled={handoverOff || undefined}
+        disabled={prep}
+        aria-describedby="hand-then-{slot}"
+        onclick={() => !handoverOff && run({ type: 'handover' })}><span>{handover.label}</span><kbd>{HANDOVER_KEY}</kbd></button
+      ><span id="hand-then-{slot}" class="sr-only">{offWhy || handover.then}</span>
     {:else}
       <span class="mm"><svg aria-hidden="true"><use href="#g-good" /></svg><span>{hears}</span></span>
     {/if}

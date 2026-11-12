@@ -617,6 +617,12 @@ pub(crate) mod fake {
         play: u64,
         /// The station's mode as it was last told (`None`: a desk too old to report one).
         pub mode: Option<String>,
+        /// The people it reports (`identity`, `role`, `on_air`): empty unless a test adds some.
+        pub people: Vec<Value>,
+        /// What the profanity delay holds, when a test sets one.
+        pub delay_ms: Option<u32>,
+        /// The picture's mode as the desk reports it (`{"mode": "auto"}`); `None`: video off.
+        pub video: Option<Value>,
     }
 
     impl FakeDesk {
@@ -667,8 +673,15 @@ pub(crate) mod fake {
                                 "loop": s.3 == "bed", "stopping": s.6})
                         })
                         .collect();
-                    json!({"ok": true, "people": [], "playout": {"connected": true, "for_ms": 10},
-                        "mode": self.mode,
+                    let delay = self
+                        .delay_ms
+                        .map(|d| json!({"delay_ms": d, "target_ms": 8_000, "rebuilding": false}));
+                    let video = self.video.as_ref().map(|mode| {
+                        json!({"mode": mode, "shot": "slate", "cameras": [], "hls": true,
+                            "room": true, "still": false})
+                    });
+                    json!({"ok": true, "people": self.people, "playout": {"connected": true, "for_ms": 10},
+                        "mode": self.mode, "delay": delay, "video": video,
                         "carts": {"ducked": self.mic_open || sweeping, "mic_open": self.mic_open,
                             "sounding": sounding, "play_seq": self.plays.len()}})
                 }
@@ -727,6 +740,25 @@ pub(crate) mod fake {
                         n += 1;
                     }
                     json!({"ok": true, "stopped": n})
+                }
+                "on_air" => {
+                    let on = v["on"].as_bool().unwrap_or(false);
+                    for p in self
+                        .people
+                        .iter_mut()
+                        .filter(|p| p["identity"] == v["identity"])
+                    {
+                        p["on_air"] = json!(on);
+                    }
+                    json!({"ok": true})
+                }
+                "picture" if self.video.is_some() => {
+                    let mut mode = json!({"mode": v["mode"]});
+                    if !v["identity"].is_null() {
+                        mode["identity"] = v["identity"].clone();
+                    }
+                    self.video = Some(mode);
+                    json!({"ok": true})
                 }
                 "mode" if self.mode.is_some() => {
                     self.mode = v["mode"].as_str().map(str::to_owned);

@@ -31,6 +31,7 @@ pub mod setup;
 pub mod shows;
 pub mod staff;
 pub mod steering;
+pub mod steps;
 pub mod studio;
 pub mod telemetry;
 pub mod tokens;
@@ -222,9 +223,21 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
             };
             onair::OnAir::new(station.id, pool.clone(), links, &hub).spawn(&hub);
         }
-        _ => tracing::warn!(
-            "automation, the per-play log, audience counts and the logger need the database and playout's socket"
-        ),
+        _ => {
+            tracing::warn!(
+                "automation, the per-play log, audience counts and the logger need the database and playout's socket"
+            );
+            // The desk's Listeners panel needs only the listener process: count for it anyway,
+            // and say plainly in the view when it cannot be reached (ADR-0272).
+            onair::spawn_audience_counter(
+                &hub,
+                format!(
+                    "http://{}/status.json",
+                    SocketAddr::new(config.listen.internal, config.ports.get("listeners"))
+                ),
+                playout::PlayoutClient::new(config.playout.listeners_socket.as_deref()),
+            );
+        }
     }
     // Shows, cards and feeds (M8): their own state and routes, merged below.
     // Staff sessions (ADR-0127): one set, shared by every route that checks them.
@@ -353,6 +366,9 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     if ended > 0 {
         tracing::info!(passes = ended, "ended passes read back from the database");
     }
+    // The beginner step (ADR-0271), read before the routes are served so a restart does not
+    // open the lines at a Solo show; kept in line with the schedule from here on.
+    steps::start(state.clone()).await;
     let link = Arc::new(retention::RetentionLink {
         recordings_dir: config.retention.recordings_dir.clone(),
         sweep_every: std::time::Duration::from_secs(config.retention.sweep_every_s),

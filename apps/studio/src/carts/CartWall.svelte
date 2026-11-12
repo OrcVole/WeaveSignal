@@ -7,13 +7,20 @@
   // colour is its palette slot, a 5 px band and never the face (ADR-0066). Panel names
   // `carts.wall`, `carts.bank.1`–`carts.bank.5`, `carts.sounding` (ADR-0070); the app's own
   // frame is `studio.frame`, so the design's `carts.frame` is not drawn twice.
+  //
+  // A cart wall per show (1.0.2): the window works with the station's banks and its show's own
+  // (`studio.cartShow`). Tab N is the show's bank N where the show has made one, the station's
+  // otherwise, and each tab says whose it is: "show" or "station" (packages/ui/carts.ts).
   import { CHIP } from '../../../../packages/ui/states.ts';
   import StateChip from '../../../../packages/ui/StateChip.svelte';
   import { cartKey } from '../../../../packages/ui/keymap.ts';
-  import { MODE, cartAt, cartNow, type Cart, type CartNow } from '../../../../packages/ui/carts.ts';
+  import { MODE, bankAt, bankOwner, cartAt, cartNow, cartsAt, stationBankUnder, tabOf, type Bank, type Cart, type CartNow } from '../../../../packages/ui/carts.ts';
   import { studio, stationNow } from '../lib/studio.svelte.ts';
   import { run } from '../lib/actions.ts';
   import { dur, firstName, signed } from '../lib/format.ts';
+  import { preparing } from '../lib/prepare.svelte.ts';
+  import { setup } from '../lib/wizard.svelte.ts';
+  import { OFF_WHY } from '../lib/prepare.ts';
 
   /** The duck depth the desk's mixer uses (crates/mixer, `DUCK_DB`). */
   const DUCK_DB = 12;
@@ -22,10 +29,29 @@
   const RING_C = 2 * Math.PI * RING_R;
 
   const v = $derived(studio.view);
+  /** This window is preparing (ADR-0276): the wall shows what is sounding, and fires nothing.
+   *  The banks still turn, as they are this window's own. */
+  const prep = $derived(preparing());
   const cv = $derived(v?.carts ?? null);
   const cat = $derived(studio.catalogue);
   const now = $derived(stationNow());
-  const bank = $derived(cat?.banks.find((b) => b.number === studio.bank) ?? null);
+  const bank = $derived(bankAt(cat, studio.bank));
+  /** The name of the show whose own banks this window works with, for the strip's words. */
+  const showName = $derived.by(() => {
+    const slug = studio.cartShow;
+    if (!slug) return null;
+    if (v?.step?.show?.slug === slug) return v.step.show.name;
+    return setup.shows.find((s) => s.slug === slug)?.name ?? slug;
+  });
+
+  /** Whose a tab's bank is, in words, for its tooltip. */
+  function whose(b: Bank | null, n: number): string {
+    if (!b) return `Bank ${n} has not been made`;
+    if (bankOwner(b) === 'station') return 'The station’s bank, shared by every show';
+    const under = stationBankUnder(cat, n);
+    const own = `${showName ?? 'The show'}’s own bank`;
+    return under ? `${own}: in its windows it takes the place of the station’s bank ${n}, ${under.name}` : own;
+  }
   const colour = (n: number | undefined) => (n ? `var(--cart-${n})` : 'var(--deemph)');
   const bankColour = $derived(colour(bank?.colour_slot));
 
@@ -49,12 +75,14 @@
   const sounding = $derived(
     (cv?.sounding ?? []).map((s) => {
       const cart = cat?.carts.find((c) => c.id === s.cart) ?? null;
-      const b = cat?.banks.find((x) => x.number === cart?.bank);
-      return { s, cart, colour: colour(b?.colour_slot), now: cartNow(cart, cv, now), here: cart?.bank === studio.bank };
+      // A cart this window's banks do not hold (another show's) is named from the view.
+      const tab = cart ? tabOf(cat, cart) : null;
+      const b = tab === null ? null : bankAt(cat, tab);
+      return { s, cart, label: cart?.label ?? s.label ?? 'A cart', tab, colour: colour(b?.colour_slot), now: cartNow(cart, cv, now), here: tab === studio.bank };
     }),
   );
   const soundingWords = $derived(
-    sounding.length ? `Sounding: ${sounding.map((x) => x.cart?.label ?? 'a cart').join(', ')}` : 'Nothing sounding',
+    sounding.length ? `Sounding: ${sounding.map((x) => x.label).join(', ')}` : 'Nothing sounding',
   );
   const fadeArmed = $derived(studio.armed?.what === 'fade-all');
   const fadeLeft = $derived(fadeArmed && studio.armed ? Math.max(0, Math.ceil((studio.armed.at + 3000 - studio.now) / 1000)) : 0);
@@ -88,20 +116,22 @@
   <section class="wallpanel" data-panel="carts.wall" aria-label="Cart wall">
     <div class="banks">
       <span class="caps" data-panel-title>Banks</span>
-      <div class="banklist" role="group" aria-label="Cart banks">
+      <div class="banklist" role="group" aria-label={showName ? `Cart banks: the station’s, and ${showName}’s own` : 'Cart banks: the station’s'}>
         {#each [1, 2, 3, 4, 5] as n (n)}
-          {@const b = cat?.banks.find((x) => x.number === n)}
-          {@const count = cat?.carts.filter((c) => c.bank === n).length ?? 0}
+          {@const b = bankAt(cat, n)}
+          {@const count = cartsAt(cat, n).length}
           <button
             type="button"
             class="bank"
             class:none={!b}
             data-panel="carts.bank.{n}"
+            data-owner={b ? bankOwner(b) : undefined}
             aria-pressed={studio.bank === n}
+            title={whose(b, n)}
             style="--bank-colour:{colour(b?.colour_slot)}"
             onclick={() => run({ type: 'bank', n })}
-            ><span class="band"></span><kbd>⌃F{n}</kbd><b data-panel-title>{b?.name ?? `Bank ${n}`}</b><span class="count num"
-              >{b ? `${count}/24` : 'not made'}</span
+            ><span class="band"></span><kbd>⌃F{n}</kbd><b data-panel-title>{b?.name ?? `Bank ${n}`}</b>{#if b}<span class="owner">{bankOwner(b)}</span>{/if}<span
+              class="count num">{b ? `${count}/24` : 'not made'}</span
             ></button
           >
         {/each}
@@ -130,6 +160,8 @@
           data-cart-slot={slot}
           aria-label={aria(key, cart, n)}
           aria-disabled={n.state === 'missing' || undefined}
+          disabled={prep}
+          title={prep ? OFF_WHY : undefined}
           onfocus={() => (studio.cartFocus = slot)}
           onclick={() => run({ type: 'cart-key', slot })}
         >
@@ -199,8 +231,8 @@
       <span class="sr-only">{soundingWords}</span>
       {#each sounding as x (x.s.player + x.s.pool)}
         <span class="item" class:ending={x.now.state === 'ending'} style="--cart-colour:{x.colour}" aria-hidden="true"
-          ><span class="band"></span>{#if x.cart}<kbd>{x.here ? cartKey(x.cart.slot) : `⌃F${x.cart.bank} ${cartKey(x.cart.slot)}`}</kbd>{/if}<b
-            >{x.cart?.label ?? 'A cart'}</b
+          ><span class="band"></span>{#if x.cart && x.tab !== null}<kbd>{x.here ? cartKey(x.cart.slot) : `⌃F${x.tab} ${cartKey(x.cart.slot)}`}</kbd>{/if}<b
+            >{x.label}</b
           ><span class="t num">{x.cart?.mode === 'bed' ? dur(now - x.s.started_ms) : left(x.now.leftMs)}</span><span class="small"
             >{x.now.state === 'stopping'
               ? 'fading'
@@ -224,7 +256,7 @@
       <span>Stop <kbd>key</kbd> again</span>
       <span>Cue <kbd>⇧</kbd><kbd>key</kbd> · clear <kbd>Esc</kbd></span>
       <span>Stop last <kbd>Space</kbd></span>
-      <button type="button" class="btn sm" class:armed={fadeArmed} onclick={fadeAll} aria-describedby="fade-hint"
+      <button type="button" class="btn sm" class:armed={fadeArmed} disabled={prep} title={prep ? OFF_WHY : undefined} onclick={fadeAll} aria-describedby="fade-hint"
         >{fadeArmed ? `Fade all? ${fadeLeft}` : 'Fade all'} <kbd>⇧Space</kbd><kbd>⇧Space</kbd></button
       >
       <span id="fade-hint" class="sr-only">Press twice within 3 seconds to fade every cart out.</span>

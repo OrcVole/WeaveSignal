@@ -35,7 +35,7 @@ use axum::{Json, Router};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::app::{AppState, problem, refusal, staff_first};
+use crate::app::{AppState, on_air_refusal, problem, refusal, staff_first};
 use crate::config::VideoConfig;
 use crate::desk::DeskError;
 use crate::media::WorkerError;
@@ -237,7 +237,7 @@ async fn put_still(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if let Some(r) = refusal(&state, &headers) {
+    if let Some(r) = on_air_refusal(&state, &headers) {
         return r;
     }
     match set_still(&state, body.to_vec()).await {
@@ -261,7 +261,7 @@ async fn put_still(
     security(("staff_session" = []), ("station_key" = [])),
 )]
 async fn delete_still(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    if let Some(r) = refusal(&state, &headers) {
+    if let Some(r) = on_air_refusal(&state, &headers) {
         return r;
     }
     match remove(&state, station_still(&state.video)).await {

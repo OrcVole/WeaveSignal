@@ -16,7 +16,7 @@
   /* ---- status bar ---- */
   .statusbar { flex: none; display: flex; align-items: center; gap: var(--s-3); padding: var(--s-1) var(--s-3); background: var(--surface); border-bottom: 1px solid var(--hairline); font-size: var(--fs-13); color: var(--ink-2); min-height: 2.75rem; overflow: hidden; white-space: nowrap; }
   .statusbar .item[data-wide] { display: none; }
-  @media (min-width: 2200px) { .statusbar { gap: var(--s-4); padding: var(--s-2) var(--s-4); } .statusbar .item[data-wide] { display: inline-flex; } }
+  @container studio (min-width: 2200px) { .statusbar { gap: var(--s-4); padding: var(--s-2) var(--s-4); } .statusbar .item[data-wide] { display: inline-flex; } }
   .statusbar .item { display: inline-flex; align-items: center; gap: var(--s-2); }
   .statusbar .item b { color: var(--ink); }
   .statusbar .sep { flex: 1; }
@@ -64,7 +64,7 @@
   .qrow .flags { grid-column: 2 / -1; display: flex; gap: var(--s-2); align-items: center; min-width: 0; }
   .qrow .flags > * { flex: none; }
   .qrow .topic { flex: 1 1 auto !important; min-width: 0; font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  @media (min-width: 2200px) {
+  @container studio (min-width: 2200px) {
     .qrow[aria-selected="true"] .flags { flex-wrap: wrap; }
     .qrow[aria-selected="true"] .topic { white-space: normal; flex-basis: 100% !important; }
   }
@@ -98,12 +98,12 @@
   .chk-box i svg { width: 10px; height: 10px; }
   .actions { display: flex; gap: var(--s-1); flex-wrap: wrap; align-items: center; }
   .actions .btn { min-height: 2.25rem; padding: 0 var(--s-2); gap: var(--s-1); }
-  @media (min-width: 2200px) { .actions { gap: var(--s-2); } }
+  @container studio (min-width: 2200px) { .actions { gap: var(--s-2); } }
   .actions .grow { flex: 1; }
   .callin { background: var(--surface-2); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); font-size: var(--fs-13); color: var(--ink-2); display: grid; gap: 2px; }
   .callin b { color: var(--ink); }
   .trail { display: none; gap: var(--s-1); font-size: var(--fs-13); color: var(--ink-2); }
-  @media (min-width: 2200px) { .trail { display: grid; } .qfoot { display: flex; } .screen > .head .sub { display: inline; } }
+  @container studio (min-width: 2200px) { .trail { display: grid; } .qfoot { display: flex; } .screen > .head .sub { display: inline; } }
   .screen > .head .sub { display: none; }
   .trail .t { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: var(--s-3); align-items: start; line-height: 1.5; }
   .trail .t .num { color: var(--muted); }
@@ -158,11 +158,11 @@
   .sor .foot { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--hairline); display: flex; gap: var(--s-2); justify-content: flex-end; flex-wrap: wrap; align-items: center; }
   .sor .foot .left { margin-right: auto; font-size: var(--fs-12); color: var(--muted); }
   .segs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-1); }
-  @media (min-width: 2200px) { .segs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @container studio (min-width: 2200px) { .segs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .segs .btn { min-height: 2.25rem; font-size: var(--fs-13); padding: 0 var(--s-2); justify-content: space-between; }
   .segs .btn.lit-on { background: var(--surface-3); }
   .reasons { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--s-3); }
-  @media (min-width: 2200px) { .reasons { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-1) var(--s-3); } }
+  @container studio (min-width: 2200px) { .reasons { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-1) var(--s-3); } }
   .radio { display: flex; align-items: center; gap: var(--s-2); min-height: var(--target); font-size: var(--fs-13); color: var(--ink-2); min-width: 0; }
   .radio span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .radio i { width: 1rem; height: 1rem; border-radius: 50%; border: 1.5px solid var(--axis); display: inline-grid; place-items: center; flex: none; }
@@ -235,7 +235,7 @@
   .toast .tb > svg { background: transparent !important; }
 
   /* ---- the wide layout: five columns ---- */
-  @media (min-width: 2200px) {
+  @container studio (min-width: 2200px) {
     .app { grid-template-columns: 24rem 31rem 36rem minmax(0, 1fr); }
     .col.c1 { display: contents; }
     .col.c1 > .panel { min-height: 0; }

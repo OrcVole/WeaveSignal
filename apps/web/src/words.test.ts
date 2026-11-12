@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 import { describe, expect, it } from 'vitest';
-import type { MeState, Phase, Role } from './lib/api.ts';
+import { ApiError, type MeState, type Phase, type Role } from './lib/api.ts';
 import { banner, mmss, showLine } from './lib/words.ts';
+import { CLOSED_WHILE_FILLING, LINES_CLOSED, closedLine, closedUnderForm, releasedWords } from './lib/lines.ts';
 
 function me(over: Partial<MeState> = {}): MeState {
   return {
@@ -23,6 +24,11 @@ describe('what a caller’s page says', () => {
   });
   it('the producer talking while held T, then picked up, ready, busy, cued, on air', () => {
     expect(say('caller', { phase: 'waiting', screener_talking: true }).headline).toBe('The producer is talking to you');
+    // At the Callers step there is no screener: the presenter answers, and the page names them.
+    expect(say('caller', { phase: 'waiting', screener_talking: true, presenter_answers: true }).headline).toBe('Rory is talking to you');
+    expect(say('caller', { phase: 'waiting', place: 1, presenter_answers: true }).detail).toMatch(/Rory will pick up soon/);
+    expect(say('caller', { phase: 'screening', presenter_answers: true }).headline).toBe('Rory has picked up your call');
+    expect(say('caller', { phase: 'ready', presenter_answers: true }).detail).not.toMatch(/producer/);
     expect(say('caller', { phase: 'screening' }).chip.word).toBe('Screening');
     expect(say('caller', { phase: 'screening', screener_talking: true }).tone).toBe('talk');
     expect(say('caller', { phase: 'ready' }).headline).toBe("You're next");
@@ -89,4 +95,68 @@ describe('the show line says whether the presenter is live', () => {
   it('off air', () => expect(showLine(me({ show_on_air: false, presenter_live: false }))).toBe('The show is off air just now'));
   it('the studio unreachable', () => expect(showLine(me({ desk_reachable: false }))).toMatch(/can't be reached/));
   it('m:ss', () => expect([mmss(0), mmss(59_001), mmss(300_000)]).toEqual(['0:00', '1:00', '5:00']));
+});
+
+describe('a caller let go because the lines closed (ADR-0271)', () => {
+  const gone = (released: MeState['released'], link: Parameters<typeof banner>[2], name = 'Niall Anderson') =>
+    banner('caller', me({ phase: 'ended', released }), link, 0, null, name);
+
+  it('is thanked by name and told they were not on air, with the cause', () => {
+    const took = gone('show_took_air', 'ended');
+    expect(took.headline).toBe('The lines have closed');
+    expect(took.detail).toBe('Thank you for waiting, Niall. The show that is starting now is not taking calls, so your place in the queue has gone. You were not on air.');
+    expect(took.chip.word).toBe('Lines closed');
+    expect(took.tone).toBe('ended');
+    const down = gone('step_moved_down', 'ended');
+    expect(down.detail).toBe('Thank you for waiting, Niall. This show has stopped taking calls, so your place in the queue has gone. You were not on air.');
+  });
+
+  it('reads so whatever the link is doing: never "Your call has ended" or "The line was lost"', () => {
+    for (const link of ['ended', 'lost', 'reconnecting', 'connected', 'connecting'] as const) {
+      expect(gone('step_moved_down', link).headline, link).toBe('The lines have closed');
+    }
+    // Without the cause it is an ordinary end.
+    expect(gone(null, 'ended').headline).toBe('Your call has ended');
+    expect(banner('caller', me({ phase: 'waiting' }), 'lost', 0, null, 'Niall Anderson').headline).toBe('The line was lost');
+  });
+
+  it('thanks without a name when none is known, and is a caller’s banner only', () => {
+    expect(gone('show_took_air', 'ended', '').detail).toMatch(/^Thank you for waiting\. The show that is starting now/);
+    expect(banner('guest', me({ role: 'guest', phase: 'ended', released: 'step_moved_down' }), 'ended', 0, null, 'Gregor Stewart').headline).toBe('You have left the studio');
+  });
+});
+
+describe('the lines closed for a show (ADR-0271)', () => {
+  it('says the station’s sentence, and adds the chat while it is open to write in', () => {
+    expect(closedLine(LINES_CLOSED, false)).toBe('The lines are closed for this show.');
+    expect(closedLine(LINES_CLOSED, true)).toBe('The lines are closed for this show. You can still write in the chat below.');
+    // Another reason for no calls is the station's own, and nothing is added to it.
+    const other = 'The studio is not taking calls right now. Keep listening and try again later.';
+    expect(closedLine(other, true)).toBe(other);
+    expect(closedLine(null, true)).toBe('');
+  });
+
+  it('tells a form sent after the lines closed from any other refusal, by the station’s sentence', () => {
+    expect(closedUnderForm(new ApiError(503, LINES_CLOSED))).toBe(true);
+    expect(closedUnderForm(new ApiError(503, 'Calls are not set up at this station yet.'))).toBe(false);
+    expect(closedUnderForm(new ApiError(422, 'Your name is too long', 'name'))).toBe(false);
+    expect(closedUnderForm(new TypeError('Failed to fetch'))).toBe(false);
+    expect(CLOSED_WHILE_FILLING).toBe('The lines closed while you were filling this in. This show is not taking calls.');
+  });
+
+  it('words a released caller’s page for each cause', () => {
+    expect(releasedWords('show_took_air', 'Niall Anderson')).toEqual({
+      headline: 'The lines have closed',
+      thanks: 'Thank you for waiting, Niall.',
+      detail: 'The show that is starting now is not taking calls, so your place in the queue has gone. You were not on air.',
+    });
+    expect(releasedWords('step_moved_down', '  ').thanks).toBe('Thank you for waiting.');
+  });
+});
+
+describe('invitations', () => {
+  it('are the noun on every join page', () => {
+    expect(banner('guest', me({ role: 'guest', phase: 'ended' }), 'ended', 0, null).detail).toBe('Open your invitation link again to rejoin while it lasts.');
+    expect(banner('guest', me({ role: 'guest' }), 'lost', 0, null).detail).toBe('Check your connection, then open your invitation link again.');
+  });
 });

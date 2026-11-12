@@ -62,7 +62,7 @@ Without `booth`, a monitor joins the studio room.
 
 ## Without handling a token
 
-Guests, remote DJs and presenters follow an invite link to the join page, and a listener calls in from the player page: in both the station issues the token for them ([The public pages](/docs/reference/public-pages/)).
+Guests, remote DJs and presenters follow an invitation link to the join page, and a listener calls in from the player page: in both the station issues the token for them ([The public pages](/docs/reference/public-pages/)).
 Presenters and screeners sign in to the studio app as themselves ([Add staff and sign in](/docs/how-to/add-staff/)).
 A staff member's role is not tied to the room role their token carries.
 

@@ -18,7 +18,7 @@ It never installs anything by itself.
 ## Find and install an update
 
 1. About 20 seconds after the app opens, it looks at the feed once.
-   If a newer version is out, a button such as **Update 1.0.1 available** appears in the frame.
+   If a newer version is out, a button such as **Update 1.0.1 available** appears in the top bar.
    It opens Settings; nothing else happens.
 2. **Settings > Updates** (panel `settings.updates`) shows the version, its date and its notes.
    **Check again** (or **Check now**, when you have the latest) looks at the feed at any time.
@@ -57,7 +57,7 @@ Before it replaces itself, the app copies the running file (the AppImage you sta
 If the update fails, the copy kept by an earlier update stays.
 **Settings > Updates** then offers **Roll back to 1.0.0** (the version you had), which puts that copy back and restarts.
 It is refused while a strip is open, like an update.
-The version you left is not announced in the frame again; Settings still offers it, and a newer one is announced as usual.
+The version you left is not announced in the top bar again; Settings still offers it, and a newer one is announced as usual.
 Only one earlier version is kept.
 
 **`.deb`, `.rpm` and Windows.**

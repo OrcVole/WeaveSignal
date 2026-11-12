@@ -3,7 +3,7 @@ title: "Take a caller to air"
 description: "Accept a caller the screener sends you, hear them, put them on air, decline them, or drop them."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-11
 sidebar:
   order: 3
 ---
@@ -12,6 +12,11 @@ A caller rings in from the station's player page (ADR-0006), agrees to be record
 The screener talks to each caller first, then sends one to you ([Screen callers](/docs/how-to/screen-callers/)).
 A caller sent to the desk takes slot 4.
 A caller without consent to record cannot be sent to you.
+
+**With no screener, at the Callers step,** the callers wait on your desk instead, in **Callers** on the right ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/#the-desk-at-each-step)).
+Press `P`, or **Take … to strip 4**: the caller who has waited longest joins slot 4, off air, and the rest below is the same, with you in the screener's place.
+The strip holds one caller at a time.
+Below the Callers step the lines are closed, and nobody can call.
 
 ## When a caller is sent to you
 

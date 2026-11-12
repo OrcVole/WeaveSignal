@@ -22,7 +22,7 @@ sidebar:
 
 ## The images
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1`, which holds the desk, the control plane, the chat and the public pages.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2`, which holds the desk, the control plane, the chat and the public pages.
 Liquidsoap 2.5.0-rc1, LiveKit 1.13.10 and PostgreSQL 18 come from their upstream images.
 Compose pulls them all on the first `up`.
 

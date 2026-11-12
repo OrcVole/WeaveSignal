@@ -76,10 +76,10 @@ Press `Esc` to leave the field; chords such as `⌃1` and `⌃T` still work in i
 
 ## Keys that only show a note
 
+From 1.0.2 `⌃⇧E` ends the show, with a confirmation ([End the show](/docs/how-to/end-the-show/)).
 These keys answer with a note in the toast slot; nothing happens to the room ([planned](/docs/reference/release-one-status/#not-in-release-one)):
 
 - `⌃R`, restart playout: restart Liquidsoap on the server ([When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/)).
-- `⌃⇧E` and **End show**, end the show.
 - `6`, `Y` and `N`, playout as a desk source in slot 6.
 
 The keyboard-only run `tests/m2/drive.mjs` drives these steps against a real desk.

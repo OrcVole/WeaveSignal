@@ -29,7 +29,7 @@
 
 services:
   edge-1:
-    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1}
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.2}
     network_mode: host
     environment:
       EDGE_ORIGIN: http://127.0.0.1:${CONTROL_PORT:-7310}
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   relay-1:
-    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1}
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.2}
     network_mode: host
     environment:
       RELAY_ORIGIN_HOST: 127.0.0.1
@@ -55,7 +55,7 @@ services:
     restart: unless-stopped
 
   edge-2:
-    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1}
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.2}
     network_mode: host
     environment:
       EDGE_ORIGIN: http://127.0.0.1:${CONTROL_PORT:-7310}
@@ -67,7 +67,7 @@ services:
     restart: unless-stopped
 
   relay-2:
-    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1}
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.2}
     network_mode: host
     environment:
       RELAY_ORIGIN_HOST: 127.0.0.1

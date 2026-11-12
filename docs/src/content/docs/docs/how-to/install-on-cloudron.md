@@ -49,7 +49,7 @@ Cloudron asks for four domains and the public ports:
 | The app's own domain | `studio.station.example` | the studio: `/health`, the studio's and the chat's admin routes; behind Cloudron's login when the app uses Cloudron's users |
 | Listener stream | `listen.station.example` | `/programme.opus` only (and each MP3 stream that is on) |
 | Live room signalling | `room.station.example` | LiveKit's WebSocket; guarded by short-lived room tokens (ADR-0085) |
-| Public pages | `station.example` | the player with call-in and the live chat, the invite page, the echo test, podcast feeds, show cards and episode files, and only their public routes |
+| Public pages | `station.example` | the player with call-in and the live chat, the invitation page, the echo test, podcast feeds, show cards and episode files, and only their public routes |
 | Live room media (UDP) | 7882 | any free UDP port; **not** 50000–51000, Cloudron's own TURN relay range |
 | TURN over TLS | 15349 | Cloudron's own TURN holds 5349 (ADR-0106); any free TCP port |
 | TURN over UDP | off | Cloudron's own TURN holds 3478; 3479 if you turn it on |
@@ -67,8 +67,8 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.0.1 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.0.1
+podman build -t registry.station.example/weavesignal-cloudron:1.0.2 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.0.2
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.

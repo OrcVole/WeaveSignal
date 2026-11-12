@@ -16,6 +16,7 @@ export const QUEUE: Scenario = {
   title: 'A busy queue',
   blurb: 'You are the screener and four callers ring within seconds: send, see the desk decline, hold one, drop one, send again.',
   minutes: 4,
+  step: 'full',
   learn: [
     'Pick a caller by number, talk to them off air, and send them to the desk.',
     'What DESK BUSY means: the presenter declined, the caller stays ready, you send again at the next gap.',

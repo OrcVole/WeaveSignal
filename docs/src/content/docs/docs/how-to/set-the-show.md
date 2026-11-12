@@ -54,7 +54,7 @@ The desk now heads the stage with the show, lists what is coming up and back-tim
 | `hard_post = true` | the clock (`desk.clock`) back-times to the first such row ahead |
 | `key` | the cart key the row needs, shown beside it; `⇧⏎` marks the row as the DJ handover, and while a DJ is in the room it carries the handover button ([Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/)) |
 | `[[studio.banned]]` | a caller who joins with that `identity` shows BANNED BEFORE on the screener, with the `date` (`YYYY-MM-DD`) and the `reason` |
-| `listener_delay_ms` | how far behind the studio listeners hear, not counting the profanity delay: 15000 (15 s) by default, shown under the clock as set, not measured (ADR-0103) |
+| `listener_delay_ms` | how far behind the studio listeners hear, not counting the profanity delay: 13000 (13 s) by default, so a default station shows about 21 s, as the demo station measured (21.2 s). The desk reads the profanity delay and the listener process's buffer live and uses this for the rest, so it shows the total as an estimate (ADR-0103, ADR-0272) |
 
 ![The desk's clock, counting down to the next hard post.](../../../../assets/screens/how-to-set-the-show-clock.png)
 

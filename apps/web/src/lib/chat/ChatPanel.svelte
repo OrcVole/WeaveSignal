@@ -31,7 +31,15 @@
     inCall,
     oninvite,
     onfeatured,
-  }: { playing: boolean; inCall: boolean; oninvite: () => void; onfeatured?: (m: Msg | null) => void } = $props();
+    onopen,
+  }: {
+    playing: boolean;
+    inCall: boolean;
+    oninvite: () => void;
+    onfeatured?: (m: Msg | null) => void;
+    /** Told whether the chat is open to write in now: connected, and not read-only. */
+    onopen?: (open: boolean) => void;
+  } = $props();
 
   /** How long a message put on air stays as text beside the stream. */
   const ON_AIR_MS = 2 * 60 * 1000;
@@ -120,6 +128,7 @@
     return now >= from && now < f.at + client.listenerDelayMs + ON_AIR_MS ? f.m : null;
   });
   $effect(() => onfeatured?.(onAir));
+  $effect(() => onopen?.(client.link === 'open' && !readOnly));
 
   // Announce mentions of the reader as they enter the log (never while paused: they have not).
   const known = new Set<number>();

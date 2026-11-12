@@ -51,7 +51,7 @@ async function open(width, height, theme = 'dark') {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => check('no page errors', false, e.message));
   await page.goto(STUDIO);
-  await page.getByText('Control plane connected').waitFor({ timeout: 15000 });
+  await page.locator('[data-panel="studio.frame"] [data-link="live"]').waitFor({ timeout: 15000 });
   await page.keyboard.press('Control+5');
   await page.waitForSelector('.schedule .ec', { timeout: 15000 });
   await sleep(1200);
@@ -196,7 +196,7 @@ await shot(page, 'schedule-aired-1440-dark');
 // The name plates (ADR-0070): every panel named, and none over a control.
 const audit = await ctx.newPage();
 await audit.goto(`${STUDIO}?audit=1`);
-await audit.getByText('Control plane connected').waitFor({ timeout: 15000 });
+await audit.locator('[data-panel="studio.frame"] [data-link="live"]').waitFor({ timeout: 15000 });
 await audit.keyboard.press('Control+5');
 await audit.waitForSelector('.schedule .ec', { timeout: 15000 });
 await sleep(1500);

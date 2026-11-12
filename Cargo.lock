@@ -6693,7 +6693,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-cards"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "jiff",
  "resvg",
@@ -6705,7 +6705,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-chat"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -6738,7 +6738,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-control"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -6775,7 +6775,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-desk"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6798,7 +6798,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-feeds"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "jiff",
  "lofty",
@@ -6814,7 +6814,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-media"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "ebur128",
  "flacenc",
@@ -6835,7 +6835,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-mixer"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6844,7 +6844,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-model"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "argon2",
  "jiff",
@@ -6860,7 +6860,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-proto"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "base64 0.23.1",
  "hmac",
@@ -6873,7 +6873,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-studio"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "base64 0.22.1",
  "keyring",

@@ -10,6 +10,7 @@ import SlateStill from './desk/SlateStill.svelte';
 import ShowStill from './schedule/ShowStill.svelte';
 import { StillControl } from './lib/still.svelte.ts';
 import { ApiError } from './lib/api.ts';
+import { NO_SHOW } from './lib/steps.ts';
 import { dataUrl, putStill, removeStill, stillImage, stillInfo, stillProblem, stillRoute, thumbUrls } from './lib/video.ts';
 import type { PictureView, View } from './lib/api.ts';
 import { studio } from './lib/studio.svelte.ts';
@@ -74,6 +75,7 @@ describe('desk.picture', () => {
       notices: [],
       carts: { version: 0, desk: true, desk_error: null, sounding: [], ducked: false, mic_open: false, missing: [], importing: null },
       listener_delay: { ms: 15_000, measured: false },
+      step: NO_SHOW,
     } as View;
     const { body } = render(DeskB);
     const from = body.indexOf('data-panel="desk.picture"');

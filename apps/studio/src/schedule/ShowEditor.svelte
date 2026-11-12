@@ -9,7 +9,9 @@
   // its presenter's fields (ADR-0214, ADR-0219): the on-air name and takedown contact the
   // consent words name while it is on air, the links to the presenter's channels, and whether
   // it plays commercial music. The account the show is tied to (ADR-0218) is the wizard's
-  // and is left out here, which keeps it.
+  // and is left out here, which keeps it. Under the name is the show's step (ADR-0271,
+  // `calendar.show-step`): the same field the frame's step dialog changes, so there is one
+  // truth. A new show starts at Solo; the step goes with the save only when it was changed.
   import { untrack } from 'svelte';
   import Field from './Field.svelte';
   import ShowStill from './ShowStill.svelte';
@@ -17,6 +19,8 @@
   import type { Show, ShowInput, ShowView, Slot } from '../lib/schedule.ts';
   import { slotWords, slugOf, splitList } from './model.ts';
   import { MUSIC_REMINDER } from '../lib/wizard.ts';
+  import StepList from '../lib/StepList.svelte';
+  import { STEP_LONG, asStep } from '../lib/steps.ts';
 
   let {
     slug,
@@ -50,13 +54,17 @@
     contact: seed.show?.contact ?? '',
     links: seed.show?.links ?? [],
     commercial_music: seed.show?.commercial_music ?? false,
+    // A new show starts at Solo; one that exists says its own (Full before steps arrived).
+    step: seed.show ? asStep(seed.show.step) : 'solo',
   });
   let newSlug = $state(seed.slug ?? '');
   let slugTouched = $state(false);
   let problem = $state('');
   let saving = $state(false);
-  let ruleOpen = $state(false);
-  let ruleWeekday = $state(6);
+  // A show with no weekly rule shows the rule's fields at once (the operator's 1.0.2 run saved a
+  // show without one, behind a Set that was easy to miss); today's weekday is the start.
+  let ruleOpen = $state(!untrack(() => seed.show?.slot));
+  let ruleWeekday = $state(((new Date().getDay() + 6) % 7) + 1);
   let ruleStart = $state('20:00');
   let ruleMinutes = $state(180);
 
@@ -80,6 +88,7 @@
           contact: v.show.contact ?? '',
           links: v.show.links ?? [],
           commercial_music: v.show.commercial_music ?? false,
+          step: asStep(v.show.step),
         };
       })
       .catch((e) => (problem = e instanceof Error ? e.message : String(e)));
@@ -92,8 +101,14 @@
     if (!canSave) return;
     saving = true;
     problem = '';
+    // The rule's fields still open count as set: a save never drops a rule typed but not Set.
+    if (ruleOpen) setRule();
     try {
-      const v = await api.putShow(path, { ...draft, hosts: draft.hosts.map((h) => h.trim()).filter(Boolean) });
+      const body: ShowInput = { ...draft, hosts: draft.hosts.map((h) => h.trim()).filter(Boolean) };
+      // An unchanged step is left out, which keeps it: changing it is for an admin, a producer or
+      // the show's presenter, and anyone else may still save the rest.
+      if (view && body.step === asStep(view.show.step)) delete body.step;
+      const v = await api.putShow(path, body);
       view = v;
       await onSaved(v);
     } catch (e) {
@@ -128,6 +143,15 @@
 <div class="fields">
   <Field label="Name" marker={draft.name ? 'set' : 'own'} plain hint="Up to three lines on the card at its smallest size; a longer name is refused when saved.">
     <input type="text" value={draft.name} placeholder="The show's name" aria-label="Show name" maxlength="160" oninput={(e) => (draft = { ...draft, name: (e.currentTarget as HTMLInputElement).value })} />
+  </Field>
+  <Field
+    label="Step"
+    marker="set"
+    plain
+    panel="calendar.show-step"
+    hint="How much of the studio this show uses. Whatever a step leaves out is switched off while the show is on air, so nothing can wait unseen: under <b>Solo</b> and <b>Guests</b> the call-in page says the lines are closed. Change it whenever you like, here or at the top of the studio; on air, it takes effect at once."
+  >
+    <StepList value={draft.step ?? 'solo'} name="ed-step" what={STEP_LONG} onpick={(s) => (draft = { ...draft, step: s })} />
   </Field>
   {#if !slug}
     <Field label="Path" marker="own" plain hint="Lower-case letters and digits joined by hyphens; it follows the name until you change it.">

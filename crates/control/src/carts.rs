@@ -6,6 +6,15 @@
 //! from the desk's status; the play events the desk reports, for the per-play log; and
 //! importing files through the media worker, the demo pack among them.
 //!
+//! **A cart wall per show** (1.0.2; ADR-0276's answer of 2026-11-12): beside the station's
+//! banks, which every show shares, a show can have banks of its own, numbered 1 to 5 apart from
+//! the station's. A studio window works with the station's banks and one show's
+//! (`GET /api/v1/carts?show=`): a live window's is the show on air, or between shows the show
+//! the station's step comes from; a preparing window's is the show it prepares. Editing a
+//! show's banks never touches another's or the station's. A cart in a show's bank fires only
+//! while that show is the one the step comes from; stopping, fading and clearing the cue work
+//! on anything sounding.
+//!
 //! Carts sound in the desk, as sources of its mixer (ADR-0117): the presenter and guests
 //! hear them in their returns, `⇧` and a cart's key cues it into the presenters' ears, they
 //! sit inside the profanity delay, and beds dip under an open microphone there, worked out
@@ -24,6 +33,31 @@ use crate::config::CartsConfig;
 use crate::desk::{DeskCarts, DeskError, PlayEvent, Pool};
 use crate::hub::{Hub, now_ms};
 use crate::media::{self, WorkerError};
+
+/// Whose banks: the station's, which every show shares, or one show's own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Owner {
+    Station,
+    Show { id: Uuid, slug: String },
+}
+
+impl Owner {
+    /// The show's id, as the database keeps the owner.
+    pub fn id(&self) -> Option<Uuid> {
+        match self {
+            Owner::Station => None,
+            Owner::Show { id, .. } => Some(*id),
+        }
+    }
+
+    /// The show's slug, as the banks and carts in memory name it.
+    pub fn slug(&self) -> Option<&str> {
+        match self {
+            Owner::Station => None,
+            Owner::Show { slug, .. } => Some(slug),
+        }
+    }
+}
 
 /// A cart fired in the last second may not be in the desk's status yet.
 const FIRE_GRACE_MS: u64 = 1_000;
@@ -60,6 +94,8 @@ impl CartsLink {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Sounding {
     pub cart: Uuid,
+    /// The cart's label, so a window whose banks do not hold it (another show's) can name it.
+    pub label: String,
     pub pool: Pool,
     pub player: u8,
     pub mode: CartMode,
@@ -79,6 +115,7 @@ pub struct Sounding {
 /// The cart wall's state.
 #[derive(Clone, Debug, Default)]
 pub struct CartWall {
+    /// Every bank and cart: the station's and every show's.
     pub banks: Vec<Bank>,
     pub carts: Vec<Cart>,
     /// Carts whose file is not on the disk: FILE MISSING.
@@ -119,10 +156,15 @@ pub struct CartsView {
     pub importing: Option<(usize, usize)>,
 }
 
-/// `GET /api/v1/carts`.
+/// `GET /api/v1/carts`: the station's banks, and with `?show=` that show's own beside them.
 #[derive(Clone, Debug, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct Catalogue {
     pub version: u64,
+    /// The show whose own banks are here beside the station's, by its slug; `null`: the
+    /// station's alone.
+    pub show: Option<String>,
+    /// The station's banks (`show` null) and the show's (`show` its slug), each numbered 1 to
+    /// 5 apart.
     pub banks: Vec<Bank>,
     pub carts: Vec<CatalogueCart>,
     /// The loudness every cart is brought to, in LUFS.
@@ -166,12 +208,16 @@ pub enum CartCommand {
 pub enum CartProblem {
     #[error("no cart `{0}`")]
     NoCart(Uuid),
+    #[error("bank {0} has not been made")]
+    NoBank(u8),
     #[error("FILE MISSING: “{0}” has no file. Re-link it in the library.")]
     Missing(String),
     #[error("“{0}” is already sounding")]
     AlreadySounding(String),
     #[error("“{0}” is on air; it cannot be cued as well")]
     OnAir(String),
+    #[error("“{0}” is in another show's own bank: it fires only while that show is the one on air")]
+    OtherShow(String),
     #[error("nothing is sounding")]
     NothingSounding,
     #[error("every {0} player is sounding; stop one first")]
@@ -231,13 +277,22 @@ impl CartWall {
         }
     }
 
-    pub fn catalogue(&self, loudness_lufs: f64) -> Catalogue {
+    /// The station's banks and carts, and `show`'s own beside them.
+    pub fn catalogue(&self, loudness_lufs: f64, show: Option<&str>) -> Catalogue {
+        let shown = |owner: &Option<String>| owner.is_none() || owner.as_deref() == show;
         Catalogue {
             version: self.version,
-            banks: self.banks.clone(),
+            show: show.map(str::to_owned),
+            banks: self
+                .banks
+                .iter()
+                .filter(|b| shown(&b.show))
+                .cloned()
+                .collect(),
             carts: self
                 .carts
                 .iter()
+                .filter(|c| shown(&c.show))
                 .map(|c| CatalogueCart {
                     cart: c.clone(),
                     missing: self.missing.contains(&c.id),
@@ -313,8 +368,15 @@ impl CartWall {
                 }
                 None => {
                     self.seq += 1;
+                    let label = self
+                        .carts
+                        .iter()
+                        .find(|c| c.id == cart)
+                        .map(|c| c.label.clone())
+                        .unwrap_or_default();
                     Sounding {
                         cart,
+                        label,
                         pool: p.pool,
                         player: p.player,
                         mode: p.mode,
@@ -433,9 +495,22 @@ impl Hub {
         self.with_inner(|i| i.carts.view())
     }
 
-    pub fn catalogue(&self) -> Catalogue {
+    /// The station's banks and carts, and `show`'s own beside them (by its slug).
+    pub fn catalogue(&self, show: Option<&str>) -> Catalogue {
         let lufs = self.carts.config.loudness_lufs;
-        self.with_inner(|i| i.carts.catalogue(lufs))
+        self.with_inner(|i| i.carts.catalogue(lufs, show))
+    }
+
+    /// Every cart's label by its id, the station's and every show's (the schedule's log names
+    /// them).
+    pub fn cart_labels(&self) -> std::collections::BTreeMap<Uuid, String> {
+        self.read_inner(|i| {
+            i.carts
+                .carts
+                .iter()
+                .map(|c| (c.id, c.label.clone()))
+                .collect()
+        })
     }
 
     /// Read the banks and carts again from the database.
@@ -516,6 +591,15 @@ impl Hub {
         let dir = self.carts.config.media_dir.clone();
         let cart = self.with_inner(|i| i.carts.carts.iter().find(|c| c.id == id).cloned());
         let cart = cart.ok_or(CartProblem::NoCart(id))?;
+        // A show's own cart sounds only in that show (stopping it is always allowed).
+        if let Some(show) = &cart.show
+            && self
+                .read_studio(|s| s.step_show().map(|x| x.slug.clone()))
+                .as_ref()
+                != Some(show)
+        {
+            return Err(CartProblem::OtherShow(cart.label));
+        }
         if self.with_inner(|i| i.carts.on_air_now(id)) {
             return Err(if cue {
                 CartProblem::OnAir(cart.label)
@@ -583,6 +667,7 @@ impl Hub {
                 .retain(|s| !(s.pool == fired.pool && s.player == fired.player));
             w.sounding.push(Sounding {
                 cart: id,
+                label: cart.label.clone(),
                 pool: fired.pool,
                 player: fired.player,
                 mode: cart.mode,
@@ -697,17 +782,40 @@ impl Hub {
             .ok_or(CartProblem::NoDatabase)
     }
 
-    /// Make or rename a bank.
-    pub async fn put_bank(&self, bank: Bank) -> Result<(), CartProblem> {
+    /// Make or rename a bank of the station's or a show's.
+    pub async fn put_bank(&self, owner: &Owner, bank: Bank) -> Result<(), CartProblem> {
         bank.check()?;
         let (pool, station) = self.db()?;
-        carts::put_bank(pool, station, &bank).await?;
+        carts::put_bank(pool, station, owner.id(), &bank).await?;
         self.reload_carts().await
     }
 
-    /// Run an upload through the media worker and put it in a slot.
+    /// Remove a show's own bank with its carts and their files; a cart of it that is sounding
+    /// is stopped.
+    pub async fn delete_show_bank(&self, owner: &Owner, number: u8) -> Result<(), CartProblem> {
+        let (pool, station) = self.db()?;
+        let Some(id) = owner.id() else {
+            return Err(CartProblem::Invalid(
+                "the station's banks are not removed; empty their slots instead".into(),
+            ));
+        };
+        let Some(gone) = carts::delete_show_bank(pool, station, id, number).await? else {
+            return Err(CartProblem::NoBank(number));
+        };
+        for (cart, file) in gone {
+            let _ = self.desk.cart_stop(cart).await;
+            if let Some(f) = file.filter(|f| carts::is_cart_file(f)) {
+                let _ = tokio::fs::remove_file(self.carts.config.media_dir.join(f)).await;
+            }
+        }
+        tracing::info!(show = ?owner.slug(), bank = number, "a show's cart bank was removed");
+        self.reload_carts().await
+    }
+
+    /// Run an upload through the media worker and put it in a slot of the owner's bank.
     pub async fn import_cart(
         &self,
+        owner: &Owner,
         bank: u8,
         slot: u8,
         meta: CartMeta,
@@ -729,10 +837,17 @@ impl Hub {
             ramp_ms: meta.ramp_ms,
             origin: meta.origin.chars().take(300).collect(),
             licence: meta.licence.chars().take(80).collect(),
+            show: owner.slug().map(str::to_owned),
         };
         // Check before the worker runs, so a bad slot costs nothing.
         cart.check()?;
-        if !self.with_inner(|i| i.carts.banks.iter().any(|b| b.number == bank)) {
+        let made = self.with_inner(|i| {
+            i.carts
+                .banks
+                .iter()
+                .any(|b| b.number == bank && b.show.as_deref() == owner.slug())
+        });
+        if !made {
             return Err(CartProblem::Invalid(format!(
                 "bank {bank} has not been made; make it first"
             )));
@@ -747,7 +862,7 @@ impl Hub {
         cart.gain_db = report.play_gain_db as f32;
         cart.loudness_lufs = Some(report.integrated_lufs as f32);
         cart.true_peak_dbtp = Some(report.true_peak_dbtp as f32);
-        match carts::put_cart(pool, station, &cart).await {
+        match carts::put_cart(pool, station, owner.id(), &cart).await {
             Ok(old) => {
                 if let Some(old) = old
                     && carts::is_cart_file(&old)
@@ -761,24 +876,18 @@ impl Hub {
             }
         }
         tracing::info!(
-            cart = %cart.id, bank, slot, label = %cart.label, format = %report.format,
+            cart = %cart.id, show = ?owner.slug(), bank, slot, label = %cart.label, format = %report.format,
             lufs = report.integrated_lufs, gain_db = report.play_gain_db, "cart imported"
         );
         self.reload_carts().await?;
         Ok(cart)
     }
 
-    /// Empty a slot (its file goes too).
-    pub async fn delete_cart(&self, bank: u8, slot: u8) -> Result<(), CartProblem> {
+    /// Empty a slot of the owner's bank (its file goes too).
+    pub async fn delete_cart(&self, owner: &Owner, bank: u8, slot: u8) -> Result<(), CartProblem> {
         let (pool, station) = self.db()?;
-        let file = self.with_inner(|i| {
-            i.carts
-                .carts
-                .iter()
-                .find(|c| c.bank == bank && c.slot == slot)
-                .and_then(|c| c.file.clone())
-        });
-        let Some(id) = carts::delete_cart(pool, station, bank, slot).await? else {
+        let Some((id, file)) = carts::delete_cart(pool, station, owner.id(), bank, slot).await?
+        else {
             return Err(CartProblem::Invalid(format!(
                 "bank {bank} slot {slot} is empty"
             )));
@@ -803,12 +912,16 @@ impl Hub {
             let number: u8 = number
                 .parse()
                 .map_err(|_| CartProblem::Invalid(format!("bank `{number}` is not a number")))?;
-            self.put_bank(Bank {
-                number,
-                name: name.clone(),
-                // Banks take palette slots in order (ADR-0066).
-                colour_slot: number,
-            })
+            self.put_bank(
+                &Owner::Station,
+                Bank {
+                    number,
+                    name: name.clone(),
+                    // Banks take palette slots in order (ADR-0066).
+                    colour_slot: number,
+                    show: None,
+                },
+            )
             .await?;
         }
         let total = pack.carts.len();
@@ -833,7 +946,13 @@ impl Hub {
             };
             let result = match tokio::fs::read(&path).await {
                 Ok(bytes) => self
-                    .import_cart(c.suggested.bank, c.suggested.slot, meta, bytes)
+                    .import_cart(
+                        &Owner::Station,
+                        c.suggested.bank,
+                        c.suggested.slot,
+                        meta,
+                        bytes,
+                    )
                     .await
                     .map(|_| ()),
                 Err(e) => Err(CartProblem::Invalid(format!("cannot read {}: {e}", c.file))),
@@ -870,7 +989,8 @@ impl Hub {
             return;
         }
         self.spawn_file_watch();
-        let empty = self.with_inner(|i| i.carts.banks.is_empty());
+        // The demo pack fills the station's banks; a show's own do not count.
+        let empty = self.with_inner(|i| i.carts.banks.iter().all(|b| b.show.is_some()));
         if let (true, Some(pack)) = (empty, self.carts.config.demo_pack.clone()) {
             let hub = self.clone();
             tokio::spawn(async move {
@@ -903,6 +1023,7 @@ mod tests {
             ramp_ms: None,
             origin: String::new(),
             licence: String::new(),
+            show: None,
         }
     }
 
@@ -922,7 +1043,7 @@ mod tests {
         let mut w = CartWall::default();
         w.replace(vec![], vec![a.clone(), b.clone(), c.clone()], &dir);
         assert_eq!(w.missing, BTreeSet::from([b.id, c.id]));
-        let cat = w.catalogue(-23.0);
+        let cat = w.catalogue(-23.0, None);
         assert!(!cat.carts[0].missing && cat.carts[1].missing);
         std::fs::remove_file(dir.join(&present)).unwrap();
         assert!(w.refresh_missing(&dir));

@@ -449,14 +449,28 @@ describe('the cart states (cart-wall.md section 3)', () => {
   });
 });
 
-import { delayWords, listenerDelayMs } from './lib/format.ts';
+import { delayParts, delayWords, listenerDelayMs } from './lib/format.ts';
 
-describe('the listener delay (ADR-0103)', () => {
-  it('is the setting, labelled as one until measured', () => {
-    expect(delayWords({ ms: 15_000, measured: false })).toBe('15 s behind (set, not measured)');
+describe('the listener delay (ADR-0103, ADR-0272)', () => {
+  it('is an estimate in words until the whole path is read, and a plain figure after', () => {
+    expect(delayWords({ ms: 15_000, measured: false })).toBe('about 15 s behind (an estimate)');
     expect(delayWords({ ms: 9_000, measured: true })).toBe('9 s behind');
     expect(listenerDelayMs(null)).toBe(15_000);
     expect(listenerDelayMs({ ms: 12_000 })).toBe(12_000);
+  });
+
+  it('names what is read live and what is a setting', () => {
+    const d = { ms: 26_000, measured: false, desk_ms: 8_000, process_ms: 3_200, rest_ms: 14_500 };
+    expect(delayParts(d)).toBe(
+      "Read now: 8.0 s profanity delay, 3.2 s in the listener process; about 14.5 s more is set, not read: the stream's own hold and each listener's player",
+    );
+    // The listener process does not answer: only the desk is read.
+    expect(delayParts({ ...d, process_ms: null, rest_ms: 15_000 })).toBe(
+      "Read now: 8.0 s profanity delay; about 15.0 s more is set, not read: the stream's own hold and each listener's player",
+    );
+    // A control plane too old to split it says nothing rather than guess.
+    expect(delayParts({ ms: 15_000, measured: false })).toBe('');
+    expect(delayParts(null)).toBe('');
   });
 });
 

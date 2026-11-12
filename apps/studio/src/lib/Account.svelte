@@ -4,9 +4,14 @@
   // Who this window runs as (ADR-0127), in the frame: the name and role, or the station key,
   // as a quiet button; it opens a small dialog with Sign out and, for a staff session, Change
   // your password. Panel name `studio.account` (ADR-0070).
+  //
+  // Beside the Live or Preparing control (ADR-0276), in a frame at most 1,600 px wide, the role
+  // gives its place to that control: the frame was already full at 1,440 px. The role stays in
+  // the button's tooltip and in the dialog.
   import { changeOwnPassword, packaged } from './api.ts';
   import { account, signInAgain } from './account.svelte.ts';
   import { passwordProblem, placeError, whoLine } from './account.ts';
+  import { canPrepare } from './prepare.ts';
 
   const who = $derived(whoLine(account.me));
   const staff = $derived(account.me?.kind === 'staff');
@@ -72,9 +77,9 @@
   }
 </script>
 
-<span class="account" data-panel="studio.account">
+<span class="account" class:with-prepare={canPrepare(account.me)} data-panel="studio.account">
 {#if account.loaded}
-  <button type="button" class="who" onclick={open} aria-haspopup="dialog" data-panel-title>
+  <button type="button" class="who" onclick={open} aria-haspopup="dialog" data-panel-title title={`${who.name} · ${who.role}`}>
     <span class="sr-only">Signed in as </span><b>{who.name}</b><span class="role"> · {who.role}</span>
   </button>
 {/if}
@@ -86,7 +91,7 @@
       {#if staff}
         {account.me?.account?.username} · {who.role}
       {:else if account.me?.kind === 'station'}
-        The station key, with every admin right. Sign in as yourself once accounts exist.
+        The station key, with every admin right. To work as yourself, choose <b>Sign out</b>, then sign in with your username; an admin makes accounts in <b>Settings › Staff</b>.
       {:else}
         This station is older than staff accounts: the station key signs this window in.
       {/if}
@@ -178,6 +183,15 @@
   .who b {
     color: var(--ink);
     font-weight: 600;
+  }
+  /* The frame's room at 1,440 px is spent: the Live or Preparing control takes the role's. */
+  @container (max-width: 1600px) {
+    .account.with-prepare .role {
+      display: none;
+    }
+    .account.with-prepare .who {
+      padding-right: var(--s-1);
+    }
   }
   dialog {
     width: min(24rem, calc(100vw - 2 * var(--s-4)));

@@ -57,6 +57,10 @@ export interface PassInfo {
   expires_at_ms: number;
   ended: boolean;
   relay: { turn_tls_port: number };
+  /** Why the pass cannot join the room now, in the station's sentence, while the show on air
+   *  runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.
+   *  Null or absent when it can join. */
+  not_now?: string | null;
 }
 
 export type Phase = 'joining' | 'waiting' | 'screening' | 'ready' | 'desk_busy' | 'cue' | 'on_air' | 'off_air' | 'ended';
@@ -79,7 +83,16 @@ export interface MeState {
   presenter_live: boolean;
   show_on_air: boolean;
   desk_reachable: boolean;
+  /** Why a waiting caller was let go when the lines closed under them (ADR-0271): a show that
+   *  takes no calls took the air, or the step of the show on air was moved down. Null or absent
+   *  otherwise. */
+  released?: Released | null;
+  /** The presenter answers the phones themselves (the Callers step has no screener): name them, not a producer. */
+  presenter_answers?: boolean;
 }
+
+/** Why the lines closed under a waiting caller. */
+export type Released = 'show_took_air' | 'step_moved_down';
 
 /** A refusal from the control plane: its status, its sentence, and the field it is about. */
 export class ApiError extends Error {

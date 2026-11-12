@@ -185,3 +185,8 @@
 
 @media (prefers-reduced-motion: reduce) { .ev { transition: none; } }
 @container (max-width: 1100px) { .schedule .body { grid-template-columns: 1fr; } }
+
+/* shows with no weekly rule, listed where Nothing selected is (the operator's 1.0.2 run) */
+.schedule .unruled { border-left: 3px solid var(--status-warning); background: var(--surface-2); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); }
+.schedule .unruled ul { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; gap: var(--s-2); }
+.schedule .unruled li { display: flex; gap: var(--s-2); align-items: center; justify-content: space-between; flex-wrap: wrap; }

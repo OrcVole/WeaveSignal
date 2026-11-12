@@ -1,10 +1,15 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The studio app's frame: the tabs with their keys (⌃1 to ⌃5), the link to the station and
-  // the theme toggle (Dark, Light or Night; dark by default, never the system's; ADR-0065,
-  // ADR-0270), over the surface of the
-  // tab. One keyboard handler for every surface, from the keymap (ADR-0063).
+  // The studio app's frame: the show's step and Show everything (ADR-0271), the tabs with their
+  // keys (⌃1 to ⌃5; a tab keeps its number at every step), the link to the station and the
+  // theme toggle (Dark, Light or Night; dark by default, never the system's; ADR-0065,
+  // ADR-0270), over the surface of the tab. One keyboard handler for every surface, from the
+  // keymap (ADR-0063); the key of a part the step hides does nothing, and says so once.
+  //
+  // A staff window is Live or Preparing (ADR-0276): the control beside who is signed in, and,
+  // while preparing, a band under the frame on the tabs that drive the air (Desk, Screener,
+  // Carts). A preparing window's keys change nothing on air; the band answers instead.
   import { setupState, stationZone } from './lib/schedule.ts';
   import { dialogLets } from './lib/dialogKeys.ts';
   import { onMount } from 'svelte';
@@ -16,6 +21,8 @@
   import Settings from './settings/Settings.svelte';
   import StationSetup from './lib/StationSetup.svelte';
   import Account from './lib/Account.svelte';
+  import StepControl from './lib/StepControl.svelte';
+  import PrepareControl from './lib/PrepareControl.svelte';
   import SessionEnded from './lib/SessionEnded.svelte';
   import ShowWizard from './settings/ShowWizard.svelte';
   import Schedule from './schedule/Schedule.svelte';
@@ -23,9 +30,12 @@
   import { isAdmin } from './lib/account.ts';
   import { account, installSessionWatch, loadMe } from './lib/account.svelte.ts';
   import { closeSetup, decideSetup, loadShows, mine, rememberSkip, setup } from './lib/wizard.svelte.ts';
+  import { cartShow, nudge, onAir, onBeforePreparing, prepare, preparing, settleStart, switchToLive } from './lib/prepare.svelte.ts';
+  import { canPrepare, changesAir, prepareBand } from './lib/prepare.ts';
   import { installUpdateCheck, updateNag } from './lib/update.svelte.ts';
-  import { run } from './lib/actions.ts';
-  import { say, studio, takeView } from './lib/studio.svelte.ts';
+  import { run, tellOff } from './lib/actions.ts';
+  import { look, say, setCartShow, setShowAll, studio, takeView } from './lib/studio.svelte.ts';
+  import { STEP_WORD, gate, offTag, stationStep, tabShown } from './lib/steps.ts';
   import { chat } from './lib/chat.svelte.ts';
   import { theme, setTheme, THEMES, THEME_WORDS } from './lib/theme.svelte.ts';
   import { zoom, zoomIn, zoomOut, zoomReset, installZoom } from './lib/zoom.svelte.ts';
@@ -33,13 +43,18 @@
   import { PANELS } from '../../../packages/ui/panels.ts';
   import { ARM_MS, KeyEngine, type Tab } from '../../../packages/ui/keymap.ts';
 
-  const tabs: { tab: Tab; label: string; built: boolean }[] = [
-    { tab: 'desk', label: 'Desk', built: true },
-    { tab: 'screener', label: 'Screener', built: true },
-    { tab: 'carts', label: 'Carts', built: true },
-    { tab: 'chat', label: 'Chat', built: false },
-    { tab: 'schedule', label: 'Schedule', built: true },
+  // A tab keeps its number at every step: ⌃1 Desk, ⌃3 Carts, ⌃5 Schedule.
+  const TABS: { tab: Tab; n: number; label: string; built: boolean }[] = [
+    { tab: 'desk', n: 1, label: 'Desk', built: true },
+    { tab: 'screener', n: 2, label: 'Screener', built: true },
+    { tab: 'carts', n: 3, label: 'Carts', built: true },
+    { tab: 'chat', n: 4, label: 'Chat', built: false },
+    { tab: 'schedule', n: 5, label: 'Schedule', built: true },
   ];
+  /** The station's step: what is switched on. */
+  const step = $derived(stationStep(studio.view));
+  /** The tabs this window draws: the step's, or all of them while everything is shown. */
+  const tabs = $derived(TABS.filter((t) => tabShown(t.tab, look())));
 
   const keys = new KeyEngine();
 
@@ -84,7 +99,7 @@
     // drop-down's own.
     if (studio.settings && !(e.ctrlKey || e.metaKey)) return;
     // The account, session, show-setup and invite dialogs are forms too: their keys are their own.
-    if ((e.target as Element | null)?.closest?.('[data-panel="studio.account"], [data-panel="studio.session-ended"], [data-panel="studio.show-setup"], [data-panel="desk.invite"]') && !(e.ctrlKey || e.metaKey)) return;
+    if ((e.target as Element | null)?.closest?.('[data-panel="studio.account"], [data-panel="studio.session-ended"], [data-panel="studio.show-setup"], [data-panel="desk.invite"], [data-panel="desk.end-show"]') && !(e.ctrlKey || e.metaKey)) return;
     const ctx = {
       tab: studio.tab,
       inTextField: studio.settings || inTextField(document.activeElement),
@@ -92,6 +107,30 @@
     };
     const out = keys.down(input(e), ctx, Date.now());
     if (!out.handled) return;
+    // A part the show's step keeps off: its key does nothing (not even arm), and the first
+    // press in a session says so. Still the keymap's key, so the browser does not take it
+    // (⌃D would bookmark, ⌃T open a tab). Checked before anything else acts on the key, so
+    // ⌃2 at Solo does not close Settings.
+    if (out.action) {
+      const g = gate(out.action, step, look(), studio.view);
+      if (!g.allow) {
+        e.preventDefault();
+        keys.disarm();
+        studio.armed = null;
+        tellOff(g.told);
+        return;
+      }
+      // A preparing window's keys change nothing on air (ADR-0276): the key does nothing, not
+      // even arm, and the band under the frame answers. Still the keymap's key, so the browser
+      // does not take it.
+      if (preparing() && changesAir(out.action)) {
+        e.preventDefault();
+        keys.disarm();
+        studio.armed = null;
+        nudge();
+        return;
+      }
+    }
     // A tab's key (⌃1 to ⌃5) leaves Settings for that tab.
     if (out.action?.type === 'tab') studio.settings = false;
     // ⏎ fires the cart the arrows reached only while a cart has focus; on any other control
@@ -114,11 +153,34 @@
     if (out.action) void run(out.action);
   }
 
-  /** A held key whose key-up went to another window would stay open: let everything go. */
-  function letGo() {
-    for (const a of keys.releaseAll()) void run(a);
+  /** A held key whose key-up went to another window would stay open: let everything go. The
+   *  promise is for the switch to Preparing, which waits until the releases have landed. */
+  function letGo(): Promise<void> {
+    const sent = keys.releaseAll().map((a) => run(a));
     studio.armed = null;
+    return Promise.all(sent).then(() => {});
   }
+
+  // The start's default (ADR-0276) is settled once, when the station has said who this is, which
+  // shows there are and what is on air: each of the three may be the last to arrive.
+  $effect(() => {
+    void [account.loaded, account.me, setup.loaded, studio.view?.step];
+    settleStart();
+  });
+
+  // The show whose own cart banks this window works with follows the air and the window's mode
+  // (a cart wall per show, 1.0.2): its catalogue is fetched when it changes.
+  const windowCartShow = $derived(cartShow());
+  $effect(() => {
+    setCartShow(windowCartShow);
+  });
+
+  /** The band under the frame: on the tabs that drive the air, while this window is preparing. */
+  const prepBand = $derived(preparing() && !studio.settings && studio.tab !== 'schedule' ? prepareBand(onAir()) : null);
+  /** A key or a button met a control the window has switched off: the band answers for a moment. */
+  const nudged = $derived(studio.now - prepare.nudgedAt < 1200);
+  /** One row for the frame, two for the sandbox's guide, one for each band, then the surface. */
+  const rows = $derived(`${'auto '.repeat(1 + (sandboxed() ? 2 : 0) + (studio.showAll ? 1 : 0) + (prepBand ? 1 : 0))}minmax(0, 1fr)`);
 
   onMount(() => {
     document.documentElement.dataset.surface = studio.tab;
@@ -144,13 +206,15 @@
     const stopZoom = installZoom();
     // One look at the update feed a little after the app opens (packaged only); it installs nothing.
     const stopUpdateCheck = installUpdateCheck();
+    onBeforePreparing(letGo);
     const tick = setInterval(() => {
       studio.now = Date.now();
       if (studio.armed && studio.now - studio.armed.at > ARM_MS) studio.armed = null;
       if (studio.note && studio.note.until < studio.now) studio.note = null;
+      if (studio.offNote && studio.offNote.until < studio.now) studio.offNote = null;
     }, 100);
     const hidden = () => {
-      if (document.hidden) letGo();
+      if (document.hidden) void letGo();
     };
     document.addEventListener('visibilitychange', hidden);
     return () => {
@@ -158,28 +222,28 @@
       names.destroy();
       stopZoom();
       stopUpdateCheck();
+      onBeforePreparing(null);
       clearInterval(tick);
       document.removeEventListener('visibilitychange', hidden);
     };
   });
 
-  const linkWord = $derived(
-    studio.link === 'live' ? 'connected' : studio.link === 'connecting' ? 'connecting' : 'not connected',
-  );
+  const linkWord = $derived(studio.link === 'connecting' ? 'connecting' : 'not connected');
 </script>
 
-<svelte:window onkeydown={onKeydown} onkeyup={onKeyup} onblur={letGo} />
+<svelte:window onkeydown={onKeydown} onkeyup={onKeyup} onblur={() => void letGo()} />
 
 <Glyphs />
 {#if packaged() && !savedStation()}
   <StationSetup />
 {:else}
-<div class="shell" class:with-guide={sandboxed()}>
+<div class="shell" class:with-guide={sandboxed()} class:with-all={studio.showAll} class:with-prepare={!!prepBand} style:grid-template-rows={rows}>
   {#if import.meta.env.MODE === 'sandbox'}{#await import('./sandbox/Guide.svelte') then guide}<guide.default />{/await}{/if}
   <header class="frame" data-panel="studio.frame">
     <span class="brand" data-panel-title><Mark />{studio.view?.station || 'WeaveSignal'}</span>
+    <StepControl />
     <nav class="tabs" aria-label="Studio">
-      {#each tabs as t, i (t.tab)}
+      {#each tabs as t (t.tab)}
         <button
           type="button"
           class="tab"
@@ -189,7 +253,7 @@
             if (t.built) studio.settings = false;
             void run({ type: 'tab', tab: t.tab });
           }}
-          >{t.label}{#if !t.built}<span class="sr-only"> (not in this build)</span>{/if} <kbd>⌃{i + 1}</kbd></button
+          >{t.label}{#if !t.built}<span class="sr-only"> (not in this build)</span>{/if} <kbd>⌃{t.n}</kbd></button
         >
       {/each}
       <button
@@ -213,10 +277,15 @@
       >
     {/if}
     <Account />
-    <span class="link" role="status" title={studio.linkWhy}>
+    <PrepareControl />
+    <!-- While the link is good the frame says one word, which makes room for the step control
+         at 1,440 px; the full words return whenever it is not, and stay in the tooltip. Beside
+         the Live or Preparing control (ADR-0276) a frame at most 1,600 px wide keeps only the
+         tick while the link is good: the word is still there for a screen reader. -->
+    <span class="link" class:tight={canPrepare(account.me)} role="status" data-link={studio.link} title={studio.link === 'live' ? 'Control plane connected' : studio.linkWhy}>
       <svg class={studio.link === 'live' ? 'g-good' : 'g-warning'} aria-hidden="true"
         ><use href={studio.link === 'live' ? '#g-good' : '#g-degraded'} /></svg
-      >Control plane <b>{linkWord}</b>
+      >{#if studio.link === 'live'}<b>Connected</b>{:else}Control plane <b>{linkWord}</b>{/if}
     </span>
     <div class="seg" role="group" aria-label="Text size">
       <button type="button" onclick={zoomOut} aria-label="Smaller text" title="Smaller text (Ctrl+−)">A−</button>
@@ -231,6 +300,31 @@
       {/each}
     </div>
   </header>
+  {#if studio.showAll}
+    <!-- Show everything is a look (ADR-0274): the row says so for as long as it lasts, and holds the way back. -->
+    <div class="allbar" data-panel="studio.step.banner">
+      <button type="button" class="btn" onclick={() => setShowAll(false)}>Back to {STEP_WORD[step]}</button>
+      <span class="say" role="status"
+        ><b data-panel-title>Showing everything for now.</b>
+        {studio.view?.step.show ? `${studio.view.step.show.name} still runs` : 'The station is still'} at {STEP_WORD[step]}, so the parts marked
+        <span class="offtag">{offTag(step)}</span> stay switched off. To switch one on, move the show up a step.</span
+      >
+    </div>
+  {/if}
+
+  {#if prepBand}
+    <!-- Preparing (ADR-0276): the band says what this window is and holds the way to Live. -->
+    <div class="allbar prepbar" class:nudged data-panel="studio.prepare.banner">
+      <button type="button" class="btn" class:primary={prepBand.primary} disabled={prepare.busy} aria-haspopup={prepBand.button.endsWith('…') ? 'dialog' : undefined} onclick={switchToLive}
+        >{prepBand.button}</button
+      >
+      <span class="say" role="status"
+        ><b data-panel-title>{prepBand.lead}</b>
+        {prepBand.rest}{#if prepare.problem && !prepare.menu}
+          <span class="err">{prepare.problem}</span>{/if}</span
+      >
+    </div>
+  {/if}
 
   {#if studio.settings}
     <Settings />
@@ -267,11 +361,14 @@
     position: fixed;
     inset: 0;
     container-type: inline-size;
+    /* The surfaces' wide layouts ask this container, not the window: a media query reads the
+       window's own pixels, which the text size and the window factor (zoom on <html>) do not
+       change, so a 4K window chose the 2,200 px layout and then drew it twice the size. */
+    container-name: studio;
   }
-  /* The sandbox's guide bar and its caption row above the frame (ADR-0212, ADR-0222). */
-  .shell.with-guide {
-    grid-template-rows: auto auto auto minmax(0, 1fr);
-  }
+  /* The rows above the surface are counted in the script and set inline: the frame, the
+     sandbox's guide bar and its caption row (ADR-0212, ADR-0222), the row that says everything
+     is shown (ADR-0274) and the row that says this window is preparing (ADR-0276). */
   /* As tall as the design pages' mock-up bar, so each surface keeps the height it was drawn in. */
   .frame {
     display: flex;
@@ -284,7 +381,10 @@
     font-size: var(--fs-13);
     color: var(--ink-2);
     white-space: nowrap;
-    overflow: hidden;
+    /* When the frame is narrower than its controls (a large text size, or a narrow window) it takes
+       a second row instead of cutting off the ones at its right end (found at 120-130 %). */
+    flex-wrap: wrap;
+    row-gap: var(--s-1);
   }
   .brand {
     display: inline-flex;
@@ -295,7 +395,9 @@
   }
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--s-1);
+    min-width: 0;
   }
   .tab {
     appearance: none;
@@ -353,6 +455,23 @@
   .link b {
     color: var(--ink);
     font-weight: 600;
+  }
+  /* The frame's room at 1,440 px is spent (the step control took what "Control plane" gave):
+     the Live or Preparing control takes the word's place while the link is good. The tick and
+     the tooltip stay, and the full words return the moment the link is not good. */
+  @container (max-width: 1600px) {
+    .link.tight[data-link='live'] b {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .link.tight[data-link='live'] svg {
+      width: 14px;
+      height: 14px;
+    }
   }
   .seg {
     display: inline-flex;

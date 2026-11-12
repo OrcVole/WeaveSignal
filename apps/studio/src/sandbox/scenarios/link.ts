@@ -15,6 +15,7 @@ export const LINK: Scenario = {
   title: 'A line goes bad',
   blurb: 'A caller’s link degrades on air, then drops: read LINK DEGRADED, take her off, and put her back when she returns.',
   minutes: 2,
+  step: 'callers',
   learn: [
     'LINK DEGRADED on a tile and in the status line: the person is in the room, but their audio is breaking up.',
     'A dropped link: the desk keeps the person 30 s, the queue holds their place 5 min, and they come back where they were.',
@@ -84,7 +85,7 @@ export const LINK: Scenario = {
       },
       {
         id: 'dropped',
-        say: ['Her link dropped: on the Screener her row says DROPPED and her place is held 5 min (on air, her tile would have said she left the room and is kept 30 s). Wait for her.'],
+        say: ['Her link dropped: in Callers, on the right, her row says link lost, and her place is held 5 min (on air, her tile would have said she left the room and is kept 30 s). Wait for her.'],
         done: s.has('returned'),
       },
       { id: 'back', say: ['Iona is back on strip 4, where she was: press ', k('4'), ' to put her back on.'], done: s.done('iona-back') || (s.has('returned') && !!iona?.on_air) },
@@ -93,7 +94,7 @@ export const LINK: Scenario = {
   },
   did: () => [
     'You read LINK DEGRADED on Iona’s tile and in the status line, and took her off before listeners heard worse.',
-    'Her link dropped: the desk kept her 30 s and the queue held her place 5 min, with a notice to the screener.',
+    'Her link dropped: the desk kept her 30 s and the queue held her place 5 min.',
     'She came back ready on the same strip, and you put her back on air.',
   ],
 };

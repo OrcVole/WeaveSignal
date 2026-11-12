@@ -15,7 +15,7 @@ It is an NSIS installer and it is not signed (ADR-0076).
 
 ## Download it
 
-Download `WeaveSignal_1.0.1_x64-setup.exe` and the checksum file `SHA256SUMS-1.0.1-windows` from the assets of [release v1.0.1 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.1); the updater reads the same files from `https://weavesignal.top/updates/`.
+Download `WeaveSignal_1.0.2_x64-setup.exe` and the checksum file `SHA256SUMS-1.0.2-windows` from the assets of [release v1.0.2 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.2); the updater reads the same files from `https://weavesignal.top/updates/`.
 
 To build the installer yourself instead, run `just package-windows` in the repository on Linux ([Packages and install files](/docs/reference/packages/)).
 
@@ -26,7 +26,7 @@ The release lists it in `SHA256SUMS-<version>-windows`.
 In PowerShell, in the folder you saved it to:
 
 ```powershell
-Get-FileHash .\WeaveSignal_1.0.1_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\WeaveSignal_1.0.2_x64-setup.exe -Algorithm SHA256
 ```
 
 The `Hash` it prints must match the line for the installer, letter for letter (case does not matter).

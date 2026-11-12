@@ -49,7 +49,7 @@ While playout is down a toast says the same in words, *Playout down · room aliv
 
 In auto mode automation holds the air, and the desk does not reach listeners at all.
 By the same rule as playout down, a source that is on in the room says OPEN, never ON AIR, and the lamp says AUTO, a hollow lamp in the mode's colour.
-To be heard, leave auto mode first.
+To be heard, leave auto mode first: the small button under the lamp says **Take the air back** ([End the show, or hand the air to automation](/docs/how-to/end-the-show/)).
 
 ![The desk in auto mode: the AUTO lamp, Automation holds the air, and the three sources in the room saying OPEN, not ON AIR.](../../../../assets/screens/explanation-on-air-auto.png)
 

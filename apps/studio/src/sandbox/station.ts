@@ -4,12 +4,15 @@
 // the page, for the website's "Try the desk" and its training scenarios. It answers the studio
 // app's commands with the same view the real control plane sends, by the same rules (the
 // strips, the caller queue, sending, declining, taking a caller, a dropped link's held place,
-// accounts banned before, the station's mode; `crates/control/src/studio.rs`), and a director
+// accounts banned before, the station's mode; `crates/control/src/studio.rs`; the show's step,
+// which closes call-in, refuses hidden seats and switches Dump, the handover and the picture
+// off, ADR-0271, `crates/control/src/steps.rs`), and a director
 // plays the scenario's pre-recorded people when the desk lets them be heard. Pure apart from
 // the clock it is given: the sound is `sound.ts`'s, which follows this state. Nothing here
 // reaches a server.
 
-import type { CartCommand, Caller, ChatCommand, DeskCommand, DeskPerson, EndPassCommand, Invite, Notice, ScreenerCommand, Source, View } from '../lib/api.ts';
+import type { CartCommand, Caller, ChatCommand, DeskCommand, DeskPerson, EndPassCommand, Invite, Notice, ScreenerCommand, ShowStep, Source, StepChanged, StepView, View } from '../lib/api.ts';
+import { STEPS, STEP_WORD, atLeast } from '../lib/steps.ts';
 import type { Bank, Cart, Catalogue, Sounding } from '../../../../packages/ui/carts.ts';
 import type { StationMode } from '../../../../packages/ui/states.ts';
 import type { Beat, Line, Speaking } from './lines.ts';
@@ -75,6 +78,22 @@ export class Refusal extends Error {
   }
 }
 
+/** The seat a step hides from a role, in the station's words for the studio (steps.rs
+ *  `hidden_seat` and `Hidden::when_making`); null when the seat is open. `own`: the show's
+ *  presenter on their own link, allowed at every step. */
+export function hiddenSeat(step: ShowStep, role: Role, own = false): string | null {
+  const at = STEP_WORD[step];
+  if (role === 'presenter' && (own || atLeast(step, 'guests'))) return null;
+  if ((role === 'presenter' || role === 'guest') && !atLeast(step, 'guests')) return `This show runs at ${at}, so it has no seat for a guest or a second presenter. They come with Guests.`;
+  if (role === 'caller' && !atLeast(step, 'callers')) return `This show runs at ${at}, so it takes no callers. Call-in comes with Callers.`;
+  if (role === 'dj' && !atLeast(step, 'full')) return 'An invitation for the next show\'s DJ comes with Full.';
+  if (role === 'screener' && !atLeast(step, 'full')) return `This show runs at ${at}, so the screener's seat is not open. It comes with Full.`;
+  return null;
+}
+
+/** The show's path, as a real station makes it from the name. */
+const slugOf = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
 const preferred = (role: Role): number[] =>
   ({ presenter: [1, 2, 3, 4, 5], guest: [2, 3, 1, 4, 5], caller: [4, 3, 2, 5, 1], dj: [5, 1, 2, 3, 4] })[role as string] ?? [];
 
@@ -97,6 +116,9 @@ export class Station {
   playoutSince: number;
   /** The station's mode (ADR-0045): live, or automation holding the air (ADR-0183). */
   mode: StationMode;
+  /** The show's step (ADR-0271): what is switched on. The scenario's at the start; the frame's
+   *  step dialog moves it, as on a real station. */
+  step: ShowStep;
   modes = { slow: false, hold_new: false, links_trusted: true, accounts_only: false, min_age_24h: false };
   beforeInflux: typeof this.modes | null = null;
   influxSince: number | null = null;
@@ -137,6 +159,8 @@ export class Station {
   cartCues = 0;
   backs = 0;
   drops: Record<string, number> = {};
+  /** Callers let go because the step fell below Callers, in order. */
+  released: string[] = [];
   /** Levels from the sound, by identity (LUFS-like, approximate). */
   levels: Record<string, number | null> = {};
   readonly catalogue: Catalogue;
@@ -151,6 +175,7 @@ export class Station {
     this.playoutSince = now - 3_600_000;
     this.catalogue = catalogue;
     this.mode = scenario.mode ?? 'live';
+    this.step = scenario.step;
     this.bans = { ...(scenario.bans ?? {}) };
     this.show = scenario.show;
     const later = new Set(scenario.later ?? []);
@@ -362,10 +387,12 @@ export class Station {
     });
   }
 
-  /** A caller joins the queue now, from the player page, with their consent to record. */
+  /** A caller joins the queue now, from the player page, with their consent to record. Below
+   *  Callers the page says the lines are closed, so nobody can. */
   arrive(id: string, now: number): void {
     const who = this.scenario.callers[id];
     if (!who || this.person(id)) return;
+    if (hiddenSeat(this.step, 'caller')) return;
     this.people.push(person(id, who.name, 'caller'));
     this.lobby.set(id, { name: who.name, topic: who.topic, consent: { at_ms: now - 20_000, version: '2026-11-01', by: 'caller' } });
     this.callers.push({ identity: id, name: who.name, state: 'waiting', since_ms: now, arrived_ms: now, line: '', note: '', name_on_air: '', declined: null, dropped_ms: null, taken: false });
@@ -376,13 +403,27 @@ export class Station {
   /** The desk's invite dialog (`POST /api/v1/invites`): the answer a real station gives, with a
    *  link that opens nothing here. If the scenario is waiting for someone of that role (its
    *  `later`), it is their invite: they join a few seconds on, under their own name. */
-  makeInvite(req: { role?: unknown; name?: unknown }, now: number): Invite {
-    const role = req.role;
-    if (role !== 'dj' && role !== 'guest' && role !== 'presenter') {
-      throw new Refusal(422, `an invite is for a guest, a remote DJ or a presenter; a ${String(role)} joins another way`);
+  makeInvite(req: { role?: unknown; name?: unknown; for_me?: unknown }, now: number): Invite {
+    const typed = typeof req.name === 'string' ? req.name.trim() : '';
+    if ([...typed].length > 120) throw new Refusal(422, 'a name is at most 120 characters');
+    if (req.for_me === true) {
+      // The Solo DJ's own link (ADR-0274): a presenter's invitation for the chair you sit in,
+      // allowed at every step. The identity is the account's own, so the same link is made again.
+      if (req.role !== undefined && req.role !== 'presenter') throw new Refusal(422, 'an invitation for yourself is a presenter\'s');
+      this.clock = now;
+      const you = this.scenario.you;
+      const pass = `sandbox-me-${now.toString(36)}`;
+      return { pass, identity: `presenter-me-${you.identity}`, role: 'presenter', name: typed || you.name, expires_at_ms: now + INVITE_TTL_MS, link: `/join/#${pass}` };
     }
-    const name = typeof req.name === 'string' ? req.name.trim() : '';
-    if ([...name].length > 120) throw new Refusal(422, 'a name is at most 120 characters');
+    const role = req.role;
+    if (role === undefined) throw new Refusal(422, 'an invitation is for a guest, a remote DJ or a presenter: say which, or ask for one for yourself');
+    if (role !== 'dj' && role !== 'guest' && role !== 'presenter') {
+      throw new Refusal(422, `an invitation is for a guest, a remote DJ or a presenter; a ${String(role)} joins another way`);
+    }
+    // The show's step may have switched the seat off (ADR-0271).
+    const hidden = hiddenSeat(this.step, role);
+    if (hidden) throw new Refusal(422, hidden);
+    const name = typed;
     this.clock = now;
     const id = (this.scenario.later ?? []).find(
       (x) => !this.person(x) && !this.has(`invited:${x}`) && this.scenario.cast.find((c) => c.identity === x)?.role === role,
@@ -396,13 +437,16 @@ export class Station {
     return { pass, identity: `${role}-sandbox${n}`, role, name, expires_at_ms: now + INVITE_TTL_MS, link: `/join/#${pass}` };
   }
 
-  /** Someone from the cast who was not in the room joins now, from their invite link (a guest,
-   *  a remote DJ, a presenter): seated by their role, a DJ off air on strip 5. */
+  /** Someone from the cast who was not in the room joins now, from their invitation link (a
+   *  guest, a remote DJ, a presenter): seated by their role, a guest or a presenter on air the
+   *  moment they join, a DJ off air on strip 5. The pass is checked again when it is used: if the
+   *  step has since hidden their seat they stay out, and their link is good for later. */
   join(id: string, now: number): void {
     const who = this.scenario.cast.find((c) => c.identity === id);
     if (!who || this.person(id)) return;
+    if (hiddenSeat(this.step, who.role)) return;
     this.clock = now;
-    this.people.push(person(id, who.name, who.role));
+    this.people.push(person(id, who.name, who.role, { on_air: who.role === 'guest' || who.role === 'presenter' }));
     this.seat();
     const slot = this.slots.indexOf(id) + 1;
     const first = who.name.split(' ')[0];
@@ -412,7 +456,7 @@ export class Station {
       'person.joined',
       id,
       `${first} joined the room`,
-      who.role === 'dj' ? `Off air under Not on air${slot ? `, on strip ${slot}` : ''}: cue them to hear them; ⇧⏎ brings them on air with you.` : `On strip ${slot || '–'}.`,
+      who.role === 'dj' ? `Off air under Not on air${slot ? `, on strip ${slot}` : ''}: cue them to hear them; ⇧⏎ brings them on air with you.` : `On air, on strip ${slot || '–'}.`,
     );
     this.version++;
   }
@@ -520,6 +564,11 @@ export class Station {
 
   desk(c: DeskCommand, now: number): void {
     this.clock = now;
+    // What the show's step has switched off (steps.rs `command_refusal`), in the station's words.
+    const at = STEP_WORD[this.step];
+    if (c.op === 'dump' && !atLeast(this.step, 'callers')) throw new Refusal(409, `Dump is off at ${at}: there is nothing for it to do. It comes on at Callers.`);
+    if (c.op === 'on_air' && c.on && this.person(c.identity)?.role === 'dj' && !atLeast(this.step, 'full')) throw new Refusal(409, `The handover is off at ${at}: it comes on at Full.`);
+    if (c.op === 'picture' && !atLeast(this.step, 'full')) throw new Refusal(409, `The picture is held on the slate at ${at}: switching it comes with Full.`);
     if (c.op === 'dump') {
       if (this.delay.delay_ms < 100 && !this.delay.rebuilding) throw new Refusal(409, 'The delay is off; there is nothing to dump.');
       this.delay = { ...this.delay, delay_ms: 0, rebuilding: true, dumps: this.delay.dumps + 1, dumped_at_ms: now };
@@ -661,6 +710,8 @@ export class Station {
   private fire(id: string, cue: boolean, now: number): void {
     const cart = this.catalogue.carts.find((c) => c.id === id);
     if (!cart || !cart.file) throw new Refusal(404, `No cart \`${id}\``);
+    // A show's own cart sounds only in that show (a cart wall per show, 1.0.2).
+    if (cart.show && cart.show !== slugOf(this.scenario.show)) throw new Refusal(409, OTHER_SHOW(cart.label));
     const pool = cart.mode === 'bed' ? 'bed' : 'shot';
     if (cue) this.cartCues++;
     else this.fired.push(id);
@@ -672,6 +723,7 @@ export class Station {
     while (used.has(player)) player++;
     this.sounding.push({
       cart: id,
+      label: cart.label,
       pool,
       player,
       mode: cart.mode,
@@ -712,6 +764,46 @@ export class Station {
     this.version++;
   }
 
+  /** The show's step as the view carries it: the scenario's show is the one on air, and the
+   *  chair you sit in may change it. */
+  stepView(): StepView {
+    return { step: this.step, show: { slug: slugOf(this.scenario.show), name: this.scenario.show }, on_air: true, next: null, may_change: true };
+  }
+
+  /** Change the show's step (`PUT /api/v1/shows/{show}/step`). It takes effect at once: below
+   *  Callers every caller who is only waiting is let go (told the lines have closed); a caller
+   *  on the strip, in cue or on air stays until dropped, and nobody in the room is removed. */
+  setStep(slug: string, step: unknown, now: number): StepChanged {
+    if (slug !== slugOf(this.scenario.show)) throw new Refusal(404, `no show \`${slug}\``);
+    if (!STEPS.includes(step as ShowStep)) throw new Refusal(422, 'step is `solo`, `guests`, `callers` or `full`');
+    this.clock = now;
+    const previous = this.step;
+    this.step = step as ShowStep;
+    if (previous !== this.step) {
+      if (!atLeast(this.step, 'callers')) this.releaseWaiting();
+      this.notice('desk', 'good', 'step.moved', null, `${this.scenario.you.name.split(' ')[0]} moved ${this.scenario.show} to ${STEP_WORD[this.step]}.`, '');
+      this.seat();
+      this.version++;
+    }
+    return { show: slug, name: this.scenario.show, step: this.step, previous, station: this.stepView() };
+  }
+
+  /** Let go every caller who is only waiting (studio.rs `releasable`): out of the queue and the
+   *  room. Those who hold a strip, or are in cue or on air, stay. */
+  private releaseWaiting(): void {
+    const go = this.callers.filter((c) => {
+      const p = this.person(c.identity);
+      return !this.slots.includes(c.identity) && !p?.on_air && !p?.cue;
+    });
+    for (const c of go) {
+      this.callers = this.callers.filter((x) => x !== c);
+      this.people = this.people.filter((p) => p.identity !== c.identity);
+      this.lobby.delete(c.identity);
+      this.away.delete(c.identity);
+      this.released.push(c.identity);
+    }
+  }
+
   /** The microphone of the browser tab the DJ speaks through. */
   setMic(on: boolean, now: number): void {
     this.clock = now;
@@ -723,6 +815,21 @@ export class Station {
     this.ended = true;
     this.clock = now;
     this.version++;
+  }
+
+  /** The sandbox's delay, split as a real station splits it (ADR-0272): the desk's delay and a
+   *  listener process holding half a second are read, the rest of the path is the setting. */
+  private listenerDelay(): View['listener_delay'] {
+    const desk_ms = Math.floor(this.delay.delay_ms / 100) * 100;
+    const process_ms = 500;
+    const rest_ms = LISTENER_PATH_MS - process_ms;
+    return { ms: desk_ms + process_ms + rest_ms, measured: false, desk_ms, process_ms, rest_ms };
+  }
+
+  /** The sandbox's listeners: one morning audience, all on the Opus stream. */
+  private audience(now: number): NonNullable<View['audience']> {
+    const listeners = listenersAt(now, this.started);
+    return { listeners, by_mount: [{ mount: '/programme.opus', listeners }], error: null, edges: false };
   }
 
   // ---- the view ----
@@ -789,13 +896,15 @@ export class Station {
       sources,
       callers,
       desk_taking_callers: !this.callers.some((c) => c.declined),
-      chat: { ...this.modes, influx: !!this.beforeInflux, influx_since_ms: this.influxSince },
+      // The sandbox has no chat service, so nothing is counted.
+      chat: { ...this.modes, influx: !!this.beforeInflux, influx_since_ms: this.influxSince, held: null, open_reports: null },
       notices: [...this.notices],
       carts: { version: this.catalogue.version, desk: true, desk_error: null, sounding: this.sounding.map((s) => ({ ...s })), ducked, mic_open: cartsMicOpen, missing: [], importing: null },
-      listener_delay: { ms: LISTENER_PATH_MS + Math.floor(this.delay.delay_ms / 100) * 100, measured: false },
+      listener_delay: this.listenerDelay(),
       default_fallback: false,
-      audience: { listeners: listenersAt(now, this.started), edges: false },
+      audience: this.audience(now),
       mode: this.mode,
+      step: this.stepView(),
     };
   }
 }
@@ -820,12 +929,13 @@ export interface PackCart {
   licence: string;
 }
 
-/** The sandbox's first bank: The Morning Kettle's own top row (F1 to F6), then the pack's four. */
+/** The sandbox's first bank: The Morning Kettle's own (a cart wall per show, 1.0.2), its top row
+ *  F1 to F6; then the pack's four, the station's. Every scenario's show is The Morning Kettle. */
 const KETTLE_BANK = ['jingle-1', 'bed-1', 'applause-1', 'rimshot-1', 'news-sting-1', 'sad-trombone-1', 'jingle-2', 'bed-2', 'laugh-1', 'cheer-1', 'drumroll-1', 'pips-1', 'phone-ring-1', 'bagpipe-1', 'whoosh-1', 'ding-1'];
 
-export function catalogueFrom(pack: { banks: Record<string, string>; carts: PackCart[] }): Catalogue {
-  const banks: Bank[] = [{ number: 1, name: 'The Morning Kettle', colour_slot: 1 }];
-  for (const [n, name] of Object.entries(pack.banks)) banks.push({ number: Number(n) + 1, name, colour_slot: Number(n) + 1 });
+export function catalogueFrom(pack: { banks: Record<string, string>; carts: PackCart[] }, show = slugOf('The Morning Kettle')): Catalogue {
+  const banks: Bank[] = [{ number: 1, name: 'The Morning Kettle', colour_slot: 1, show }];
+  for (const [n, name] of Object.entries(pack.banks)) banks.push({ number: Number(n) + 1, name, colour_slot: Number(n) + 1, show: null });
   const cart = (p: PackCart, bank: number, slot: number, id = p.id): Cart => ({
     id,
     bank,
@@ -842,6 +952,7 @@ export function catalogueFrom(pack: { banks: Record<string, string>; carts: Pack
     origin: 'WeaveSignal demo cart pack',
     licence: p.licence,
     missing: false,
+    show: bank === 1 ? show : null,
   });
   const carts: Cart[] = [];
   KETTLE_BANK.forEach((id, i) => {
@@ -849,8 +960,18 @@ export function catalogueFrom(pack: { banks: Record<string, string>; carts: Pack
     if (p) carts.push(cart(p, 1, i + 1));
   });
   for (const p of pack.carts) carts.push(cart(p, p.suggested.bank + 1, p.suggested.slot, `${p.id}@${p.suggested.bank + 1}`));
-  return { version: 1, banks, carts, loudness_lufs: -16 };
+  return { version: 1, show: null, banks, carts, loudness_lufs: -16 };
 }
+
+/** The catalogue as `GET /api/v1/carts?show=` answers: the station's banks and carts, and that
+ *  show's own beside them. */
+export function catalogueFor(cat: Catalogue, show: string | null): Catalogue {
+  const shown = (x: { show?: string | null }) => (x.show ?? null) === null || x.show === show;
+  return { ...cat, show, banks: cat.banks.filter(shown), carts: cat.carts.filter(shown) };
+}
+
+/** What the station says when a show's own cart is fired outside its show (`OtherShow`). */
+export const OTHER_SHOW = (label: string): string => `“${label}” is in another show's own bank: it fires only while that show is the one on air`;
 
 /** The pack's file for a cart id (a cart on two banks has two ids). */
 export function fileOf(cat: Catalogue, id: string): string | null {

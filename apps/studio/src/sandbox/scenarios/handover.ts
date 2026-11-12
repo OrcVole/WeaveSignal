@@ -20,6 +20,7 @@ export const HANDOVER: Scenario = {
   title: 'Hand over to the next DJ',
   blurb: 'The next DJ stands by: count them in, bring them on beside you with one key, press it again and leave them the air with no gap.',
   minutes: 3,
+  step: 'full',
   learn: [
     'The overlap: the next DJ is on air beside you before the post, so listeners hear a handover, never a gap.',
     'One key does it, pressed twice: Shift+Enter brings the next DJ on air beside you, and again takes you off. The button on their tile is the same key and says which press is next.',

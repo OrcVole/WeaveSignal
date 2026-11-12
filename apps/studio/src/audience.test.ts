@@ -4,8 +4,9 @@
 // video on and no edges or CDN, desk B's `desk.audience` says so.
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
-import { VIDEO_VIEWERS_WITHOUT_CDN, cdnWarning } from './lib/audience.ts';
+import { VIDEO_VIEWERS_WITHOUT_CDN, audienceWords, cdnWarning } from './lib/audience.ts';
 import type { AudienceView, PictureView, View } from './lib/api.ts';
+import { NO_SHOW } from './lib/steps.ts';
 import DeskB from './desk/DeskB.svelte';
 import { studio } from './lib/studio.svelte.ts';
 
@@ -26,6 +27,7 @@ function view(audience: AudienceView | undefined, picture: PictureView | null): 
     notices: [],
     carts: { version: 0, desk: true, desk_error: null, sounding: [], ducked: false, mic_open: false, missing: [], importing: null },
     listener_delay: { ms: 15_000, measured: false },
+    step: NO_SHOW,
     audience,
   };
 }
@@ -67,11 +69,43 @@ describe('desk.audience', () => {
     expect(body.indexOf('data-warning="cdn"')).toBeLessThan(body.indexOf('data-panel="desk.picture"'));
   });
 
-  it('says not counted yet before there is a figure, and shows no warning', () => {
-    studio.view = view({ listeners: null, edges: false }, pic);
+  it('says why there is no figure, and shows no warning', () => {
+    studio.view = view({ listeners: null, edges: false, by_mount: [], error: 'the listener process does not answer on its status address' }, pic);
     const { body } = render(DeskB);
-    expect(body).toContain('not counted yet');
+    expect(body).toContain('Not counted: the listener process does not answer on its status address.');
+    expect(body).not.toContain('not counted yet');
     expect(body).not.toContain('data-warning="cdn"');
+  });
+
+  it('says waiting before the first answer, and says an old control plane cannot count', () => {
+    expect(audienceWords(view({ listeners: null, edges: false }, pic)).detail).toContain('waiting for the first answer');
+    const old = audienceWords(view(undefined, pic));
+    expect(old.count).toBeNull();
+    expect(old.detail).toContain('too old to count');
+  });
+
+  it('shows the count by mount', () => {
+    studio.view = view(
+      {
+        listeners: 15,
+        edges: false,
+        by_mount: [
+          { mount: '/programme.opus', listeners: 12 },
+          { mount: '/programme.mp3', listeners: 3 },
+        ],
+        error: null,
+      },
+      pic,
+    );
+    const { body } = render(DeskB);
+    expect(body).toContain('15');
+    expect(body).toContain('programme.opus 12 · programme.mp3 3');
+  });
+
+  it('says what an origin count leaves out when edges are set up', () => {
+    const w = audienceWords(view({ listeners: 4, edges: true, by_mount: [{ mount: '/programme.opus', listeners: 4 }], error: null }, null));
+    expect(w.edges).toContain('each edge counts as one');
+    expect(audienceWords(view({ listeners: 4, edges: false }, null)).edges).toBe('');
   });
 
   it('shows the count without the warning when edges carry the picture', () => {

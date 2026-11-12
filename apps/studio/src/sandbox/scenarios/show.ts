@@ -17,6 +17,7 @@ export const SHOW: Scenario = {
   title: 'The Morning Kettle',
   blurb: 'The whole show, as the demo video runs it: a guest, two screened callers, a dump and a playout fault.',
   minutes: 4,
+  step: 'full',
   learn: [
     'Put yourself and a guest on air, and fire a jingle and a bed from any tab.',
     'Screen a caller as Shona, off air, and send them to the desk.',

@@ -108,6 +108,76 @@ pub fn is_slug(s: &str) -> bool {
         })
 }
 
+/// How much of the studio a show uses (ADR-0271): each step adds one kind of person. Whatever a
+/// step leaves out is switched off while the show is on air.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Step {
+    /// One DJ.
+    Solo,
+    /// Adds guests, by invitation.
+    Guests,
+    /// Adds listeners who call in, and Dump.
+    Callers,
+    /// Adds the screener's seat, the picture, the next DJ and the handover.
+    Full,
+}
+
+impl Step {
+    pub const ALL: [Step; 4] = [Step::Solo, Step::Guests, Step::Callers, Step::Full];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Step::Solo => "solo",
+            Step::Guests => "guests",
+            Step::Callers => "callers",
+            Step::Full => "full",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Step::ALL.into_iter().find(|x| x.as_str() == s)
+    }
+
+    /// The word the interface uses for it: `Solo`, `Guests`, `Callers`, `Full`.
+    pub fn word(self) -> &'static str {
+        match self {
+            Step::Solo => "Solo",
+            Step::Guests => "Guests",
+            Step::Callers => "Callers",
+            Step::Full => "Full",
+        }
+    }
+}
+
+impl std::fmt::Display for Step {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+fn step_of(row: &sqlx::postgres::PgRow, col: &str) -> Result<Step, sqlx::Error> {
+    let raw: String = row.try_get(col)?;
+    Step::parse(&raw).ok_or_else(|| sqlx::Error::Decode(format!("`{raw}` is not a step").into()))
+}
+
+/// A show made without a step starts at Solo.
+fn solo() -> Step {
+    Step::Solo
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Show {
     pub id: Uuid,
@@ -141,6 +211,10 @@ pub struct Show {
     /// defaults. Cleared when the account goes.
     #[serde(default)]
     pub presenter_account: Option<Uuid>,
+    /// How much of the studio the show uses (ADR-0271). Shows that existed before steps are
+    /// `full`; a new show starts at `solo`.
+    #[serde(default = "solo")]
+    pub step: Step,
 }
 
 /// A show as the studio app sends it; hosts by name.
@@ -177,6 +251,10 @@ pub struct ShowInput {
     /// `null` clears it. A member of staff who is not an admin may name only themselves.
     #[serde(default, deserialize_with = "double")]
     pub presenter_account: Option<Option<Uuid>>,
+    /// The show's step (ADR-0271). Absent keeps what is stored, and a new show starts at
+    /// `solo`.
+    #[serde(default)]
+    pub step: Option<Step>,
 }
 
 fn poster() -> String {
@@ -663,7 +741,7 @@ pub fn fill_next(
 
 macro_rules! show_columns {
     () => {
-        "id, slug, name, description, colour_slot, layout, slot_weekday, slot_start, slot_minutes, hosts, tags, explicit, feed_guid, cards::text AS cards, presenter, contact, links, commercial_music, presenter_account"
+        "id, slug, name, description, colour_slot, layout, slot_weekday, slot_start, slot_minutes, hosts, tags, explicit, feed_guid, cards::text AS cards, presenter, contact, links, commercial_music, presenter_account, step"
     };
 }
 
@@ -708,6 +786,7 @@ fn show_of(row: &sqlx::postgres::PgRow) -> Result<Show, sqlx::Error> {
         links: row.try_get("links")?,
         commercial_music: row.try_get("commercial_music")?,
         presenter_account: row.try_get("presenter_account")?,
+        step: step_of(row, "step")?,
     })
 }
 
@@ -780,10 +859,10 @@ pub async fn put_show(
     let row = sqlx::query(concat!(
         "INSERT INTO show (id, station_id, slug, name, description, colour_slot, layout,
                            slot_weekday, slot_start, slot_minutes, hosts, tags, explicit,
-                           presenter, contact, links, commercial_music, presenter_account)
+                           presenter, contact, links, commercial_music, presenter_account, step)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                  COALESCE($14, ''), COALESCE($15, ''), COALESCE($16, '{}'::text[]),
-                 COALESCE($17, false), $19)
+                 COALESCE($17, false), $19, COALESCE($20, 'solo'))
          ON CONFLICT (station_id, slug) DO UPDATE SET
            name = EXCLUDED.name, description = EXCLUDED.description,
            colour_slot = EXCLUDED.colour_slot, layout = EXCLUDED.layout,
@@ -795,6 +874,7 @@ pub async fn put_show(
            links = COALESCE($16, show.links),
            commercial_music = COALESCE($17, show.commercial_music),
            presenter_account = CASE WHEN $18 THEN $19 ELSE show.presenter_account END,
+           step = COALESCE($20, show.step),
            updated_at = now()
          RETURNING ",
         show_columns!()
@@ -818,6 +898,7 @@ pub async fn put_show(
     .bind(input.commercial_music)
     .bind(account_given)
     .bind(account)
+    .bind(input.step.map(Step::as_str))
     .fetch_one(pool)
     .await?;
     Ok(show_of(&row)?)
@@ -850,6 +931,176 @@ pub async fn list_shows(pool: &sqlx::PgPool, station: StationId) -> Result<Vec<S
     .fetch_all(pool)
     .await?;
     rows.iter().map(show_of).collect()
+}
+
+/// A show by its id.
+pub async fn get_show_by_id(pool: &sqlx::PgPool, id: Uuid) -> Result<Option<Show>, sqlx::Error> {
+    let row = sqlx::query(concat!(
+        "SELECT ",
+        show_columns!(),
+        " FROM show WHERE id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref().map(show_of).transpose()
+}
+
+/// Who changed a show's step: how the logs name them, and their account while there is one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StepBy {
+    pub label: String,
+    pub account: Option<Uuid>,
+}
+
+/// One change of a show's step, as logged.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct StepChange {
+    pub from: Step,
+    pub to: Step,
+    pub by: String,
+    pub at_ms: u64,
+}
+
+/// Change only a show's step, and log the change with who made it (ADR-0271). Returns the show
+/// as it is now and the step it had; nothing is logged when the step is already `step`.
+/// `ShowError::Missing` for a show that does not exist.
+pub async fn set_step(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    slug: &str,
+    step: Step,
+    by: &StepBy,
+) -> Result<(Show, Step), ShowError> {
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query(concat!(
+        "SELECT ",
+        show_columns!(),
+        " FROM show WHERE station_id = $1 AND slug = $2 FOR UPDATE"
+    ))
+    .bind(station.as_uuid())
+    .bind(slug)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(row) = row else {
+        return Err(ShowError::Missing(format!("show `{slug}`")));
+    };
+    let mut show = show_of(&row)?;
+    let from = show.step;
+    if from != step {
+        sqlx::query("UPDATE show SET step = $2, updated_at = now() WHERE id = $1")
+            .bind(show.id)
+            .bind(step.as_str())
+            .execute(&mut *tx)
+            .await?;
+        log_step_change_in(&mut tx, station, show.id, from, step, by).await?;
+        show.step = step;
+    }
+    tx.commit().await?;
+    Ok((show, from))
+}
+
+async fn log_step_change_in(
+    tx: &mut sqlx::PgConnection,
+    station: StationId,
+    show: Uuid,
+    from: Step,
+    to: Step,
+    by: &StepBy,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO show_step_change (station_id, show_id, from_step, to_step, by_label, by_account)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(station.as_uuid())
+    .bind(show)
+    .bind(from.as_str())
+    .bind(to.as_str())
+    .bind(by.label.chars().take(160).collect::<String>())
+    .bind(by.account)
+    .execute(tx)
+    .await?;
+    Ok(())
+}
+
+/// Log a change of step made some other way (the show editor's save).
+pub async fn log_step_change(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    show: Uuid,
+    from: Step,
+    to: Step,
+    by: &StepBy,
+) -> Result<(), sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    log_step_change_in(&mut conn, station, show, from, to, by).await
+}
+
+/// The changes made to a show's step, oldest first.
+pub async fn step_changes(pool: &sqlx::PgPool, show: Uuid) -> Result<Vec<StepChange>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT from_step, to_step, by_label, (extract(epoch FROM at) * 1000)::bigint AS at_ms
+         FROM show_step_change WHERE show_id = $1 ORDER BY id",
+    )
+    .bind(show)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|r| {
+            Ok(StepChange {
+                from: step_of(r, "from_step")?,
+                to: step_of(r, "to_step")?,
+                by: r.try_get("by_label")?,
+                at_ms: r.try_get::<i64, _>("at_ms")?.max(0) as u64,
+            })
+        })
+        .collect()
+}
+
+/// The show whose episode started last at or before `now_s`, and when it started (epoch
+/// seconds): the show last on air, or the one on air. `None` when no episode has started, which
+/// is "no show has been on air yet". Read from the schedule, so it is the same after a restart.
+pub async fn last_started(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    now_s: i64,
+) -> Result<Option<(Show, i64)>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT s.show_id, (extract(epoch FROM e.air_at))::bigint AS at_s
+         FROM episode e JOIN series s ON s.id = e.series_id
+         WHERE e.station_id = $1 AND e.air_at IS NOT NULL AND e.air_at <= to_timestamp($2)
+         ORDER BY e.air_at DESC, e.number DESC LIMIT 1",
+    )
+    .bind(station.as_uuid())
+    .bind(now_s as f64)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else { return Ok(None) };
+    let id: Uuid = row.try_get("show_id")?;
+    let at: i64 = row.try_get("at_s")?;
+    Ok(get_show_by_id(pool, id).await?.map(|show| (show, at)))
+}
+
+/// The show whose episode starts next after `now_s`, and when (epoch seconds).
+pub async fn next_start(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    now_s: i64,
+) -> Result<Option<(Show, i64)>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT s.show_id, (extract(epoch FROM e.air_at))::bigint AS at_s
+         FROM episode e JOIN series s ON s.id = e.series_id
+         WHERE e.station_id = $1 AND e.air_at IS NOT NULL AND e.air_at > to_timestamp($2)
+         ORDER BY e.air_at ASC, e.number ASC LIMIT 1",
+    )
+    .bind(station.as_uuid())
+    .bind(now_s as f64)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else { return Ok(None) };
+    let id: Uuid = row.try_get("show_id")?;
+    let at: i64 = row.try_get("at_s")?;
+    Ok(get_show_by_id(pool, id).await?.map(|show| (show, at)))
 }
 
 /// Keep the show's `podcast:guid` the first time its feed is made; afterwards it never
@@ -1819,6 +2070,7 @@ mod tests {
             links: Vec::new(),
             commercial_music: false,
             presenter_account: None,
+            step: Step::Full,
         }
     }
 

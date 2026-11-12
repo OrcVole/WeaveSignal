@@ -16,7 +16,7 @@ A licensed broadcaster, or a US webcaster under the statutory licence, must choo
 
 ![Settings, Retention: the jurisdiction chosen, with what the station keeps explained.](../../../../assets/screens/how-to-set-retention-jurisdiction.png)
 
-1. In the studio app, select **Settings** in the frame at the top. Retention is an admin's to change.
+1. In the studio app, select **Settings** in the top bar at the top. Retention is an admin's to change.
 2. Under **About the station**, tick what applies: **The station holds a broadcast licence**, and **The station webcasts music under the US statutory licence**.
 3. Choose the station's **Jurisdiction**. Each row of the table below it, **How long each record is kept**, shows how long that kind of record is kept and the rule the period follows, with the least the rule allows.
 4. Select **Save changes**. The log names you by your username; only with the station key do you type the name to keep. If the new periods would delete records at the next sweep, the app says how many and asks first.

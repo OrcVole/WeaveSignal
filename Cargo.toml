@@ -21,7 +21,7 @@ members = [
 default-members = ["crates/control", "crates/chat", "crates/model", "crates/proto", "crates/mixer", "crates/media", "crates/cards", "crates/feeds"]
 
 [workspace.package]
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 rust-version = "1.98"
 license = "AGPL-3.0-only"

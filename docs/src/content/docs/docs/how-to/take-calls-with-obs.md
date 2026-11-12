@@ -36,12 +36,12 @@ If your stream needs the delay, let the station send it instead of OBS ([Send yo
 - **OBS Studio 28 or later on Windows 10 (version 2004 or later) or Windows 11.** It has the *Application Audio Capture* source, which takes the sound of one program.
 - **Headphones**, never speakers ([why](/docs/explanation/echo-and-headphones/)).
 - **A browser just for the call.** OBS captures a whole program, so use one you do not use for anything else during the show: Microsoft Edge, if you browse in Chrome or Firefox.
-- **The invite link** the station gave you, and the studio app if you drive the desk yourself ([Install the studio app on Windows](/docs/how-to/install-studio-windows/)).
+- **The invitation link** the station gave you, and the studio app if you drive the desk yourself ([Install the studio app on Windows](/docs/how-to/install-studio-windows/)).
 - **The station's player page address** for your viewers, where they find **Call the studio**.
 
 ## Join the call
 
-1. Open the invite link **in the call browser** (Edge), press **Join the studio**, and allow the microphone ([Get ready to present](/docs/how-to/get-ready/)).
+1. Open the invitation link **in the call browser** (Edge), press **Join the studio**, and allow the microphone ([Get ready to present](/docs/how-to/get-ready/)).
 2. Leave the tab open for the whole show. If you close it, you leave the room and your stream loses the callers.
 3. Check you hear a guest or the producer in your headphones, and that you do not hear yourself.
 

@@ -835,13 +835,7 @@ async fn log(State(state): S, headers: HeaderMap, Query(r): Query<Range>) -> Res
             .or_default()
             .push(b.describe());
     }
-    let carts: BTreeMap<Uuid, String> = state
-        .hub
-        .catalogue()
-        .carts
-        .iter()
-        .map(|c| (c.cart.id, c.cart.label.clone()))
-        .collect();
+    let carts: BTreeMap<Uuid, String> = state.hub.cart_labels();
     let entries: Vec<LogEntry> = items
         .into_iter()
         .map(|i| {

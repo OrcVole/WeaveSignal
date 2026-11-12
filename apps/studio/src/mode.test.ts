@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StationMode } from '../../../packages/ui/states.ts';
 import type { View } from './lib/api.ts';
+import { NO_SHOW } from './lib/steps.ts';
 import { studio, takeView } from './lib/studio.svelte.ts';
 
 /** A view as the control plane sends it, with `mode` as given (left out when undefined). */
@@ -22,6 +23,7 @@ function view(mode: StationMode | null | undefined): View {
     notices: [],
     carts: { version: 0, desk: true, desk_error: null, sounding: [], ducked: false, mic_open: false, missing: [], importing: null },
     listener_delay: { ms: 15_000, measured: false },
+    step: NO_SHOW,
   };
   if (mode !== undefined) v.mode = mode;
   // Through JSON, as the event stream delivers it.

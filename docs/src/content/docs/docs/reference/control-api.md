@@ -3,7 +3,7 @@ title: "Control plane routes"
 description: "The control plane's HTTP API: who may call it, how a refusal looks, what the API promises, and where the generated route reference is."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-11
 sidebar:
   order: 8
 ---
@@ -29,7 +29,7 @@ Authorization: Bearer <a staff session, the station key, an API token or a pass>
 - **The station key** (ADR-0085): `WEAVESIGNAL_CONTROL_ADMIN_TOKEN`, from the environment and never from the settings file.
   It is the station's own credential with an admin's powers; it makes the first admin account, and the chat reads the studio's view with it.
 - **An API token** (ADR-0195): `rsa_…`, made by an admin for one program. It reaches only the routes its scopes open, and is never an admin ([Integrations](/docs/reference/integrations/#api-tokens)).
-- **A pass** (ADR-0119): the join pages' own bearer, from an invite or a call; it opens only the `/api/v1/pass…` routes.
+- **A pass** (ADR-0119): the join pages' own bearer, from an invitation or a call; it opens only the `/api/v1/pass…` routes.
 
 A missing, wrong or ended bearer answers 401 (an ended session says "Your sign-in has ended. Sign in again."); a role that may not answers 403, and so does a token without the scope.
 With no station key set, staff sessions still open the routes, and so do API tokens when `WEAVESIGNAL_CONTROL_TOKEN_KEY` is set; a request with any other bearer, or none, answers 503.
@@ -100,6 +100,26 @@ The live sessions are held in memory and in the database, so a restart keeps the
 
 How to use these from the studio app: [Add staff and sign in](/docs/how-to/add-staff/).
 
+## The studio's view and the step
+
+`GET /api/v1/studio` and its events carry the beginner step (ADR-0271, ADR-0274; [Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)):
+
+| Field | Meaning |
+|---|---|
+| `step.step` | the station's step: `solo`, `guests`, `callers` or `full` |
+| `step.show` | the show the step comes from (`slug`, `name`), or `null` when no show has been on air |
+| `step.on_air` | that show is on air now; `false`: it is the show last on air |
+| `step.next` | the next show by the schedule: `slug`, `name`, `start_ms`, `step`; or `null` |
+| `step.may_change` | whether the account asking may change the step; the shared view says `false`, and each request fills in its own |
+| `chat.held`, `chat.open_reports` | what waits for a moderator in the chat, for the desk's chat panel; `null` while not counted |
+
+On the pages that join by a pass:
+
+- `GET /api/v1/pass` has `not_now`, a sentence, while the show on air's step has switched the pass's seat off (the pass stays good for later); `null` otherwise.
+- `GET /api/v1/pass/events` has `released` on a caller's state, `show_took_air` or `step_moved_down`, when the lines closed on a waiting caller; their `phase` is `ended`.
+- `POST /api/v1/pass/token` answers 409 for a seat the step has switched off (an invitation, which stays good) and 410 for a caller after the lines closed.
+- `POST /api/v1/invites` takes `{"for_me": true}` for a presenter's invitation for the signed-in account itself, and refuses an invitation for a hidden seat with 422 and `field` `role`.
+
 ## Where the routes are
 
 - Every route, generated: the [API reference](/docs/reference/api/).
@@ -109,4 +129,5 @@ How to use these from the studio app: [Add staff and sign in](/docs/how-to/add-s
 - Shows, series and episodes are under `/api/v1/shows`; `POST …/episodes/{episode}/corrections` corrects the public text of an aired episode (ADR-0177), and the log, which `GET` on the same path lists, names who made each correction (a username, `station key`, or `API token` and the token's name).
   A save whose card text holds characters the card fonts cannot draw answers 422 with the field named (ADR-0176).
   A show's `presenter`, `contact`, `links`, `commercial_music` and `presenter_account` (ADR-0214, ADR-0218, ADR-0219) are kept when a `PUT` leaves them out, so a client that does not know them never wipes a presenter's details; an empty value clears one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise), and an API token may not set it.
+- A show's **step** (ADR-0271) is the show's own field: `PUT /api/v1/shows/{show}/step` changes it alone, and a `PUT` of the show may carry `step` (kept when left out; a new show starts at `solo`). An admin, a producer or the show's presenter may; an API token may not. The studio's view carries the station's step as `step`, and call-in, invitations, passes and some desk commands follow it: [Choose how much of the studio a show uses](/docs/how-to/choose-a-step/). `POST /api/v1/invites` also takes `{"for_me": true}`, a presenter's invitation for the signed-in account.
 - Routes with no `/api/v1` prefix: `GET /health`, `GET /hls/{path}` and `GET /feeds/{file}`, which the [API reference](/docs/reference/api/) has; and the static `/cards/…` and `/media/episodes/…`, served from the publishing directories with ranges, which it does not.

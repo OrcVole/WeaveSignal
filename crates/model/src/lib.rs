@@ -7,6 +7,7 @@
 //! shows one station, and every table that follows carries a `station_id`.
 
 pub mod carts;
+pub mod chat;
 pub mod passes;
 pub mod playout;
 pub mod retention;

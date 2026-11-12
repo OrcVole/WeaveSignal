@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 
-//! The cart wall's rows (ADR-0020): banks and carts, per station (migration 0003).
+//! The cart wall's rows (ADR-0020): banks and carts, per station (migration 0003), and since
+//! 1.0.2 per show as well (migration 0034): the station's banks are shared by every show, and a
+//! show's own banks are its alone. The station's and each show's banks are numbered apart, 1
+//! to [`BANKS`] each. Every write names its owner: `None` for the station, or the show's id.
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -9,7 +12,7 @@ use uuid::Uuid;
 
 use crate::StationId;
 
-/// Banks per station: `⌃F1` to `⌃F5`.
+/// Banks per owner (the station, or a show): `⌃F1` to `⌃F5`.
 pub const BANKS: u8 = 5;
 /// Carts per bank: the four rows of six under the left hand (`1`–`6`, `Q`–`Y`, `A`–`H`, `Z`–`N`).
 pub const SLOTS: u8 = 24;
@@ -54,6 +57,10 @@ pub struct Bank {
     pub name: String,
     /// 1 to [`COLOUR_SLOTS`]: the bank's (and its show's) colour.
     pub colour_slot: u8,
+    /// The show whose own bank this is, by its slug; `None` for the station's, which every
+    /// show shares.
+    #[serde(default)]
+    pub show: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -79,6 +86,9 @@ pub struct Cart {
     /// Where it came from: an uploaded file's name, or `demo:<id>`.
     pub origin: String,
     pub licence: String,
+    /// The show whose bank holds it, by its slug; `None` for a station bank.
+    #[serde(default)]
+    pub show: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -147,13 +157,16 @@ impl Cart {
     }
 }
 
-/// Every bank and cart of a station, banks by number and carts by bank and slot.
+/// Every bank and cart of a station, the station's and every show's: the station's first,
+/// then each show's by its slug; banks by number and carts by bank and slot.
 pub async fn load(
     pool: &sqlx::PgPool,
     station: StationId,
 ) -> Result<(Vec<Bank>, Vec<Cart>), sqlx::Error> {
     let banks = sqlx::query(
-        "SELECT number, name, colour_slot FROM cart_bank WHERE station_id = $1 ORDER BY number",
+        "SELECT b.number, b.name, b.colour_slot, s.slug
+         FROM cart_bank b LEFT JOIN show s ON s.id = b.show_id
+         WHERE b.station_id = $1 ORDER BY s.slug NULLS FIRST, b.number",
     )
     .bind(station.as_uuid())
     .fetch_all(pool)
@@ -163,12 +176,14 @@ pub async fn load(
         number: r.get::<i16, _>("number") as u8,
         name: r.get("name"),
         colour_slot: r.get::<i16, _>("colour_slot") as u8,
+        show: r.get("slug"),
     })
     .collect();
     let carts = sqlx::query(
-        "SELECT id, bank, slot, label, detail, mode, file, duration_ms, gain_db, loudness_lufs,
-                true_peak_dbtp, ramp_ms, origin, licence
-         FROM cart WHERE station_id = $1 ORDER BY bank, slot",
+        "SELECT c.id, c.bank, c.slot, c.label, c.detail, c.mode, c.file, c.duration_ms, c.gain_db,
+                c.loudness_lufs, c.true_peak_dbtp, c.ramp_ms, c.origin, c.licence, s.slug
+         FROM cart c JOIN cart_bank b ON b.id = c.bank_id LEFT JOIN show s ON s.id = b.show_id
+         WHERE c.station_id = $1 ORDER BY s.slug NULLS FIRST, c.bank, c.slot",
     )
     .bind(station.as_uuid())
     .fetch_all(pool)
@@ -189,54 +204,90 @@ pub async fn load(
         ramp_ms: r.get::<Option<i32>, _>("ramp_ms").map(|v| v.max(0) as u32),
         origin: r.get("origin"),
         licence: r.get("licence"),
+        show: r.get("slug"),
     })
     .collect();
     Ok((banks, carts))
 }
 
-/// Make or rename a bank.
+/// Make or rename a bank: the station's (`show` is `None`) or a show's own. `bank.show` is not
+/// read; the owner is `show`.
 pub async fn put_bank(
     pool: &sqlx::PgPool,
     station: StationId,
+    show: Option<Uuid>,
     bank: &Bank,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO cart_bank (station_id, number, name, colour_slot) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (station_id, number) DO UPDATE
-         SET name = EXCLUDED.name, colour_slot = EXCLUDED.colour_slot",
-    )
-    .bind(station.as_uuid())
-    .bind(i16::from(bank.number))
-    .bind(&bank.name)
-    .bind(i16::from(bank.colour_slot))
-    .execute(pool)
-    .await?;
+    // Each owner's numbers are kept apart by its own partial index (migration 0034).
+    let sql = if show.is_some() {
+        "INSERT INTO cart_bank (id, station_id, show_id, number, name, colour_slot)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (show_id, number) WHERE show_id IS NOT NULL DO UPDATE
+         SET name = EXCLUDED.name, colour_slot = EXCLUDED.colour_slot"
+    } else {
+        "INSERT INTO cart_bank (id, station_id, show_id, number, name, colour_slot)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (station_id, number) WHERE show_id IS NULL DO UPDATE
+         SET name = EXCLUDED.name, colour_slot = EXCLUDED.colour_slot"
+    };
+    sqlx::query(sql)
+        .bind(Uuid::new_v4())
+        .bind(station.as_uuid())
+        .bind(show)
+        .bind(i16::from(bank.number))
+        .bind(&bank.name)
+        .bind(i16::from(bank.colour_slot))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
-/// Put a cart in its bank and slot, replacing what was there. Returns the file the replaced
-/// cart used, if another, for the caller to delete once the new row is in.
+/// The id of an owner's bank, if it has been made.
+async fn bank_id(
+    conn: &mut sqlx::PgConnection,
+    station: StationId,
+    show: Option<Uuid>,
+    number: u8,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT id FROM cart_bank
+         WHERE station_id = $1 AND number = $2 AND show_id IS NOT DISTINCT FROM $3",
+    )
+    .bind(station.as_uuid())
+    .bind(i16::from(number))
+    .bind(show)
+    .fetch_optional(conn)
+    .await
+}
+
+/// Put a cart in an owner's bank and slot, replacing what was there. Returns the file the
+/// replaced cart used, if another, for the caller to delete once the new row is in. A bank the
+/// owner has not made is [`sqlx::Error::RowNotFound`]. `cart.show` is not read.
 pub async fn put_cart(
     pool: &sqlx::PgPool,
     station: StationId,
+    show: Option<Uuid>,
     cart: &Cart,
 ) -> Result<Option<String>, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let old: Option<Option<String>> = sqlx::query_scalar(
-        "DELETE FROM cart WHERE station_id = $1 AND bank = $2 AND slot = $3 RETURNING file",
-    )
-    .bind(station.as_uuid())
-    .bind(i16::from(cart.bank))
-    .bind(i16::from(cart.slot))
-    .fetch_optional(&mut *tx)
-    .await?;
+    let bank = bank_id(&mut tx, station, show, cart.bank)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+    let old: Option<Option<String>> =
+        sqlx::query_scalar("DELETE FROM cart WHERE bank_id = $1 AND slot = $2 RETURNING file")
+            .bind(bank)
+            .bind(i16::from(cart.slot))
+            .fetch_optional(&mut *tx)
+            .await?;
     sqlx::query(
-        "INSERT INTO cart (id, station_id, bank, slot, label, detail, mode, file, duration_ms,
-                           gain_db, loudness_lufs, true_peak_dbtp, ramp_ms, origin, licence)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+        "INSERT INTO cart (id, station_id, bank_id, bank, slot, label, detail, mode, file,
+                           duration_ms, gain_db, loudness_lufs, true_peak_dbtp, ramp_ms, origin,
+                           licence)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
     )
     .bind(cart.id)
     .bind(station.as_uuid())
+    .bind(bank)
     .bind(i16::from(cart.bank))
     .bind(i16::from(cart.slot))
     .bind(&cart.label)
@@ -256,21 +307,50 @@ pub async fn put_cart(
     Ok(old.flatten().filter(|f| Some(f) != cart.file.as_ref()))
 }
 
-/// Empty a slot; returns the cart that was there.
+/// Empty a slot of an owner's bank; returns the cart that was there and its file.
 pub async fn delete_cart(
     pool: &sqlx::PgPool,
     station: StationId,
+    show: Option<Uuid>,
     bank: u8,
     slot: u8,
-) -> Result<Option<Uuid>, sqlx::Error> {
-    sqlx::query_scalar(
-        "DELETE FROM cart WHERE station_id = $1 AND bank = $2 AND slot = $3 RETURNING id",
+) -> Result<Option<(Uuid, Option<String>)>, sqlx::Error> {
+    sqlx::query_as(
+        "DELETE FROM cart c USING cart_bank b
+         WHERE c.bank_id = b.id AND b.station_id = $1 AND b.number = $2
+           AND b.show_id IS NOT DISTINCT FROM $3 AND c.slot = $4
+         RETURNING c.id, c.file",
     )
     .bind(station.as_uuid())
     .bind(i16::from(bank))
+    .bind(show)
     .bind(i16::from(slot))
     .fetch_optional(pool)
     .await
+}
+
+/// Remove a show's own bank with its carts. Returns the carts it held and their files, or
+/// `None` when the show has no such bank. The station's banks are not removed here.
+pub async fn delete_show_bank(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    show: Uuid,
+    number: u8,
+) -> Result<Option<Vec<(Uuid, Option<String>)>>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let Some(bank) = bank_id(&mut tx, station, Some(show), number).await? else {
+        return Ok(None);
+    };
+    let carts = sqlx::query_as("DELETE FROM cart WHERE bank_id = $1 RETURNING id, file")
+        .bind(bank)
+        .fetch_all(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM cart_bank WHERE id = $1")
+        .bind(bank)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Some(carts))
 }
 
 #[cfg(test)]
@@ -293,6 +373,7 @@ mod tests {
             ramp_ms: None,
             origin: "demo:applause-1".into(),
             licence: "CC0 1.0".into(),
+            show: None,
         }
     }
 
@@ -315,6 +396,7 @@ mod tests {
             number: 1,
             name: "Reactions".into(),
             colour_slot: 13,
+            show: None,
         };
         assert_eq!(b.check(), Err(CartError::Colour(13)));
     }

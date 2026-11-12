@@ -1,21 +1,32 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The desk's invite (ADR-0074): a quiet button at the head of Not on air, where the person
-  // invited will appear, and its dialog. The dialog asks a name and a role (the DJ first: a DJ
-  // joins off air), makes the invite (`POST /api/v1/invites`), then shows the link to send,
-  // with Copy and how long it lasts. Panel name `desk.invite` (ADR-0070).
+  // The desk's invitation (ADR-0074): a quiet button at the head of Not on air, where the
+  // person invited will appear, and its dialog. The dialog asks a name and a role (the DJ first:
+  // a DJ joins off air), makes the invitation (`POST /api/v1/invites`), then shows the link to
+  // send, with Copy and how long it lasts. Panel name `desk.invite` (ADR-0070).
+  //
+  // The show's step decides the roles (ADR-0271): a guest and a presenter from Guests, the next
+  // show's DJ at Full. With `own` it is the Solo DJ's one button instead (ADR-0274): Join with
+  // my microphone… makes the signed-in presenter's own link, with no name to type and no role
+  // to choose, and opens the dialog on its second page, with Open in browser and Copy link.
   //
   // A dialog owns the keyboard (keymap rule 5): App.svelte keeps the desk's keys out of it by
   // its panel name, so a name typed here never opens a fader. Esc closes it and the browser
   // puts the focus back on the button that opened it.
-  import { base, makeInvite, sandboxed, type Invite, type InviteRole } from '../lib/api.ts';
-  import { INVITE_ROLES, inviteProblem, inviteUrl, joinsLine, lastsLine, nameProblem } from '../lib/invite.ts';
-  import { stationNow } from '../lib/studio.svelte.ts';
+  import { base, makeInvite, makeOwnInvite, openInBrowser, sandboxed, type Invite, type InviteRole } from '../lib/api.ts';
+  import { DJ_COMES_WITH_FULL, OWN_LINK, inviteProblem, inviteUrl, joinsLine, lastsLine, nameProblem, rolesAt } from '../lib/invite.ts';
+  import { stationNow, studio } from '../lib/studio.svelte.ts';
+  import { stationStep } from '../lib/steps.ts';
+
+  let { own = false }: { /** The Solo DJ's own microphone link, in place of the dialog's first page. */ own?: boolean } = $props();
+
+  /** The roles the station's step lets the desk invite; the first is the one picked. */
+  const roles = $derived(rolesAt(stationStep(studio.view)));
 
   let dialogEl = $state<HTMLDialogElement | null>(null);
   let name = $state('');
-  let role = $state<InviteRole>('dj');
+  let role = $state<InviteRole>('guest');
   let busy = $state(false);
   let errors = $state<{ name?: string; form?: string }>({});
   let made = $state<Invite | null>(null);
@@ -26,7 +37,7 @@
 
   function fresh() {
     name = '';
-    role = 'dj';
+    role = roles[0]?.role ?? 'guest';
     errors = {};
     made = null;
     copied = '';
@@ -60,10 +71,31 @@
     }
   }
 
+  /** Join with my microphone…: the link is made at once, and the dialog opens to say what to do
+   *  with it. A refusal is the station's own sentence, shown under the button. */
+  async function openOwn() {
+    if (busy) return;
+    fresh();
+    busy = true;
+    try {
+      made = await makeOwnInvite();
+      dialogEl?.showModal();
+      queueMicrotask(() => document.getElementById('inv-open')?.focus());
+    } catch (err) {
+      errors = { form: inviteProblem(err) };
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function openLink() {
+    copied = (await openInBrowser(url)) ? 'Opened in your browser. Allow the microphone if it asks, then press Join the studio.' : OWN_LINK.notOpened;
+  }
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(url);
-      copied = 'Copied. Paste it into a message to them.';
+      copied = own ? 'Copied. Paste it into a browser on this computer.' : 'Copied. Paste it into a message to them.';
     } catch {
       // Nothing to copy with (a webview may refuse): the link is selected in its box instead.
       copied = 'Could not copy from here. The link is selected in its box: copy it from there.';
@@ -74,11 +106,36 @@
   }
 </script>
 
-<button type="button" class="btn quiet invite" aria-haspopup="dialog" onclick={open}>Invite someone…</button>
+{#if own}
+  <button type="button" class="btn primary" aria-haspopup="dialog" disabled={busy} aria-busy={busy || undefined} aria-describedby={errors.form ? 'inv-own-err' : undefined} onclick={openOwn}
+    >{busy ? 'Making your link…' : OWN_LINK.button}</button
+  >
+  {#if errors.form && !made}<p id="inv-own-err" class="err own-err" role="alert">{errors.form}</p>{/if}
+{:else}
+  <button type="button" class="btn quiet invite" aria-haspopup="dialog" onclick={open}>Invite someone…</button>
+{/if}
 
 <!-- The pass is this dialog's only: closing it forgets the link (make another if it is lost). -->
 <dialog bind:this={dialogEl} data-panel="desk.invite" aria-labelledby="inv-h" onclose={fresh}>
-  {#if !made}
+  {#if made && own}
+    <div class="made">
+      <h2 id="inv-h" data-panel-title>{OWN_LINK.title}</h2>
+      <p class="lede">{OWN_LINK.lede}</p>
+      <div class="link">
+        <input id="inv-link" type="text" readonly value={url} aria-label="Your microphone link" onfocus={(e) => e.currentTarget.select()} />
+        <button id="inv-open" type="button" class="btn primary" onclick={openLink}>{OWN_LINK.open}</button>
+      </div>
+      <p class="hint status" role="status" aria-live="polite">{copied}</p>
+      <p class="hint lasts">{lastsLine(made, stationNow())} Anyone who has it joins as you, so keep it to yourself. The same button makes it again.</p>
+      {#if sandboxed()}
+        <p class="hint sandbox">In the sandbox the link opens nothing: the browser tab you speak through is the small panel in the bar at the top.</p>
+      {/if}
+      <div class="acts">
+        <button id="inv-copy" type="button" class="btn" onclick={copy}>Copy link</button>
+        <button type="button" class="btn quiet" onclick={() => dialogEl?.close()}>Done <kbd>Esc</kbd></button>
+      </div>
+    </div>
+  {:else if !made}
     <form onsubmit={onMake} novalidate>
       <h2 id="inv-h" data-panel-title>Invite someone to the room</h2>
       <p class="lede">You get a link to send them. They open it in a browser; no account, nothing to install.</p>
@@ -101,12 +158,13 @@
       </div>
       <fieldset>
         <legend>They join as</legend>
-        {#each INVITE_ROLES as r (r.role)}
+        {#each roles as r (r.role)}
           <label class="choice">
             <input type="radio" name="inv-role" value={r.role} bind:group={role} />
             <span><strong>{r.name}</strong><span class="what">{r.what}</span></span>
           </label>
         {/each}
+        {#if !roles.some((r) => r.role === 'dj')}<p class="hint">{DJ_COMES_WITH_FULL}</p>{/if}
       </fieldset>
       {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
       <div class="acts">
@@ -238,6 +296,11 @@
   .sandbox {
     border-left: 3px solid var(--axis);
     padding-left: var(--s-2);
+  }
+  /* The station's sentence under the Solo stage's button, when it refuses the DJ's own link. */
+  .own-err {
+    max-width: 26rem;
+    text-align: left;
   }
   .err {
     color: var(--ink);

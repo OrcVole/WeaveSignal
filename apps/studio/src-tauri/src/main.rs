@@ -7,6 +7,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod open;
 mod station;
 mod update;
 
@@ -31,6 +32,8 @@ fn main() {
         .manage(station::Stations::new())
         // The update screen's commands (ADR-0140); the page is not granted the plugin's own.
         .manage(update::Updates::default())
+        // `open_link` hands the Solo DJ's own microphone link to the person's browser (ADR-0274):
+        // a web address only, never through a shell.
         .invoke_handler(tauri::generate_handler![
             station::station_info,
             station::station_check,
@@ -47,6 +50,7 @@ fn main() {
             update::update_download,
             update::update_install,
             update::update_rollback,
+            open::open_link,
         ])
         .run(tauri::generate_context!())
         .expect("the studio app could not start");

@@ -12,8 +12,8 @@ Two images from `deploy/images/edge/`, on Alpine 3.24 (ADR-0051).
 
 | Image | Published | Built locally (`just edge-image`) |
 |---|---|---|
-| `weavesignal-edge` | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1` | `localhost/weavesignal-edge:m1` (`WEAVESIGNAL_EDGE_IMAGE` to change) |
-| `weavesignal-relay` | `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1` | `localhost/weavesignal-relay:m1` (`WEAVESIGNAL_RELAY_IMAGE`) |
+| `weavesignal-edge` | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.2` | `localhost/weavesignal-edge:m1` (`WEAVESIGNAL_EDGE_IMAGE` to change) |
+| `weavesignal-relay` | `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.2` | `localhost/weavesignal-relay:m1` (`WEAVESIGNAL_RELAY_IMAGE`) |
 
 Each writes its server's configuration from the environment at start and refuses to start on a value it cannot use.
 How to run them is in [Run a self-run edge pool](/docs/how-to/run-edges/).

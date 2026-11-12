@@ -58,7 +58,7 @@ const SHOWS = [
 
 for (const s of SHOWS) {
   const { slug, ...input } = s;
-  await call('PUT', `/api/v1/shows/${slug}`, { ...input, explicit: false });
+  await call('PUT', `/api/v1/shows/${slug}`, { ...input, explicit: false, step: 'full' });
 }
 
 // Series 1 of every weekly show, starting two weeks back, drafted to a few weeks ahead; Saturday

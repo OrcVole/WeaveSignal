@@ -16,11 +16,13 @@ export interface PanelInfo {
 }
 
 export const DESK_B: readonly PanelInfo[] = [
-  { name: 'desk.clock', what: 'The studio clock: room time with tenths, back-timing to the next hard post, and when listeners hear it, from the listener delay setting (not measured yet).' },
-  { name: 'desk.rundown', what: 'Coming up: the next ten minutes as rows (the post, the handover, the carts they need).' },
-  { name: 'desk.playout', what: 'Playout (Liquidsoap): its state chip, the queue, and restart when it is down.' },
+  { name: 'desk.clock', what: 'In the left panel. The studio clock: room time with tenths, back-timing to the next hard post, and when listeners hear it, from the listener delay setting (not measured yet).' },
+  { name: 'desk.rundown', what: 'In the left panel. Coming up: the next ten minutes as rows (the post, the handover, the carts they need).' },
+  { name: 'desk.playout', what: 'In the left panel. Playout (Liquidsoap): its state chip, the queue, and restart when it is down.' },
   { name: 'desk.stage', what: 'The stage: every source listeners can hear, as tiles, under the lamp and the delay.' },
   { name: 'desk.lamp', what: 'The master lamp: ON AIR, or what listeners hear instead (AUTO, PLAYOUT DOWN, STANDBY, a fault).' },
+  { name: 'desk.air', what: 'The button beside the lamp: hand the air to automation, or take it back (ADR-0272).' },
+  { name: 'desk.end-show', what: 'The air dialog: End show (⌃⇧E), Hand to automation and Take the air back each ask here, ⏎ to confirm and Esc to keep going.' },
   { name: 'desk.delay', what: 'The profanity delay: its length, the arc, DUMPED while it rebuilds, and the two-press dump.' },
   { name: 'desk.tile.1', what: 'Source 1 as a tile: name, state, R128 meter with its scale, fader, and the four keyed buttons.' },
   { name: 'desk.tile.2', what: 'Source 2.' },
@@ -28,12 +30,14 @@ export const DESK_B: readonly PanelInfo[] = [
   { name: 'desk.tile.4', what: 'Source 4.' },
   { name: 'desk.tile.5', what: 'Source 5.' },
   { name: 'desk.tile.6', what: 'Source 6, playout.' },
-  { name: 'desk.waiting', what: 'Not on air: the sources that are cued or standing by, with the move rule, and Invite someone….' },
-  { name: 'desk.invite', what: 'The invite dialog: a name and a role (a DJ joins off air; a guest or a presenter on air), then the link to send, Copy, and how long it lasts.' },
-  { name: 'desk.audience', what: "Listeners now on the station's stream, and what they hear (the desk, the dump, the fallback); counts by mount are not shown yet." },
-  { name: 'desk.picture', what: 'The programme picture: the camera on air or the slate, switched with F7 (ADR-0010).' },
-  { name: 'desk.carts', what: "The glance: the top row of the show's cart bank, F1 to F6 from any tab." },
-  { name: 'desk.chat', what: "Where the chat glance will go; the chat is on the Screener tab for now." },
+  { name: 'desk.step-note', what: 'The guest’s empty seat, at Solo: why the desk is quiet, and the way up a step (ADR-0271).' },
+  { name: 'desk.waiting', what: 'Not on air: the sources that are cued or standing by, with the move rule, and Invite someone…, which makes an invitation. It arrives at the Guests step.' },
+  { name: 'desk.invite', what: 'The invitation dialog: a name and a role (a DJ joins off air; a guest or a presenter on air), then the link to send, Copy, and how long it lasts. At Solo it is the DJ’s own microphone link, with Open in browser.' },
+  { name: 'desk.audience', what: "In the right panel. Listeners now on the station's stream, by mount, and what they hear (the desk, the dump, the fallback); or why they cannot be counted." },
+  { name: 'desk.callers', what: 'Callers, at the Callers step: who is waiting on the phone lines, what about and for how long; take the next caller to strip 4 (P, ADR-0275).' },
+  { name: 'desk.picture', what: 'In the right panel. The programme picture: the camera on air or the slate, switched with F7 (ADR-0010).' },
+  { name: 'desk.carts', what: "In the right panel. The glance: the top row of the show's cart bank, F1 to F6 from any tab." },
+  { name: 'desk.chat', what: 'In the right panel. The chat to read: the room’s last messages, and one line when something waits for a moderator.' },
   { name: 'desk.toast', what: 'The reserved slot a toast takes; the chat glance steps aside, so nothing moves and no control is covered.' },
   { name: 'desk.status', what: "The station's health in one line: the room, the link to playout, the listener server, and the talk rule." },
 ];
@@ -52,7 +56,7 @@ export const SCREENER: readonly PanelInfo[] = [
 
 export const CARTS: readonly PanelInfo[] = [
   { name: 'carts.wall', what: 'The cart wall: the bank strip and its grid of 24 carts, the left hand of the keyboard (1–6, Q–Y, A–H, Z–N).' },
-  { name: 'carts.bank.1', what: 'Bank 1 (⌃F1): its colour is its show’s, everywhere (ADR-0066).' },
+  { name: 'carts.bank.1', what: 'Bank 1 (⌃F1): the show’s own bank 1 if it has one, else the station’s; its colour is its show’s, everywhere (ADR-0066).' },
   { name: 'carts.bank.2', what: 'Bank 2 (⌃F2).' },
   { name: 'carts.bank.3', what: 'Bank 3 (⌃F3).' },
   { name: 'carts.bank.4', what: 'Bank 4 (⌃F4).' },
@@ -73,14 +77,21 @@ export const CALENDAR: readonly PanelInfo[] = [
   { name: 'calendar.log-editor', what: "An automation block's generated hours, item by item with the rule each breaks, another track or none, generate." },
   { name: 'calendar.card-editor', what: 'The card: Poster or Slate, the live preview drawn by the control plane, the alt text, a refused field named.' },
   { name: 'calendar.show-still', what: "The show's own slate picture (ADR-0200): the preview, choose or replace a PNG or JPEG, remove; the slate shows it while the show is on air, else the station's." },
+  { name: 'calendar.show-step', what: 'The show’s step, with what each one adds: Solo, Guests, Callers or Full. Whatever a step leaves out is switched off while the show is on air (ADR-0271).' },
   { name: 'calendar.show-presenter', what: "The show's presenter (ADR-0214, ADR-0219): the on-air name and takedown contact the consent words name while it is on air, links to the presenter's channels, and whether it plays commercial music." },
 ];
 
 export const STUDIO: readonly PanelInfo[] = [
-  { name: 'studio.frame', what: "The studio app's frame: the tabs with their keys, the link to the station, the theme." },
+  { name: 'studio.frame', what: "The top bar: the show's step, the tabs with their keys, the link to the station, the theme." },
+  { name: 'studio.step', what: 'The show’s step as four pips and a word, the way to change it, and Show everything (ADR-0271).' },
+  { name: 'studio.step.menu', what: 'The four steps for the show named, what changes now, and the confirm: ↑ ↓ move, ⏎ confirms, Esc keeps the step.' },
+  { name: 'studio.step.banner', what: 'Says the whole studio is shown for now and that the show’s step still holds; Back to the step (ADR-0274).' },
+  { name: 'studio.prepare', what: 'Whether this window is Live or Preparing, and the way to switch; a preparing window shows the live desk and cannot change what is on air (ADR-0276).' },
+  { name: 'studio.prepare.menu', what: 'Live or Preparing for this window, what the switch changes, and the confirm: ↑ ↓ move, ⏎ confirms, Esc keeps what is. The one ask before taking the desk while someone else’s show is on air.' },
+  { name: 'studio.prepare.banner', what: 'Says this window is preparing and what is on air, and holds Switch to Live; on the Desk, Screener and Carts tabs (ADR-0276).' },
 ];
 
-/** Settings, reached from the frame (station admin, not a numbered tab). */
+/** Settings, reached from the top bar (station admin, not a numbered tab). */
 export const SETTINGS: readonly PanelInfo[] = [
   { name: 'settings.jurisdiction', what: 'The Jurisdiction drop-down: one preset sets every retention period (ADR-0113), and the licence questions.' },
   { name: 'settings.periods', what: 'How long each kind of record is kept, with the rule each period follows and its floor (ADR-0114).' },
@@ -116,7 +127,7 @@ export const ACCOUNT: readonly PanelInfo[] = [
 /** The DJ's show setup (ADR-0218, ADR-0219): the wizard over the surface, and its panel in
  *  Settings for a member of staff signed in as themselves (so not in SETTINGS). */
 export const SHOW_SETUP: readonly PanelInfo[] = [
-  { name: 'studio.show-setup', what: 'Set up your show, in three steps: your on-air name and takedown contact; your show, its links, usual time and whether it plays commercial music; done. The answers are the defaults for you and your show (ADR-0218).' },
+  { name: 'studio.show-setup', what: 'Set up your show, in three parts: your on-air name and takedown contact; your show, its links, usual time, whether it plays commercial music and how much of the studio to start with; done. The answers are the defaults for you and your show (ADR-0218).' },
   { name: 'settings.my-show', what: 'Your show: the show tied to your account as the setup wizard left it (name, on-air name, takedown contact, links, usual time, commercial music), with Change… to run the wizard again; or Set up your show… (ADR-0218).' },
 ];
 
@@ -129,10 +140,11 @@ export const UPDATES: readonly PanelInfo[] = [
 /** The website's sandbox desk (ADR-0212) and its training scenarios (ADR-0222): the bar over
  *  the app's frame and the cards around a scenario, drawn in the sandbox build only. */
 export const SANDBOX: readonly PanelInfo[] = [
-  { name: 'sandbox.guide', what: "The sandbox's guide bar: the scenario's next step, read from the simulated station; the stand-in tab; Hear (the studio or the listeners); the way to the other scenarios (ADR-0212, ADR-0222)." },
+  { name: 'sandbox.guide', what: "The sandbox's guide bar: the scenario's next step, read from the simulated station; Learn, the way to the other scenarios; the stand-in tab; Hear (the studio or the listeners) (ADR-0212, ADR-0222)." },
+  { name: 'sandbox.steps', what: 'Learn: the four steps a show can run at; each opens its scenarios, and the running scenario’s step is lit (ADR-0271).' },
   { name: 'sandbox.tab', what: 'A stand-in for the browser tab a DJ speaks through beside the studio app (the app does not join the room itself yet, ADR-0013): whose tab, what it is doing, and its microphone (ADR-0222).' },
   { name: 'sandbox.caption', what: 'The caption for the line being said: who, where (the booth or on air), the words; marked when the voice is not recorded yet (ADR-0222).' },
-  { name: 'sandbox.chooser', what: 'The scenarios: the show first, then one job or one skill each, with how long each takes; picking one starts the station afresh (ADR-0222).' },
+  { name: 'sandbox.chooser', what: 'The scenarios as four rungs, Solo at the top, one job or one skill each, with how long each takes; picking one starts the station afresh, at that scenario’s step (ADR-0222, ADR-0271).' },
   { name: 'sandbox.start', what: 'A scenario’s start card: whose chair you sit in, what you will learn, the two windows a DJ really uses, and the press that starts the sound (ADR-0222).' },
   { name: 'sandbox.end', what: 'A scenario’s end card: what you did, as the station recorded it; the other scenarios, run it again, or keep playing (ADR-0222).' },
 ];

@@ -87,7 +87,7 @@ export const questions: Question[] = [
     home: true,
     q: 'Is it ready for a real station?',
     a: [
-      'Release 1.0.1 is the second public release, after 1.0.0 on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has not been run on Windows.',
+      'Release 1.0.2 is the third public release; 1.0.0 came out on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has not been run on Windows.',
       'So: run a test show before you put a real one on air, on a server of its own, and read <a href="/docs/reference/release-one-status/">what release one does and leaves out</a>.',
     ],
   },

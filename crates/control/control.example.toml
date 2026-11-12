@@ -69,7 +69,7 @@ worker_timeout_s = 120
 show = ""
 rundown = []             # [[studio.rundown]] at = "14:00", title = "News", detail = "...", hard_post = true, key = "F2"
 banned = []              # [[studio.banned]] identity = "...", date = "2026-09-12", reason = "..."
-listener_delay_ms = 15000  # how far behind listeners hear; shown as a setting until measured (ADR-0103)
+listener_delay_ms = 13000  # the part of the listener delay nothing reads: the mount's hold and a player's buffer (ADR-0103, ADR-0272)
 
 # The video slate's still (ADR-0010): a picture uploaded in the studio, made into a clean PNG by
 # the media worker, which the desk (its `video.still_file`) shows on the slate.

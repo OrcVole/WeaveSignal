@@ -257,7 +257,7 @@
     </div>
     <div class="field">
       <label for="rt-url">Server URL</label>
-      <input id="rt-url" type="text" bind:value={draft.url} autocomplete="off" spellcheck="false" placeholder={where?.url ?? 'rtmp://'} aria-invalid={errors.url ? true : undefined} aria-describedby={errors.url ? 'rt-url-err rt-url-hint' : 'rt-url-hint'} />
+      <input id="rt-url" type="text" bind:value={draft.url} autocomplete="off" spellcheck="false" placeholder={where?.url || 'rtmps://'} aria-invalid={errors.url ? true : undefined} aria-describedby={errors.url ? 'rt-url-err rt-url-hint' : 'rt-url-hint'} />
       <span id="rt-url-hint" class="hint">As the platform shows it, for example <span class="mono">{where?.url ?? 'rtmp://server/live'}</span>; rtmps:// where the platform offers it.</span>
       {#if errors.url}<p id="rt-url-err" class="err">{errors.url}</p>{/if}
     </div>

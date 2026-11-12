@@ -309,7 +309,11 @@ async fn an_admin_keeps_rtmp_destinations_and_the_desk_gets_them_with_their_keys
     assert!(!list.to_string().contains("sk_new"));
     assert_eq!(list["destinations"][0]["key_readable"], true);
     assert_eq!(list["video"], true);
-    assert_eq!(list["platforms"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        list["platforms"].as_array().unwrap().len(),
+        8,
+        "YouTube, Owncast, X and Gab joined the first four"
+    );
 
     // Removed: the desk is sent an empty set.
     let (code, _) = send(

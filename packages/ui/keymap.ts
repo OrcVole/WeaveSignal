@@ -71,6 +71,9 @@ export type Action =
   | { type: 'mute'; slot: number }
   | { type: 'talk'; slot: number; held: boolean }
   | { type: 'handover' }
+  /** `P` on the Desk tab at the Callers step: take the caller who has waited longest to the
+   *  callers' strip, off air (ADR-0275, proposed). The Screener tab's `P` is `send`. */
+  | { type: 'take-caller' }
   // carts tab
   | { type: 'cart-key'; slot: number }
   | { type: 'cart-cue'; slot: number }
@@ -357,6 +360,9 @@ export class KeyEngine {
       }
       return handled({ type: row as 'on' | 'cue' | 'mute', slot });
     }
+    // The Screener tab's key for sending a caller to the desk; one action keeps one key
+    // (rule 2, ADR-0275). The step decides whether it does anything.
+    if (k.code === 'KeyP') return handled({ type: 'take-caller' });
     return NONE;
   }
 

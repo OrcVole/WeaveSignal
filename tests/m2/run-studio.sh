@@ -14,6 +14,8 @@
 #   tests/m2/run-studio.sh            # up, and wait
 #   tests/m2/run-studio.sh down       # stop playout (the PLAYOUT DOWN state) while it runs
 #   tests/m2/run-studio.sh up         # start playout again
+#   STEPS=1 tests/m2/run-studio.sh    # also a public address and a takedown contact, so shows can be
+#                                     # saved and call-in opens: the beginner steps on a real station
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -118,6 +120,7 @@ socket = "$run/sock/playout.sock"
 media_dir = "$run/carts"
 demo_pack = "$root/assets/carts-demo"
 worker = "$root/target/release/weavesignal-control"
+$([ -n "${STEPS:-}" ] && printf '[publishing]\npublic_url = "http://127.0.0.1:%s"\n[join]\nconsent_contact = "calls@kettle.example"\n' "$STUDIO_PORT")
 [studio]
 show = "The Morning Kettle"
 [[studio.rundown]]

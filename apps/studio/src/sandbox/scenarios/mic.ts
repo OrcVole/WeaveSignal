@@ -15,6 +15,7 @@ export const MIC: Scenario = {
   title: 'Your own microphone',
   blurb: 'ON AIR but silent: the tab’s microphone is off. Then the desk’s own mute, and how to tell the two apart.',
   minutes: 1,
+  step: 'solo',
   learn: [
     'Your voice reaches the desk through a browser tab: its microphone is not the desk’s mute.',
     'A flat meter under ON AIR means nothing is reaching the desk; look at the tab first.',

@@ -490,7 +490,7 @@ impl Default for StudioConfig {
             show: String::new(),
             rundown: Vec::new(),
             banned: Vec::new(),
-            listener_delay_ms: 15_000,
+            listener_delay_ms: 13_000,
         }
     }
 }

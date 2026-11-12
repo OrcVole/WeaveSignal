@@ -20,6 +20,7 @@
 //! | `POST /api/v1/sessions/code/finish` | anyone | `username`, `email` and `code` for a session token |
 //! | `PUT /api/v1/sessions/me/email` | a session | set or clear your own sign-in address (`current` password, `email`) |
 //! | `GET /api/v1/sessions/me` | a session or the key | who the bearer is, and their role |
+//! | `PUT /api/v1/sessions/me/mode` | a session | `preparing`: this window prepares a show and cannot change what is on air (ADR-0276) |
 //! | `DELETE /api/v1/sessions/me` | a session | sign out |
 //! | `POST /api/v1/sessions/me/password` | a session | change your own password (`current`, `new`) |
 //! | `GET /api/v1/staff` | admin | every account |
@@ -105,11 +106,20 @@ impl Actor {
     }
 }
 
+/// What a preparing window is told when it asks for something that changes what is on air.
+pub const PREPARING_REFUSAL: &str =
+    "This window is preparing a show, so it cannot change what is on air. Switch it to Live first.";
+
 /// What a route needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Need {
     /// Any member of staff, or the station key: running the studio.
     Staff,
+    /// As [`Need::Staff`], for what changes what is on air (ADR-0276): the desk's switches, the
+    /// carts, the screener's commands, ending a pass or the show, the station's mode. A staff
+    /// session whose window is preparing a show is refused (409); the station key and API
+    /// tokens are never preparing.
+    OnAir,
     /// An admin, or the station key: retention, erasure, personal data, the staff list.
     Admin,
 }
@@ -201,7 +211,7 @@ impl Staff {
     }
 
     /// The live session a token names, its end moved later as it is used.
-    fn session(&self, token: &str, now: u64) -> Option<Account> {
+    fn session(&self, token: &str, now: u64) -> Option<(Account, bool)> {
         let hash = model::token_hash(token);
         let mut sessions = self.sessions.lock().expect("staff sessions");
         let s = sessions.get_mut(&hash)?;
@@ -222,17 +232,23 @@ impl Staff {
                 });
             }
         }
-        Some(s.account.clone())
+        Some((s.account.clone(), s.preparing))
     }
 
     /// A session for `role`, for other modules' tests; returns its bearer.
     #[cfg(test)]
     pub(crate) fn signed_in_for_test(&self, role: Role) -> String {
+        self.signed_in_as_for_test(role, uuid::Uuid::new_v4())
+    }
+
+    /// As [`Staff::signed_in_for_test`], for the account `id` (a show's presenter account).
+    #[cfg(test)]
+    pub(crate) fn signed_in_as_for_test(&self, role: Role, id: Uuid) -> String {
         let token = model::new_token();
         self.insert(Session {
             token_hash: model::token_hash(&token),
             account: Account {
-                id: uuid::Uuid::new_v4(),
+                id,
                 username: "morag".into(),
                 name: "Morag".into(),
                 role,
@@ -242,6 +258,7 @@ impl Staff {
             },
             created_ms: now_ms(),
             expires_ms: now_ms() + 60_000,
+            preparing: false,
         });
         token
     }
@@ -347,7 +364,10 @@ pub fn check(
         Actor::Token(staff.api.authorise(given)?)
     } else if given.starts_with(model::TOKEN_PREFIX) {
         match staff.session(given, now_ms()) {
-            Some(a) => Actor::Staff(a),
+            Some((_, true)) if need == Need::OnAir => {
+                return Err(problem(StatusCode::CONFLICT, PREPARING_REFUSAL));
+            }
+            Some((a, _)) => Actor::Staff(a),
             None => {
                 return Err(problem(
                     StatusCode::UNAUTHORIZED,
@@ -393,6 +413,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/sessions/code/finish", post(finish_code))
         .route("/api/v1/sessions/me/email", put(own_email))
         .route("/api/v1/sessions/me", get(me).delete(sign_out))
+        .route("/api/v1/sessions/me/mode", put(set_mode))
         .route("/api/v1/sessions/me/password", post(own_password))
         .route("/api/v1/staff", get(list).post(create))
         .route("/api/v1/staff/{id}", put(change))
@@ -464,6 +485,9 @@ struct Me {
     account: Option<Account>,
     #[serde(skip_serializing_if = "Option::is_none")]
     expires_ms: Option<u64>,
+    /// This window is preparing a show (ADR-0276): it cannot change what is on air. Always
+    /// false for the station key and API tokens.
+    preparing: bool,
 }
 
 fn me_of(state: &AppState, actor: &Actor, headers: &HeaderMap) -> Me {
@@ -473,6 +497,7 @@ fn me_of(state: &AppState, actor: &Actor, headers: &HeaderMap) -> Me {
             role: Role::Admin,
             account: None,
             expires_ms: None,
+            preparing: false,
         },
         // No scope opens this route, so the gate never grants a token here; if one ever did,
         // it would be shown as what it is, with the lowest role.
@@ -481,19 +506,19 @@ fn me_of(state: &AppState, actor: &Actor, headers: &HeaderMap) -> Me {
             role: Role::Screener,
             account: None,
             expires_ms: None,
+            preparing: false,
         },
-        Actor::Staff(a) => Me {
-            kind: "staff",
-            role: a.role,
-            account: Some(a.clone()),
-            expires_ms: state
-                .staff
-                .sessions
-                .lock()
-                .expect("staff sessions")
-                .get(&model::token_hash(bearer(headers)))
-                .map(|s| s.expires_ms),
-        },
+        Actor::Staff(a) => {
+            let sessions = state.staff.sessions.lock().expect("staff sessions");
+            let session = sessions.get(&model::token_hash(bearer(headers)));
+            Me {
+                kind: "staff",
+                role: a.role,
+                account: Some(a.clone()),
+                expires_ms: session.map(|s| s.expires_ms),
+                preparing: session.is_some_and(|s| s.preparing),
+            }
+        }
     }
 }
 
@@ -594,6 +619,7 @@ async fn start_session(
         account: account.clone(),
         created_ms: now,
         expires_ms: now + SESSION_IDLE_MS,
+        preparing: false,
     };
     if let Err(e) = model::create_session(
         pool,
@@ -1059,6 +1085,62 @@ async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response 
     }
 }
 
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+struct SetMode {
+    /// `true`: this window is preparing a show and cannot change what is on air. `false`: live.
+    preparing: bool,
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/sessions/me/mode",
+    operation_id = "staff_set_mode",
+    tag = "sessions",
+    summary = "Prepare or go live",
+    description = "Sets whether this session's window is preparing a show (ADR-0276). A preparing window can look at the live desk but not drive it: the desk's commands, the carts' commands, the screener's commands, ending a pass or the show, and the station's mode are refused (409) until it is live again. Everything about the person's own show stays open. A session starts live. Answers as `GET /api/v1/sessions/me` does. The station key is always live, and so is an API token: 422.",
+    request_body = SetMode,
+    responses(
+        (status = 200, description = "The bearer, as it is now.", body = Me),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 422, response = crate::openapi::Unprocessable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn set_mode(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<SetMode>,
+) -> Response {
+    let actor = match state.check(&headers, Need::Staff) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let Actor::Staff(a) = &actor else {
+        return problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            if matches!(actor, Actor::Token(_)) {
+                "An API token is always live."
+            } else {
+                "The station key is always live."
+            },
+        );
+    };
+    let hash = model::token_hash(bearer(&headers));
+    {
+        let mut sessions = state.staff.sessions.lock().expect("staff sessions");
+        let Some(s) = sessions.get_mut(&hash) else {
+            return problem(
+                StatusCode::UNAUTHORIZED,
+                "Your sign-in has ended. Sign in again.",
+            );
+        };
+        s.preparing = req.preparing;
+    }
+    tracing::info!(username = %a.username, preparing = req.preparing, "a studio window changed its mode");
+    Json(me_of(&state, &actor, &headers)).into_response()
+}
+
 #[utoipa::path(
     delete,
     path = "/api/v1/sessions/me",
@@ -1425,6 +1507,7 @@ struct AccountsBody {
     finish_code,
     own_email,
     me,
+    set_mode,
     sign_out,
     own_password,
     list,
@@ -1468,6 +1551,7 @@ mod tests {
             account: a.clone(),
             created_ms: now_ms(),
             expires_ms,
+            preparing: false,
         });
         (token, a)
     }
@@ -1525,6 +1609,7 @@ mod tests {
             account: a.clone(),
             created_ms: now_ms(),
             expires_ms: now_ms() + 60_000,
+            preparing: false,
         });
         let demoted = Account {
             role: Role::Screener,
@@ -1546,6 +1631,21 @@ mod tests {
     }
 
     #[test]
+    fn a_preparing_session_is_refused_what_changes_the_air_and_nothing_else() {
+        let staff = Staff::default();
+        let (t, _) = signed_in(&staff, Role::Producer, now_ms() + 60_000);
+        assert!(check(None, &staff, &headers(&t), Need::OnAir).is_ok());
+        for s in staff.sessions.lock().unwrap().values_mut() {
+            s.preparing = true;
+        }
+        let r = check(None, &staff, &headers(&t), Need::OnAir).unwrap_err();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert!(check(None, &staff, &headers(&t), Need::Staff).is_ok());
+        // The station key is never preparing.
+        assert!(check(Some("key"), &staff, &headers("key"), Need::OnAir).is_ok());
+    }
+
+    #[test]
     fn a_session_in_use_lives_on_but_never_past_its_longest() {
         let staff = Staff::default();
         let now = now_ms();
@@ -1556,6 +1656,7 @@ mod tests {
             account: account(Role::Producer),
             created_ms: now - SESSION_LONGEST_MS + 3_600_000,
             expires_ms: now + 60_000,
+            preparing: false,
         });
         assert!(staff.session(&token, now).is_some());
         let end = staff.sessions.lock().unwrap()[&hash].expires_ms;

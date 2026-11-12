@@ -655,7 +655,7 @@ async fn get_show(
     operation_id = "shows_put_show",
     tag = "shows",
     summary = "Make or change a show",
-    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine.",
+    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air.",
     params(("show" = String, Path, description = "The show's slug")),
     request_body = weavesignal_model::shows::ShowInput,
     responses(
@@ -730,6 +730,28 @@ async fn put_show(
             ));
         }
     }
+    // Who may change a show's step (ADR-0271): an admin, a producer or the show's presenter, as
+    // for the step route. A new show may start at any step; a save that sends the step it
+    // already has passes, as the show editor sends every field.
+    let step_change = match (&stored, input.step) {
+        (Some(old), Some(new)) if old.step != new => {
+            let presenter = old.presenter_account;
+            let own =
+                |id: uuid::Uuid| presenter == Some(id) || input.presenter_account == Some(Some(id));
+            let allowed = match &actor {
+                crate::staff::Actor::Staff(a) if own(a.id) => true,
+                other => crate::steps::may_change(other, presenter),
+            };
+            if !allowed {
+                return Ok(problem(
+                    StatusCode::FORBIDDEN,
+                    "Only an admin, a producer or the show's presenter changes its step.",
+                ));
+            }
+            Some((old.step, new))
+        }
+        _ => None,
+    };
     // The cards are drawn before the save, so a name that cannot fit refuses it (0008 §3).
     let provisional = Resolved {
         show: input.name.trim().to_owned(),
@@ -755,6 +777,26 @@ async fn put_show(
     }
     let renders = draw(card_data(&state, &provisional)?).await?;
     let show = shows::put_show(pool, state.station.id, &slug, &input).await?;
+    if let Some((from, to)) = step_change {
+        let by = shows::StepBy {
+            label: actor.label(),
+            account: match &actor {
+                crate::staff::Actor::Staff(a) => Some(a.id),
+                _ => None,
+            },
+        };
+        shows::log_step_change(pool, state.station.id, show.id, from, to, &by).await?;
+        tracing::info!(show = %show.slug, %from, %to, by = %by.label, "a show's step changed");
+        // Told to every window at once, if this is the show the station's step comes from.
+        if let Some(live) = &state.live {
+            live.step_moved(&crate::steps::mover_name(&actor));
+        }
+    } else if stored.is_none() {
+        // A new show: the studio may be waiting for the schedule to show it.
+        if let Some(live) = &state.live {
+            live.wake_steps();
+        }
+    }
     let cards = keep(&state, &renders).await?;
     shows::set_cards(pool, Level::Show, show.id, &cards).await?;
     let show = find_show(&state, &slug).await?;

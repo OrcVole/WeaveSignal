@@ -37,7 +37,7 @@ export function blockClasses(b: Block, ctx: BlockContext): string[] {
 export function blockAria(b: Block, ctx: BlockContext): string {
   const when = `${hm(b.start, ctx.zone)} to ${hm(b.end, ctx.zone)}`;
   if (b.kind === 'automation') return `Automation, ${b.show}, ${when}`;
-  if (b.kind === 'rule') return `${b.show}, weekly rule, ${when}, not drafted yet`;
+  if (b.kind === 'rule') return `${b.show}, weekly rule, ${when}, not drafted yet: select it to draft the episode`;
   const parts = [b.show, b.prerecorded ? 'pre-recorded' : 'live', when];
   const ep = episodeLine(b);
   if (ep) parts.push(ep);
@@ -70,7 +70,7 @@ function blockInner(b: Block, ctx: BlockContext): string {
   }
   h += `<b>${esc(b.show)}</b><div class="rest">`;
   if (b.kind === 'rule') {
-    h += `<span class="kind">${glyph('g-repeat')}Not drafted</span><span class="ep">Weekly rule · draft it</span>`;
+    h += `<span class="kind">${glyph('g-repeat')}Not drafted</span><span class="ep">Select it to draft the episode</span>`;
     return h + '</div>';
   }
   if (b.conflict) h += `<span class="flag">${glyph('g-fault')}Conflict</span>`;

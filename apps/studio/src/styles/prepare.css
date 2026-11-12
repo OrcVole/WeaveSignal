@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* Prepare mode (ADR-0276): the Live or Preparing control in the frame, its dialog, the band under
+   the frame while this window is preparing, and the controls a preparing window has off. It
+   borrows the step control's forms (steps.css): the pill, the dialog, the row under the frame. */
+
+/* the control in the frame (studio.prepare): one pill with the window's word. Not a state chip:
+   Live here is the window's, never the red of ON AIR. Preparing takes the band's ground, so the
+   pill and the band read as one thing. */
+.preparectl { display: inline-flex; flex: none; }
+.preparectl .stepbtn.is-preparing { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 45%, var(--axis)); }
+
+/* its dialog (studio.prepare.menu): under the frame at its right, where the control is */
+dialog.preparemenu { margin: 3rem var(--s-3) auto auto; }
+.steplist.windowlist label { grid-template-columns: auto 5.5rem minmax(0, 1fr) auto; }
+
+/* the band (studio.prepare.banner): the row Show everything uses, with the way to Live first.
+   It answers a key or a button that met a switched-off control by deepening for a moment. */
+.prepbar { transition: background var(--t-press) var(--ease-out); }
+.prepbar.nudged { background: color-mix(in srgb, var(--accent) 32%, var(--surface)); }
+.prepbar .say .err { margin-left: var(--s-2); padding-left: var(--s-2); border-left: 3px solid var(--status-critical); }
+
+/* what a preparing window has off: the buttons keep their place and their state (a lit On still
+   says who is on air), dimmed as every disabled button is */
+.desk .cart:disabled, .cartwall .pad:disabled { opacity: 0.5; cursor: not-allowed; }
+.cartwall .pad:disabled:hover { background: var(--surface); }
+.screener .field .in[readonly] { color: var(--ink-2); cursor: not-allowed; }
+/* in a narrow frame, or at a large text size, the caret goes first: the pill costs the frame no
+   more than it must */
+@container (max-width: 1300px) { .preparectl .stepbtn { padding-right: var(--s-3); } .preparectl .stepbtn .caret { display: none; } }

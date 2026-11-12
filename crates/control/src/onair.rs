@@ -42,7 +42,7 @@ use crate::desk::DeskCommand;
 use crate::hub::{Hub, now_ms};
 use crate::playout::PlayoutClient;
 use crate::schedule::{self, Generator, HOUR_MS, Played, Rules, Slot};
-use crate::studio::Tone;
+use crate::studio::{MountCount, Tone};
 
 /// How many log items playout holds ahead.
 const QUEUE_AHEAD: usize = 2;
@@ -894,6 +894,50 @@ impl OnAir {
 
     // ---- Automation ----
 
+    /// The second half of End show (ADR-0272): hand the air to automation, unless somebody has
+    /// gone back on air during the wait for the profanity delay, in which case the show is not
+    /// over and the studio is told why nothing happened. Returns whether the air was handed over.
+    pub async fn hand_over_after_end_show(&self) -> anyhow::Result<bool> {
+        let on_air = self
+            .hub
+            .upgrade()
+            .and_then(|h| h.desk_status())
+            .map(|d| on_air_names(&d))
+            .unwrap_or_default();
+        if !on_air.is_empty() {
+            self.notice(
+                Tone::Warning,
+                "playout.end_show_kept",
+                "Automation did not take the air",
+                format!(
+                    "{} went back on air while the delay played out, so the show carries on. \
+                     Press End show again when it is over.",
+                    on_air.join(" and ")
+                ),
+            );
+            return Ok(false);
+        }
+        self.set_mode(crate::desk::StationMode::Auto).await?;
+        Ok(true)
+    }
+
+    /// Set the station's mode in the playout settings (the `auto` or `live` of ADR-0045) and
+    /// tell the studio's view and the desk at once; the automation loop passes it on to playout
+    /// within a couple of seconds. Nothing else in the settings changes, the zone's `zone_set`
+    /// included.
+    pub async fn set_mode(&self, mode: crate::desk::StationMode) -> anyhow::Result<()> {
+        let word = match mode {
+            crate::desk::StationMode::Live => "live",
+            crate::desk::StationMode::Auto => "auto",
+        };
+        // The mode alone: the full settings row would also mark the time zone as chosen.
+        rows::put_mode(&self.db, self.station, word).await?;
+        if let Some(hub) = self.hub.upgrade() {
+            hub.set_mode(mode).await;
+        }
+        Ok(())
+    }
+
     async fn automate(&self) -> anyhow::Result<()> {
         let settings = rows::settings(&self.db, self.station).await?;
         // The station's mode, into the studio view and to the desk, whether playout answers or
@@ -1279,36 +1323,37 @@ impl OnAir {
 
     // ---- Audience ----
 
-    /// Tell the studio's view how many are listening, when that has changed (the app's CDN
-    /// warning, ADR-0017, and `desk.audience`).
-    fn show_listeners(&self, n: Option<u32>) {
+    /// Tell the studio's view how many are listening (by mount), or why nobody could count,
+    /// when that has changed (the app's CDN warning, ADR-0017, and `desk.audience`).
+    fn show_audience(&self, counted: Option<Vec<MountCount>>, error: Option<String>) {
         if let Some(hub) = self.hub.upgrade() {
-            hub.with_studio_if(|s| s.set_listeners(n));
+            hub.with_studio_if(|s| s.set_audience(counted, error));
         }
     }
 
     async fn count_listeners(&self) {
-        let url = self.links.status_url.clone();
-        let got = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<(u64, f64)>> {
-            let agent: ureq::Agent = ureq::Agent::config_builder()
-                .timeout_global(Some(Duration::from_secs(3)))
-                .build()
-                .into();
-            let v: serde_json::Value = agent.get(&url).call()?.body_mut().read_json()?;
-            Ok(listeners_of(&v))
-        })
-        .await;
-        let Ok(Ok(listeners)) = got else {
-            // Not counted: the studio's CDN warning must not read a stale figure (ADR-0017).
-            self.show_listeners(None);
-            return;
+        let looked = look_at_listeners(&self.links.status_url).await;
+        if let Some(hub) = self.hub.upgrade() {
+            let buffer = read_feed_buffer(&self.links.listeners).await;
+            hub.with_studio_if(|s| s.set_feed_buffer(buffer));
+        }
+        let look = match looked {
+            Ok(l) => {
+                counted_again();
+                l
+            }
+            Err(e) => {
+                // Not counted: the studio's CDN warning must not read a stale figure (ADR-0017).
+                self.show_audience(None, Some(not_counted_words(&e)));
+                return;
+            }
         };
         let l = {
             let mut st = self.state.lock().unwrap();
-            st.status.listeners = listeners.len() as u32;
-            st.audience.observe(now_ms() as i64, &listeners)
+            st.status.listeners = look.listeners.len() as u32;
+            st.audience.observe(now_ms() as i64, &look.listeners)
         };
-        self.show_listeners(Some(listeners.len() as u32));
+        self.show_audience(Some(look.mounts), None);
         if let Err(e) = rows::add_listening(
             &self.db,
             self.station,
@@ -1530,6 +1575,161 @@ pub fn listeners_of(v: &serde_json::Value) -> Vec<(u64, f64)> {
         .collect()
 }
 
+/// Who is on air at the desk now, by name (identity when unnamed): what End show looks for after
+/// its wait.
+fn on_air_names(d: &crate::desk::DeskStatus) -> Vec<String> {
+    d.people
+        .iter()
+        .filter(|p| p.on_air)
+        .map(|p| {
+            p.name
+                .split_whitespace()
+                .next()
+                .unwrap_or(&p.identity)
+                .to_owned()
+        })
+        .collect()
+}
+
+/// How many listeners each mount of `/status.json` has.
+pub fn mounts_of(v: &serde_json::Value) -> Vec<MountCount> {
+    v["mounts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| MountCount {
+            mount: m["mount"].as_str().unwrap_or_default().to_owned(),
+            listeners: m["listeners"].as_array().map_or(0, |l| l.len() as u32),
+        })
+        .collect()
+}
+
+/// What one look at the listener process's `/status.json` gave.
+#[derive(Debug)]
+pub struct ListenerLook {
+    /// Each listener's number and duration, for the audience report.
+    pub listeners: Vec<(u64, f64)>,
+    /// The same by mount, for the desk's Listeners panel.
+    pub mounts: Vec<MountCount>,
+}
+
+/// Why the listener process could not be counted.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LookError {
+    /// No answer: nothing listens on the status address, or it did not reply in time.
+    Unreachable(String),
+    /// An answer that is not the anonymous status the control plane reads.
+    Unreadable(String),
+}
+
+impl LookError {
+    /// The words for the studio (the address and the error text go to the log).
+    fn words(&self) -> &'static str {
+        match self {
+            LookError::Unreachable(_) => {
+                "the listener process does not answer on its status address"
+            }
+            LookError::Unreadable(_) => {
+                "the listener process answered with something the control plane could not read"
+            }
+        }
+    }
+
+    fn detail(&self) -> &str {
+        match self {
+            LookError::Unreachable(e) | LookError::Unreadable(e) => e,
+        }
+    }
+}
+
+/// Ask the listener process who is listening: its `/status.json` on loopback, anonymous (a
+/// connection number and how long it has lasted, ADR-0115).
+pub async fn look_at_listeners(url: &str) -> Result<ListenerLook, LookError> {
+    let url = url.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(3)))
+            .build()
+            .into();
+        let mut res = agent
+            .get(&url)
+            .call()
+            .map_err(|e| LookError::Unreachable(format!("{url}: {e}")))?;
+        let v: serde_json::Value = res
+            .body_mut()
+            .read_json()
+            .map_err(|e| LookError::Unreadable(format!("{url}: {e}")))?;
+        Ok(ListenerLook {
+            listeners: listeners_of(&v),
+            mounts: mounts_of(&v),
+        })
+    })
+    .await
+    .map_err(|e| LookError::Unreachable(e.to_string()))?
+}
+
+/// What the last count said, so a change is logged once and not on every poll.
+static LAST_COUNT_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// What the studio says when there is no count. The real error is logged at `warn` once each
+/// time it changes, and once when counting comes back.
+fn not_counted_words(e: &LookError) -> String {
+    let mut last = LAST_COUNT_ERROR.lock().unwrap();
+    if last.as_deref() != Some(e.detail()) {
+        tracing::warn!(error = %e.detail(), "the listeners cannot be counted");
+        *last = Some(e.detail().to_owned());
+    }
+    e.words().to_owned()
+}
+
+/// Counting works again: say so once, if it had stopped.
+fn counted_again() {
+    if LAST_COUNT_ERROR.lock().unwrap().take().is_some() {
+        tracing::info!("the listeners are counted again");
+    }
+}
+
+/// The first line of a server command's answer as a number of milliseconds; `None` for
+/// anything that is not a non-negative number of seconds.
+pub fn seconds_answer_ms(answer: &str) -> Option<u64> {
+    let secs: f64 = answer.lines().next()?.trim().parse().ok()?;
+    (secs.is_finite() && (0.0..=3600.0).contains(&secs)).then(|| (secs * 1000.0).round() as u64)
+}
+
+/// How much of playout's feed the listener process holds now (`feed.buffer_length` on its
+/// control socket, the figure `test-bundle` checks behind the real desk); `None` while the
+/// socket is not configured or does not answer.
+pub async fn read_feed_buffer(listeners: &PlayoutClient) -> Option<u64> {
+    if !listeners.configured() {
+        return None;
+    }
+    seconds_answer_ms(&listeners.command("feed.buffer_length").await.ok()?)
+}
+
+/// Count the listeners for the desk's panel without the playout layer (no database, or no
+/// playout socket): the studio's figure needs only the listener process, not the schedule. With
+/// the playout layer, [`OnAir`] counts, and keeps the report's rows too.
+pub fn spawn_audience_counter(hub: &Arc<Hub>, status_url: String, listeners: PlayoutClient) {
+    let hub = hub.clone();
+    tokio::spawn(async move {
+        loop {
+            match look_at_listeners(&status_url).await {
+                Ok(l) => {
+                    counted_again();
+                    hub.with_studio_if(|s| s.set_audience(Some(l.mounts), None));
+                }
+                Err(e) => {
+                    let words = not_counted_words(&e);
+                    hub.with_studio_if(|s| s.set_audience(None, Some(words)));
+                }
+            }
+            let buffer = read_feed_buffer(&listeners).await;
+            hub.with_studio_if(|s| s.set_feed_buffer(buffer));
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+}
+
 /// A mount's name as the high bits of a listener's number (FNV-1a, 24 bits, above bit 40): the
 /// listener process numbers connections from zero on each mount and never gets near 2^40.
 fn mount_key(mount: &str) -> u64 {
@@ -1688,6 +1888,122 @@ mod tests {
         let key = mount_key("/programme.opus");
         assert_eq!(listeners_of(&v), vec![(key | 3, 61.5), (key | 4, 2.0)]);
         assert!(listeners_of(&serde_json::json!({})).is_empty());
+    }
+
+    /// A one-answer HTTP server on loopback; its address, as the status URL.
+    async fn status_server(body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/status.json", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = s.read(&mut buf).await;
+                let _ = s
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await;
+            }
+        });
+        url
+    }
+
+    #[tokio::test]
+    async fn looking_at_the_listener_process_says_which_way_it_failed() {
+        let ok = status_server(
+            r#"{"mounts":[{"mount":"/programme.opus","listeners":[{"id":0,"duration":5.0},{"id":1,"duration":2.5}]}]}"#,
+        )
+        .await;
+        let look = look_at_listeners(&ok).await.unwrap();
+        assert_eq!(look.listeners.len(), 2);
+        assert_eq!(look.mounts[0].listeners, 2);
+        let junk = status_server("<html>not json</html>").await;
+        assert!(matches!(
+            look_at_listeners(&junk).await,
+            Err(LookError::Unreadable(_))
+        ));
+        // Nothing listens: a port that was free a moment ago.
+        let gone = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/status.json", l.local_addr().unwrap())
+        };
+        let e = look_at_listeners(&gone).await.unwrap_err();
+        assert!(matches!(e, LookError::Unreachable(_)));
+        assert!(e.words().contains("does not answer"));
+        assert!(
+            LookError::Unreadable(String::new())
+                .words()
+                .contains("could not read")
+        );
+    }
+
+    #[test]
+    fn end_show_looks_for_whoever_went_back_on_air() {
+        let person = |identity: &str, name: &str, on_air: bool| crate::desk::DeskPerson {
+            identity: identity.into(),
+            name: name.into(),
+            role: weavesignal_proto::Role::Presenter,
+            on_air,
+            mute: false,
+            cue: false,
+            talk: false,
+            talk_to: None,
+            present: true,
+            away_ms: None,
+            linked: true,
+            lufs: None,
+            lufs_peak: None,
+        };
+        let d = crate::desk::DeskStatus {
+            people: vec![
+                person("eilidh", "Eilidh Fraser-MacLeod", true),
+                person("gregor", "Gregor Stewart", false),
+                person("anon", "", true),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(on_air_names(&d), vec!["Eilidh", "anon"]);
+        assert!(on_air_names(&crate::desk::DeskStatus::default()).is_empty());
+    }
+
+    #[test]
+    fn the_count_by_mount_and_the_feed_buffer_are_read_from_the_listener_process() {
+        let v = serde_json::json!({"mounts": [
+            {"mount": "/programme.mp3", "listeners": [{"id": 0, "duration": 70.0}]},
+            {"mount": "/programme.opus", "listeners": [
+                {"id": 0, "duration": 90.0}, {"id": 1, "duration": 3.0}]},
+            {"mount": "/programme-high.mp3", "listeners": []}]});
+        assert_eq!(
+            mounts_of(&v),
+            vec![
+                MountCount {
+                    mount: "/programme.mp3".into(),
+                    listeners: 1
+                },
+                MountCount {
+                    mount: "/programme.opus".into(),
+                    listeners: 2
+                },
+                MountCount {
+                    mount: "/programme-high.mp3".into(),
+                    listeners: 0
+                },
+            ]
+        );
+        assert!(mounts_of(&serde_json::json!({})).is_empty());
+        // `feed.buffer_length` answers the seconds on its first line (the socket's END is cut
+        // by the client): only a sane non-negative number counts.
+        assert_eq!(seconds_answer_ms("0.512"), Some(512));
+        assert_eq!(seconds_answer_ms("3.2\nmore"), Some(3_200));
+        assert_eq!(seconds_answer_ms("0"), Some(0));
+        for bad in ["", "ERROR: unknown command", "-1", "NaN", "inf", "99999"] {
+            assert_eq!(seconds_answer_ms(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

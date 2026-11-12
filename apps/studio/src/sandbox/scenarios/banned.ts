@@ -15,6 +15,7 @@ export const BANNED: Scenario = {
   title: 'Banned before',
   blurb: 'A caller rings from an account the station banned: read the mark, hear him out, see the desk decline, drop him, and see him come back marked.',
   minutes: 2,
+  step: 'full',
   learn: [
     'What BANNED BEFORE means, where the date and reason show, and that nothing is on air yet.',
     'The mark goes with the caller to the desk, and comes back with him when he rings again.',

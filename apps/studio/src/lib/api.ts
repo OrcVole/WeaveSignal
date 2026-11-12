@@ -123,11 +123,17 @@ export interface View {
     min_age_24h: boolean;
     influx: boolean;
     influx_since_ms: number | null;
+    /** Messages held for a moderator (ADR-0274); null while not counted, absent from a control
+     *  plane too old to report it. */
+    held?: number | null;
+    /** Open reports, notices and reviews waiting for a moderator; null while not counted. */
+    open_reports?: number | null;
   };
   notices: Notice[];
   carts: CartsView;
-  /** How far behind listeners hear: a setting until measured (ADR-0103). */
-  listener_delay: { ms: number; measured: boolean };
+  /** How far behind listeners hear (ADR-0103, ADR-0272): the parts read live and the rest as
+   *  the station's setting. */
+  listener_delay: ListenerDelay;
   /** Listeners hear the default loop WeaveSignal ships, because the station has no fallback files
    *  of its own yet (ADR-0130). Absent from a control plane too old to report it. */
   default_fallback?: boolean;
@@ -137,11 +143,54 @@ export interface View {
   /** The station's mode (ADR-0045, ADR-0183's AUTO lamp); null until the control plane has read
    *  the setting, absent from a control plane too old to report it. */
   mode?: StationMode | null;
+  /** The station's beginner step (ADR-0271, ADR-0274): what is switched on, and whose step it is. */
+  step: StepView;
+}
+
+/** How much of the studio a show uses (ADR-0271): each step adds one kind of person. */
+export type ShowStep = 'solo' | 'guests' | 'callers' | 'full';
+
+/** The station's step and where it comes from. The step of the show on air; between shows, of the
+ *  show last on air; `full` when no show has ever been on air. */
+export interface StepView {
+  step: ShowStep;
+  /** The show the step comes from; null when no show has been on air. */
+  show: { slug: string; name: string } | null;
+  /** That show is on air now (false: it is the show last on air). */
+  on_air: boolean;
+  /** The next show to start by the schedule, with its step. */
+  next: { slug: string; name: string; start_ms: number; step: ShowStep } | null;
+  /** Whether the account asking may change the step: an admin, a producer or the show's presenter. */
+  may_change: boolean;
+}
+
+/** The listener delay: `ms` is `desk_ms` + `process_ms` + `rest_ms`. */
+export interface ListenerDelay {
+  ms: number;
+  /** True only when no part is a setting. Nothing reads the mount's own hold or a player's buffer,
+   *  so a control plane of this build always says false. */
+  measured: boolean;
+  /** What the desk's profanity delay holds now (read live). Absent from a control plane too old. */
+  desk_ms?: number;
+  /** What the listener process holds of playout's feed (read live); null while it does not answer. */
+  process_ms?: number | null;
+  /** The rest of the path, as the `studio.listener_delay_ms` setting says (never read). */
+  rest_ms?: number;
+}
+
+export interface MountCount {
+  /** The mount as the listener process names it, such as `/programme.opus`. */
+  mount: string;
+  listeners: number;
 }
 
 export interface AudienceView {
-  /** Listeners connected to the station's stream now; null while not counted. */
+  /** Listeners connected to the station's stream now, every mount together; null while not counted. */
   listeners: number | null;
+  /** The same by mount, most listeners first; empty while not counted. Absent from a control plane too old. */
+  by_mount?: MountCount[];
+  /** Why there is no count, in words to show; null while counted. Absent from a control plane too old. */
+  error?: string | null;
   /** The station has edges or a CDN configured. */
   edges: boolean;
 }
@@ -186,6 +235,29 @@ export type ChatCommand =
 export type EndPassCommand = { identity: string };
 
 const TOKEN_KEY = 'weavesignal.token';
+/** This window has settled whether it is Live or Preparing for this sign-in (ADR-0276): the
+ *  account's id, kept for the window's session so a reload does not apply the start's default
+ *  again over a deliberate switch. Nothing secret. */
+const PREPARE_KEY = 'weavesignal.prepare.settled';
+
+/** The account this window has settled its Live or Preparing for, since it was opened. */
+export function prepareSettledFor(): string | null {
+  try {
+    return globalThis.sessionStorage?.getItem(PREPARE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember that this window settled it for the account; null forgets (a new sign-in). */
+export function settlePrepare(accountId: string | null): void {
+  try {
+    if (accountId) globalThis.sessionStorage?.setItem(PREPARE_KEY, accountId);
+    else globalThis.sessionStorage?.removeItem(PREPARE_KEY);
+  } catch {
+    // A private window: the default applies again after a reload.
+  }
+}
 /** Where builds before ADR-0121 kept the station and its key, in the page's local storage. */
 const STATION_KEY = 'weavesignal.station';
 
@@ -264,6 +336,9 @@ export interface Me {
   role: StaffRole;
   account?: StaffAccount;
   expires_ms?: number;
+  /** This window is preparing a show (ADR-0276): the station refuses what changes the air from
+   *  it. Always false for the station key; absent from a control plane too old to report it. */
+  preparing?: boolean;
 }
 
 /** Sign in as a member of staff (packaged): the session's token goes into the keychain on the
@@ -280,6 +355,7 @@ export async function signIn(
     password,
   });
   station = r.station;
+  settlePrepare(null);
   return r;
 }
 
@@ -305,6 +381,7 @@ export async function finishSignInCode(
     code,
   });
   station = r.station;
+  settlePrepare(null);
   return r;
 }
 
@@ -314,6 +391,7 @@ export async function signOut(): Promise<void> {
   const { invoke } = await core();
   await invoke('station_sign_out');
   station = null;
+  settlePrepare(null);
 }
 
 /** The last station's address, to fill in the sign-in screen after a sign-out (packaged). */
@@ -356,6 +434,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 /** Who this window runs as. */
 export const whoAmI = () => call<Me>('GET', '/api/v1/sessions/me');
+/** Set this window's own session to Preparing or back to Live (ADR-0276); answers as `whoAmI`.
+ *  The station key is always live (422). */
+export const setPreparing = (preparing: boolean) => call<Me>('PUT', '/api/v1/sessions/me/mode', { preparing });
 /** Every staff account, on or off (an admin's). */
 export const listStaff = () => call<{ accounts: StaffAccount[] }>('GET', '/api/v1/staff').then((r) => r.accounts);
 /** A new account (an admin's). Errors name `username`, `name` or `password`. */
@@ -599,10 +680,31 @@ export const chat = (c: ChatCommand) => post('/api/v1/chat/modes', c);
 export const carts = (c: CartCommand) => post('/api/v1/carts/commands', c);
 export const endPass = (c: EndPassCommand) => post('/api/v1/passes/end', c);
 
-/** The roles an invite may carry; a caller joins from the player page instead. */
+/** What End show did (ADR-0272). */
+export interface EndShowResult {
+  view: View;
+  /** How many were taken off air. */
+  off_air: number;
+  /** When the air goes to automation: 0 it was there already, milliseconds the profanity delay
+   *  still has to play out, null the station has no playout layer to hand it to. */
+  automation_in_ms: number | null;
+}
+
+/** End the show: everyone off air, the carts faded, the air to automation once the delay has played out. */
+export async function endShow(): Promise<EndShowResult> {
+  const res = await netFetch(`${base()}/api/v1/show/end`, { method: 'POST', headers: headers(true), body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `${res.status} ${res.statusText}`);
+  return data as EndShowResult;
+}
+
+/** Hand the air to automation (`auto`) or take it back (`live`), at once, taking nobody off air. */
+export const setMode = (mode: StationMode) => post('/api/v1/playout/mode', { mode });
+
+/** The roles an invitation may carry; a caller joins from the player page instead. */
 export type InviteRole = 'dj' | 'guest' | 'presenter';
 
-/** An invite as the station made it: `link` is the join page's path with the pass in its
+/** An invitation as the station made it: `link` is the join page's path with the pass in its
  *  fragment, to be put after the station's address. */
 export interface Invite {
   pass: string;
@@ -613,13 +715,61 @@ export interface Invite {
   link: string;
 }
 
-/** Make an invite link for a remote DJ, a guest or a presenter (any member of staff). It lasts
+/** The body of an invitation for the signed-in account itself (ADR-0274): a presenter's, allowed
+ *  at every step for the show's presenter; the Solo DJ's "Join with my microphone…". Send it to
+ *  `POST /api/v1/invites`. */
+export interface OwnInviteRequest {
+  for_me: true;
+  /** Left out, the account's own name. */
+  name?: string;
+}
+
+/** Make an invitation link for a remote DJ, a guest or a presenter (any member of staff). It lasts
  *  the station's `join.invite_ttl_s`. A refusal throws a `FieldError` with the station's sentence. */
 export const makeInvite = (role: InviteRole, name: string) => call<Invite>('POST', '/api/v1/invites', { role, name });
 
-/** The banks and carts; fetched again when the view's `carts.version` moves. */
-export async function catalogue(): Promise<Catalogue> {
-  const res = await netFetch(`${base()}/api/v1/carts`, { headers: headers(false) });
+/** The signed-in presenter's own microphone link (ADR-0274): allowed at every step for the
+ *  show's presenter. A refusal throws a `FieldError` with the station's sentence. */
+export const makeOwnInvite = () => call<Invite>('POST', '/api/v1/invites', { for_me: true } satisfies OwnInviteRequest);
+
+/** What changing a show's step answers: the show's step now and before, and the station's. */
+export interface StepChanged {
+  show: string;
+  name: string;
+  step: ShowStep;
+  previous: ShowStep;
+  /** The station's step after the change: it moves only when this show is the one it comes from. */
+  station: StepView;
+}
+
+/** Change only a show's step (the frame's dialog): an admin, a producer or the show's presenter.
+ *  A refusal throws a `FieldError` with the station's sentence. */
+export const setShowStep = (slug: string, step: ShowStep) =>
+  call<StepChanged>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/step`, { step });
+
+/** Open a link in the person's own browser. The packaged app asks its Rust side (a webview
+ *  opens nothing outside itself); a browser build opens a tab. False when nothing opened. */
+export async function openInBrowser(url: string): Promise<boolean> {
+  if (!/^https?:\/\//.test(url)) return false;
+  if (packaged()) {
+    try {
+      const { invoke } = await core();
+      await invoke('open_link', { url });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // With `noopener` the browser answers null whether or not a tab opened.
+  globalThis.open?.(url, '_blank', 'noopener,noreferrer');
+  return true;
+}
+
+/** The station's banks and carts, and `show`'s own beside them (a cart wall per show, 1.0.2);
+ *  fetched again when the view's `carts.version` moves, or the window's show changes. */
+export async function catalogue(show: string | null = null): Promise<Catalogue> {
+  const q = show ? `?show=${encodeURIComponent(show)}` : '';
+  const res = await netFetch(`${base()}/api/v1/carts${q}`, { headers: headers(false) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data.error ?? `${res.status} ${res.statusText}`);
   return data as Catalogue;

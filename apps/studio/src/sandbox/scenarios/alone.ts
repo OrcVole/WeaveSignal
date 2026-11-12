@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-// Running everything alone (ADR-0222): you are the DJ and the call screener. Shona is off, so
-// the screener's seat is empty: the Screener tab's T has nobody to talk as (the control plane
-// talks as whoever holds the screener role), and you screen from the desk instead: send the
-// caller to your strip, cue them, talk to them on the strip, then open them. No DJ follows
-// (the DJ handover, ADR-0074, is `handover.ts`), so handing over to playout is taking yourself
-// off: STANDBY.
+// Running everything alone (ADR-0222): you are the DJ and the call screener. The show runs at
+// the Callers step (ADR-0271), so there is no Screener tab and no screener's seat: the callers
+// wait on the desk, in `desk.callers`, and you screen from the desk: take the caller who has
+// waited longest to strip 4 (P, ADR-0275), cue them, talk to them on the strip, then open them.
+// No DJ follows (the DJ handover, ADR-0074, is a Full part: `handover.ts`), so handing over to
+// playout is taking yourself off: STANDBY.
 
 import { L, U } from '../lines.ts';
 import type { Station } from '../station.ts';
@@ -17,9 +17,10 @@ export const ALONE: Scenario = {
   title: 'Running everything alone',
   blurb: 'You are the DJ and the screener: answer a caller from the desk, cue and talk to them, take them to air, play a cart, hand back to playout.',
   minutes: 4,
+  step: 'callers',
   learn: [
-    'How a DJ alone screens a caller: send them to your strip, cue them, talk to them on the strip, then open them.',
-    'Why the Screener tab’s T is silent with nobody in the screener’s seat.',
+    'How a DJ alone answers the phones: take the caller who has waited longest to strip 4, cue them, talk to them on the strip, then open them.',
+    'At the Callers step the queue is on the desk, in the Callers panel: there is no Screener tab to go to.',
     'Play a cart from any tab, and hand the air back to playout by taking yourself off (STANDBY).',
   ],
   you: EILIDH,
@@ -84,37 +85,27 @@ export const ALONE: Scenario = {
     return [
       { id: 'on', say: ['You are alone on the desk. Press ', k('1'), ' to go on air, then ', k('F1'), ' for the jingle: Eilidh opens the show.'], done: s.done('open') || !!s.beat?.beat.id.startsWith('open') },
       {
-        id: 'screen',
-        say: [
-          'Niall is ringing. ',
-          k('Ctrl+2'),
-          ' opens the Screener: press ',
-          k('1'),
-          ' to pick him and read what he typed. Nobody is in the screener’s seat today, so ',
-          k('T'),
-          ' has no one to talk as: write his line if you like, then ',
-          k('P'),
-          ' sends him to your strip.',
-        ],
+        id: 'take',
+        say: ['Niall is ringing: he waits in Callers, on the right, with what he typed. Press ', k('P'), ', or Take Niall to strip 4: he joins strip 4, off air.'],
         done: niall === 'ready' || !!n?.on_air || !!n?.cue || s.done('niall-cue') || s.done('niall-air'),
       },
-      { id: 'cue', say: [k('Ctrl+1'), ' back to the desk: Niall is READY on strip 4. Press ', k('R'), ' to cue him: you hear him, listeners do not.'], done: !!n?.cue || !!n?.on_air || s.done('niall-cue') },
+      { id: 'cue', say: ['Niall is READY on strip 4, under Not on air. Press ', k('R'), ' to cue him: you hear him, listeners do not.'], done: !!n?.cue || !!n?.on_air || s.done('niall-cue') },
       { id: 'talk', say: ['Hold ', k('F'), ' to talk to Niall on his strip: he hears you, listeners do not. Tell him he is on next.'], done: s.done('niall-talk') || !!n?.on_air },
       { id: 'air', say: ['Press ', k('4'), ': Niall is on air.'], done: s.done('niall-air') || !!n?.on_air },
       { id: 'off', say: ['When he has finished, ', k('4'), ' takes him off. ', k('Ctrl+D'), ' twice would drop him from the desk; his strip is freed either way.'], done: s.done('niall-air') && !s.open('niall') },
       { id: 'cart', say: ['A cart from any tab: ', k('F3'), ' is applause, over the top of whatever is open.'], done: s.fired.includes('applause-1') },
       {
         id: 'handover',
-        say: ['Hand the air back to playout: press ', k('1'), ' to take yourself off. The lamp says STANDBY and listeners hear playout’s log; nobody follows you today, so this is how the show ends. (With a next DJ in the room, Shift+Enter hands over to them.)'],
+        say: ['Hand the air back to playout: press ', k('1'), ' to take yourself off. The lamp says STANDBY and listeners hear playout’s log; nobody follows you today, so this is how the show ends. (Handing over to a next DJ comes with the Full step.)'],
         done: s.has('handed-over'),
       },
     ];
   },
   did: (s) => [
-    'You ran the desk and the phones alone: Niall came to your strip from the Screener tab without a screener in the seat.',
+    'You ran the desk and the phones alone: you took Niall from the Callers panel to strip 4, with no screener and no Screener tab.',
     'You cued him and talked to him on his strip before opening him, so listeners heard him only once you chose.',
     `You fired ${s.fired.length} cart${s.fired.length === 1 ? '' : 's'} from the keys, from whatever tab you were on.`,
     'You handed the air back to playout by taking yourself off: STANDBY, and the log carried on.',
-    s.callerState('jessie') ? 'Jessie rang while you were busy; she is still waiting in the queue, as a real caller would be.' : 'Nobody was left waiting.',
+    s.callerState('jessie') ? 'Jessie rang while you were busy; she is still waiting in Callers, as a real caller would be.' : 'Nobody was left waiting.',
   ],
 };

@@ -13,14 +13,15 @@ It takes five minutes, and most of it is the headphones.
 
 ## Join the room
 
-1. Open the invite link the station sent you, in a browser ([The public pages](/docs/reference/public-pages/)).
+1. Open the invitation link the station sent you, in a browser ([The public pages](/docs/reference/public-pages/)).
+   If you drive the studio app yourself and no presenter is in the room yet, the desk makes the link for you: **Join with my microphone…** on the empty stage, then **Open in browser** ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/#the-desk-at-each-step)).
    With another LiveKit client, join instead with a room token from the station, which carries your role, `presenter` ([Give someone a room token](/docs/how-to/issue-room-tokens/)); a token can be used to join for 10 minutes by default, so ask for it shortly before the show.
 2. Press **Join the studio**, and allow the microphone when the browser asks.
    If the page says **Your microphone is blocked**, allow it for the page (the lock or the site settings by the address) and press **Try again**.
    On a phone the browser itself may need the permission too: in Firefox for Android, allow its microphone in Android's settings (Apps, Firefox, Permissions, Microphone).
 3. Open the studio app on the Desk tab (`⌃1`) to see the desk and use its keys.
 
-   ![The invite page after the browser refused the microphone: the chip No microphone, Your microphone is blocked, the advice, and Try again.](../../../../assets/screens/reference-public-pages-no-mic.png)
+   ![The invitation page after the browser refused the microphone: the chip No microphone, Your microphone is blocked, the advice, and Try again.](../../../../assets/screens/reference-public-pages-no-mic.png)
 
 The studio app does not carry your voice: it shows the desk and sends your keys, and your voice reaches the room from the browser.
 The studio app joining the room itself, so you present from one window (ADR-0013), is [planned](/docs/reference/release-one-status/#not-in-release-one).

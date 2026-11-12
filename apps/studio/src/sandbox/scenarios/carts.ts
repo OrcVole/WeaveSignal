@@ -14,6 +14,7 @@ export const CARTS: Scenario = {
   title: 'Carts and a bed',
   blurb: 'A music bed under your link, shots over the top, the cart wall’s keys, and a cart cued in your headphones.',
   minutes: 2,
+  step: 'solo',
   learn: [
     'F1 to F6 fire the bank’s top row from any tab; a bed ducks under an open voice.',
     'The cart wall: the same four rows of keys as the desk, Space to stop the last shot, Shift+Space twice to fade everything.',

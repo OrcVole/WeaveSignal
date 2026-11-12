@@ -27,6 +27,7 @@ import {
 } from './lib/wizard.ts';
 import MyShow from './settings/MyShow.svelte';
 import ShowWizard from './settings/ShowWizard.svelte';
+import { STEP_HINT, STEP_QUESTION, startsAt } from './lib/wizard.ts';
 import ShowEditor from './schedule/ShowEditor.svelte';
 
 const shona: Me = {
@@ -71,6 +72,8 @@ const answers = (over: Partial<Answers> = {}): Answers => ({
   from: '22:00',
   until: '00:00',
   commercial_music: true,
+  // The show fixture is from before steps: it has no step, which reads as Full.
+  step: 'full',
   ...over,
 });
 
@@ -99,6 +102,24 @@ describe('the answers', () => {
   it('start from the show when run again, else from the account', () => {
     expect(fromShow(show(), shona)).toEqual(answers());
     expect(fromShow(null, shona)).toMatchObject({ presenter: 'Shona Campbell', contact: '', show: '', links: '', weekday: 6, from: '', until: '' });
+  });
+
+  it('start a new show at Solo, and keep the step of a show that has one (ADR-0271)', () => {
+    expect(fromShow(null, shona).step).toBe('solo');
+    expect(fromShow(show({ step: 'guests' }), shona).step).toBe('guests');
+    // A show from before steps says none: everything, as it always ran.
+    expect(fromShow(show(), shona).step).toBe('full');
+    expect(toShowInput(answers({ step: 'callers' }), shona, null, 1).step).toBe('callers');
+  });
+
+  it('say where the studio starts, for each step', () => {
+    expect(startsAt('solo')).toEqual({
+      lead: 'The studio starts at Solo:',
+      rest: 'your microphone, the music and carts, the listener count and the chat. Guests, callers and the rest are switched off until you move up a step, at the top of the studio.',
+    });
+    expect(startsAt('guests').rest).toMatch(/guests you invite by link\. Callers and the rest are switched off until you move up a step/);
+    expect(startsAt('callers').rest).toMatch(/listeners who call in.*The screener’s seat, the picture and the handover are switched off/);
+    expect(startsAt('full')).toEqual({ lead: 'The studio starts at Full:', rest: 'the whole studio, with a screener on the phones, the picture and the next DJ. Nothing is switched off.' });
   });
 
   it('read a time, and make a slot that may run past midnight', () => {
@@ -153,6 +174,7 @@ describe('the answers', () => {
       links: ['https://rumble.com/c/shona', 'https://odysee.com/@shona'],
       commercial_music: true,
       presenter_account: 'a-shona',
+      step: 'full',
     });
     const existing: ShowView = {
       show: show({ description: 'Late calls.', colour_slot: 9, layout: 'slate', tags: ['calls'], explicit: true }),
@@ -176,13 +198,13 @@ describe('the answers', () => {
 describe('the wizard rendered', () => {
   const props = { me: shona, shows: [] as Show[], onDone: () => {}, onSkip: () => {}, onClose: () => {} };
 
-  it('is a named panel with its three steps, the first asking only the on-air name and the contact', () => {
+  it('is a named panel with its three parts, the first asking only the on-air name and the contact', () => {
     const { body } = render(ShowWizard, { props });
     expect(body).toContain('data-panel="studio.show-setup"');
     expect(SHOW_SETUP.map((p) => p.name)).toContain('studio.show-setup');
     expect(PANELS['studio.show-setup']).toBeTruthy();
     expect(body).toContain('Set up your show');
-    expect(body).toContain('Step 1 of 3: About you');
+    expect(body).toContain('Part 1 of 3: About you');
     expect(body).toContain('Your on-air name');
     expect(body).toContain('Takedown contact');
     expect(body).toContain('then\n          the station’s own as the host');
@@ -192,11 +214,13 @@ describe('the wizard rendered', () => {
     expect(body).toContain('value="Shona Campbell"');
     // No email form anywhere (ADR-0218): the contact may be an address, but nothing is sent.
     expect(body).not.toContain('type="email"');
+    // "Step" means the show's step and nothing else: the wizard's pages are parts.
+    expect(body).not.toMatch(/Step \d of 3/);
   });
 
-  it('asks the show step for the name, the links, the usual day and time, and the music reminder', () => {
-    const { body } = render(ShowWizard, { props: { ...props, step: 2 } });
-    expect(body).toContain('Step 2 of 3: Your show');
+  it('asks on its second part for the name, the links, the usual day and time, and the music reminder', () => {
+    const { body } = render(ShowWizard, { props: { ...props, part: 2 } });
+    expect(body).toContain('Part 2 of 3: Your show');
     expect(body).toContain('Show name');
     expect(body).toContain('Links to your channels');
     expect(body).toContain('Usual day and time');
@@ -206,8 +230,31 @@ describe('the wizard rendered', () => {
     expect(body).not.toContain('PPL'); // the reminder only once the box is ticked
   });
 
+  it('asks how much of the studio to start with, with Solo picked, in the step list every surface shares', () => {
+    const { body } = render(ShowWizard, { props: { ...props, part: 2 } });
+    expect(body).toContain(STEP_QUESTION);
+    expect(STEP_QUESTION).toBe('How much of the studio to start with');
+    expect(body).toContain(STEP_HINT);
+    const list = body.slice(body.indexOf('class="steplist'), body.indexOf('</fieldset>', body.indexOf('class="steplist')));
+    expect([...list.matchAll(/data-step="(\w+)"/g)].map((m) => m[1])).toEqual(['solo', 'guests', 'callers', 'full']);
+    expect(list).toMatch(/<input[^>]*value="solo"[^>]*checked/);
+    expect(list).not.toMatch(/<input[^>]*value="(guests|callers|full)"[^>]*checked/);
+    expect(list).toContain('Just you');
+    expect(list).toContain('A screener on the phones, the picture, the next DJ');
+    // The wizard keeps three pages.
+    expect(body).toContain('1 About you');
+    expect(body).toContain('3 Done');
+    expect(body).not.toContain('4 ');
+  });
+
+  it('says on its last part where the studio starts and where to move up', () => {
+    const { body } = render(ShowWizard, { props: { ...props, part: 3 } });
+    expect(body).toContain('The studio starts at Solo:');
+    expect(body).toContain('until you move up a step, at the top of the studio.');
+  });
+
   it('runs again from an existing show with its answers and the reminder lit', () => {
-    const { body } = render(ShowWizard, { props: { ...props, initial: show(), step: 2 } });
+    const { body } = render(ShowWizard, { props: { ...props, initial: show(), part: 2 } });
     expect(body).toContain('value="The Night Show"');
     expect(body).toContain('https://rumble.com/c/shona');
     expect(body).toContain('Fridays, 22:00 to 00:00');

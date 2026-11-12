@@ -60,3 +60,9 @@ That staff role is not tied to the room role a token carries: any member of staf
 ![Settings, Staff: three people with their staff roles and the actions on each account.](../../../../assets/screens/how-to-add-staff-list.png)
 
 Not in WeaveSignal 1.0: roles scoped to one show or a time window (asked beside ADR-0074 and not decided).
+
+## Seats and the show's step
+
+The show on air decides which seats are open (ADR-0271): at Solo only the show's presenter may join; Guests adds guests and a second presenter; Callers adds one caller at a time; Full adds the next DJ and the screener's seat.
+A person already in the room is never removed by a step.
+The table, and how to change a show's step, are in [Choose how much of the studio a show uses](/docs/how-to/choose-a-step/).

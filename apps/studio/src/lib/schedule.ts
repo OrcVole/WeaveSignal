@@ -5,7 +5,7 @@
 // Rust structs field for field; times from the control plane are epoch seconds for episodes
 // (`air_at`, `aired_at`) and epoch milliseconds for the log (`planned_at_ms`).
 
-import { ApiError, base, headers, netFetch } from './api.ts';
+import { ApiError, base, headers, netFetch, type ShowStep } from './api.ts';
 import { dataUrl } from './video.ts';
 
 /** A weekly slot: weekday 1 (Monday) to 7, the start in minutes after midnight, the length. */
@@ -38,6 +38,9 @@ export interface Show {
   commercial_music: boolean;
   /** The staff account that presents the show (ADR-0218), or null. */
   presenter_account: string | null;
+  /** How much of the studio the show uses (ADR-0271); absent from a control plane too old to
+   *  report it. Shows that existed before steps are `full`; a new show starts at `solo`. */
+  step?: ShowStep;
 }
 
 export interface Cards {
@@ -141,6 +144,9 @@ export interface ShowInput {
   commercial_music?: boolean;
   /** Left out keeps; null clears; a staff account's id ties the show to it (ADR-0218). */
   presenter_account?: string | null;
+  /** The show's step (ADR-0271): left out keeps what is stored, a new show starts at `solo`.
+   *  Changing it takes an admin, a producer or the show's presenter. */
+  step?: ShowStep;
 }
 
 export interface SeriesInput {

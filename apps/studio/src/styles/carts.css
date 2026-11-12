@@ -14,6 +14,7 @@
   .bank { appearance: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: var(--s-2); min-height: 2.25rem; padding: 0 var(--s-3) 0 0; border-radius: var(--r-2); border: 1px solid var(--axis); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-14); overflow: hidden; }
   .bank .band { width: 6px; align-self: stretch; background: var(--bank-colour, var(--deemph)); }
   .bank b { font-weight: 600; color: var(--ink); }
+  .bank .owner { font-size: var(--fs-12); color: var(--muted); }
   .bank .count { font-size: var(--fs-12); color: var(--muted); font-family: var(--font-mono); }
   .bank[aria-pressed="true"] { background: var(--surface-3); border-color: var(--ink-2); color: var(--ink); }
   .bank.none { border-style: dashed; background: transparent; }

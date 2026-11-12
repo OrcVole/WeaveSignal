@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The DJ's show setup (ADR-0218, ADR-0219): three steps in a dialog over the surface.
+  // The DJ's show setup (ADR-0218, ADR-0219): three parts in a dialog over the surface.
   // About you (the on-air name and the takedown contact), Your show (its name, the links to
-  // your channels, the usual day and time, whether it plays commercial music), Done (what
-  // the answers now do). The answers become the show's own fields in the station, tied to
-  // this account, so the consent words name the DJ while the show is on air (ADR-0214) and
+  // your channels, the usual day and time, whether it plays commercial music, and how much of
+  // the studio to start with: the show's step, Solo picked, ADR-0271), Done (what the answers
+  // now do, and where the studio starts). They are "parts" so that "step" means one thing.
+  // The answers become the show's own fields in the station, tied to this account, so the consent words name the DJ while the show is on air (ADR-0214) and
   // new episodes take the usual slot. It opens by itself for a newly signed-in presenter
   // with no show of their own, and again from Settings. No email is sent or needed. Panel
   // name `studio.show-setup` (ADR-0070). A dialog owns the keyboard (keymap rule 5): only
@@ -19,6 +20,9 @@
     CONTACT_MAX,
     MUSIC_REMINDER,
     PRESENTER_MAX,
+    STEP_HINT,
+    STEP_QUESTION,
+    startsAt,
     SHOW_NAME_MAX,
     WEEKDAYS,
     aboutProblems,
@@ -32,12 +36,13 @@
     overnight,
     type Answers,
   } from '../lib/wizard.ts';
+  import StepList from '../lib/StepList.svelte';
 
   let {
     me,
     shows,
     initial = null,
-    step: firstStep = 1,
+    part: firstPart = 1,
     onDone,
     onSkip,
     onClose,
@@ -47,8 +52,8 @@
     shows: readonly Show[];
     /** The show this account presents, when the wizard is run again. */
     initial?: Show | null;
-    /** The step to open on (a test's). */
-    step?: 1 | 2 | 3;
+    /** The part to open on (a test's). */
+    part?: 1 | 2 | 3;
     /** The show was saved. */
     onDone: (saved: ShowView) => void;
     /** Skipped for now: not asked again on this machine. */
@@ -56,8 +61,8 @@
     onClose: () => void;
   } = $props();
 
-  const seed = untrack(() => ({ initial, step: firstStep }));
-  let step = $state<1 | 2 | 3>(seed.step);
+  const seed = untrack(() => ({ initial, part: firstPart }));
+  let part = $state<1 | 2 | 3>(seed.part);
   let a = $state<Answers>(untrack(() => fromShow(seed.initial, me)));
   let errors = $state<{ presenter?: string; contact?: string; show?: string; links?: string; time?: string; form?: string }>({});
   let saving = $state(false);
@@ -68,7 +73,8 @@
   let dialogEl = $state<HTMLDialogElement | null>(null);
 
   const again = $derived(seed.initial !== null);
-  const steps = ['About you', 'Your show', 'Done'] as const;
+  const parts = ['About you', 'Your show', 'Done'] as const;
+  const starts = $derived(startsAt(a.step));
   const musicNote = $derived(a.commercial_music ? MUSIC_REMINDER : '');
   const linkCount = $derived(splitLinks(a.links).length);
 
@@ -88,23 +94,23 @@
     const d = dialogEl;
     if (d && !d.open) {
       d.showModal();
-      focusFirst(step === 1 ? 'sw-presenter' : 'sw-show');
+      focusFirst(part === 1 ? 'sw-presenter' : 'sw-show');
     }
   });
 
   function next() {
-    if (step === 1) {
+    if (part === 1) {
       const p = aboutProblems(a);
       errors = p;
       if (p.presenter || p.contact) return focusFirst(p.presenter ? 'sw-presenter' : 'sw-contact');
-      step = 2;
+      part = 2;
       focusFirst('sw-show');
     }
   }
 
   function back() {
     errors = {};
-    step = 1;
+    part = 1;
     focusFirst('sw-presenter');
   }
 
@@ -122,7 +128,7 @@
       const slug = existing ? existing.show.slug : freeSlug(a.show, shows.map((s) => s.slug));
       const v = await api.putShow(slug, toShowInput(a, me, existing, nextColour(shows.length)));
       saved = v;
-      step = 3;
+      part = 3;
       focusFirst('sw-done');
     } catch (err) {
       const placed = placeError(err, ['name', 'presenter', 'contact', 'links', 'slot'] as const);
@@ -153,15 +159,15 @@
 <dialog bind:this={dialogEl} data-panel="studio.show-setup" aria-labelledby="sw-h" oncancel={onCancel} onclose={onClose}>
   <div class="head">
     <p class="crumbs" aria-hidden="true">
-      {#each steps as s, i (s)}
-        <span class:now={step === i + 1} class:done={step > i + 1}>{i + 1} {s}</span>
+      {#each parts as s, i (s)}
+        <span class:now={part === i + 1} class:done={part > i + 1}>{i + 1} {s}</span>
       {/each}
     </p>
     <h2 id="sw-h" data-panel-title>{again ? 'Your show' : 'Set up your show'}</h2>
-    <p class="small"><span class="sr-only">Step {step} of 3: {steps[step - 1]}. </span>
-      {#if step === 1}
+    <p class="small"><span class="sr-only">Part {part} of 3: {parts[part - 1]}. </span>
+      {#if part === 1}
         What callers hear about you. Two questions, then your show.
-      {:else if step === 2}
+      {:else if part === 2}
         Your show in the station: its name, where people find you, and when it is on.
       {:else}
         {again ? 'Your show is up to date.' : 'That is everything the station needs.'}
@@ -169,7 +175,7 @@
     </p>
   </div>
 
-  {#if step === 1}
+  {#if part === 1}
     <form onsubmit={(e) => { e.preventDefault(); next(); }} novalidate>
       <div class="field">
         <label for="sw-presenter">Your on-air name</label>
@@ -210,7 +216,7 @@
         <button type="submit" class="btn primary">Next: your show</button>
       </div>
     </form>
-  {:else if step === 2}
+  {:else if part === 2}
     <form onsubmit={save} novalidate>
       <div class="field">
         <label for="sw-show">Show name</label>
@@ -260,6 +266,11 @@
         <label for="sw-music">The show plays commercial music</label>
         <p id="sw-music-hint" class="hint" role={a.commercial_music ? 'note' : undefined}>{musicNote || 'Released records, rather than your own or licence-free music.'}</p>
       </div>
+      <div class="field">
+        <span class="q" id="sw-step">{STEP_QUESTION}</span>
+        <StepList bind:value={a.step} name="sw-step" describedby="sw-step sw-step-hint" />
+        <span id="sw-step-hint" class="hint">{STEP_HINT}</span>
+      </div>
       {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
       <div class="acts">
         <button type="button" class="btn quiet" onclick={back} disabled={saving}>Back</button>
@@ -273,6 +284,7 @@
         <li>While it is on air, callers agree to be recorded under your name{a.contact.trim() ? ', with your takedown contact first and the station’s as the host' : ', with the station’s takedown contact'}.</li>
         <li>{slotLine(a) === 'No usual time yet' ? 'It has no usual time yet; set one from the Schedule tab when you know it.' : `New episodes start on ${slotLine(a)}.`}</li>
         {#if a.commercial_music}<li>{MUSIC_REMINDER}</li>{/if}
+        <li data-step={a.step}><b class="ink">{starts.lead}</b> {starts.rest}</li>
         <li>Change any of this from Settings, under <b>Your show</b>, or on the Schedule tab.</li>
       </ul>
       <div class="acts">
@@ -284,6 +296,11 @@
 
 <style>
   .check-inline { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); font-size: var(--fs-14); }
+  /* The step question reads as the other fields' labels do. */
+  .q { font-weight: 600; }
+  .ink { color: var(--ink); }
+  /* A tall form on a short window scrolls inside the dialog. */
+  dialog { max-height: calc(100vh - 4rem); overflow-y: auto; }
   dialog {
     width: min(32rem, calc(100vw - 2 * var(--s-4)));
     margin: 3rem auto auto;

@@ -5,6 +5,7 @@
 // person in its confirmation even though the view that comes back no longer has them.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from './lib/api.ts';
+import { NO_SHOW } from './lib/steps.ts';
 import { run } from './lib/actions.ts';
 import { studio } from './lib/studio.svelte.ts';
 import type { DeskPerson, View } from './lib/api.ts';
@@ -44,6 +45,7 @@ function view(withGregor: boolean): View {
     notices: [],
     carts: { version: 0, desk: true, desk_error: null, sounding: [], ducked: false, mic_open: false, missing: [], importing: null },
     listener_delay: { ms: 15_000, measured: false },
+    step: NO_SHOW,
   };
 }
 
@@ -80,7 +82,7 @@ describe('end pass', () => {
     expect(studio.view?.sources.map((s) => s.identity)).toEqual(['eilidh']);
     expect(studio.note?.tone).toBe('good');
     expect(studio.note?.title).toBe('Pass ended');
-    expect(studio.note?.message).toBe('Gregor is out of the room and their link no longer works. Send a new invite if they are to come back.');
+    expect(studio.note?.message).toBe('Gregor is out of the room and their link no longer works. Send a new invitation if they are to come back.');
   });
 
   it('says why when the control plane refuses, and keeps the view', async () => {

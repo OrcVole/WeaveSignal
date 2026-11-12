@@ -359,6 +359,25 @@ fn the_playout_layer_on_the_stack() {
     let desk_first = until_tone(&heard, started, &[1000.0], "the desk on air", 90);
     eprintln!("desk heard {:?} after the start", desk_first - started);
 
+    // The desk's Listeners panel reads the same listener process (ADR-0272): the one listener,
+    // by mount, and the listener process's own buffer in the delay, both through the real view.
+    let seen = wait("the studio view to count the listener", 20, || {
+        let v = api.get("/api/v1/studio")?;
+        (v["audience"]["listeners"].as_u64() >= Some(1)).then_some(v)
+    });
+    assert_eq!(seen["audience"]["error"], serde_json::Value::Null, "{seen}");
+    assert!(
+        seen["audience"]["by_mount"][0]["mount"]
+            .as_str()
+            .is_some_and(|m| m.ends_with("programme.opus")),
+        "{seen}"
+    );
+    let process_ms = wait("the listener process's buffer in the delay", 20, || {
+        api.get("/api/v1/studio")?["listener_delay"]["process_ms"].as_u64()
+    });
+    assert!(process_ms < 3_000, "the feed buffer reads {process_ms} ms");
+    assert_eq!(seen["listener_delay"]["measured"], false);
+
     // Dead air: the desk falls silent; after 4 s automation plays the log.
     let quiet = run.join("desk-quiet");
     std::fs::write(&quiet, b"").unwrap();

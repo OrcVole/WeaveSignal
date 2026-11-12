@@ -6,6 +6,8 @@
 import { catalogue, type LinkState, type View } from './api.ts';
 import type { Catalogue } from '../../../../packages/ui/carts.ts';
 import type { Tab, TwoPress } from '../../../../packages/ui/keymap.ts';
+import type { AirAsk } from './air.ts';
+import { lookOf, showTookAir, stationStep, tabShown } from './steps.ts';
 
 export interface LocalNote {
   id: number;
@@ -37,8 +39,11 @@ export const studio = $state({
   note: null as LocalNote | null,
   /** Toasts dismissed with Esc, by notice id. */
   dismissed: [] as number[],
-  /** The cart banks and carts, as last fetched. */
+  /** The cart banks and carts, as last fetched: the station's, and `cartShow`'s own. */
   catalogue: null as Catalogue | null,
+  /** The show whose own cart banks this window works with, by its slug (prepare.ts,
+   *  `cartShowFor`); null: the station's banks alone. */
+  cartShow: null as string | null,
   /** The cart bank this window shows (⌃F1 to ⌃F5); F1 to F6 fire its top row. */
   bank: readBank(),
   /** The cart the arrows have moved to on the wall (1 to 24), or null. */
@@ -48,8 +53,20 @@ export const studio = $state({
   setupPending: null as string[] | null,
   /** The station's time zone (IANA), for the rundown's times; empty until read. */
   zone: '',
+  /** The ask the desk's air dialog is open on (End show, Hand to automation, Take the air
+   *  back; ADR-0272): set by ⌃⇧E and by the buttons, cleared when the dialog closes. */
+  airAsk: null as AirAsk | null,
   /** The DJ this window's first ⇧⏎ put on air, until the second press hands over (ADR-0231). */
   handoverTo: null as string | null,
+  /** Show everything (ADR-0274): this window draws the whole studio while the station stays at
+   *  the show's step. A look, not a switch; never remembered, and this window's alone. */
+  showAll: false,
+  /** The step dialog (`studio.step.menu`) is open. */
+  stepMenu: false,
+  /** The note a hidden part's key shows, in the desk's toast slot, without a tone colour. */
+  offNote: null as { title: string; message: string; until: number } | null,
+  /** The hidden parts whose key has already said so in this session: each says it once. */
+  offTold: [] as string[],
 });
 
 const BANK_KEY = 'weavesignal.cart-bank';
@@ -72,17 +89,49 @@ export function setBank(n: number): void {
   }
 }
 
-let fetching = -1;
+/** What this window draws: the station's step, or everything while Show everything is on. */
+export function look() {
+  return lookOf(stationStep(studio.view), studio.showAll);
+}
 
-/** Fetch the catalogue when the view says it changed. */
+/** When the look no longer has the tab this window is on (the step moved down, Back was
+ *  pressed, or the next show took the air while the Screener was open), go to the Desk. */
+function settleTab(): void {
+  if (tabShown(studio.tab, look())) return;
+  studio.tab = 'desk';
+  if (typeof document !== 'undefined') document.documentElement.dataset.surface = 'desk';
+}
+
+/** Show everything, or back to the step. */
+export function setShowAll(on: boolean): void {
+  studio.showAll = on && stationStep(studio.view) !== 'full';
+  settleTab();
+}
+
+let fetching = '';
+
+/** Fetch the catalogue when the view says it changed, or this window's show did. */
 async function refreshCatalogue(version: number): Promise<void> {
-  if (fetching === version) return;
-  fetching = version;
+  const show = studio.cartShow;
+  const key = `${version}:${show ?? ''}`;
+  if (fetching === key) return;
+  fetching = key;
   try {
-    studio.catalogue = await catalogue();
+    const cat = await catalogue(show);
+    // The window's show moved while this was on its way: the next fetch is the one to keep.
+    if (studio.cartShow === show) studio.catalogue = cat;
   } catch {
-    fetching = -1; // try again with the next view
+    fetching = ''; // try again with the next view
   }
+}
+
+/** The show whose own cart banks this window works with changed (a live window's show took the
+ *  air, or the window switched between Live and Preparing): fetch its catalogue. The tab this
+ *  window shows stays, and nothing sounding is stopped. */
+export function setCartShow(show: string | null): void {
+  if (studio.cartShow === show) return;
+  studio.cartShow = show;
+  if (studio.view?.carts) void refreshCatalogue(studio.view.carts.version);
 }
 
 let noteId = 0;
@@ -97,7 +146,10 @@ export function stationNow(): number {
 }
 
 export function takeView(v: View): void {
+  // Show everything lasts until the next show takes the air, and means nothing at Full.
+  if (studio.showAll && (showTookAir(studio.view?.step, v.step) || stationStep(v) === 'full')) studio.showAll = false;
   studio.view = v;
+  settleTab();
   studio.skew = v.now_ms - Date.now();
-  if (v.carts && v.carts.version !== studio.catalogue?.version) void refreshCatalogue(v.carts.version);
+  if (v.carts && (v.carts.version !== studio.catalogue?.version || (studio.catalogue.show ?? null) !== studio.cartShow)) void refreshCatalogue(v.carts.version);
 }

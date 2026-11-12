@@ -3,18 +3,20 @@
 // Playout takes over and hands back (ADR-0222, ADR-0045, ADR-0183): the station starts in auto
 // mode, automation holding the air; the lamp says AUTO and anything you open says OPEN, the
 // white lamp. The mode is a playout setting on a real station (Settings, or the on-air API),
-// so the guide's buttons stand in for it. Finlay stands by on strip 5 for the next show.
+// so the guide's buttons stand in for it. A Solo scenario: nobody else is in the room (the next
+// show's DJ is a Full seat, and has the two handover scenarios).
 
 import { L, U } from '../lines.ts';
 import type { Station } from '../station.ts';
-import { EILIDH, FINLAY } from './cast.ts';
+import { EILIDH } from './cast.ts';
 import { k, rundownAt, type Scenario, type Step } from './scenario.ts';
 
 export const AUTO: Scenario = {
   id: 'auto',
   title: 'Playout takes over',
-  blurb: 'The station starts in auto mode: see AUTO and OPEN, take it live, cue the next DJ, hand the air back to automation.',
+  blurb: 'The station starts in auto mode: see AUTO and OPEN, take it live, hand the air back to automation.',
   minutes: 2,
+  step: 'solo',
   learn: [
     'AUTO: automation holds the air, listeners hear the log, and your On key opens you to the room only (OPEN, the white lamp).',
     'Taking the station live is a playout setting, not a desk key; then open faders say ON AIR.',
@@ -22,7 +24,7 @@ export const AUTO: Scenario = {
   ],
   you: EILIDH,
   show: 'The Morning Kettle',
-  cast: [EILIDH, FINLAY],
+  cast: [EILIDH],
   callers: {},
   mode: 'auto',
   rundown: (start) => {
@@ -30,7 +32,7 @@ export const AUTO: Scenario = {
     return [
       { at: at(0), title: 'Overnight log', detail: 'Automation holds the air', hard_post: false, key: null },
       { at: at(2), title: 'Live', detail: 'Eilidh takes the station live', hard_post: false, key: null },
-      { at: at(5), title: 'Steeped with Finlay Grant', detail: 'Finlay standing by on strip 5', hard_post: false, key: null },
+      { at: at(5), title: 'Back to automation', detail: 'The log takes the air again', hard_post: false, key: null },
     ];
   },
   beats: [
@@ -44,13 +46,8 @@ export const AUTO: Scenario = {
       when: (s) => s.open('eilidh') && s.mode === 'live',
       lines: [
         L('l-e-back', 'eilidh', 1.16, "And we're back."),
-        U('t-auto-live', 'eilidh', "That's the overnight done. Kettle FM is live, the kettle's on, and Finlay is here for Steeped after the news."),
+        U('t-auto-live', 'eilidh', "That's the overnight done. Kettle FM is live, the kettle's on, and Steeped follows after the news."),
       ],
-    },
-    {
-      id: 'finlay',
-      when: (s) => s.person('finlay')?.cue === true || s.open('finlay'),
-      lines: [L('i-finlay', 'finlay', 2.71, "I'm Finlay. I'm on after Eilidh, standing by from home.")],
     },
     {
       id: 'handed-back',
@@ -68,7 +65,6 @@ export const AUTO: Scenario = {
       done: s.mode === 'live' || s.done('live') || s.has('handed-back'),
       action: { label: 'Take the station live', run: 'go-live' },
     },
-    { id: 'finlay', say: ['Finlay is standing by on strip 5 for the next show. Press ', k('T'), ' to cue him: you hear him, listeners do not.'], done: s.done('finlay') || !!s.person('finlay')?.cue },
     {
       id: 'back',
       say: ['Hand back: press ', k('1'), ' to take yourself off (STANDBY, playout holds the air), then put the station back in auto for the night.'],
@@ -79,6 +75,6 @@ export const AUTO: Scenario = {
   did: () => [
     'You opened a fader in auto mode and saw OPEN, the white lamp: the room heard you, listeners heard the log.',
     'You took the station live (a playout setting, stood in for by the button) and the lamp turned ON AIR.',
-    'You cued Finlay in your headphones, then took yourself off and handed the air back to automation.',
+    'You took yourself off and handed the air back to automation.',
   ],
 };

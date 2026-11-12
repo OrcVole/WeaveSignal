@@ -3,20 +3,25 @@
 // The sandbox's link (ADR-0212): `sandboxFetch` answers the studio app's requests in the page,
 // from the simulated station, as the control plane would; the clock drives the station and the
 // sound. The page's hash picks the scenario (ADR-0222: `#alone`, `#queue`...; none is the
-// show), and choosing another reloads the page, so every scenario starts from a fresh station
-// and a fresh sound. Only a sandbox build reaches this module (`api.ts` imports it behind the
+// show) or a step (`#solo`, `#guests`, `#callers`, `#full`: the chooser at that rung,
+// ADR-0271), and choosing another reloads the page, so every scenario starts from a fresh
+// station and a fresh sound. Only a sandbox build reaches this module (`api.ts` imports it behind the
 // build's mode).
 
 import type { Catalogue } from '../../../../packages/ui/carts.ts';
-import type { Me } from '../lib/api.ts';
-import { catalogueFrom, Refusal, Station, type PackCart } from './station.ts';
+import type { Me, ShowStep } from '../lib/api.ts';
+import { catalogueFor, catalogueFrom, Refusal, Station, type PackCart } from './station.ts';
 import { Sound, type Hear } from './sound.ts';
-import { scenarioFor, type Lever } from './scenarios/index.ts';
+import { PREPARING_REFUSAL } from '../lib/prepare.ts';
+import { rungFor, scenarioFor, type Lever } from './scenarios/index.ts';
 import pack from '../../../../assets/carts-demo/carts.json';
 
 const catalogue: Catalogue = catalogueFrom(pack as { banks: Record<string, string>; carts: PackCart[] });
+const hash = location.hash.replace(/^#/, '');
 /** The scenario the page opened on. */
-export const scenario = scenarioFor(location.hash.replace(/^#/, ''));
+export const scenario = scenarioFor(hash);
+/** The page opened on a scenario's own hash, so its start card is up (not the chooser). */
+export const opened = hash !== '' && rungFor(hash) === null;
 export const station = new Station(Date.now(), catalogue, scenario);
 // For the browser tests (tests/sandbox/) and the curious: the simulated station.
 (globalThis as { __kettle?: Station }).__kettle = station;
@@ -32,6 +37,8 @@ export const sandbox = $state({
   error: '' as string,
   /** The chooser is open (over the start card, or over a scenario that runs). */
   chooser: false,
+  /** The rung the chooser opens at: the step a link named, or the one pressed on the ladder. */
+  rung: rungFor(hash) as ShowStep | null,
 });
 
 let sound: Sound | null = null;
@@ -146,7 +153,10 @@ const ME: Me = {
   kind: 'staff',
   role: 'admin',
   account: { id: scenario.you.identity, username: scenario.you.identity, name: scenario.you.name, role: 'admin', disabled_ms: null, created_ms: Date.UTC(2026, 9, 1), has_email: false },
+  preparing: false,
 };
+/** The routes a real station refuses a preparing window (ADR-0276): what changes the air. */
+const ON_AIR_ROUTES = ['/api/v1/desk/commands', '/api/v1/screener/commands', '/api/v1/carts/commands', '/api/v1/passes/end', '/api/v1/show/end', '/api/v1/playout/mode'];
 
 const NOT_HERE = 'Not in the sandbox: this part needs a real station (weavesignal.top/run/ says how to run one)';
 const NO_CHAT = 'The live chat is not in the sandbox; on a real station listeners chat from the player page';
@@ -177,8 +187,16 @@ export const sandboxFetch: typeof fetch = async (input, init) => {
     init?.signal?.addEventListener('abort', () => streams.delete(me));
     return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
   }
-  if (method === 'GET' && path === '/api/v1/carts') return json(200, catalogue);
+  if (method === 'GET' && path === '/api/v1/carts') return json(200, catalogueFor(catalogue, url.searchParams.get('show') || null));
   if (method === 'GET' && path === '/api/v1/sessions/me') return json(200, ME);
+  if (method === 'PUT' && path === '/api/v1/sessions/me/mode') {
+    // Live or Preparing, as a real station keeps it on the session; the sandbox starts live.
+    const b = (await body(init)) as { preparing?: unknown };
+    if (typeof b.preparing !== 'boolean') return json(422, { error: '`preparing` is true or false' });
+    ME.preparing = b.preparing;
+    return json(200, ME);
+  }
+  if (ME.preparing && method === 'POST' && ON_AIR_ROUTES.includes(path)) return json(409, { error: PREPARING_REFUSAL });
   const commands: Record<string, (b: never, now: number) => void> = {
     '/api/v1/desk/commands': (b, n) => station.desk(b, n),
     '/api/v1/screener/commands': (b, n) => station.screener(b, n),
@@ -186,15 +204,48 @@ export const sandboxFetch: typeof fetch = async (input, init) => {
     '/api/v1/chat/modes': (b, n) => station.chat(b, n),
     '/api/v1/passes/end': (b, n) => station.endPass(b, n),
   };
+  const stepOf = /^\/api\/v1\/shows\/([^/]+)\/step$/.exec(path);
+  if (method === 'PUT' && stepOf) {
+    // The frame's step dialog acts on the simulated show, by the station's own rules.
+    try {
+      const changed = station.setStep(decodeURIComponent(stepOf[1]), ((await body(init)) as { step?: unknown }).step, now);
+      push();
+      return json(200, changed);
+    } catch (e) {
+      if (e instanceof Refusal) return json(e.status, { error: e.message });
+      return json(400, { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
   if (method === 'POST' && path === '/api/v1/invites') {
     try {
-      const invite = station.makeInvite((await body(init)) as { role?: unknown; name?: unknown }, now);
+      const invite = station.makeInvite((await body(init)) as { role?: unknown; name?: unknown; for_me?: unknown }, now);
       push();
       return json(201, invite);
     } catch (e) {
       if (e instanceof Refusal) return json(e.status, { error: e.message });
       return json(400, { error: e instanceof Error ? e.message : String(e) });
     }
+  }
+  if (method === 'POST' && path === '/api/v1/show/end') {
+    // The real route takes everyone off air and hands the air to automation once the delay has
+    // played out; here the scenario's goodbye is said first (`endShow`), then the same two steps.
+    const onAir = station.view(now).sources.filter((s) => s.on_air);
+    const wait = station.view(now).desk.delay?.delay_ms ?? 0;
+    endShow();
+    setTimeout(() => {
+      const t = Date.now();
+      for (const s of onAir) station.desk({ op: 'on_air', identity: s.identity, on: false }, t);
+      station.setMode('auto', t);
+      push();
+    }, wait + 1000);
+    return json(200, { view: station.view(now), off_air: onAir.length, automation_in_ms: wait + 1000 });
+  }
+  if (method === 'POST' && path === '/api/v1/playout/mode') {
+    const b = (await body(init)) as { mode?: unknown };
+    if (b.mode !== 'live' && b.mode !== 'auto') return json(422, { error: 'mode is `live` or `auto`' });
+    station.setMode(b.mode, now);
+    push();
+    return json(200, station.view(now));
   }
   const run = method === 'POST' ? commands[path] : undefined;
   if (run) {

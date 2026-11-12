@@ -2,6 +2,161 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.0.2 (2026-11-12)
+
+Public issues 15 and 17 (ADR-0272).
+
+- **From the operator's run on the test station**: a window signed in with the station key is no
+  longer offered Join with my microphone… (the link is made for an account, and the station
+  refused it); the step menu says plainly that steps belong to a show and how to make one when no
+  show has been on air; the account box says how to sign in as yourself (Sign out, then your
+  username; an admin makes accounts in Settings › Staff).
+  A step the window cannot change now looks greyed rather than clickable, and with no show the
+  menu offers the Schedule tab. The documentation calls the studio's bar along the top the **top
+  bar** (it said "the frame"), and names the Desk tab's **left panel** and **right panel**.
+- **More from the operator's run**: the desk's empty stage says why and what to do (*Nobody is in
+  the room yet*, with Invite someone… and how to join yourself; *Nobody is on air* when people wait
+  under Not on air), and a number key on an empty strip says so instead of doing nothing. The
+  Schedule tab says how to make the first show, lists shows with no weekly rule with **Set its
+  weekly rule…**, opens a new show's rule at once, drafts the slot of the block selected (a slot
+  under way included; it used to draft next week's), selects a block on the press with a pointer
+  and an outline, and follows the minute instead of the clock's tenth, which made typing lag.
+- **The studio's frame no longer clips at a large text size**: at 120-130 % its right end (the link,
+  the text size, the theme) was cut off; the frame and its tabs now take a second row when they must.
+  The desk's and screener's widest layouts follow the page as the text size draws it, not the
+  window's own pixels, so a large window at a large text size no longer squeezes them.
+- **Join with my microphone… at every step**: the desk offers the DJ their own microphone link
+  whenever nobody holds the presenter's seat, not only at Solo (the operator, 2026-11-12); above
+  Solo only to an admin, a producer or the show's presenter, and not while a DJ who took over
+  is on air.
+- **More places to send the show** (RTMP out): **YouTube** (first in the list), **Owncast**, **X** and **Gab** join Rumble, Odysee and PeerTube. Each platform's note says which profile to use: Compatible (H.264 and AAC) everywhere, and for YouTube a hint to try AV1 and Opus, which it may take over Enhanced RTMP. Owncast was proved live from a Cloudron station on 2026-11-11 with Compatible, and refuses AV1 and Opus. What each takes is to be checked again before each release.
+- **A way back from Settings**: the page has **Back to the desk** (or the tab it came from) at its top, with that tab's key; the tabs above still leave it too (the 1.0.1 test run: "we struggled to get out of the settings section").
+- **A caller's page names who answers**: at the Callers step there is no screener, so the page
+  says the presenter is talking to them or will pick up, not "the producer"; before a call the
+  player page says "the studio answers first". The caller's state gains `presenter_answers`.
+- **Simple guides** (`/guides/`): eleven short, plain guides for people rather than programs,
+  first in the documentation's sidebar: *Start here* asks who you are (presenter, guest, or whoever
+  looks after the station) and each answer is one guide, from *Your first show* and *Invite a guest*
+  to *Change the station's settings* and *When something goes wrong*. The rules they keep are in
+  `docs/WRITING-GUIDES.md`.
+- **End show** (issue 15): `⌃⇧E` and the stage's **End show** button, which only showed a note, now
+  ask once (`⏎` confirms, `Esc` keeps going) and then take everyone off air, fade the carts and hand
+  the air to automation once the profanity delay has played out, so the last words are heard. New
+  route `POST /api/v1/show/end`, any staff member's; it answers with the new view, how many were
+  taken off air and `automation_in_ms` (0: already on automation; null: the station has no playout
+  layer to hand the air to).
+- **Hand to automation** (issue 15): a button under the master lamp sets the station's mode to
+  `auto` and back to `live`, asking first when someone would be cut off or put on air. New route
+  `POST /api/v1/playout/mode` (`{"mode": "auto"}` or `{"mode": "live"}`), any staff member's;
+  `PUT /api/v1/playout/settings` stays an admin's. Neither new route is open to an API token.
+- **A real listener count** (issue 17): the Listeners panel counts listeners by mount and says why
+  when it cannot ("the listener process does not answer"), instead of "not counted yet". The count
+  no longer needs the playout layer (the database and playout's socket) to run. The view's
+  `audience` gains `by_mount` and `error`. With edges or a CDN the figure is the origin's and the
+  panel says so.
+- **A listener delay that says what it reads** (issue 17): the profanity delay and the listener
+  process's feed buffer (`feed.buffer_length`) are read live; the rest (the stream's own hold, each
+  listener's player) stays the `studio.listener_delay_ms` setting, because nothing can mark a
+  listener stream. The desk calls the sum an estimate, says what is read and what is not, and
+  `measured` stays false. The view's `listener_delay` gains `desk_ms`, `process_ms` and `rest_ms`.
+  The setting's default is now 13 s (it was 15 s), so a default station shows about 21 s, as the
+  demo station measured (21.2 s); a station that set its own value keeps it.
+
+- **Prepare mode: the station's side** (ADR-0276). A studio window is **Live** or **Preparing**; a
+  session starts live. A preparing window can see the live desk but cannot change what is on air:
+  the desk's commands (`POST /api/v1/desk/commands`), the cart wall's commands
+  (`POST /api/v1/carts/commands`), the screener's commands (`POST /api/v1/screener/commands`),
+  ending a pass (`POST /api/v1/passes/end`), End show (`POST /api/v1/show/end`) and the station's mode
+  (`POST /api/v1/playout/mode`) answer 409 with "This window is preparing a show, so it cannot
+  change what is on air. Switch it to Live first." Everything about the person's own show (shows,
+  the schedule, cards, the step, invitations, banks, settings, the chat) stays open to it. New route
+  `PUT /api/v1/sessions/me/mode` (`{"preparing": true}` or `{"preparing": false}`) sets the mode of
+  the caller's own session and answers as `GET /api/v1/sessions/me` does, which now also says
+  `preparing`. The station key and API tokens are never preparing (the route answers them 422).
+  The mode is kept in memory: after a restart every session starts live again.
+- **Prepare mode: the studio app** (ADR-0276). A staff window says **Live** or **Preparing** in its
+  frame, after who is signed in, and switches there; the station key has no switch. A preparing
+  window shows the live desk to follow, with a band under the frame on the Desk, Screener and Carts
+  tabs, and every control that changes the air is disabled and its key does nothing; the Schedule
+  tab, Settings, invitations, the chat and the step work as usual. The presenter of a show that is
+  not on air now (by the schedule) starts Preparing; everyone else starts Live, as before, and no
+  window switches to Live by itself. **Switch to Live** asks once while someone else's show is on
+  air (`⏎` confirms, `Esc` keeps preparing). A refusal from the station (409) is shown in its own
+  words, and the window then follows the station. To make room in a frame at most 1,600 px wide,
+  the name stands without the role and the link shows only its tick while it is up. New how-to:
+  *Prepare your show while another is on air*. The sandbox desk has the switch too.
+- **A cart wall per show** (ADR-0276, the operator's answer of 2026-11-12). Beside the station's
+  banks, which every show still shares, a show can have up to five banks of its own, numbered apart
+  from the station's, so the next DJ sets up their carts in a preparing window without touching the
+  show on air. Migration 0034 gives each bank an owner; every bank that exists stays the station's,
+  so an upgrade loses nothing. `GET /api/v1/carts?show=<slug>` lists the station's banks and that
+  show's, each bank and cart naming its show (`show`, or `null`); new routes under
+  `/api/v1/shows/{show}/carts/banks/` make, rename and remove a show's bank and fill or empty its
+  slots, for the station key, an admin, a producer or the show's presenter (a preparing window may;
+  an API token may not). A cart in a show's bank starts only while that show is the one the
+  station's step comes from (409 otherwise); stopping and fading work on anything sounding. A
+  sounding cart carries its `label`. In the studio app a live window works with the show the step
+  comes from, a preparing window with the show it prepares; tab *N* of the Carts tab (`⌃F1` to
+  `⌃F5`) is the show's own bank *N* where it has one, else the station's, and each tab says
+  **station** or **show**; `F1` to `F6` fire the top row of the tab shown, as before. The sandbox's
+  first bank is The Morning Kettle's own.
+
+- **Beginner steps: the control plane** (ADR-0271, ADR-0274). A show runs at one of four steps, `solo`,
+  `guests`, `callers` or `full`; what a step leaves out is switched off while the show is on air.
+  Shows that exist stay `full`, a new show starts at `solo`. `PUT /api/v1/shows/{show}/step` changes it
+  (an admin, a producer or the show's presenter; the show's own `PUT` carries `step` under the same rule),
+  logs who and when, and tells every studio window. The studio's view gains `step` (the station's step,
+  the show it comes from and whether that show is on air, the next show with its step, and `may_change`
+  for the account asking) and the chat's counts of held messages and open reports (`chat.held`,
+  `chat.open_reports`). The station's step is the show on air's, the show last on air's between shows
+  (kept across a restart), and `full` if none ever aired. Below `callers` call-in is closed ("The lines
+  are closed for this show.", on the player and for the call-in request itself), waiting callers are
+  released with the cause for their page (`released`), and the lines open at once when the step rises.
+  Invitations and passes for hidden seats are refused (the pass stays good for later; a person already
+  in the room is never removed); `dump` is refused below `callers`; the handover and the picture's modes
+  below `full`, where the picture is held on the slate and its mode returns at Full. The Solo DJ's own
+  link is `POST /api/v1/invites` with `{"for_me": true}`. Migration 0033. Product docs: *Choose how much
+  of the studio a show uses*.
+- **Beginner steps: the studio** (ADR-0271, ADR-0274). The show's step is at the top of the studio,
+  beside the station's name: four pips and a word. Press it for the four steps; picking another first
+  says what will change at once (what appears, what stays off, who stays in the room), then the
+  button names the move. **Show everything** draws the whole studio in one window for the moment
+  and switches nothing on: a row under the frame says so, and each part the step keeps off carries
+  a dashed tag, *off at Solo*.
+  - **Solo** is one tile, the music and carts, the listener count and the chat to read; an empty
+    seat beside the tile says why the desk is quiet and offers the way up. Before the DJ has
+    joined, **Join with my microphone…** makes their own link and opens it in a browser (the
+    packaged app hands it to the system's browser).
+  - **Guests** brings Not on air and **Invite someone…** (a guest or a presenter; the next
+    show's DJ comes with Full). **Callers** brings the delay with Dump and the queue on the desk,
+    **Callers**: `P`, or **Take … to strip 4**, brings the caller who has waited longest to strip
+    4, off air (ADR-0275, proposed). **Full** is the studio of 1.0.1.
+  - A person already in the room keeps their tile at every step. **End show** and the button
+    under the lamp are at every step.
+  - The key of a part the step keeps off does nothing, and its first press in a session says so.
+- **The chat to read, on the desk**: the Chat panel shows the room's last messages at every
+  step, and says in one line when held messages or reports wait for a moderator. It used to say
+  only that the chat was on the Screener tab.
+- **A show's step in the show editor and the wizard**: **Step** under the show's name, and the
+  DJ's setup asks *How much of the studio to start with*, with Solo picked. The wizard's pages
+  are *parts* now ("Part 2 of 3"), so "step" means one thing.
+- **The public pages**: under Solo and Guests the player says *The lines are closed for this
+  show.*, and *You can still write in the chat below.* while the chat is open; a caller who was
+  waiting when the lines closed is thanked, told why, and told they were not on air; the
+  invitation page says when the show on air is not taking guests, and offers **Look again**.
+- **Invitations**: the interface and the documentation say *invitation* for the noun
+  (**Make the invitation**, *the invitation link*). **Invite someone…** keeps its verb, and the
+  route is still `POST /api/v1/invites`.
+- **The frame says Connected** while the link to the station is good, in place of *Control plane
+  connected*; the full words return whenever it is not.
+- **The sandbox** has the same steps: **Learn**, a ladder of the four at the start of its guide
+  bar, opens the scenarios of a step, and the chooser lists them by step, Solo first. A link may
+  name a step (`#solo`, `#guests`, `#callers`, `#full`). New scenario *A guest by link*, at Guests;
+  *Playout takes over* no longer has the next DJ standing by, and *Running everything alone* takes
+  its caller from the desk's Callers panel. The simulated station keeps the station's rules.
+
+- **One caller at a time at Callers** (ADR-0271): the station refuses to send a second caller to the desk while one is on the callers' strip ("At Callers the desk takes one caller at a time…"); at Full the screener may send more, as before. `tests/m2/run-studio.sh` takes `STEPS=1` for a public address and a takedown contact, so the steps can be tried on the real desk.
+
 ## 1.0.1 (2026-11-12)
 
 Built since 1.0.0; the page *What is built, and what is planned* has the detail.

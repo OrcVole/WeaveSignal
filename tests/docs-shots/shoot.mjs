@@ -10,12 +10,26 @@
 //   public   the player, join page and echo test at phone width: tests/m3/run-join.sh (:32430)
 //   chat     the moderators' Needs you and statement, the player's chat: WAIT=1 tests/chat/run-stack.sh (:37420, :37430)
 //   signin   the packaged app's sign-in screens, on the `screens` stack
+//   steps    the beginner steps (ADR-0271): the step control, its dialog, Show everything, the desk
+//            at Solo and at Callers. No stack: the sandbox build, served as static files (:27911)
+//   prepare  Prepare mode (ADR-0276): the Live or Preparing control, its dialog, the band and the
+//            desk of a preparing window. No stack: the sandbox build, as `steps`
 //
 // `desk` restarts playout, sets playout's auto mode and writes a fallback into tests/m2/run/playout.json
 // (a fresh stack each time; it runs last through a Dump, which the delay takes minutes to rebuild from).
 //
 //   WEAVESIGNAL_TEST_PREFIX=weavesignal-shots tests/screens/run-screens.sh      # then, in another shell:
 //   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core node tests/docs-shots/shoot.mjs screens
+//
+// `steps` and `prepare` need no stack. Their pictures come from the sandbox build of the studio
+// app (the same interface against a station simulated in the page, with Kettle FM's people),
+// because a show on air at a chosen step with callers waiting is a state no loopback stack sets
+// up yet; the sandbox's own guide bar is hidden, so each picture is the studio app's window:
+//
+//   just sandbox-build && (cd apps/studio/dist-sandbox && python3 -m http.server 27911 --bind 127.0.0.1)
+//   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core node tests/docs-shots/shoot.mjs steps
+//
+// SANDBOX names another address. The sounds (/media/sandbox/) need not be there.
 //
 // Start a stack, run its stage, stop the stack (Ctrl+C), start the next. A stage first puts the
 // stack in the state the pages describe (staff, a token, a hold, callers ready), all through
@@ -133,7 +147,7 @@ async function screens() {
 
   const { page } = await open(STUDIO, {
     ready: async (p) => {
-      await p.getByText('Control plane connected').waitFor({ timeout: 15000 });
+      await p.locator('[data-panel="studio.frame"] [data-link="live"]').waitFor({ timeout: 15000 });
     },
   });
 
@@ -381,7 +395,7 @@ async function desk() {
   const caller = (v, id) => v.callers.find((c) => c.identity === id);
   const { page } = await open(STUDIO, {
     ready: async (p) => {
-      await p.getByText('Control plane connected').waitFor({ timeout: 15000 });
+      await p.locator('[data-panel="studio.frame"] [data-link="live"]').waitFor({ timeout: 15000 });
       await p.locator('[data-panel="desk.stage"]').waitFor();
     },
   });
@@ -805,7 +819,107 @@ async function chat() {
   await cb.close();
 }
 
-const stages = { screens, signin, desk, public: publicPages, chat };
+// ====================================================================================
+// steps: the beginner steps, from the sandbox build (no stack)
+// ====================================================================================
+async function steps() {
+  const SITE = process.env.SANDBOX ?? 'http://127.0.0.1:27911';
+  /** Open a scenario and start it; hide the sandbox's own bar, so the window is the studio app's. */
+  async function scenario(id) {
+    const { ctx, page } = await open(`${SITE}/#${id}`);
+    await page.getByRole('button', { name: 'Start with sound' }).click();
+    await page.waitForFunction(() => globalThis.__kettle?.begun === true, null, { timeout: 30_000 });
+    await page.addStyleTag({
+      content: '[data-panel="sandbox.guide"], [data-panel="sandbox.caption"] { display: none !important; } .shell.with-guide { grid-template-rows: auto minmax(0, 1fr) !important; } .shell.with-guide.with-all { grid-template-rows: auto auto minmax(0, 1fr) !important; }',
+    });
+    return { ctx, page };
+  }
+  const st = (page, fn) => page.evaluate(fn);
+
+  // Solo: one tile, the guest's empty seat, no Not on air row; the frame's control and its dialog.
+  const solo = await scenario('carts');
+  await solo.page.keyboard.press('1');
+  await solo.page.waitForFunction(() => globalThis.__kettle.person('eilidh')?.on_air === true);
+  await sleep(600);
+  await shot(solo.page, 'how-to-choose-a-step-solo');
+  await shot(panel(solo.page, 'studio.frame'), 'reference-studio-frame-step');
+  await panel(solo.page, 'studio.step').locator('.stepbtn').click();
+  await panel(solo.page, 'studio.step.menu').waitFor();
+  await solo.page.keyboard.press('ArrowDown');
+  await shot(panel(solo.page, 'studio.step.menu'), 'how-to-choose-a-step-menu', { pause: 500 });
+  await solo.page.keyboard.press('Escape');
+  // A hidden part's key: the note in the toast slot.
+  await solo.page.keyboard.press('Delete');
+  await panel(solo.page, 'desk.toast').waitFor();
+  await shot(panel(solo.page, 'desk.toast'), 'how-to-choose-a-step-key-off');
+  await solo.page.keyboard.press('Escape');
+  // Show everything: the banner, and the parts the step keeps off.
+  await solo.page.getByRole('button', { name: 'Show everything' }).click();
+  await panel(solo.page, 'studio.step.banner').waitFor();
+  await shot(solo.page, 'how-to-choose-a-step-show-everything', { pause: 500 });
+  await solo.ctx.close();
+
+  // Callers: the queue on the desk, the delay with Dump, one caller taken to strip 4.
+  const callers = await scenario('alone');
+  await callers.page.keyboard.press('1');
+  await callers.page.keyboard.press('F1');
+  await callers.page.waitForFunction(() => globalThis.__kettle.callerState('niall') === 'waiting', null, { timeout: 60_000 });
+  await st(callers.page, () => globalThis.__kettle.arrive('jessie', Date.now()));
+  await sleep(1500);
+  await shot(panel(callers.page, 'desk.callers'), 'reference-desk-callers');
+  await callers.page.keyboard.press('p');
+  await callers.page.waitForFunction(() => globalThis.__kettle.callerState('niall') === 'ready');
+  await sleep(600);
+  await shot(callers.page, 'how-to-choose-a-step-callers');
+  await callers.ctx.close();
+
+  // Guests: the invitation dialog without the DJ's role.
+  const guests = await scenario('guest');
+  await guests.page.keyboard.press('1');
+  await guests.page.getByRole('button', { name: 'Invite someone…' }).click();
+  await panel(guests.page, 'desk.invite').waitFor();
+  await guests.page.locator('#inv-name').fill('Gregor Stewart');
+  await shot(panel(guests.page, 'desk.invite'), 'how-to-choose-a-step-invitation', { blur: true });
+  await guests.ctx.close();
+}
+
+// ====================================================================================
+// prepare: Prepare mode (ADR-0276), from the sandbox build (no stack)
+// ====================================================================================
+async function prepare() {
+  const SITE = process.env.SANDBOX ?? 'http://127.0.0.1:27911';
+  // The queue scenario: The Morning Kettle on air at Full, and the window is Shona's.
+  const { ctx, page } = await open(`${SITE}/#queue`);
+  await page.getByRole('button', { name: 'Start with sound' }).click();
+  await page.waitForFunction(() => globalThis.__kettle?.begun === true, null, { timeout: 30_000 });
+  // Hide the sandbox's own bar, so the window is the studio app's; the rows above the surface
+  // are then the frame and, while preparing, the band.
+  await page.addStyleTag({
+    content:
+      '[data-panel="sandbox.guide"], [data-panel="sandbox.caption"] { display: none !important; } .shell { grid-template-rows: auto minmax(0, 1fr) !important; } .shell.with-prepare { grid-template-rows: auto auto minmax(0, 1fr) !important; }',
+  });
+  await page.keyboard.press('Control+1');
+  await sleep(1500);
+  // Live: the control in the frame, after who is signed in.
+  await shot(panel(page, 'studio.frame'), 'reference-studio-frame-prepare');
+  // The dialog, with Preparing picked: what the switch changes.
+  await panel(page, 'studio.prepare').locator('button').click();
+  await panel(page, 'studio.prepare.menu').waitFor();
+  await page.keyboard.press('ArrowDown');
+  await shot(panel(page, 'studio.prepare.menu'), 'how-to-prepare-your-show-switch', { pause: 500 });
+  await page.keyboard.press('Enter');
+  await panel(page, 'studio.prepare.banner').waitFor();
+  // Preparing: the band, and the live desk with its controls off.
+  await shot(page, 'how-to-prepare-your-show-desk', { pause: 600, blur: true });
+  // Switch to Live… while The Morning Kettle is on air: the one ask.
+  await panel(page, 'studio.prepare.banner').locator('button').click();
+  await panel(page, 'studio.prepare.menu').waitFor();
+  await shot(panel(page, 'studio.prepare.menu'), 'how-to-prepare-your-show-ask', { pause: 500 });
+  await page.keyboard.press('Escape');
+  await ctx.close();
+}
+
+const stages = { screens, signin, desk, public: publicPages, chat, steps, prepare };
 const wanted = process.argv.slice(2);
 if (!wanted.length || wanted.some((w) => !stages[w])) {
   console.error(`usage: shoot.mjs ${Object.keys(stages).join(' | ')}`);

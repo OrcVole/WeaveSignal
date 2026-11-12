@@ -6,7 +6,9 @@
 // start card to its end card on the simulated station with the presses its guide names.
 import { describe, expect, it } from 'vitest';
 import { catalogueFrom, Station, type PackCart } from '../station.ts';
-import { SCENARIOS, scenarioFor } from './index.ts';
+import { RUNG_HEAD, SCENARIOS, rungFor, rungs, scenarioFor } from './index.ts';
+import { hiddenSeat } from '../station.ts';
+import { STEPS } from '../../lib/steps.ts';
 import { SHOW } from './show.ts';
 import { HANDOVER_KEY, handoverButton, handoverStep } from '../../lib/handover.ts';
 import pack from '../../../../../assets/carts-demo/carts.json';
@@ -38,10 +40,48 @@ function run(s: Station, from: number, to: number): number {
 }
 
 describe('the scenarios as data', () => {
-  it('lists the show first and answers an unknown hash with it', () => {
-    expect(SCENARIOS[0]).toBe(SHOW);
+  it('answers an unknown hash with the show, and names each scenario once', () => {
     expect(scenarioFor('nothing')).toBe(SHOW);
+    expect(scenarioFor('')).toBe(SHOW);
     expect(new Set(SCENARIOS.map((s) => s.id)).size).toBe(SCENARIOS.length);
+  });
+
+  it('groups the scenarios by step, Solo at the top, as the design lists them', () => {
+    const ladder = rungs();
+    expect(ladder.map((r) => r.step)).toEqual(['solo', 'guests', 'callers', 'full']);
+    expect(ladder.map((r) => r.scenarios.map((x) => x.scenario.id))).toEqual([
+      ['mic', 'carts', 'auto'],
+      ['guest'],
+      ['alone', 'dump', 'link'],
+      ['show', 'queue', 'banned', 'next-dj', 'handover'],
+    ]);
+    // No rung is empty, the numbers run on down the ladder, and the list is in the ladder's order.
+    expect(ladder.every((r) => r.scenarios.length > 0)).toBe(true);
+    expect(ladder.flatMap((r) => r.scenarios.map((x) => x.n))).toEqual(SCENARIOS.map((_, i) => i + 1));
+    expect(ladder.flatMap((r) => r.scenarios.map((x) => x.scenario))).toEqual([...SCENARIOS]);
+    expect(ladder.map((r) => r.head)).toEqual(['Just you', 'You and a guest', 'Listeners call in', 'A screener, the picture, the next DJ']);
+    expect(Object.keys(RUNG_HEAD)).toEqual([...STEPS]);
+  });
+
+  it('opens the chooser at a rung for a step’s hash, and a scenario for its own', () => {
+    expect(STEPS.map((s) => rungFor(s))).toEqual(['solo', 'guests', 'callers', 'full']);
+    expect(rungFor('alone')).toBeNull();
+    expect(rungFor('')).toBeNull();
+    // No scenario is named as a step is, so a link means one thing.
+    expect(SCENARIOS.some((s) => rungFor(s.id) !== null)).toBe(false);
+  });
+
+  it('seats nobody its step hides: every scenario’s cast and callers are allowed at its step', () => {
+    for (const sc of SCENARIOS) {
+      for (const c of sc.cast) {
+        const own = c.identity === sc.you.identity;
+        expect(hiddenSeat(sc.step, c.role, own), `${sc.id}: ${c.name}, a ${c.role}, at ${sc.step}`).toBeNull();
+      }
+      if (Object.keys(sc.callers).length) expect(hiddenSeat(sc.step, 'caller'), `${sc.id}: callers at ${sc.step}`).toBeNull();
+      // And the view says so: the station starts at the scenario's step, with its show on air.
+      const v = new Station(T0, cat, sc).view(T0);
+      expect(v.step).toMatchObject({ step: sc.step, on_air: true, may_change: true, show: { name: sc.show } });
+    }
   });
 
   it('says only recorded lines or lines listed for recording, word for word', () => {
@@ -91,6 +131,8 @@ describe('running everything alone', () => {
     const s = new Station(T0, cat, scenarioFor('alone'));
     s.begin(T0);
     expect(s.view(T0).seats.screener).toBeNull();
+    // The Callers step: the queue is the desk's, and the send below is `desk.callers`' own (P).
+    expect(s.view(T0).step.step).toBe('callers');
     s.desk({ op: 'on_air', identity: 'eilidh', on: true }, T0);
     let t = run(s, T0, T0 + 17_000);
     expect(s.done('open')).toBe(true);
@@ -119,6 +161,65 @@ describe('running everything alone', () => {
     expect(s.callerState('jessie')).toBe('waiting');
     const steps = scenarioFor('alone').steps(s, { hear: 'studio', listened: false, heardListenersAfterDump: false });
     expect(steps.every((x) => x.done)).toBe(true);
+  });
+});
+
+describe('a guest by link', () => {
+  it('invites Gregor at the desk, hears him arrive on air, talks to him off air, mutes him and ends his pass', () => {
+    const sc = scenarioFor('guest');
+    const s = new Station(T0, cat, sc);
+    const g = { hear: 'studio' as const, listened: false, heardListenersAfterDump: false };
+    const stepNow = () => sc.steps(s, g).find((x) => !x.done)?.id ?? 'done';
+    s.begin(T0);
+    // The Guests step: the phones are closed, and nobody but Eilidh is in the room yet.
+    expect(s.view(T0).step.step).toBe('guests');
+    expect(s.view(T0).sources.map((x) => x.identity)).toEqual(['eilidh']);
+    expect(Object.keys(sc.callers)).toEqual([]);
+    expect(stepNow()).toBe('on');
+    s.desk({ op: 'on_air', identity: 'eilidh', on: true }, T0);
+    let t = run(s, T0, T0 + 300);
+    expect(s.speaking?.line.id).toBe('t-guest-open');
+    expect(stepNow()).toBe('invite');
+    // A DJ's invitation is refused at this step, in the station's words; a guest's is made.
+    expect(() => s.makeInvite({ role: 'dj', name: 'Finlay Grant' }, t)).toThrow("An invitation for the next show's DJ comes with Full.");
+    const invite = s.makeInvite({ role: 'guest', name: 'Gregor Stewart' }, t);
+    expect(invite).toMatchObject({ role: 'guest', name: 'Gregor Stewart' });
+    expect(stepNow()).toBe('joined');
+    t = run(s, t, t + 12_000);
+    // A guest is on air the moment he joins, on strip 2, and the desk says so.
+    expect(s.person('gregor')).toMatchObject({ on_air: true, role: 'guest' });
+    expect(s.view(t).sources.find((x) => x.identity === 'gregor')?.slot).toBe(2);
+    expect(s.view(t).notices.find((n) => n.kind === 'person.joined')?.message).toBe('On air, on strip 2.');
+    t = run(s, t, t + 26_000);
+    expect(s.done('gregor')).toBe(true);
+    expect(stepNow()).toBe('aside');
+    // Off air, and talkback: he hears Eilidh, listeners do not.
+    s.desk({ op: 'on_air', identity: 'gregor', on: false }, t);
+    s.desk({ op: 'talk_to', identity: 'eilidh', to: 'gregor', on: true }, t);
+    t = run(s, t, t + 300);
+    expect(s.speaking?.line).toMatchObject({ id: 't-guest-aside-e', heard: 'booth' });
+    t = run(s, t, t + 10_000);
+    s.desk({ op: 'talk_to', identity: 'eilidh', to: 'gregor', on: false }, t);
+    expect(s.has('talked')).toBe(true);
+    expect(stepNow()).toBe('back');
+    s.desk({ op: 'on_air', identity: 'gregor', on: true }, t);
+    t = run(s, t, t + 10_000);
+    expect(s.done('back')).toBe(true);
+    expect(stepNow()).toBe('mute');
+    s.desk({ op: 'mute', identity: 'gregor', on: true }, t);
+    t = run(s, t, t + 300);
+    expect(s.has('muted')).toBe(true);
+    expect(stepNow()).toBe('mute');
+    s.desk({ op: 'mute', identity: 'gregor', on: false }, t);
+    t = run(s, t, t + 6_000);
+    expect(s.done('thanks')).toBe(true);
+    expect(stepNow()).toBe('end');
+    s.endPass({ identity: 'gregor' }, t);
+    expect(s.person('gregor')).toBeUndefined();
+    expect(stepNow()).toBe('done');
+    expect(sc.did(s, g)).toHaveLength(4);
+    // Nobody rang at any point: call-in comes with Callers.
+    expect(s.view(t).callers).toHaveLength(0);
   });
 });
 
@@ -236,10 +337,8 @@ describe('playout takes over', () => {
     t = run(s, t, t + 300);
     expect(s.speaking?.line.id).toBe('l-e-back');
     t = run(s, t, t + 12_000);
-    s.desk({ op: 'cue', identity: 'finlay', on: true }, t);
-    t = run(s, t, t + 300);
-    expect(s.speaking?.line.id).toBe('i-finlay');
-    t = run(s, t, t + 5_000);
+    // A Solo scenario: nobody stands by (the next show's DJ is a Full seat).
+    expect(s.view(t).sources.map((x) => x.identity)).toEqual(['eilidh']);
     s.desk({ op: 'on_air', identity: 'eilidh', on: false }, t);
     s.setMode('auto', t);
     t = run(s, t, t + 300);

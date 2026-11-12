@@ -3,13 +3,17 @@ title: "Desk"
 description: "The desk's panels by name, what each shows, and what is not in 1.0.0."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-11
 sidebar:
   order: 2
 ---
 
 The desk is the studio app's first tab (`⌃1`); its layout is the one the design called desk B, the focus (ADR-0061).
 Time is on the left, what is on air in the middle, the station on the right, and the station's health along the foot.
+In plain words: the **top bar** (the station's name, the step, the tabs, who you are), the **left panel** (the clock, Coming up, playout), the **stage** in the middle (the lamp and the people), the **right panel** (listeners, the picture, carts, the chat) and the **status bar** along the foot.
+
+The show's step decides which of these panels are drawn ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/#the-desk-at-each-step), ADR-0271): a panel says below when it belongs to a step.
+The picture is the desk at Full.
 
 Each heading below is a panel's name, as it is on screen (ADR-0070).
 Hover over a panel's header, or focus it with the keyboard, to see its name and one line on what it is; a bug report asks for the name.
@@ -21,10 +25,18 @@ The name never covers a live control and never takes a key.
 
 The studio clock: room time with tenths of a second, and back-timing to the next hard post in the rundown, with a bar that fills as it nears.
 
-Under it, the time listeners are hearing.
-That time is the setting `studio.listener_delay_ms` (15 s by default) plus how much the profanity delay holds now (8 s when full, by default), so 23 s with the delay full and 15 s just after a dump (ADR-0103, ADR-0165).
-It is not measured live, and the line says *set, not measured*; the rehearsals measured about 22.5 s on loopback and 11.8 to 18.4 s over the internet.
-Measuring it live is [planned](/docs/reference/release-one-status/#not-in-release-one).
+Under it, the time listeners are hearing, as an estimate: *about 23 s behind (an estimate)* (ADR-0103, ADR-0165, ADR-0272).
+No honest end-to-end measurement exists: a marker cannot travel in the listener stream (a metadata change chains the Ogg stream and drops the mount), and a listener's own player buffers on top of what the station sends.
+So the line is made of parts, and says which it reads:
+
+- **the profanity delay**, read live from the desk (8 s when full, by default, 0 just after a dump);
+- **what the listener process holds of playout's feed**, read live from it every five seconds (about 0.5 s; it grows on a loaded host, which is how to see a backlog);
+- **the rest**, the setting `studio.listener_delay_ms` (15 s by default, less the 0.5 s the live reading replaces): the stream's own hold and each listener's player.
+
+Under the line, a small note spells it out, for example *Read now: 8.0 s profanity delay, 0.5 s in the listener process; about 14.5 s more is set, not read*.
+If the listener process does not answer, only the desk's part is read.
+The rehearsals measured about 22.5 s on loopback and 11.8 to 18.4 s over the internet; set `studio.listener_delay_ms` from such a measurement for your own station.
+A number that was read in full would drop the word *estimate*; nothing reads the whole path yet.
 
 ## `desk.rundown`
 
@@ -40,9 +52,16 @@ Playout's queue and hard posts are not shown ([planned](/docs/reference/release-
 
 ## `desk.stage`
 
-The stage: the show's title, the master lamp and the delay above, **End show** (`⌃⇧E`, a note only in 1.0.0) and **Screener** (`⌃2`), and every source the room has on air, as tiles.
+The stage: the show's title, the master lamp and the delay above, **End show** (`⌃⇧E`, built for 1.0.2: [End the show](/docs/how-to/end-the-show/)) and **Screener** (`⌃2`), and every source the room has on air, as tiles.
 A source moves onto the stage only on its own On key, and the stage keeps slot order (ADR-0061).
 While playout is down the stage says *Room alive*, with how many sources are open to the room; in auto mode it says *Automation holds the air*, and the open sources say OPEN.
+
+## `desk.air` and `desk.end-show`
+
+The small button under the lamp hands the air to automation (**Hand to automation**) or takes it back (**Take the air back**); it sets the station's mode, which is the playout setting `mode` (`live` or `auto`, ADR-0045), and nothing else.
+It asks first when someone is open, because they would be cut off or put on air.
+It is greyed out on a station without the playout layer, with the reason beside it.
+`desk.end-show` is the dialog it shares with **End show** (`⌃⇧E`): `⏎` confirms, `Esc` keeps going ([End the show](/docs/how-to/end-the-show/)).
 
 ## `desk.lamp`
 
@@ -93,17 +112,42 @@ Source 5: a DJ.
 Source 6: playout, with its SRT link to the desk.
 Playout as a desk source with its own switch is [planned](/docs/reference/release-one-status/#not-in-release-one); its On, Cue and Mute keys show a note.
 
+## `desk.step-note`
+
+At Solo only: the guest's empty seat, beside your tile.
+It says once why the desk is quiet (*Just you on this show*: guests, callers and the screener's seat are switched off, so nobody can arrive unannounced) and offers **Move up a step…**, which opens the step dialog.
+Before anyone holds the presenter's seat, the stage reads *You are not in the room yet*, with **Join with my microphone…**: at Solo, and above it to an admin, a producer or the show's presenter.
+
 ## `desk.waiting`
 
 Not on air: the sources in the room that are cued or standing by, and playout's tile (slot 6), with the move rule.
 A source here keeps its slot and its keys (ADR-0096).
+It arrives at the Guests step, with **Invite someone…** at its head; at Solo there is one tile, and it stays on the stage on air or off.
+
+## `desk.invite`
+
+The invitation dialog: a name and a role, then the link to send, **Copy link** and how long it lasts.
+A DJ joins off air; a guest or a presenter is on air the moment they join.
+The roles follow the show's step: a guest and a presenter from Guests, the next show's DJ at Full.
+At Solo it is your own microphone link instead, from **Join with my microphone…**, with **Open in browser**.
+
+## `desk.callers`
+
+At the Callers step only: who is waiting on the phone lines, what about and for how long, the longest wait first; three rows at most, then a count.
+**Take … to strip 4** (`P`) brings the caller who has waited longest to strip 4, off air.
+The strip holds one caller, so the button waits while it is taken.
+At Full the queue is the Screener tab's, and this panel is not drawn.
+
+![Callers on the desk: one waiting and the lines open, Niall Anderson about the bus lanes on Leith Walk, and Take Niall to strip 4.](../../../../../assets/screens/reference-desk-callers.png)
 
 ## `desk.audience`
 
-Listeners now: the number connected to the station's stream, counted every five seconds, or "not counted yet" while the listener process does not answer.
+Listeners now: the number connected to the station's listener process, counted every five seconds (ADR-0272).
+Under it, the count by mount, such as *programme.opus 140 · programme.mp3 12*; the figure is every mount together.
+When it cannot be counted, the panel says why in words (*Not counted: the listener process does not answer on its status address*), and it says so whether or not the station has the playout layer.
+With edges or a CDN set up, the figure is the origin's: each edge counts as one listener, and the listeners on an edge are not added.
 Under the figure, a chip says what listeners hear: HEARING THE DESK, PLAYOUT DOWN, or ON AUTOMATION while the station is in auto mode ([The state vocabulary](/docs/reference/states/)).
 When video is on, more than about 500 are connected and the station has no CDN or edges configured (no steering edges, and `join.hls_url` on the station itself), the panel also warns that video needs a CDN ([Put Bunny in front of the station](/docs/how-to/use-bunny/), ADR-0017).
-Counts by mount are [planned](/docs/reference/release-one-status/#not-in-release-one).
 
 ## `desk.picture`
 
@@ -118,8 +162,10 @@ The cart wall is the Carts tab (`⌃3`): see [Cart wall](/docs/reference/surface
 
 ## `desk.chat`
 
-The chat glance.
-In 1.0.0 the panel only says the chat is on the [Screener tab](/docs/reference/surfaces/screener/) (`⌃2`); the glance is [planned](/docs/reference/release-one-status/#not-in-release-one).
+The chat to read, at every step: the room's last messages, newest at the foot.
+When held messages or reports wait for a moderator, one line says so (*1 report, 2 held messages need a moderator*), and where to go: the Screener tab, behind **Show everything** below Full.
+The chat's own rules keep acting at every step (ADR-0274).
+Until 1.0.2 the panel only said the chat was on the [Screener tab](/docs/reference/surfaces/screener/); writing in the chat and moderating it are still there.
 
 ## `desk.toast`
 

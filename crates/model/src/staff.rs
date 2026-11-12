@@ -95,6 +95,9 @@ pub struct Session {
     pub account: Account,
     pub created_ms: u64,
     pub expires_ms: u64,
+    /// This window is preparing a show (ADR-0276): it may look at the live desk but not drive
+    /// it. In memory only: a session read back after a restart starts live.
+    pub preparing: bool,
 }
 
 /// SHA-256 of a token: what the database keeps.
@@ -644,6 +647,7 @@ fn session(r: SessionRow) -> Option<Session> {
         account: account((r.1, r.2, r.3, r.4, r.5, r.6, r.7)),
         created_ms: r.8.max(0.0) as u64,
         expires_ms: r.9.max(0.0) as u64,
+        preparing: false,
     })
 }
 

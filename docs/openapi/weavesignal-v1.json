@@ -611,8 +611,19 @@
           "carts"
         ],
         "summary": "The banks and carts",
-        "description": "Each cart with FILE MISSING. Fetch it again when the studio view's `carts.version` moves.",
+        "description": "The station's banks and carts, which every show shares, and with `show` that show's own beside them (each owner's banks are numbered 1 to 5 apart; a bank or cart names its show, or `null` for the station's). A studio window asks for its show: a live window the show the station's step comes from, a preparing window the show it prepares. Each cart with FILE MISSING. Fetch it again when the studio view's `carts.version` moves.",
         "operationId": "carts_catalogue",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "query",
+            "description": "A show's slug: its own banks and carts come beside the station's. Left out, the\nstation's alone.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "The catalogue.",
@@ -654,8 +665,8 @@
         "tags": [
           "carts"
         ],
-        "summary": "Put an audio file in a slot",
-        "description": "An audio file as the body, the cart's words in the query. The media worker reads it in its sandbox, brings it to the station's loudness and makes it the cart in that slot.",
+        "summary": "Put an audio file in a station slot",
+        "description": "An audio file as the body, the cart's words in the query. The media worker reads it in its sandbox, brings it to the station's loudness and makes it the cart in that slot of the station's bank.",
         "operationId": "import_cart",
         "parameters": [
           {
@@ -813,7 +824,7 @@
         "tags": [
           "carts"
         ],
-        "summary": "Empty a slot",
+        "summary": "Empty a station slot",
         "operationId": "delete_cart",
         "parameters": [
           {
@@ -841,7 +852,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The new catalogue.",
+            "description": "The station's catalogue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -899,13 +910,14 @@
         "tags": [
           "carts"
         ],
-        "summary": "Make or rename a bank",
+        "summary": "Make or rename a station bank",
+        "description": "A bank of the station's, shared by every show. A show's own banks are `/api/v1/shows/{show}/carts/banks/{number}`. Answers with the station's catalogue.",
         "operationId": "put_bank",
         "parameters": [
           {
             "name": "number",
             "in": "path",
-            "description": "The bank's number",
+            "description": "The bank's number, 1 to 5",
             "required": true,
             "schema": {
               "type": "integer",
@@ -926,7 +938,7 @@
         },
         "responses": {
           "200": {
-            "description": "The new catalogue.",
+            "description": "The station's catalogue.",
             "content": {
               "application/json": {
                 "schema": {
@@ -982,7 +994,7 @@
           "carts"
         ],
         "summary": "Fire, stop or cue a cart",
-        "description": "`toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue`. Carts sound in the desk (ADR-0117). Answers with the new studio view.",
+        "description": "`toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue`. Carts sound in the desk (ADR-0117). A cart in a show's own bank starts only while that show is the one the station's step comes from (409 otherwise); anything sounding can be stopped. Answers with the new studio view.",
         "operationId": "cart_command",
         "requestBody": {
           "content": {
@@ -1122,7 +1134,7 @@
           "desk"
         ],
         "summary": "A desk switch",
-        "description": "The same requests as the desk's control socket, without `status`: `on_air`, `mute`, `cue`, `talk`, `talk_to`, or `dump` the profanity delay. Answers with the new studio view. A caller cannot go on air or in cue without their consent to record on file (409).",
+        "description": "The same requests as the desk's control socket, without `status`: `on_air`, `mute`, `cue`, `talk`, `talk_to`, or `dump` the profanity delay. Answers with the new studio view. A caller cannot go on air or in cue without their consent to record on file (409). The show on air's step switches some off (409, ADR-0271): `dump` below `callers`, the handover (the next DJ going on air) and `picture` below `full`, where the picture is held on the slate.",
         "operationId": "desk_command",
         "requestBody": {
           "content": {
@@ -1281,8 +1293,8 @@
         "tags": [
           "join"
         ],
-        "summary": "An invite link",
-        "description": "A link for a guest, a remote DJ or a presenter. A caller joins another way (422).",
+        "summary": "An invitation link",
+        "description": "A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link.",
         "operationId": "public_invite",
         "requestBody": {
           "content": {
@@ -1296,7 +1308,7 @@
         },
         "responses": {
           "201": {
-            "description": "The invite.",
+            "description": "The invitation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1307,6 +1319,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "422": {
             "$ref": "#/components/responses/Unprocessable"
@@ -1712,7 +1727,7 @@
           "join"
         ],
         "summary": "What a pass is",
-        "description": "The pass is the bearer: from an invite's link or a call-in. Says who it is for and whether the studio has ended it.",
+        "description": "The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.",
         "operationId": "public_pass_info",
         "responses": {
           "200": {
@@ -1834,7 +1849,7 @@
           "join"
         ],
         "summary": "A room token for a pass",
-        "description": "Signs a token for the person's room: a caller's booth, or the studio. 410 when the studio has ended the pass or no longer has the call on file.",
+        "description": "Signs a token for the person's room: a caller's booth, or the studio. 410 when the studio has ended the pass or no longer has the call on file, or when the lines have closed on a caller. 409 when the show on air runs at a step that has switched this seat off (ADR-0271): the sentence says so, and the pass stays good for later. Someone already in the room is never refused.",
         "operationId": "public_pass_token",
         "responses": {
           "201": {
@@ -1849,6 +1864,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           },
           "410": {
             "description": "This link has expired, or the studio has ended it.",
@@ -2140,6 +2158,62 @@
             "api_token": [
               "playout:read"
             ]
+          }
+        ]
+      }
+    },
+    "/api/v1/playout/mode": {
+      "post": {
+        "tags": [
+          "playout"
+        ],
+        "summary": "Hand the air to automation, or take it back",
+        "description": "Sets the station's mode (ADR-0045) without changing any other playout setting, and answers with the new studio view. Any staff member's: `PUT /api/v1/playout/settings` stays an admin's. Anyone on air at the desk is not taken off air; in `auto` the desk is simply not heard, and in `live` it is heard again at once. The change is immediate (profanity delay and all); End show (`POST /api/v1/show/end`) is the route that takes people off air and waits for the delay. 503 when the station has no playout layer.",
+        "operationId": "set_mode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The new studio view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "description": "The database refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
           }
         ]
       }
@@ -3323,7 +3397,7 @@
           "room"
         ],
         "summary": "A room token for one person",
-        "description": "A short-lived LiveKit token for one person, with their role in it for the desk to read. A `listener` token is a monitor that hears every return (ADR-0118): only an admin may ask for one (403 otherwise). A `caller` token records the caller's consent on the station's behalf, against the words the station shows now (`consent`).",
+        "description": "A short-lived LiveKit token for one person, with their role in it for the desk to read. A `listener` token is a monitor that hears every return (ADR-0118): only an admin may ask for one (403 otherwise). A `caller` token records the caller's consent on the station's behalf, against the words the station shows now (`consent`). A `guest`, `dj`, `screener` or `caller` token for a seat the show on air's step has switched off is refused (409, ADR-0271), unless that person is in the room already.",
         "operationId": "room_token",
         "requestBody": {
           "content": {
@@ -4689,6 +4763,52 @@
         ]
       }
     },
+    "/api/v1/sessions/me/mode": {
+      "put": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Prepare or go live",
+        "description": "Sets whether this session's window is preparing a show (ADR-0276). A preparing window can look at the live desk but not drive it: the desk's commands, the carts' commands, the screener's commands, ending a pass or the show, and the station's mode are refused (409) until it is live again. Everything about the person's own show stays open. A session starts live. Answers as `GET /api/v1/sessions/me` does. The station key is always live, and so is an API token: 422.",
+        "operationId": "staff_set_mode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The bearer, as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/sessions/me/password": {
       "post": {
         "tags": [
@@ -4921,6 +5041,45 @@
         "x-admin": true
       }
     },
+    "/api/v1/show/end": {
+      "post": {
+        "tags": [
+          "desk"
+        ],
+        "summary": "End the show",
+        "description": "Takes everyone off air (presenters, DJs, guests, callers; callers stay in the room and the queue), fades every cart, then hands the air to automation by setting the station's mode to `auto`. The switch waits for the profanity delay to play out, so the last words are heard; `automation_in_ms` says how long. If somebody has gone back on air by then the switch is skipped, and the studio gets a notice saying why. With no desk answering nothing is on air to take off, and the air still goes to automation. With no playout layer (`automation_in_ms` null) there is nothing to hand it to. Any staff member's, like the desk's own switches.",
+        "operationId": "end_show",
+        "responses": {
+          "200": {
+            "description": "What was done, and the new studio view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndShowResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/shows": {
       "get": {
         "tags": [
@@ -5055,7 +5214,7 @@
           "shows"
         ],
         "summary": "Make or change a show",
-        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine.",
+        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air.",
         "operationId": "shows_put_show",
         "parameters": [
           {
@@ -5206,6 +5365,412 @@
             "api_token": [
               "shows:write"
             ]
+          }
+        ]
+      }
+    },
+    "/api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}": {
+      "put": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Put an audio file in a show's slot",
+        "description": "As `PUT /api/v1/carts/banks/{bank}/slots/{slot}`, into the show's own bank. Who may: as for the show's banks.",
+        "operationId": "import_show_cart",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bank",
+            "in": "path",
+            "description": "The bank's number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "slot",
+            "in": "path",
+            "description": "The slot in the bank",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CartMode"
+            }
+          },
+          {
+            "name": "ramp_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "licence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The audio file (any format the media worker reads), at most `carts.max_upload_mb`.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/File"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The cart.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "description": "The file is larger than `carts.max_upload_mb`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "500": {
+            "description": "The cart wall failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Empty a show's slot",
+        "operationId": "delete_show_cart",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bank",
+            "in": "path",
+            "description": "The bank's number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "slot",
+            "in": "path",
+            "description": "The slot in the bank",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The station's catalogue and the show's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalogue"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "description": "The cart wall failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/shows/{show}/carts/banks/{number}": {
+      "put": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Make or rename a show's own bank",
+        "description": "A bank of the show's own, beside the station's: numbered 1 to 5 apart from the station's, and changed without touching another show's or the station's. In that show's studio windows its bank takes the place of the station's bank of the same number. The station key, an admin, a producer or the show's presenter may, from a preparing window too; an API token never. Answers with the station's catalogue and the show's.",
+        "operationId": "put_show_bank",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "description": "The bank's number, 1 to 5",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The station's catalogue and the show's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalogue"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "500": {
+            "description": "The cart wall failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Remove a show's own bank",
+        "description": "Removes the bank with its carts and their files; a cart of it that is sounding is stopped. In the show's windows the station's bank of that number, if made, is back in its place. Who may: as for making it.",
+        "operationId": "delete_show_bank",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "description": "The bank's number, 1 to 5",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The station's catalogue and the show's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalogue"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "The cart wall failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
           }
         ]
       }
@@ -6183,6 +6748,72 @@
             "api_token": [
               "shows:write"
             ]
+          }
+        ]
+      }
+    },
+    "/api/v1/shows/{show}/step": {
+      "put": {
+        "tags": [
+          "shows"
+        ],
+        "summary": "Change a show's step",
+        "description": "Changes only the show's step (`solo`, `guests`, `callers` or `full`, ADR-0271), for the studio's step dialog. An admin, a producer or the show's presenter may; an API token never. The change is logged with who made it and when, every studio window is told, and if the show is the one the station's step comes from, the change takes effect at once: below `callers` call-in closes and waiting callers are released; when it rises the lines open. A person already in the room is never removed. `station` is the station's step after the change.",
+        "operationId": "shows_put_step",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The change.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepChanged"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
           }
         ]
       }
@@ -7955,12 +8586,27 @@
         "type": "object",
         "description": "The audience as the app shows it, and the figures its CDN warning (ADR-0017) reads.",
         "required": [
+          "by_mount",
           "edges"
         ],
         "properties": {
+          "by_mount": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MountCount"
+            },
+            "description": "The same by mount, most listeners first; empty while not counted."
+          },
           "edges": {
             "type": "boolean",
             "description": "The station has edges or a CDN configured: steering has a pathway beside the origin, or\n`join.hls_url` points the player at another address."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why there is no count, in words the studio can show: the listener process does not\nanswer, or the control plane has no playout layer to ask it. `None` while counted."
           },
           "listeners": {
             "type": [
@@ -7968,7 +8614,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Listeners connected to the station's stream now; `None` while not counted.",
+            "description": "Listeners connected to the station's stream now, every mount together; `None` while\nnot counted (see `error`).",
             "minimum": 0
           }
         }
@@ -8034,6 +8680,13 @@
             "format": "int32",
             "description": "1 to [`BANKS`].",
             "minimum": 0
+          },
+          "show": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show whose own bank this is, by its slug; `None` for the station's, which every\nshow shares."
           }
         }
       },
@@ -8496,6 +9149,13 @@
             "description": "Milliseconds to the first vocal, for the talk-up countdown.",
             "minimum": 0
           },
+          "show": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show whose bank holds it, by its slug; `None` for a station bank."
+          },
           "slot": {
             "type": "integer",
             "format": "int32",
@@ -8716,7 +9376,7 @@
       },
       "Catalogue": {
         "type": "object",
-        "description": "`GET /api/v1/carts`.",
+        "description": "`GET /api/v1/carts`: the station's banks, and with `?show=` that show's own beside them.",
         "required": [
           "version",
           "banks",
@@ -8728,7 +9388,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Bank"
-            }
+            },
+            "description": "The station's banks (`show` null) and the show's (`show` its slug), each numbered 1 to\n5 apart."
           },
           "carts": {
             "type": "array",
@@ -8740,6 +9401,13 @@
             "type": "number",
             "format": "double",
             "description": "The loudness every cart is brought to, in LUFS."
+          },
+          "show": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show whose own banks are here beside the station's, by its slug; `null`: the\nstation's alone."
           },
           "version": {
             "type": "integer",
@@ -8940,6 +9608,15 @@
               "influx"
             ],
             "properties": {
+              "held": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Messages held for a moderator (the chat service's queue); `None` when not counted. The\ndesk's chat panel says when a moderator is needed (ADR-0274).",
+                "minimum": 0
+              },
               "influx": {
                 "type": "boolean"
               },
@@ -8949,6 +9626,15 @@
                   "null"
                 ],
                 "format": "int64",
+                "minimum": 0
+              },
+              "open_reports": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Open reports, notices and reviews waiting for a moderator; `None` when not counted.",
                 "minimum": 0
               }
             }
@@ -10175,6 +10861,35 @@
         },
         "additionalProperties": false
       },
+      "EndShowResult": {
+        "type": "object",
+        "description": "What End show did, and the view after it.",
+        "required": [
+          "view",
+          "off_air"
+        ],
+        "properties": {
+          "automation_in_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the air goes to automation: `0` it already was there; a number of milliseconds is\nhow long until the profanity delay has played out (the goodbye is not cut off) and the\nstation is switched; `null` this station has no playout layer to hand the air to, so\neveryone is off air and nothing more happened.",
+            "minimum": 0
+          },
+          "off_air": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many people and sources were taken off air.",
+            "minimum": 0
+          },
+          "view": {
+            "$ref": "#/components/schemas/View",
+            "description": "The new studio view, as every command answers."
+          }
+        }
+      },
       "Episode": {
         "type": "object",
         "required": [
@@ -10977,15 +11692,24 @@
       },
       "InviteRequest": {
         "type": "object",
-        "required": [
-          "role"
-        ],
         "properties": {
+          "for_me": {
+            "type": "boolean",
+            "description": "A presenter's invitation for the signed-in account itself (ADR-0274): the Solo DJ's own\nmicrophone link, allowed at every step for the show's presenter. The name is the\naccount's unless one is given, and the identity is the account's own, so the same link\ncan be made again. Needs a staff session, not the station key."
+          },
           "name": {
             "type": "string"
           },
           "role": {
-            "$ref": "#/components/schemas/Role"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Role",
+                "description": "`guest`, `dj` or `presenter`. Left out only with `for_me`, where it is `presenter`."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "ttl_s": {
             "type": [
@@ -11152,20 +11876,43 @@
       },
       "ListenerDelay": {
         "type": "object",
-        "description": "The listener delay the surfaces show: a setting until it is measured (ADR-0103), plus the\nprofanity delay's current length (ADR-0165).",
+        "description": "The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read\nlive, and the rest as the station's setting.\n\nWhat is read live is the profanity delay (the desk reports it) and what the listener process\nholds of playout's feed (its own `feed.buffer_length`). What is not: the listener\nprocess's mount holds back a fixed stretch before it serves listeners, and each listener's\nplayer buffers on top. No marker travels in the stream (a metadata change would chain the\nOgg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a\nlistener's ear; `measured` says whether there is one.",
         "required": [
           "ms",
-          "measured"
+          "measured",
+          "desk_ms",
+          "rest_ms"
         ],
         "properties": {
+          "desk_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How much the desk's profanity delay holds now (read live from the desk), to 0.1 s.",
+            "minimum": 0
+          },
           "measured": {
             "type": "boolean",
-            "description": "Always false in this build: nothing measures it yet, so the app labels it a setting."
+            "description": "True only when no part of `ms` is a setting. Nothing measures the mount's hold or a\nplayer's buffer, so it is false in this build; the app words the figure as an estimate\nand names the parts that are read."
           },
           "ms": {
             "type": "integer",
             "format": "int64",
-            "description": "The `studio.listener_delay_ms` setting plus how much the desk's profanity delay holds now.",
+            "description": "The total: `desk_ms` plus `process_ms` plus `rest_ms`.",
+            "minimum": 0
+          },
+          "process_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "How much of playout's feed the listener process holds now (read live from it, to\n0.1 s); `None` while it does not answer.",
+            "minimum": 0
+          },
+          "rest_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own\nhold, playout and a listener's player. Never read.",
             "minimum": 0
           }
         }
@@ -11391,7 +12138,8 @@
         "type": "object",
         "required": [
           "kind",
-          "role"
+          "role",
+          "preparing"
         ],
         "properties": {
           "account": {
@@ -11416,6 +12164,10 @@
             "type": "string",
             "description": "`staff`, `station` (the station key) or `token`."
           },
+          "preparing": {
+            "type": "boolean",
+            "description": "This window is preparing a show (ADR-0276): it cannot change what is on air. Always\nfalse for the station key and API tokens."
+          },
           "role": {
             "$ref": "#/components/schemas/StaffRole"
           }
@@ -11429,6 +12181,39 @@
           "hold_new",
           "links_trusted"
         ]
+      },
+      "ModeRequest": {
+        "type": "object",
+        "description": "The body of `POST /api/v1/playout/mode`.",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/StationMode",
+            "description": "`auto`: automation holds the air and the desk never airs (the lamp says AUTO, ADR-0183).\n`live`: the desk first, automation on dead air."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MountCount": {
+        "type": "object",
+        "description": "How many listeners one mount of the listener process has now.",
+        "required": [
+          "mount",
+          "listeners"
+        ],
+        "properties": {
+          "listeners": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mount": {
+            "type": "string",
+            "description": "The mount's path as the listener process names it, such as `/programme.opus`."
+          }
+        }
       },
       "NewAccount": {
         "type": "object",
@@ -11741,6 +12526,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "not_now": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the pass cannot join the room now, in a sentence for its page, while the show on\nair runs at a step that has switched its seat off (ADR-0271); the pass stays good for\nlater. `None` when it can join."
           },
           "relay": {
             "$ref": "#/components/schemas/RelayInfo"
@@ -13619,6 +14411,19 @@
         },
         "additionalProperties": false
       },
+      "SetMode": {
+        "type": "object",
+        "required": [
+          "preparing"
+        ],
+        "properties": {
+          "preparing": {
+            "type": "boolean",
+            "description": "`true`: this window is preparing a show and cannot change what is on air. `false`: live."
+          }
+        },
+        "additionalProperties": false
+      },
       "SetPassword": {
         "type": "object",
         "required": [
@@ -13854,6 +14659,10 @@
           "slug": {
             "type": "string"
           },
+          "step": {
+            "$ref": "#/components/schemas/Step",
+            "description": "How much of the studio the show uses (ADR-0271). Shows that existed before steps are\n`full`; a new show starts at `solo`."
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -13936,6 +14745,17 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Slot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Step",
+                "description": "The show's step (ADR-0271). Absent keeps what is stored, and a new show starts at\n`solo`."
               },
               {
                 "type": "null"
@@ -14075,6 +14895,7 @@
         "description": "One cart sounding, as the control plane keeps it.",
         "required": [
           "cart",
+          "label",
           "pool",
           "player",
           "mode",
@@ -14100,6 +14921,10 @@
             ],
             "format": "int64",
             "minimum": 0
+          },
+          "label": {
+            "type": "string",
+            "description": "The cart's label, so a window whose banks do not hold it (another show's) can name it."
           },
           "mode": {
             "$ref": "#/components/schemas/CartMode"
@@ -14334,6 +15159,149 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "Step": {
+        "type": "string",
+        "description": "How much of the studio a show uses (ADR-0271): each step adds one kind of person. Whatever a\nstep leaves out is switched off while the show is on air.",
+        "enum": [
+          "solo",
+          "guests",
+          "callers",
+          "full"
+        ]
+      },
+      "StepBody": {
+        "type": "object",
+        "description": "A show's new step.",
+        "required": [
+          "step"
+        ],
+        "properties": {
+          "step": {
+            "$ref": "#/components/schemas/Step"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StepChanged": {
+        "type": "object",
+        "description": "The change, and the station's step now.",
+        "required": [
+          "show",
+          "name",
+          "step",
+          "previous",
+          "station"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/Step",
+            "description": "What it was."
+          },
+          "show": {
+            "type": "string",
+            "description": "The show's path segment."
+          },
+          "station": {
+            "$ref": "#/components/schemas/StepView",
+            "description": "The station's step now: it moves with the show only when this show is the one the step\ncomes from."
+          },
+          "step": {
+            "$ref": "#/components/schemas/Step",
+            "description": "The show's step now."
+          }
+        }
+      },
+      "StepNext": {
+        "type": "object",
+        "description": "The next show to start.",
+        "required": [
+          "slug",
+          "name",
+          "start_ms",
+          "step"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it starts, in epoch milliseconds.",
+            "minimum": 0
+          },
+          "step": {
+            "$ref": "#/components/schemas/Step"
+          }
+        }
+      },
+      "StepShow": {
+        "type": "object",
+        "description": "The show a step comes from.",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "StepView": {
+        "type": "object",
+        "description": "The station's beginner step as the studio's windows see it (ADR-0271, ADR-0274).",
+        "required": [
+          "step",
+          "on_air",
+          "may_change"
+        ],
+        "properties": {
+          "may_change": {
+            "type": "boolean",
+            "description": "Whether the account asking may change the step: an admin, a producer or the show's\npresenter. Filled in for each request (the shared view says `false`)."
+          },
+          "next": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StepNext",
+                "description": "The next show to start by the schedule, with its step."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "on_air": {
+            "type": "boolean",
+            "description": "That show is on air now (false: it is the show last on air)."
+          },
+          "show": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StepShow",
+                "description": "The show the step comes from; `None` when no show has ever been on air."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step": {
+            "$ref": "#/components/schemas/Step",
+            "description": "The step in force: the step of the show on air; between shows, of the show last on air;\n`full` when no show has ever been on air."
           }
         }
       },
@@ -14766,7 +15734,8 @@
           "carts",
           "listener_delay",
           "default_fallback",
-          "audience"
+          "audience",
+          "step"
         ],
         "properties": {
           "audience": {
@@ -14838,6 +15807,10 @@
           },
           "station": {
             "type": "string"
+          },
+          "step": {
+            "$ref": "#/components/schemas/StepView",
+            "description": "The station's beginner step (ADR-0271): what the studio shows and what is switched off."
           }
         }
       },
@@ -15333,7 +16306,7 @@
     },
     {
       "name": "join",
-      "description": "Invites and the pass a guest, a remote DJ, a presenter or a caller joins by."
+      "description": "Invitations and the pass a guest, a remote DJ, a presenter or a caller joins by."
     },
     {
       "name": "chat",

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // Times and levels as the surfaces print them.
 import { instant, parts } from '../schedule/model.ts';
+import type { ListenerDelay } from './api.ts';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -63,8 +64,23 @@ export function listenerDelayMs(d: { ms: number } | undefined | null): number {
   return d?.ms ?? 15_000;
 }
 
-/** `15 s behind`, labelled as a setting while nothing measures it (ADR-0103). */
-export function delayWords(d: { ms: number; measured: boolean } | undefined | null): string {
+/** The listener delay as one sentence for the stage's subline and the delay panel (ADR-0103,
+ *  ADR-0272). `measured` is the whole path read, so the figure then stands alone. Otherwise it
+ *  is an estimate, and the words say what is read live and what is not: the profanity delay and
+ *  the listener process are read, the mount's own hold and a listener's player are not. */
+export function delayWords(d: ListenerDelay | undefined | null): string {
   const s = Math.round(listenerDelayMs(d) / 1000);
-  return d?.measured ? `${s} s behind` : `${s} s behind (set, not measured)`;
+  if (d?.measured) return `${s} s behind`;
+  return `about ${s} s behind (an estimate)`;
+}
+
+/** What the estimate is made of, for the delay panel's detail line: the read parts first, then
+ *  the part that is a setting. Empty when the control plane is too old to say. */
+export function delayParts(d: ListenerDelay | undefined | null): string {
+  if (!d || d.desk_ms === undefined || d.rest_ms === undefined) return '';
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const read = [`${s(d.desk_ms)} profanity delay`];
+  if (d.process_ms != null) read.push(`${s(d.process_ms)} in the listener process`);
+  const rest = d.measured ? '' : `; about ${s(d.rest_ms)} more is set, not read: the stream's own hold and each listener's player`;
+  return `Read now: ${read.join(', ')}${rest}`;
 }

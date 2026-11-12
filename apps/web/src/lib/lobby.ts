@@ -28,7 +28,7 @@ export function check(f: LobbyForm, lim: Limits): LobbyErrors {
   if (!name) e.name = "Add your name, or the name you'd like said on air.";
   else if ([...name].length > lim.name_max) e.name = `Your name is at most ${lim.name_max} characters.`;
   if (!topic) e.topic = "Say in a few words what you'd like to talk about.";
-  else if ([...topic].length > lim.topic_max) e.topic = `Keep it to ${lim.topic_max} characters; the producer will ask for more.`;
+  else if ([...topic].length > lim.topic_max) e.topic = `Keep it to ${lim.topic_max} characters; the studio will ask for more.`;
   if (!f.consent) e.consent = 'Tick the box to agree to your call being broadcast and recorded. You cannot call without it.';
   return e;
 }

@@ -201,6 +201,12 @@ pub struct MeState {
     /// Listeners hear the show: playout is connected and someone is open.
     pub show_on_air: bool,
     pub desk_reachable: bool,
+    /// A step let this waiting caller go (ADR-0271): the lines closed under them. Their phase is
+    /// `ended`; the page says why by this.
+    pub released: Option<crate::steps::ReleaseCause>,
+    /// The presenter answers the phones themselves: the show runs at Callers, which has no
+    /// screener (ADR-0271), so the page names the presenter where it would say "the producer".
+    pub presenter_answers: bool,
 }
 
 /// One person's state from the studio's view and the desk's people.
@@ -289,6 +295,8 @@ pub fn me_state(
         presenter_live,
         show_on_air: playout && anyone_open,
         desk_reachable: view.desk.reachable,
+        released: None,
+        presenter_answers: view.step.step == crate::steps::Step::Callers,
     }
 }
 
@@ -463,6 +471,23 @@ mod tests {
         );
         assert!(clean_line("a\nb", NAME_MAX, "name").is_err());
         assert!(clean_line(&"x".repeat(NAME_MAX + 1), NAME_MAX, "name").is_err());
+    }
+
+    #[test]
+    fn at_callers_the_page_says_the_presenter_answers_and_at_full_it_does_not() {
+        use crate::steps::{Step, facts_from, test_show};
+        let mut w = World::new(room(), true);
+        assert!(
+            !w.me("caller-iona", Role::Caller).presenter_answers,
+            "Full has a screener"
+        );
+        w.studio.set_step(facts_from(
+            Some(&test_show(Step::Callers, None)),
+            true,
+            None,
+        ));
+        w.sync(1);
+        assert!(w.me("caller-iona", Role::Caller).presenter_answers);
     }
 
     #[test]

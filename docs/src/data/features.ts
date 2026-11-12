@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.1:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.2:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -426,7 +426,7 @@ export const next: Planned[] = [
     id: 'dj-handover',
     name: 'A handover window from the schedule',
     what: 'The desk opens the handover by itself before the post, from the schedule, with the incoming DJ cued and ready (ADR-0231).',
-    today: 'In 1.0.1 the next DJ joins off air, and one key, ⇧⏎, puts them on air beside the presenter and then takes the presenter off; the presenter starts it when they are ready.',
+    today: 'Since 1.0.1 the next DJ joins off air, and one key, ⇧⏎, puts them on air beside the presenter and then takes the presenter off; the presenter starts it when they are ready.',
     href: '/docs/reference/keymap/#desk-tab',
     link: 'The desk\'s keys',
   },

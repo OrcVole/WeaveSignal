@@ -3,7 +3,7 @@ title: "Keymap"
 description: "Every key in the studio app, what it does, and which keys only show a note in 1.0.0."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-12
 sidebar:
   order: 4
 ---
@@ -33,6 +33,9 @@ Those keys say **note only** below, and link to [what is planned](/docs/referenc
    Releasing the key ends the talk, and so does the window losing focus or being hidden.
 5. **A dialog owns the keyboard.**
    While the statement of reasons is open on the Screener tab, only its own keys work, and `⌃T` still talks ([below](#the-statement-of-reasons)).
+   The step dialog has `↑` `↓` to move between the steps, `⏎` to confirm the move and `Esc` to keep the step; no key opens it.
+6. **A step switches keys off with their parts.**
+   The key of a part the show's step keeps off does nothing, not even arm, and its first press in a session says so in the desk's toast slot ([below](#keys-at-each-step)).
 
 ## Global keys
 
@@ -45,13 +48,13 @@ Those keys say **note only** below, and link to [what is planned](/docs/referenc
 | `Esc` | in order: disarm an armed key; leave a text field; dismiss a note in the toast slot; on the Desk tab, decline a caller sent to you (*Not now*, ADR-0098); on the Carts tab, take every cued cart out of the headphones; else dismiss the tab's latest notice | works |
 | `Del Del` | dump the profanity delay: it throws away what the delay holds, so listeners jump to the live programme | works |
 | `F1` to `F6` | fire carts 1 to 6 of the current bank (its top row); again, fade the cart out (ADR-0020) | works |
-| `⌃F1` to `⌃F5` | switch to cart bank 1 to 5; what sounds keeps sounding | works |
+| `⌃F1` to `⌃F5` | switch to cart bank 1 to 5: the show's own bank of that number if it has one, else the station's (from 1.0.2); what sounds keeps sounding | works |
 | `F7` | the picture: the live picture or the slate; with video off it says so | works |
-| `⌃+` `⌃−` `⌃0` | text size larger, smaller, back to 100 % (also the frame's `A−` and `A+`); remembered on this machine | works |
+| `⌃+` `⌃−` `⌃0` | text size larger, smaller, back to 100 % (also the top bar's `A−` and `A+`); remembered on this machine | works |
 | `⌃R` | restart playout | note only: it says to restart Liquidsoap on the server ([When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/)) |
 | `⌃⇧R` | restart the encoder | note only: restart the listener process on the server |
 | `⌃⇧B` | switch listeners to the backup stream | note only ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
-| `⌃⇧E` | end the show (also the stage's **End show** button) | note only ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
+| `⌃⇧E` | end the show (also the stage's **End show** button): a dialog, `⏎` to confirm and `Esc` to keep going; everyone off air, carts faded, then automation ([End the show](/docs/how-to/end-the-show/)) | from 1.0.2 (a note only before) |
 | `F8` to `F12` | reserved: the app does nothing with them | — |
 
 ## Desk tab
@@ -76,8 +79,33 @@ A source keeps its slot, and so its keys, while it is in the room (ADR-0096): sl
 | `Esc` on a caller sent to you | *Not now*: declines them, and the screener sees DESK BUSY | works |
 | **Drop** on a caller's tile | the same as `⌃D ⌃D`: two presses | works |
 | **End pass** on a presenter's, DJ's or guest's tile | ends their pass (ADR-0119): off air, out of the room, and their link stops working; two presses, a button with no key | works |
+| `P` | at the Callers step, take the caller who has waited longest to strip 4, off air (P for *put through*, as on the Screener tab); the button is **Take … to strip 4** on `desk.callers`. The Screener tab's key for the same action (ADR-0275). At the other steps it does nothing | works from 1.0.2 |
 | `⇧⏎` | hand over to the next DJ (ADR-0074): the first press puts a DJ waiting under **Not on air** on air beside you, the second takes everyone presenting off but that DJ; guests and callers stay on. Desk tab only | works from 1.0.1; in 1.0.0 a note only |
 | arrows on a tile | the fader | not in 1.0.0: the desk has no fader, and the arrows do nothing on the Desk tab ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
+
+## Keys at each step
+
+A show runs at one of four steps ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)), and a step switches a part's key off with the part (ADR-0271).
+A tab's key keeps its number at every step.
+
+| Key | Solo | Guests | Callers | Full |
+|---|---|---|---|---|
+| `⌃1` `⌃3` `⌃5`, `F1`–`F6`, `⌃R`, `⌃⇧E`, `Esc` | as above | as above | as above | as above |
+| `1` `Q` `Z` (your own strip) | as above | as above | as above | as above |
+| `A` (talk on your own strip) | nothing | as above | as above | as above |
+| the other strips' keys | nothing: the slots are empty | slots 2 and 3 | and slot 4 | and slot 5 |
+| `⌃2` Screener, `⌃4` Chat | nothing | nothing | nothing | as above |
+| `Del Del` Dump | nothing | nothing | as above | as above |
+| `⌃D ⌃D` Drop the caller | nothing | nothing | as above | as above |
+| `P` (Desk tab) | nothing | nothing | take the next caller | nothing |
+| `⌃T` Talk to the screener | nothing | nothing | nothing | as above |
+| `⇧⏎` Handover | nothing | nothing | nothing | as above |
+| `F7` Picture | nothing | nothing | nothing | as above |
+
+- **The first press says so.** A key that does nothing because of the step shows one note in the desk's toast slot, without a tone colour: *Dump is off at Solo. This show runs at Solo, so there is nothing for Dump to do. It comes on at Callers.*, with **Step…** and **Dismiss**. Later presses of that key in the session are silent.
+- **A person still in the room keeps their keys.** A key that acts on someone left from an earlier step (Drop on strip 4 after the step moved down, a guest's strip at Solo) works until that person has left.
+- **While everything is shown**, `⌃2` and `⌃4` reach their tabs again; the keys of parts that are off stay off.
+- `F1` to `F6` are volume keys on many laptops without `Fn`: every one of them has its cart on screen to click.
 
 ## Screener tab
 
@@ -85,7 +113,7 @@ A source keeps its slot, and so its keys, while it is in the room (ADR-0096): sl
 |---|---|
 | `↑` `↓`, `1`–`9` | move in the queue, jump to a caller; with a chat panel focused, `↑` `↓` move in that panel |
 | `T` (held) | talk to the selected caller, off air; the first `T` on a waiting caller starts screening (ADR-0100) |
-| `P` | send the caller to the desk, or again after a decline |
+| `P` | put the caller through to the desk (P for *put through*, the switchboard phrase), or again after a decline |
 | `W` | back to the queue |
 | `N` | the name-on-air field (`Esc` leaves it) |
 | `⇧C` | let a dropped caller's held place go |

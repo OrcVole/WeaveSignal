@@ -19,7 +19,7 @@ With none set, the pages are WeaveSignal's own, unchanged.
 | Page | Accent | Icon | Banner |
 |---|---|---|---|
 | The player, with call-in and the chat (`/`) | yes | yes, and the favicon | yes |
-| The invite page (`/join/`) | yes | yes, and the favicon | no |
+| The invitation page (`/join/`) | yes | yes, and the favicon | no |
 | The echo test (`/echo-test/`) | yes | yes, and the favicon | no |
 | The setup page (`/setup/`) | no: it shows a preview | no | no |
 | The studio app | no | no | no |

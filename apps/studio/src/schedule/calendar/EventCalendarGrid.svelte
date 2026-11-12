@@ -76,6 +76,25 @@
     eventDidMount: (info: { el: HTMLElement; event: { id: string | number; extendedProps?: Record<string, unknown> } }) => {
       const b = info.event.extendedProps?.block as Block | undefined;
       if (b) info.el.setAttribute('aria-label', blockAria(b, ctx));
+      if (b) {
+        // A block selects on a press and on Enter, as well as through the library's
+        // eventClick: in the packaged app (WebKitGTK) a click on a block that can be dragged did
+        // not reach eventClick (the operator's 1.0.2 run), and nothing showed that it could.
+        const id = String(info.event.id);
+        info.el.classList.add('selectable');
+        // On the press, not the click: the grid's events are rebuilt as the clock ticks, so a
+        // block's element can be replaced between the press and the release, and then the browser
+        // fires no click at all. A drag still starts from the same press.
+        info.el.addEventListener('pointerdown', (e: PointerEvent) => {
+          if (e.button === 0) onSelect(id);
+        });
+        info.el.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect(id);
+          }
+        });
+      }
       if (String(info.event.id) === 'now') {
         const label = document.createElement('span');
         label.className = 'now-label num';
@@ -105,6 +124,13 @@
 </div>
 
 <style>
+  .ec-host :global(.ec-event.selectable) {
+    cursor: pointer;
+  }
+  .ec-host :global(.ec-event.selectable:hover) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   .ec-host {
     min-height: 0;
     height: 100%;

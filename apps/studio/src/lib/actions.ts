@@ -8,9 +8,13 @@ import * as api from './api.ts';
 import { cartKey, type Action } from '../../../../packages/ui/keymap.ts';
 import { cartAt, cartNow, moveSlot } from '../../../../packages/ui/carts.ts';
 import { say, setBank, stationNow, studio, takeView } from './studio.svelte.ts';
+import { deskCallers, offNote, stationStep, type OffPart } from './steps.ts';
+import { changesAir } from './prepare.ts';
+import { followStation, nudge, preparing } from './prepare.svelte.ts';
 import { moveWeek, today } from './schedule.svelte.ts';
 import { firstName } from './format.ts';
 import { handoverStep } from './handover.ts';
+import { endShowNote, modeNote, modeRefusal, needsConfirm, type AirAsk } from './air.ts';
 import { chat, chatSay, entries, mod, needsEntry, noteMyHide, roomLine, studioMsg, type SorPicture, type SorTarget } from './chat.svelte.ts';
 import { TIMEOUT_MIN, reasonLabel, sorReasonOf, sorReasonsFor, step, type Entry } from './chatModel.ts';
 import type { Msg, Reason } from '../../../../packages/ui/chat.ts';
@@ -20,13 +24,13 @@ const NOT_BUILT: Partial<Record<Action['type'], [string, string]>> = {
   'restart-playout': ['Restart is not wired yet', 'Restart Liquidsoap from the server for now; ⌃R will do it from here.'],
   'restart-encoder': ['Not wired yet', 'The encoder cannot be restarted from here yet; restart the listener process on the server.'],
   'backup-stream': ['Not wired yet', 'Switching listeners to a backup stream is not built yet.'],
-  'end-show': ['Not wired yet', 'Ending a show from here is not built yet.'],
 };
 
 /** A cart's key, its button, the desk's glance and F1 to F6 all come here: fire the cart in
  *  that slot of the current bank, or fade it if it is sounding (keymap section 4). With `cue`
  *  (⇧ and the key) it goes into the presenter's headphones only, or comes out of them. */
 export async function fireSlot(slot: number, cue = false): Promise<void> {
+  if (preparing()) return nudge();
   const cart = cartAt(studio.catalogue, studio.bank, slot);
   if (!cart) {
     say(
@@ -82,9 +86,17 @@ async function send(p: Promise<api.View>): Promise<boolean> {
     takeView(await p);
     return true;
   } catch (e) {
-    say('warning', 'Not done', e instanceof Error ? e.message : String(e));
+    refused(e);
     return false;
   }
+}
+
+/** A refused command: the station's own sentence, as given. A 409 may be the station holding
+ *  this window as preparing when the window thought it was live (ADR-0276), so the window asks
+ *  who it is again and the frame follows. */
+function refused(e: unknown): void {
+  say('warning', 'Not done', e instanceof Error ? e.message : String(e));
+  if (e instanceof api.ApiError && e.status === 409) void followStation();
 }
 
 /** The caller a drop means: on the screener the selected one; on the desk the caller on strip
@@ -102,15 +114,40 @@ function talkingTo(to: string, held: boolean) {
   studio.talking = held ? [...new Set([...studio.talking, to])] : studio.talking.filter((t) => t !== to);
 }
 
-/** The desk's toast that Esc answers: a caller sent and waiting for the presenter. */
+/** The desk's toast that Esc answers: a caller sent by the screener and waiting for the
+ *  presenter. Not at the Callers step, where the DJ took the call themselves and there is no
+ *  screener to answer. That is the station's step, not this window's look: with everything
+ *  shown at Callers the call is still the DJ's own. */
 export function readyCaller() {
   const v = studio.view;
+  if (stationStep(v) === 'callers') return null;
   return v?.sources.find((s) => s.role === 'caller' && s.caller?.sent && !s.caller.taken && !s.on_air && !s.cue) ?? null;
+}
+
+/** How long a hidden part's note stays in the toast slot. */
+const OFF_NOTE_MS = 12_000;
+
+/** A key whose part the show's step keeps off does nothing; the first press in a session says
+ *  so, once a part, in the desk's toast slot (design section 2). Away from the desk there is
+ *  no slot to say it in, so that press is not counted as the first. */
+export function tellOff(part: OffPart): void {
+  if (studio.tab !== 'desk' || studio.settings || studio.offTold.includes(part)) return;
+  const n = offNote(part, stationStep(studio.view));
+  if (!n) return;
+  studio.offTold = [...studio.offTold, part];
+  studio.offNote = { ...n, until: Date.now() + OFF_NOTE_MS };
 }
 
 export async function run(a: Action): Promise<void> {
   const v = studio.view;
   const now = Date.now();
+  // A preparing window cannot change what is on air (ADR-0276): the action does nothing, for a
+  // key and its button alike, and the band under the frame answers.
+  const prep = preparing();
+  if (prep && changesAir(a)) {
+    studio.armed = null;
+    return nudge();
+  }
   switch (a.type) {
     case 'tab':
       if (a.tab === 'desk' || a.tab === 'screener' || a.tab === 'carts' || a.tab === 'schedule') {
@@ -135,6 +172,10 @@ export async function run(a: Action): Promise<void> {
       return;
     }
     case 'escape': {
+      if (studio.offNote) {
+        studio.offNote = null;
+        return;
+      }
       if (studio.note) {
         studio.note = null;
         return;
@@ -143,7 +184,9 @@ export async function run(a: Action): Promise<void> {
         chat.toast = null;
         return;
       }
-      if (studio.tab === 'desk') {
+      // Esc's two sends (decline the caller who is ready, clear the cues) are not a preparing
+      // window's to make; it still dismisses what is this window's own.
+      if (studio.tab === 'desk' && !prep) {
         const c = readyCaller();
         if (c) {
           await send(api.screener({ op: 'decline', identity: c.identity, reason: 'not now' }));
@@ -151,7 +194,7 @@ export async function run(a: Action): Promise<void> {
         }
       }
       // On the Carts tab Esc takes every cued cart out of the headphones (cart-wall.md §4).
-      if (studio.tab === 'carts' && v?.carts.sounding.some((s) => s.cue && !s.stopping)) {
+      if (studio.tab === 'carts' && !prep && v?.carts.sounding.some((s) => s.cue && !s.stopping)) {
         await send(api.carts({ op: 'clear_cue' }));
         return;
       }
@@ -176,7 +219,7 @@ export async function run(a: Action): Promise<void> {
       studio.armed = null;
       const who = name(a.identity);
       if (await send(api.endPass({ identity: a.identity }))) {
-        say('good', 'Pass ended', `${who} is out of the room and their link no longer works. Send a new invite if they are to come back.`);
+        say('good', 'Pass ended', `${who} is out of the room and their link no longer works. Send a new invitation if they are to come back.`);
       }
       return;
     }
@@ -188,6 +231,14 @@ export async function run(a: Action): Promise<void> {
       await send(api.desk({ op: 'picture', mode: p.mode.mode === 'slate' ? 'auto' : 'slate' }));
       return;
     }
+    case 'end-show':
+      // The dialog is on the desk: bring the desk up so it can be answered (keymap rule 5).
+      studio.armed = null;
+      if (!v) return;
+      studio.tab = 'desk';
+      if (typeof document !== 'undefined') document.documentElement.dataset.surface = 'desk';
+      studio.airAsk = 'end';
+      return;
     case 'dump': {
       // The report lives in the delay line, not a toast (design finding 24); only a dump that
       // cannot happen says why.
@@ -226,7 +277,7 @@ export async function run(a: Action): Promise<void> {
       for (const s of step.off) if (!(await send(api.desk({ op: 'on_air', identity: s.identity, on: false })))) return;
       studio.handoverTo = null;
       const off = step.off.map((s) => firstName(s.name, s.identity)).join(' and ');
-      say('good', `Handed over to ${dj}`, `${off} off air; ${dj} holds the air. This window's talk keys now speak as ${dj}: close it, or hand it to them, and close your invite page when you leave (ADR-0239).`, 12000);
+      say('good', `Handed over to ${dj}`, `${off} off air; ${dj} holds the air. This window's talk keys now speak as ${dj}: close it, or hand it to them, and close your invitation page when you leave (ADR-0239).`, 12000);
       return;
     }
     case 'talk-seat': {
@@ -249,9 +300,24 @@ export async function run(a: Action): Promise<void> {
     case 'mute': {
       if (a.slot === 6) return void say('good', 'Playout is not a desk source yet', 'Liquidsoap mixes the desk in; a switch for playout at the desk is not built yet.');
       const s = sourceAt(a.slot);
-      if (!s) return;
+      // An empty strip says so, rather than nothing happening (the operator's 1.0.2 run).
+      if (!s) return void say('good', `Nobody is on strip ${a.slot}`, 'A strip fills when someone joins the room: invite them with Invite someone… on the desk, or join with your own microphone link. Then this key puts them on air.');
       const field = a.type === 'on' ? 'on_air' : a.type;
       await send(api.desk({ op: field, identity: s.identity, on: !s[field] }));
+      return;
+    }
+    case 'take-caller': {
+      // `desk.callers` at the Callers step (ADR-0275): the caller who has waited longest goes
+      // to the callers' strip, off air, by the same send the Screener tab makes. The strip
+      // holds one caller, and the station refuses a second send at Callers (`Studio::send`).
+      const q = deskCallers(v);
+      if (q.holds) return void say('good', `Strip ${q.holds.slot} is taken`, q.title);
+      if (!q.next) {
+        return void (q.rows.length
+          ? say('good', 'Nobody can be taken yet', 'Whoever is waiting has a dropped link, or no consent to record on file.')
+          : say('good', 'Nobody is waiting', 'Listeners call from the player page; each one appears in Callers with their name and what they want to talk about.'));
+      }
+      await send(api.screener({ op: 'send', identity: q.next.identity }));
       return;
     }
     case 'talk': {
@@ -360,6 +426,44 @@ export async function run(a: Action): Promise<void> {
 }
 
 export { name as personName };
+
+// ---- ending the show and the station's mode (ADR-0272) ----
+
+/** The button beside the lamp: ask first when someone would be cut off or put on air, else just do it. */
+export async function pressMode(ask: Exclude<AirAsk, 'end'>): Promise<void> {
+  const v = studio.view;
+  if (!v) return;
+  if (preparing()) return nudge();
+  const why = modeRefusal(v);
+  if (why) return void say('good', 'No automation here', why);
+  if (needsConfirm(ask, v)) {
+    studio.airAsk = ask;
+    return;
+  }
+  await confirmAir(ask);
+}
+
+/** What the air dialog's confirm does: the same call the key and the buttons end up at. */
+export async function confirmAir(ask: AirAsk): Promise<void> {
+  studio.airAsk = null;
+  studio.armed = null;
+  studio.handoverTo = null;
+  if (preparing()) return nudge();
+  try {
+    if (ask === 'end') {
+      const r = await api.endShow();
+      takeView(r.view);
+      const n = endShowNote(r);
+      say('good', n.title, n.message, 12000);
+      return;
+    }
+    takeView(await api.setMode(ask));
+    const n = modeNote(ask);
+    say('good', n.title, n.message, 8000);
+  } catch (e) {
+    refused(e);
+  }
+}
 
 // ---- the chat (M6): the same actions for a key and its button ----
 

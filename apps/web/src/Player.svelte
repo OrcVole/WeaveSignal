@@ -19,6 +19,7 @@
   import ChatPanel from './lib/chat/ChatPanel.svelte';
   import OnAirLine from './lib/chat/OnAirLine.svelte';
   import { check, firstError, request, type LobbyErrors } from './lib/lobby.ts';
+  import { CLOSED_WHILE_FILLING, closedLine, closedUnderForm } from './lib/lines.ts';
   import MicCheck from './lib/MicCheck.svelte';
   import * as store from './lib/store.ts';
   import * as streams from './lib/streams.ts';
@@ -53,6 +54,8 @@
   let errors = $state<LobbyErrors>({});
   let sending = $state(false);
   let sendProblem = $state<string | null>(null);
+  /** The chat is open to write in (the chat panel says): the way to reach a show that takes no calls. */
+  let chatOpen = $state(false);
   let lobbyHeading = $state<HTMLElement | undefined>();
   // Call-in's challenge (ADR-0006): fetched and answered in a worker as the lobby opens, so by
   // the time the caller has typed their name it is long done. Nothing to see or solve.
@@ -224,6 +227,12 @@
           await load();
         }
         document.getElementById(`f-${err.field}`)?.focus();
+      } else if (closedUnderForm(err)) {
+        // The lines closed while the form was open (ADR-0271): back to the player, which now
+        // says so, with the one sentence that explains what happened to the form.
+        await load();
+        view = 'listen';
+        sendProblem = CLOSED_WHILE_FILLING;
       } else {
         sendProblem = err instanceof Error ? err.message : String(err);
       }
@@ -347,7 +356,7 @@
     {:else if view === 'lobby' && info}
       <form class="card lobby" novalidate onsubmit={submit} aria-labelledby="lobby-h">
         <h2 id="lobby-h" tabindex="-1" bind:this={lobbyHeading}>Call the studio</h2>
-        <p class="small">The producer answers first. You're not on air until the presenter brings you in, and this page tells you when you are.</p>
+        <p class="small">The studio answers first. You're not on air until the presenter brings you in, and this page tells you when you are.</p>
 
         <div class="field">
           <label for="f-name">Your name</label>
@@ -366,7 +375,7 @@
 
         <div class="field">
           <label for="f-topic">What would you like to talk about?</label>
-          <span class="hint" id="topic-hint">One line for the producer.</span>
+          <span class="hint" id="topic-hint">One line for the studio.</span>
           <input
             id="f-topic"
             type="text"
@@ -418,7 +427,7 @@
             ><svg aria-hidden="true"><use href="#g-mic" /></svg>Call the studio</button
           >
         {:else}
-          <p class="small" role="status">{info.call_in.why_not}</p>
+          <p class="small" role="status">{closedLine(info.call_in.why_not, chatOpen)}</p>
           <button type="button" class="btn big wide" disabled>Call the studio</button>
         {/if}
         {#if sendProblem && view === 'listen'}<p class="problem" role="alert">{sendProblem}</p>{/if}
@@ -426,7 +435,7 @@
     {/if}
 
     <!-- The chat stays mounted through the lobby and a call, so it keeps its place and session. -->
-    <ChatPanel {playing} inCall={view === 'call'} oninvite={() => view !== 'call' && openLobby()} onfeatured={(m) => (onAir = m)} />
+    <ChatPanel {playing} inCall={view === 'call'} oninvite={() => view !== 'call' && openLobby()} onfeatured={(m) => (onAir = m)} onopen={(open) => (chatOpen = open)} />
   </main>
 </div>
 

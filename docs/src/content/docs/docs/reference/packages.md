@@ -12,11 +12,11 @@ What the repository builds, where each piece lives, and where the 1.0.0 builds a
 
 | What | Published at |
 |---|---|
-| The studio app's packages, with their `.sig` files and checksums | the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.1), and the updater's tree under `https://weavesignal.top/updates/` |
+| The studio app's packages, with their `.sig` files and checksums | the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.2), and the updater's tree under `https://weavesignal.top/updates/` |
 | The updater's feed | `https://weavesignal.top/updates/latest.json` |
-| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.1` |
-| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.1`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.1` |
-| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.1` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
+| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2` |
+| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.2`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.2` |
+| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.2` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
 
 The repository's root also holds `CHANGELOG.md`, what each release changed, and `SECURITY.md`, how to report a security fault.
 

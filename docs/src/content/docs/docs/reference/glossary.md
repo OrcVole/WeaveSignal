@@ -43,7 +43,7 @@ The person who answers callers off air, talks to them, writes the one line the p
 Also the tab of the studio app where they work, which holds the chat's moderation as well.
 
 **The public pages.**
-The station's player with call-in and the chat, the invite page for guests, and the echo test, served by the control plane for a station's own website to link or embed.
+The station's player with call-in and the chat, the invitation page for guests, and the echo test, served by the control plane for a station's own website to link or embed.
 
 **An edge, a relay.**
 For a big night: an **edge** caches the video stream (HLS) near the viewers; a **relay** is an Icecast server that pulls the audio stream and serves listeners of its own.
@@ -83,7 +83,7 @@ The desk shows the delay building after a dump until it is whole again.
 A room of one caller's own, which only the desk joins.
 The caller hears the programme and the screener; nobody else sees or hears them until the desk takes them to air.
 
-**A pass, an invite.**
+**A pass, an invitation.**
 A short-lived token that lets one person into the room with one role, carried in the link the station sends them.
 
 **Roles.**

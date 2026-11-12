@@ -1,6 +1,6 @@
 ---
 title: "The public pages"
-description: "The player with call-in, the invite page and the echo test as the control plane serves them: caching, the Content-Security-Policy, call-in's challenge, what TURN over TLS needs from a station, and what to do when a call does not work."
+description: "The player with call-in, the invitation page and the echo test as the control plane serves them: caching, the Content-Security-Policy, call-in's challenge, what TURN over TLS needs from a station, and what to do when a call does not work."
 type: reference
 status: draft
 last_verified: 2026-11-10
@@ -8,7 +8,7 @@ sidebar:
   order: 7
 ---
 
-The listener's player with call-in (`/`), the invite page for guests, remote DJs and presenters (`/join/#<pass>`) and the echo test (`/echo-test/`) are one static build, `apps/web/dist`.
+The listener's player with call-in (`/`), the invitation page for guests, remote DJs and presenters (`/join/#<pass>`) and the echo test (`/echo-test/`) are one static build, `apps/web/dist`.
 The control plane serves it when `web.dir` names that directory; the server image has it at `/opt/weavesignal/web`, and the Compose bundle sets it.
 Unset, the control plane serves the API only.
 
@@ -24,9 +24,9 @@ The player before anyone calls, and the page a caller sees while they wait in th
 
 ![The caller's page saying "You're number 1 in the queue", with the microphone level and Hang up.](../../../../assets/screens/reference-public-pages-call-waiting.png)
 
-The invite page for a guest, and the echo test:
+The invitation page for a guest, and the echo test:
 
-![An invite page for Gregor Stewart: Join The Morning Kettle as a guest, a microphone check and the relay option.](../../../../assets/screens/reference-public-pages-join.png)
+![An invitation page for Gregor Stewart: Join The Morning Kettle as a guest, a microphone check and the relay option.](../../../../assets/screens/reference-public-pages-join.png)
 
 ![The echo test page with its Start the echo test button.](../../../../assets/screens/reference-public-pages-echo-test.png)
 
@@ -69,7 +69,7 @@ The chat's routes (`/api/v1/chat/...`) are the chat service's: behind the statio
 Search engines are told not to list a new station (ADR-0133).
 Every response then carries `X-Robots-Tag: noindex, nofollow`, each page has `<meta name="robots" content="noindex, nofollow">`, and `/robots.txt` says `Disallow: /`.
 Set `web.listed = true` when the station goes public and its player, feeds and cards may be found.
-Even then the API, the invite page and the echo test stay `noindex`, and `/robots.txt` disallows them, apart from the open routes for a station's website (`/api/v1/public/…` and `/api/v1/now-playing`), which follow the setting and which `/robots.txt` then allows ([Integrations](/docs/reference/integrations/#open-routes)).
+Even then the API, the invitation page and the echo test stay `noindex`, and `/robots.txt` disallows them, apart from the open routes for a station's website (`/api/v1/public/…` and `/api/v1/now-playing`), which follow the setting and which `/robots.txt` then allows ([Integrations](/docs/reference/integrations/#open-routes)).
 A header already set by a proxy in front is left as it is.
 The studio is an app, not an address, so there is nothing of it to list.
 The listener stream is served by the listener process, which sends no robots header; whether a directory lists it is a separate setting ([Playout](/docs/reference/playout/#directory-listing)).
@@ -151,6 +151,18 @@ What a station needs, found on the way (LiveKit 1.13.10):
 Beyond loopback, a LineageOS phone has called in over LTE and Wi-Fi, and a real caller has called a public station with a certificate from a public CA through `weavesignal.sh --public`.
 A join from a GrapheneOS phone over a real network is not proved in WeaveSignal 1.0 ([What release one does](/docs/reference/release-one-status/)).
 
+
+## When a show takes no calls
+
+A show runs at one of four steps, and below Callers the station closes call-in while it is on air ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/), ADR-0271).
+
+- **The player** says *The lines are closed for this show.* under **Talk to the studio**, with the button disabled; while the chat is open to write in, it adds *You can still write in the chat below.*
+  The player's facts carry the sentence as `call_in.why_not`, and the call-in request itself answers with the same words, so a page opened earlier cannot queue a caller.
+- **A caller who was only waiting** when the lines closed reads **The lines have closed**: *Thank you for waiting, Niall.*, then why, and that they were not on air.
+  The page's own state carries the cause as `released`: `show_took_air` (*The show that is starting now is not taking calls…*) or `step_moved_down` (*This show has stopped taking calls…*).
+  A caller already on the desk's strip, in cue or on air is not let go.
+- **The invitation page** says the station's sentence while the show's step keeps that seat off (the pass's `not_now`), with **Look again**; the link stays good for later, and the page asks for no microphone or camera until it can join.
+
 ## When a call does not work
 
 | What the caller sees | Why | What to do |
@@ -159,10 +171,13 @@ A join from a GrapheneOS phone over a real network is not proved in WeaveSignal 
 | *A direct connection did not work, so this page is trying the station’s relay.* | The network or the browser blocks WebRTC's UDP | Nothing: the page tries TURN over TLS by itself. A caller can also choose *Reconnect through the relay* under *Trouble hearing or being heard?* |
 | *This page could not reach the studio.* | Neither a direct connection nor the relay worked. A phone that reaches TURN only over IPv6 is refused ([above](#turn-over-tls)) | Check the TURN name has an A record and no AAAA record, and that `ports.turn_tls` is open |
 | The studio is too quiet | A call's return is about −23 LUFS, against the stream's −16 (ADR-0205), and a phone's call volume is its own | The call page says: "Studio too quiet? On a phone, press volume up once the call has started: a call has its own volume, apart from music's." |
+| *The lines are closed for this show.* (the player's call-in), or *The lines have closed* on a waiting call | The show on air runs at Solo or Guests, which switch call-in off (ADR-0271), or its step was moved down while the caller waited: their place is gone and they were not on air | Wait for a show that takes calls; the caller who is let go can call again when the lines are open |
+| *The studio is not taking guests during this show.* (the invitation page) | The show on air's step has switched the seat off; the link stays good for later | Ask whoever sent it when to join ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)); **Look again** on the page asks the station once more |
+| *The lines closed while you were filling this in. This show is not taking calls.* | A call-in form opened earlier was sent after the lines closed | Nothing: the page goes back to the player, which says the lines are closed |
 | The studio breaks up | The desk times each return block from its place in the mix (0.0 % concealed by the receiver, measured with WebRTC `getStats`), so gaps come from the caller's network; the desk sends without congestion control, a known limit | Ask the caller to try another network |
 
 ![The waiting call page with Trouble hearing or being heard? opened: the volume advice and the button to reconnect through the relay.](../../../../assets/screens/reference-public-pages-trouble.png)
 
-![The invite page after the browser refused the microphone: the chip No microphone, Your microphone is blocked, the advice, and Try again.](../../../../assets/screens/reference-public-pages-no-mic.png)
+![The invitation page after the browser refused the microphone: the chip No microphone, Your microphone is blocked, the advice, and Try again.](../../../../assets/screens/reference-public-pages-no-mic.png)
 
 The presenter's side of a call is in [Take a caller to air](/docs/how-to/take-a-caller/).

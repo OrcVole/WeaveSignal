@@ -36,11 +36,18 @@
     try {
       info = await api.passInfo(pass);
       document.title = `Join ${info.station}`;
-      if (info.ended) problem = 'The studio has ended this invite. Ask the station for a new link.';
+      if (info.ended) problem = 'The studio has ended this invitation. Ask the station for a new link.';
     } catch (e) {
       problem = e instanceof Error ? e.message : String(e);
     }
-    if (info && !info.ended) {
+    await prepare();
+  });
+
+  /** Once the pass can join: the camera's preview, where the station has video on. Not while the
+   *  show's step keeps the seat off (ADR-0271): nobody is asked for a camera they cannot use yet. */
+  async function prepare() {
+    if (info && !info.ended && !info.not_now && !previewing) {
+      checkingVideo = true;
       // The player's public figures say whether video is on; unknown means no preview.
       const videoOn = (await api.player().catch(() => null))?.video != null;
       if (wantsCameraPreview(info.role, videoOn)) {
@@ -49,7 +56,7 @@
       }
     }
     checkingVideo = false;
-  });
+  }
   onDestroy(() => preview.stop());
 
   const as: Record<string, string> = { guest: 'as a guest', dj: 'as a remote DJ', presenter: 'to present' };
@@ -59,6 +66,22 @@
     dj: "You join off air and hear the show. You go on air when the presenter hands over to you; your page says when.",
   };
   const until = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // The show on air may run at a step that has switched this seat off (ADR-0271): the page says
+  // so in the station's sentence, and the link stays good for later, so it can look again.
+  let looking = $state(false);
+  async function lookAgain() {
+    looking = true;
+    try {
+      info = await api.passInfo(pass);
+      if (info.ended) problem = 'The studio has ended this invitation. Ask the station for a new link.';
+      await prepare();
+    } catch (e) {
+      problem = e instanceof Error ? e.message : String(e);
+    } finally {
+      looking = false;
+    }
+  }
 
   async function join() {
     joining = true;
@@ -94,7 +117,8 @@
           <span class="caps">Invitation</span>
           <h1 id="join-h">Join {info.show || info.station} {as[info.role] ?? ''}</h1>
           {#if info.name}<p>Joining as <b>{info.name}</b></p>{/if}
-          <p class="small">{what[info.role] ?? ''}</p>
+          <!-- What joining does is said once the seat is open: not beside "Not just now". -->
+          {#if !info.not_now}<p class="small">{what[info.role] ?? ''}</p>{/if}
           <p class="small">This link works until {until(info.expires_at_ms)}, and only for you: don't share it.</p>
         {:else if !problem}
           <h1 id="join-h">Opening your invitation…</h1>
@@ -104,7 +128,13 @@
         {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
       </section>
 
-      {#if info && !info.ended}
+      {#if info && !info.ended && info.not_now}
+        <section class="card" aria-labelledby="notnow-h">
+          <h2 id="notnow-h">Not just now</h2>
+          <p role="status">{info.not_now}</p>
+          <button type="button" class="btn wide" disabled={looking} aria-busy={looking || undefined} onclick={lookAgain}>{looking ? 'Looking…' : 'Look again'}</button>
+        </section>
+      {:else if info && !info.ended}
         <section class="card" aria-label="Before you join">
           <MicCheck />
           {#if previewing}<CameraCheck {preview} />{/if}

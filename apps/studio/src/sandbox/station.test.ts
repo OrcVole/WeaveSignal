@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The sandbox's simulated station (ADR-0212): commands in, the view out, by the control
-// plane's rules (crates/control/src/studio.rs).
+// plane's rules (crates/control/src/studio.rs), the show's step among them (ADR-0271,
+// crates/control/src/steps.rs), so the sandbox cannot teach a desk the product would refuse.
 import { describe, expect, it } from 'vitest';
-import { catalogueFrom, Refusal, Station, type PackCart } from './station.ts';
+import { catalogueFor, catalogueFrom, hiddenSeat, INVITE_TO_JOIN_MS, OTHER_SHOW, Refusal, Station, type PackCart } from './station.ts';
 import { SHOW } from './scenarios/show.ts';
+import { scenarioFor } from './scenarios/index.ts';
+import { STEPS } from '../lib/steps.ts';
 import pack from '../../../../assets/carts-demo/carts.json';
 
 const cat = catalogueFrom(pack as { banks: Record<string, string>; carts: PackCart[] });
@@ -192,5 +195,176 @@ describe('the sandbox station', () => {
     ]);
     run(s, T0 + 200, T0 + 5_000);
     expect(s.view(T0 + 5_000).carts.sounding.map((x) => x.cart)).toEqual(['bed-2']);
+  });
+
+  // ---- the show's step (ADR-0271): the same rules as the control plane's steps.rs ----
+
+  const at = (id: string) => new Station(T0, cat, scenarioFor(id));
+
+  it('carries the step in its view, with the scenario’s show on air and nothing counted for the chat', () => {
+    const v = at('mic').view(T0);
+    expect(v.step).toEqual({ step: 'solo', show: { slug: 'the-morning-kettle', name: 'The Morning Kettle' }, on_air: true, next: null, may_change: true });
+    expect(v.chat.held).toBeNull();
+    expect(v.chat.open_reports).toBeNull();
+    expect(at('show').view(T0).step.step).toBe('full');
+  });
+
+  it('closes call-in below Callers: nobody can join the queue', () => {
+    // The same people at each step: only the step decides whether Niall can ring.
+    for (const step of ['solo', 'guests'] as const) {
+      const closed = new Station(T0, cat, { ...scenarioFor('alone'), step });
+      closed.arrive('niall', T0);
+      expect(closed.view(T0).callers, step).toHaveLength(0);
+      expect(closed.person('niall'), step).toBeUndefined();
+    }
+    const callers = at('alone');
+    callers.arrive('niall', T0);
+    expect(callers.view(T0).callers.map((c) => c.identity)).toEqual(['niall']);
+  });
+
+  it('refuses an invitation to a seat the step hides, in the station’s own words', () => {
+    const refusal = (s: Station, body: object): [number, string] | null => {
+      try {
+        s.makeInvite(body, T0);
+        return null;
+      } catch (e) {
+        if (e instanceof Refusal) return [e.status, e.message];
+        throw e;
+      }
+    };
+    const solo = at('mic');
+    expect(refusal(solo, { role: 'guest', name: 'Gregor Stewart' })).toEqual([422, 'This show runs at Solo, so it has no seat for a guest or a second presenter. They come with Guests.']);
+    expect(refusal(solo, { role: 'presenter', name: 'Shona Campbell' })).toEqual([422, 'This show runs at Solo, so it has no seat for a guest or a second presenter. They come with Guests.']);
+    expect(refusal(solo, { role: 'dj', name: 'Finlay Grant' })).toEqual([422, "An invitation for the next show's DJ comes with Full."]);
+    const guests = at('guest');
+    expect(refusal(guests, { role: 'guest', name: 'Gregor Stewart' })).toBeNull();
+    expect(refusal(guests, { role: 'dj', name: 'Finlay Grant' })).toEqual([422, "An invitation for the next show's DJ comes with Full."]);
+    expect(refusal(at('alone'), { role: 'dj', name: 'Finlay Grant' })?.[0]).toBe(422);
+    expect(refusal(at('next-dj'), { role: 'dj', name: 'Finlay Grant' })).toBeNull();
+    // A role must be named, unless the invitation is for yourself.
+    expect(refusal(guests, { name: 'Gregor Stewart' })?.[0]).toBe(422);
+    // The seats table, as steps.rs has it.
+    expect(STEPS.map((s) => hiddenSeat(s, 'presenter', true))).toEqual([null, null, null, null]);
+    expect(STEPS.map((s) => hiddenSeat(s, 'guest') === null)).toEqual([false, true, true, true]);
+    expect(STEPS.map((s) => hiddenSeat(s, 'caller') === null)).toEqual([false, false, true, true]);
+    expect(STEPS.map((s) => hiddenSeat(s, 'dj') === null)).toEqual([false, false, false, true]);
+    expect(STEPS.map((s) => hiddenSeat(s, 'screener') === null)).toEqual([false, false, false, true]);
+  });
+
+  it('makes the Solo DJ’s own link at every step: a presenter’s, for the chair you sit in', () => {
+    for (const id of ['mic', 'guest', 'alone', 'show']) {
+      const inv = at(id).makeInvite({ for_me: true }, T0);
+      expect(inv, id).toMatchObject({ role: 'presenter', identity: 'presenter-me-eilidh', name: 'Eilidh Fraser-MacLeod', expires_at_ms: T0 + 4 * 3600_000 });
+      expect(inv.link).toBe(`/join/#${inv.pass}`);
+    }
+    expect(() => at('mic').makeInvite({ for_me: true, role: 'guest' }, T0)).toThrow(/an invitation for yourself is a presenter's/);
+  });
+
+  it('checks a pass again when it is used: an invited guest stays out once the step has hidden the seat', () => {
+    const s = at('guest');
+    s.makeInvite({ role: 'guest', name: 'Gregor Stewart' }, T0);
+    s.setStep('the-morning-kettle', 'solo', T0 + 1_000);
+    s.tick(T0 + INVITE_TO_JOIN_MS + 500);
+    expect(s.person('gregor')).toBeUndefined();
+    // At Guests he joins from the same kind of invitation, on air at once.
+    const g = at('guest');
+    g.makeInvite({ role: 'guest', name: 'Gregor Stewart' }, T0);
+    g.tick(T0 + INVITE_TO_JOIN_MS + 500);
+    expect(g.person('gregor')).toMatchObject({ role: 'guest', on_air: true });
+    expect(g.view(T0 + INVITE_TO_JOIN_MS + 500).sources.find((x) => x.identity === 'gregor')?.slot).toBe(2);
+  });
+
+  it('refuses Dump below Callers, the handover below Full and the picture below Full, each with its sentence', () => {
+    const says = (s: Station, c: Parameters<Station['desk']>[0]): [number, string] | null => {
+      try {
+        s.desk(c, T0);
+        return null;
+      } catch (e) {
+        if (e instanceof Refusal) return [e.status, e.message];
+        throw e;
+      }
+    };
+    expect(says(at('mic'), { op: 'dump' })).toEqual([409, 'Dump is off at Solo: there is nothing for it to do. It comes on at Callers.']);
+    expect(says(at('guest'), { op: 'dump' })).toEqual([409, 'Dump is off at Guests: there is nothing for it to do. It comes on at Callers.']);
+    expect(says(at('alone'), { op: 'dump' })).toBeNull();
+    expect(says(at('mic'), { op: 'picture', mode: 'slate' })).toEqual([409, 'The picture is held on the slate at Solo: switching it comes with Full.']);
+    // The handover is the next DJ going on air: a DJ left in the room below Full cannot be put on.
+    const s = at('handover');
+    expect(says(s, { op: 'on_air', identity: 'finlay', on: true })).toBeNull();
+    s.desk({ op: 'on_air', identity: 'finlay', on: false }, T0);
+    s.setStep('the-morning-kettle', 'callers', T0);
+    expect(says(s, { op: 'on_air', identity: 'finlay', on: true })).toEqual([409, 'The handover is off at Callers: it comes on at Full.']);
+    // He is still in the room: a step closes doors, it never hides people.
+    expect(s.person('finlay')).toBeDefined();
+    expect(says(s, { op: 'cue', identity: 'finlay', on: true })).toBeNull();
+  });
+
+  it('a step moved down lets the waiting go and keeps whoever holds the strip; moved up, the lines open at once', () => {
+    const s = at('alone');
+    s.arrive('niall', T0);
+    s.arrive('jessie', T0 + 1_000);
+    s.screener({ op: 'send', identity: 'niall' }, T0 + 2_000);
+    expect(s.view(T0 + 2_000).sources.find((x) => x.identity === 'niall')?.slot).toBe(4);
+    const changed = s.setStep('the-morning-kettle', 'guests', T0 + 3_000);
+    expect(changed).toMatchObject({ show: 'the-morning-kettle', name: 'The Morning Kettle', step: 'guests', previous: 'callers', station: { step: 'guests', may_change: true } });
+    const v = s.view(T0 + 3_000);
+    expect(v.callers.map((c) => c.identity)).toEqual(['niall']);
+    expect(s.released).toEqual(['jessie']);
+    expect(s.person('jessie')).toBeUndefined();
+    expect(v.sources.find((x) => x.identity === 'niall')?.slot).toBe(4);
+    // Every window is told who moved it.
+    expect(v.notices.at(-1)).toMatchObject({ surface: 'desk', kind: 'step.moved', title: 'Eilidh moved The Morning Kettle to Guests.' });
+    // The lines are closed now, and open again at once when the step rises.
+    s.arrive('jessie', T0 + 4_000);
+    expect(s.callerState('jessie')).toBeNull();
+    s.setStep('the-morning-kettle', 'callers', T0 + 5_000);
+    s.arrive('jessie', T0 + 6_000);
+    expect(s.callerState('jessie')).toBe('waiting');
+    // The same step again changes nothing and tells nobody.
+    const before = s.view(T0 + 6_000).notices.length;
+    expect(s.setStep('the-morning-kettle', 'callers', T0 + 7_000).previous).toBe('callers');
+    expect(s.view(T0 + 7_000).notices.length).toBe(before);
+  });
+
+  it('answers an unknown show or an unknown step as the route does', () => {
+    const s = at('mic');
+    expect(() => s.setStep('steeped', 'guests', T0)).toThrow(/no show `steeped`/);
+    expect(() => s.setStep('the-morning-kettle', 'telephony', T0)).toThrow(/step is `solo`, `guests`, `callers` or `full`/);
+    expect(s.view(T0).step.step).toBe('solo');
+  });
+});
+
+describe('the sandbox station’s cart wall per show (1.0.2)', () => {
+  it('holds The Morning Kettle’s own bank 1 beside the station’s four, as the API lists them', () => {
+    expect(cat.banks.map((b) => [b.number, b.show])).toEqual([
+      [1, 'the-morning-kettle'],
+      [2, null],
+      [3, null],
+      [4, null],
+      [5, null],
+    ]);
+    const station = catalogueFor(cat, null);
+    expect(station.banks.map((b) => b.number)).toEqual([2, 3, 4, 5]);
+    expect(station.carts.every((c) => c.show === null)).toBe(true);
+    const kettle = catalogueFor(cat, 'the-morning-kettle');
+    expect(kettle.show).toBe('the-morning-kettle');
+    expect(kettle.banks).toHaveLength(5);
+  });
+
+  it('fires a show’s own cart only in that show, and names what sounds', () => {
+    const s = new Station(T0, cat);
+    s.carts({ op: 'fire', cart: 'jingle-1' }, T0);
+    expect(s.view(T0).carts.sounding[0].label).toBe(cat.carts.find((c) => c.id === 'jingle-1')!.label);
+    const other = { ...cat, carts: cat.carts.map((c) => (c.id === 'bed-1' ? { ...c, show: 'steeped' } : c)) };
+    const t = new Station(T0, other);
+    let refused: unknown = null;
+    try {
+      t.carts({ op: 'fire', cart: 'bed-1' }, T0);
+    } catch (e) {
+      refused = e;
+    }
+    expect(refused).toBeInstanceOf(Refusal);
+    expect((refused as Refusal).status).toBe(409);
+    expect((refused as Refusal).message).toBe(OTHER_SHOW(other.carts.find((c) => c.id === 'bed-1')!.label));
   });
 });

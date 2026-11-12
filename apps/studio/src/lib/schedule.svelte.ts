@@ -14,7 +14,7 @@ import {
 } from '../schedule/model.ts';
 import type { Clock, Show, WeekEpisode, WeekHour } from './schedule.ts';
 
-export type Pane = 'episode' | 'card' | 'log' | 'new-show';
+export type Pane = 'episode' | 'card' | 'log' | 'new-show' | 'edit-show';
 
 export const sched = $state({
   /** The station's zone, from the control plane's publishing settings; UTC until it answers. */
@@ -35,6 +35,8 @@ export const sched = $state({
   /** The selected block's id. */
   selected: null as string | null,
   pane: 'episode' as Pane,
+  /** The show 'edit-show' opens: one with no weekly rule draws no block to open it from. */
+  editShow: null as string | null,
   view: 'week' as 'week' | 'studios',
   /** Bumped when the week should be fetched again (a save, a draft). */
   version: 0,

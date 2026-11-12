@@ -17,8 +17,9 @@ import { k, rundownAt, type Scenario, type Step } from './scenario.ts';
 export const NEXT_DJ: Scenario = {
   id: 'next-dj',
   title: 'Set up the next DJ',
-  blurb: 'The next show is another DJ’s: make them an invite from the desk, hear their level in your headphones, agree the handover off air.',
+  blurb: 'The next show is another DJ’s: make them an invitation from the desk, hear their level in your headphones, agree the handover off air.',
   minutes: 3,
+  step: 'full',
   learn: [
     'Before the day: both shows are in the schedule back to back, each with its DJ’s name and takedown contact, so the call page’s words change at the post by themselves. That is the Schedule tab of a real station; the sandbox has none.',
     'The next DJ joins early, from an invitation you create at the desk: Invite someone…, beside Not on air, with the role DJ. A DJ arrives off air, on strip 5; a guest or a presenter would be on air the moment they joined.',
@@ -86,7 +87,7 @@ export const NEXT_DJ: Scenario = {
     ];
   },
   did: () => [
-    'You made Finlay an invite at the desk with the role DJ; he joined off air on strip 5, and listeners heard nothing of him.',
+    'You made Finlay an invitation at the desk with the role DJ; he joined off air on strip 5, and listeners heard nothing of him.',
     'You cued him to hear his level, and agreed the handover with him off air.',
     'He stands by for the post. Hand over to the next DJ is the scenario that follows: bringing him on and leaving him the air.',
   ],

@@ -16,7 +16,7 @@ It takes about twenty minutes once the images are built.
 > **What this stack is.** It is a test stack, built from the repository, not a station.
 > The people are synthetic: each sends a quiet noise at its own level, so their meters move but there is nothing to listen to.
 > The studio app runs as a web page in your browser; it shows the desk and sends your keys, and carries no audio itself.
-> A show with real voices joins through the invite page or the player's call-in ([The public pages](/docs/reference/public-pages/)); this stack does not serve them.
+> A show with real voices joins through the invitation page or the player's call-in ([The public pages](/docs/reference/public-pages/)); this stack does not serve them.
 > To run a real station, install the published server image with [`weavesignal.sh`](/docs/how-to/install-with-weavesignal-sh/) and the published studio app ([on Linux](/docs/how-to/install-studio-linux/), [on Windows](/docs/how-to/install-studio-windows/)) instead.
 
 ## Before you start

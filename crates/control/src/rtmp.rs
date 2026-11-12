@@ -119,34 +119,65 @@ pub struct Platform {
     pub where_to_find: &'static str,
 }
 
-pub const PLATFORMS: [Platform; 4] = [
+// What each platform takes was checked on 2026-11-11 (research recce 30 and the 1.0.1 test run);
+// re-check before each release. "compatible" is H.264 and AAC, which every platform here takes;
+// "open" is AV1 and Opus over Enhanced RTMP, which only some take, and the hint says so.
+pub const PLATFORMS: [Platform; 8] = [
+    Platform {
+        platform: "youtube",
+        name: "YouTube",
+        url: "rtmps://a.rtmps.youtube.com:443/live2",
+        profile: "compatible",
+        where_to_find: "YouTube Studio: Create, Go live, Stream: the Stream URL and the Stream key. YouTube takes AV1 video over Enhanced RTMP, but its RTMP ingest is reported to take AAC sound only, not Opus, so Open (AV1 and Opus) is likely refused: keep Compatible until there is an AV1-and-AAC profile. YouTube re-encodes every stream; 1440p gets viewers its better VP9 or AV1 copies.",
+    },
+    Platform {
+        platform: "owncast",
+        name: "Owncast",
+        url: "rtmp://owncast.example:1935/live",
+        profile: "compatible",
+        where_to_find: "Owncast's admin: Server Setup, Stream Keys, for the key; the server is your Owncast's address with its RTMP port (on Cloudron, the app's RTMP port). Owncast takes H.264 and AAC only: keep Compatible (it refuses Open).",
+    },
+    Platform {
+        platform: "x",
+        name: "X",
+        url: "",
+        profile: "compatible",
+        where_to_find: "X (Premium needed): Creator Studio, Live Studio (once Media Studio Producer), New Livestream, an RTMP source in your region: its RTMPS URL and stream key. Then start the broadcast on X. X takes H.264 and AAC: keep Compatible.",
+    },
+    Platform {
+        platform: "gab",
+        name: "Gab",
+        url: "",
+        profile: "compatible",
+        where_to_find: "Gab (GabPRO needed): Live, Go Live Now, OBS / External Encoder: the server URL and the stream key. Keep Compatible (Gab names OBS's usual H.264 and AAC).",
+    },
     Platform {
         platform: "rumble",
         name: "Rumble",
         url: "rtmp://rtmp.rumble.com/live",
         profile: "compatible",
-        where_to_find: "Rumble: Go Live, then Get the Streamer Configuration: the Server URL and the Stream Key.",
+        where_to_find: "Rumble: Go Live, then Get the Streamer Configuration: the Server URL and the Stream Key. Keep Compatible.",
     },
     Platform {
         platform: "odysee",
         name: "Odysee",
         url: "rtmp://publish.odysee.live/live",
         profile: "compatible",
-        where_to_find: "Odysee: Go Live, your livestream, RTMP Setup: the Server URL and the Stream Key.",
+        where_to_find: "Odysee: Go Live, your livestream, RTMP Setup: the Server URL and the Stream Key. Keep Compatible.",
     },
     Platform {
         platform: "peertube",
         name: "PeerTube",
         url: "rtmp://your-instance.example:1935/live",
         profile: "compatible",
-        where_to_find: "PeerTube: Publish, Go live, then the live's page: the Live RTMP Url (or RTMPS Url, port 1936) and the Live stream key.",
+        where_to_find: "PeerTube: Publish, Go live, then the live's page: the Live RTMP Url (or RTMPS Url, port 1936) and the Live stream key. Keep Compatible unless your instance says it takes AV1.",
     },
     Platform {
         platform: "custom",
         name: "Another RTMP server",
         url: "rtmp://server.example/live",
         profile: "compatible",
-        where_to_find: "Your server's documentation: an rtmp:// or rtmps:// URL and a stream key.",
+        where_to_find: "Your server's documentation: an rtmp:// or rtmps:// URL and a stream key. Choose Open (AV1 and Opus) only if it says it takes Enhanced RTMP.",
     },
 ];
 
@@ -782,6 +813,21 @@ mod tests {
         assert!(check_name("a/b").is_err() && check_name("").is_err());
         assert!(check_profile("open").is_ok() && check_profile("h264").is_err());
         assert!(check_platform("peertube").is_ok() && check_platform("twitch").is_err());
+    }
+
+    #[test]
+    fn every_platform_defaults_to_compatible_and_its_hint_names_the_profile() {
+        assert!(PLATFORMS.iter().any(|p| p.platform == "youtube"));
+        for p in PLATFORMS {
+            assert_eq!(p.profile, "compatible", "{}", p.platform);
+            assert!(
+                p.where_to_find.contains("Compatible") || p.where_to_find.contains("Open"),
+                "{} says which profile to use",
+                p.platform
+            );
+        }
+        let yt = PLATFORMS.iter().find(|p| p.platform == "youtube").unwrap();
+        assert!(yt.where_to_find.contains("Open") && check_url(yt.url).is_ok());
     }
 
     #[test]

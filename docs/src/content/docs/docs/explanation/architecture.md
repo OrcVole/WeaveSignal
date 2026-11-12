@@ -58,7 +58,7 @@ It is why the desk holds its receive jitter buffer at 50 ms rather than LiveKit'
 **Listeners** can be seconds behind, and they are.
 The listener server keeps about 12 s of the stream in hand for each new listener, so a player starts at once and rides out a poor network; the profanity delay adds its own length on top.
 The rehearsals of October 2026 measured 12 to 23 s; this release does not measure the delay itself.
-The studio app's clock shows *Listeners hear* from a setting (`studio.listener_delay_ms`, 15 s by default), so set it to what your station measures.
+The studio app's clock shows *Listeners hear* from a setting (`studio.listener_delay_ms`, 13 s by default), so set it to what your station measures.
 
 The programme passes through playout, an encoder and a listener server built for buffering, so any ordinary player and any stream directory can take it.
 Making the listener stream "real time" would buy nothing a listener can notice and lose that compatibility.

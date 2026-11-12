@@ -15,11 +15,14 @@
   const clock = setInterval(() => (now = Date.now()), 500);
   onDestroy(() => clearInterval(clock));
 
-  const b = $derived(banner(call.role, call.me, call.link, now, call.heldUntil));
+  const b = $derived(banner(call.role, call.me, call.link, now, call.heldUntil, call.joined.name));
   const filled = $derived(b.tone === 'onair' || b.tone === 'open' || b.tone === 'cue' || b.tone === 'talk');
   const line = $derived(showLine(call.me));
   const live = $derived(call.me?.show_on_air ?? false);
-  const ended = $derived(call.link === 'ended' || call.link === 'lost');
+  // A waiting caller let go because the lines closed (ADR-0271): the page is done, whatever the
+  // link is still doing, and the station's own refusal of their ended pass is not shown twice.
+  const released = $derived(call.role === 'caller' && !!call.me?.released);
+  const ended = $derived(call.link === 'ended' || call.link === 'lost' || released);
   // The microphone was refused before the page joined: say how to allow it, and try again.
   const noMic = $derived(call.link === 'no-mic');
 
@@ -110,7 +113,7 @@
     </div>
   {/if}
 
-  {#if call.problem}
+  {#if call.problem && !released}
     <p class="problem" role="alert">{call.problem}</p>
   {/if}
 
@@ -124,7 +127,7 @@
     <button type="button" class="btn danger-hollow wide" class:armed onclick={hangUp} aria-describedby={armed ? 'hangup-armed' : undefined}
       >{armed ? `Press again to ${leaveWord.toLowerCase()}` : leaveWord}</button
     >
-    {#if armed}<p id="hangup-armed" class="small" role="status">{call.role === 'caller' ? 'Your place in the queue goes when you hang up.' : 'You can rejoin from your invite link while it lasts.'}</p>{/if}
+    {#if armed}<p id="hangup-armed" class="small" role="status">{call.role === 'caller' ? 'Your place in the queue goes when you hang up.' : 'You can rejoin from your invitation link while it lasts.'}</p>{/if}
 
     <details class="trouble">
       <summary>Trouble hearing or being heard?</summary>

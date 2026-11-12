@@ -19,7 +19,7 @@ Every account has one role for the whole station: `admin`, `producer`, `presente
 
 | Who | Can do |
 |---|---|
-| any role | run the studio: the desk, the screener, the carts, the chat's modes and moderation, the schedule, shows and cards, invites |
+| any role | run the studio: the desk, the screener, the carts, the chat's modes and moderation, the schedule, shows and cards, invitations |
 | `admin` only | retention, holds and erasure; the people list; the chat's settings, exports and holds; playout's settings; listener monitors; the staff list; API tokens and webhooks |
 
 WeaveSignal 1.0 enforces those two tiers.

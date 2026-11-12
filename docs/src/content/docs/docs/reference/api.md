@@ -155,6 +155,22 @@ Request body: [OwnEmail](#schema-ownemail).
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### PUT /api/v1/sessions/me/mode
+
+**Prepare or go live**
+
+Needs: staff: any staff session, or the station key.
+
+Sets whether this session's window is preparing a show (ADR-0276). A preparing window can look at the live desk but not drive it: the desk's commands, the carts' commands, the screener's commands, ending a pass or the show, and the station's mode are refused (409) until it is live again. Everything about the person's own show stays open. A session starts live. Answers as `GET /api/v1/sessions/me` does. The station key is always live, and so is an API token: 422.
+
+Request body: [SetMode](#schema-setmode).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The bearer, as it is now. | [Me](#schema-me) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+
 ### POST /api/v1/sessions/me/password
 
 **Change your own password**
@@ -323,7 +339,7 @@ The desk's switches.
 
 Needs: staff: any staff session, or the station key; or an API token with `desk:control`.
 
-The same requests as the desk's control socket, without `status`: `on_air`, `mute`, `cue`, `talk`, `talk_to`, or `dump` the profanity delay. Answers with the new studio view. A caller cannot go on air or in cue without their consent to record on file (409).
+The same requests as the desk's control socket, without `status`: `on_air`, `mute`, `cue`, `talk`, `talk_to`, or `dump` the profanity delay. Answers with the new studio view. A caller cannot go on air or in cue without their consent to record on file (409). The show on air's step switches some off (409, ADR-0271): `dump` below `callers`, the handover (the next DJ going on air) and `picture` below `full`, where the picture is held on the slate.
 
 Request body: [DeskCommand](#schema-deskcommand).
 
@@ -334,6 +350,21 @@ Request body: [DeskCommand](#schema-deskcommand).
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/show/end
+
+**End the show**
+
+Needs: staff: any staff session, or the station key.
+
+Takes everyone off air (presenters, DJs, guests, callers; callers stay in the room and the queue), fades every cart, then hands the air to automation by setting the station's mode to `auto`. The switch waits for the profanity delay to play out, so the last words are heard; `automation_in_ms` says how long. If somebody has gone back on air by then the switch is skipped, and the studio gets a notice saying why. With no desk answering nothing is on air to take off, and the air still goes to automation. With no playout layer (`automation_in_ms` null) there is nothing to hand it to. Any staff member's, like the desk's own switches.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | What was done, and the new studio view. | [EndShowResult](#schema-endshowresult) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: screener
@@ -392,7 +423,7 @@ Request body: [EndPassRequest](#schema-endpassrequest).
 
 Needs: staff: any staff session, or the station key.
 
-A short-lived LiveKit token for one person, with their role in it for the desk to read. A `listener` token is a monitor that hears every return (ADR-0118): only an admin may ask for one (403 otherwise). A `caller` token records the caller's consent on the station's behalf, against the words the station shows now (`consent`).
+A short-lived LiveKit token for one person, with their role in it for the desk to read. A `listener` token is a monitor that hears every return (ADR-0118): only an admin may ask for one (403 otherwise). A `caller` token records the caller's consent on the station's behalf, against the words the station shows now (`consent`). A `guest`, `dj`, `screener` or `caller` token for a seat the show on air's step has switched off is refused (409, ADR-0271), unless that person is in the room already.
 
 Request body: [TokenRequest](#schema-tokenrequest).
 
@@ -407,22 +438,23 @@ Request body: [TokenRequest](#schema-tokenrequest).
 
 ## Routes: join
 
-Invites and the pass a guest, a remote DJ, a presenter or a caller joins by.
+Invitations and the pass a guest, a remote DJ, a presenter or a caller joins by.
 
 ### POST /api/v1/invites
 
-**An invite link**
+**An invitation link**
 
 Needs: staff: any staff session, or the station key.
 
-A link for a guest, a remote DJ or a presenter. A caller joins another way (422).
+A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link.
 
 Request body: [InviteRequest](#schema-inviterequest).
 
 | Status | Meaning | Body |
 |---|---|---|
-| 201 | The invite. | [Invite](#schema-invite) |
+| 201 | The invitation. | [Invite](#schema-invite) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
@@ -432,7 +464,7 @@ Request body: [InviteRequest](#schema-inviterequest).
 
 Needs: a pass, as the bearer.
 
-The pass is the bearer: from an invite's link or a call-in. Says who it is for and whether the studio has ended it.
+The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -477,12 +509,13 @@ A caller's call ends: out of the queue and the room, no held place. For anyone e
 
 Needs: a pass, as the bearer.
 
-Signs a token for the person's room: a caller's booth, or the studio. 410 when the studio has ended the pass or no longer has the call on file.
+Signs a token for the person's room: a caller's booth, or the studio. 410 when the studio has ended the pass or no longer has the call on file, or when the lines have closed on a caller. 409 when the show on air runs at a step that has switched this seat off (ADR-0271): the sentence says so, and the pass stays good for later. Someone already in the room is never refused.
 
 | Status | Meaning | Body |
 |---|---|---|
 | 201 | The pass and the token. | [Joined](#schema-joined) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 410 | This link has expired, or the studio has ended it. | [Problem](#schema-problem) |
 | 500 | The token could not be signed. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
@@ -518,7 +551,11 @@ The cart wall.
 
 Needs: staff: any staff session, or the station key; or an API token with `carts:read`.
 
-Each cart with FILE MISSING. Fetch it again when the studio view's `carts.version` moves.
+The station's banks and carts, which every show shares, and with `show` that show's own beside them (each owner's banks are numbered 1 to 5 apart; a bank or cart names its show, or `null` for the station's). A studio window asks for its show: a live window the show the station's step comes from, a preparing window the show it prepares. Each cart with FILE MISSING. Fetch it again when the studio view's `carts.version` moves.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | query | string | no | A show's slug: its own banks and carts come beside the station's. Left out, the station's alone. |
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -529,11 +566,11 @@ Each cart with FILE MISSING. Fetch it again when the studio view's `carts.versio
 
 ### PUT /api/v1/carts/banks/{bank}/slots/{slot}
 
-**Put an audio file in a slot**
+**Put an audio file in a station slot**
 
 Needs: staff: any staff session, or the station key; or an API token with `carts:write`.
 
-An audio file as the body, the cart's words in the query. The media worker reads it in its sandbox, brings it to the station's loudness and makes it the cart in that slot.
+An audio file as the body, the cart's words in the query. The media worker reads it in its sandbox, brings it to the station's loudness and makes it the cart in that slot of the station's bank.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -563,7 +600,7 @@ Request body (`application/octet-stream`): [File](#schema-file). The audio file 
 
 ### DELETE /api/v1/carts/banks/{bank}/slots/{slot}
 
-**Empty a slot**
+**Empty a station slot**
 
 Needs: staff: any staff session, or the station key; or an API token with `carts:write`.
 
@@ -574,7 +611,7 @@ Needs: staff: any staff session, or the station key; or an API token with `carts
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The new catalogue. | [Catalogue](#schema-catalogue) |
+| 200 | The station's catalogue. | [Catalogue](#schema-catalogue) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 404 | There is no such thing. | [Problem](#schema-problem) |
@@ -585,19 +622,21 @@ Needs: staff: any staff session, or the station key; or an API token with `carts
 
 ### PUT /api/v1/carts/banks/{number}
 
-**Make or rename a bank**
+**Make or rename a station bank**
 
 Needs: staff: any staff session, or the station key; or an API token with `carts:write`.
 
+A bank of the station's, shared by every show. A show's own banks are `/api/v1/shows/{show}/carts/banks/{number}`. Answers with the station's catalogue.
+
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
-| `number` | path | integer (int32) | yes | The bank's number |
+| `number` | path | integer (int32) | yes | The bank's number, 1 to 5 |
 
 Request body: [BankRequest](#schema-bankrequest).
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The new catalogue. | [Catalogue](#schema-catalogue) |
+| 200 | The station's catalogue. | [Catalogue](#schema-catalogue) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
@@ -611,7 +650,7 @@ Request body: [BankRequest](#schema-bankrequest).
 
 Needs: staff: any staff session, or the station key; or an API token with `carts:fire`.
 
-`toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue`. Carts sound in the desk (ADR-0117). Answers with the new studio view.
+`toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue`. Carts sound in the desk (ADR-0117). A cart in a show's own bank starts only while that show is the one the station's step comes from (409 otherwise); anything sounding can be stopped. Answers with the new studio view.
 
 Request body: [CartCommand](#schema-cartcommand).
 
@@ -626,6 +665,109 @@ Request body: [CartCommand](#schema-cartcommand).
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
 | 500 | The cart wall failed. | [Problem](#schema-problem) |
 | 502 | The desk refused the command. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}
+
+**Put an audio file in a show's slot**
+
+Needs: staff: any staff session, or the station key.
+
+As `PUT /api/v1/carts/banks/{bank}/slots/{slot}`, into the show's own bank. Who may: as for the show's banks.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `bank` | path | integer (int32) | yes | The bank's number |
+| `slot` | path | integer (int32) | yes | The slot in the bank |
+| `label` | query | string | yes |  |
+| `detail` | query | string | no |  |
+| `mode` | query | [CartMode](#schema-cartmode) | yes |  |
+| `ramp_ms` | query | integer (int32) | no |  |
+| `origin` | query | string | no |  |
+| `licence` | query | string | no |  |
+
+Request body (`application/octet-stream`): [File](#schema-file). The audio file (any format the media worker reads), at most `carts.max_upload_mb`.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The cart. | [Cart](#schema-cart) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 413 | The file is larger than `carts.max_upload_mb`. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 500 | The cart wall failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}
+
+**Empty a show's slot**
+
+Needs: staff: any staff session, or the station key.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `bank` | path | integer (int32) | yes | The bank's number |
+| `slot` | path | integer (int32) | yes | The slot in the bank |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The station's catalogue and the show's. | [Catalogue](#schema-catalogue) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 500 | The cart wall failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/shows/{show}/carts/banks/{number}
+
+**Make or rename a show's own bank**
+
+Needs: staff: any staff session, or the station key.
+
+A bank of the show's own, beside the station's: numbered 1 to 5 apart from the station's, and changed without touching another show's or the station's. In that show's studio windows its bank takes the place of the station's bank of the same number. The station key, an admin, a producer or the show's presenter may, from a preparing window too; an API token never. Answers with the station's catalogue and the show's.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `number` | path | integer (int32) | yes | The bank's number, 1 to 5 |
+
+Request body: [BankRequest](#schema-bankrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The station's catalogue and the show's. | [Catalogue](#schema-catalogue) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 500 | The cart wall failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/shows/{show}/carts/banks/{number}
+
+**Remove a show's own bank**
+
+Needs: staff: any staff session, or the station key.
+
+Removes the bank with its carts and their files; a cart of it that is sounding is stopped. In the show's windows the station's bank of that number, if made, is back in its place. Who may: as for making it.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `number` | path | integer (int32) | yes | The bank's number, 1 to 5 |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The station's catalogue and the show's. | [Catalogue](#schema-catalogue) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 500 | The cart wall failed. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: shows
@@ -675,7 +817,7 @@ The show, resolved, and its series.
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine.
+Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -902,6 +1044,29 @@ Request body: [FilesInput](#schema-filesinput).
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
 | 500 | The database or the card renderer failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/shows/{show}/step
+
+**Change a show's step**
+
+Needs: staff: any staff session, or the station key.
+
+Changes only the show's step (`solo`, `guests`, `callers` or `full`, ADR-0271), for the studio's step dialog. An admin, a producer or the show's presenter may; an API token never. The change is logged with who made it and when, every studio window is told, and if the show is the one the station's step comes from, the change takes effect at once: below `callers` call-in closes and waiting callers are released; when it rises the lines open. A person already in the room is never removed. `station` is the station's step after the change.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+
+Request body: [StepBody](#schema-stepbody).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The change. | [StepChanged](#schema-stepchanged) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: cards
@@ -1318,6 +1483,23 @@ Mode, what is on air, dead air, whether the default loop plays (ADR-0130), autom
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/playout/mode
+
+**Hand the air to automation, or take it back**
+
+Needs: staff: any staff session, or the station key.
+
+Sets the station's mode (ADR-0045) without changing any other playout setting, and answers with the new studio view. Any staff member's: `PUT /api/v1/playout/settings` stays an admin's. Anyone on air at the desk is not taken off air; in `auto` the desk is simply not heard, and in `live` it is heard again at once. The change is immediate (profanity delay and all); End show (`POST /api/v1/show/end`) is the route that takes people off air and waits for the delay. 503 when the station has no playout layer.
+
+Request body: [ModeRequest](#schema-moderequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The new studio view. | [View](#schema-view) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 500 | The database refused. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ### GET /api/v1/playout/settings
@@ -2689,8 +2871,10 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `by_mount` | array of [MountCount](#schema-mountcount) | yes | The same by mount, most listeners first; empty while not counted. |
 | `edges` | boolean | yes | The station has edges or a CDN configured: steering has a pathway beside the origin, or `join.hls_url` points the player at another address. |
-| `listeners` | integer (int32), or null | no | Listeners connected to the station's stream now; `None` while not counted. |
+| `error` | string, or null | no | Why there is no count, in words the studio can show: the listener process does not answer, or the control plane has no playout layer to ask it. `None` while counted. |
+| `listeners` | integer (int32), or null | no | Listeners connected to the station's stream now, every mount together; `None` while not counted (see `error`). |
 
 ### Schema: AutodjStatus
 
@@ -2714,6 +2898,7 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 | `colour_slot` | integer (int32) | yes | 1 to `COLOUR_SLOTS`: the bank's (and its show's) colour. |
 | `name` | string | yes |  |
 | `number` | integer (int32) | yes | 1 to `BANKS`. |
+| `show` | string, or null | no | The show whose own bank this is, by its slug; `None` for the station's, which every show shares. |
 
 ### Schema: BankRequest
 
@@ -2842,6 +3027,7 @@ Documentation of the answers and bodies the handlers build from `serde_json::Val
 | `mode` | [CartMode](#schema-cartmode) | yes |  |
 | `origin` | string | yes | Where it came from: an uploaded file's name, or `demo:<id>`. |
 | `ramp_ms` | integer (int32), or null | no | Milliseconds to the first vocal, for the talk-up countdown. |
+| `show` | string, or null | no | The show whose bank holds it, by its slug; `None` for a station bank. |
 | `slot` | integer (int32) | yes | 1 to `SLOTS`. |
 | `true_peak_dbtp` | number (float), or null | no |  |
 
@@ -2909,13 +3095,14 @@ The cart wall in the studio's view (every change is an event); the banks and car
 
 ### Schema: Catalogue
 
-`GET /api/v1/carts`.
+`GET /api/v1/carts`: the station's banks, and with `?show=` that show's own beside them.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `banks` | array of [Bank](#schema-bank) | yes |  |
+| `banks` | array of [Bank](#schema-bank) | yes | The station's banks (`show` null) and the show's (`show` its slug), each numbered 1 to 5 apart. |
 | `carts` | array of [CatalogueCart](#schema-cataloguecart) | yes |  |
 | `loudness_lufs` | number (double) | yes | The loudness every cart is brought to, in LUFS. |
+| `show` | string, or null | no | The show whose own banks are here beside the station's, by its slug; `null`: the station's alone. |
 | `version` | integer (int64) | yes |  |
 
 ### Schema: CatalogueCart
@@ -2934,6 +3121,7 @@ The cart wall in the studio's view (every change is an event); the banks and car
 | `mode` | [CartMode](#schema-cartmode) | yes |  |
 | `origin` | string | yes | Where it came from: an uploaded file's name, or `demo:<id>`. |
 | `ramp_ms` | integer (int32), or null | no | Milliseconds to the first vocal, for the talk-up countdown. |
+| `show` | string, or null | no | The show whose bank holds it, by its slug; `None` for a station bank. |
 | `slot` | integer (int32) | yes | 1 to `SLOTS`. |
 | `true_peak_dbtp` | number (float), or null | no |  |
 | `missing` | boolean | yes |  |
@@ -3005,8 +3193,10 @@ One of:
 | `links_trusted` | boolean | yes |  |
 | `min_age_24h` | boolean | yes |  |
 | `slow` | boolean | yes |  |
+| `held` | integer (int32), or null | no | Messages held for a moderator (the chat service's queue); `None` when not counted. The desk's chat panel says when a moderator is needed (ADR-0274). |
 | `influx` | boolean | yes |  |
 | `influx_since_ms` | integer (int64), or null | no |  |
+| `open_reports` | integer (int32), or null | no | Open reports, notices and reviews waiting for a moderator; `None` when not counted. |
 
 ### Schema: Choice
 
@@ -3433,6 +3623,16 @@ What the control plane knows of one edge's health.
 |---|---|---|---|
 | `identity` | string | yes | The person whose pass ends. |
 
+### Schema: EndShowResult
+
+What End show did, and the view after it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `automation_in_ms` | integer (int64), or null | no | When the air goes to automation: `0` it already was there; a number of milliseconds is how long until the profanity delay has played out (the goodbye is not cut off) and the station is switched; `null` this station has no playout layer to hand the air to, so everyone is off air and nothing more happened. |
+| `off_air` | integer (int32) | yes | How many people and sources were taken off air. |
+| `view` | [View](#schema-view) | yes | The new studio view, as every command answers. |
+
 ### Schema: Episode
 
 | Field | Type | Needed | Meaning |
@@ -3680,8 +3880,9 @@ What the page explains but cannot change: the install's own settings, as this co
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `for_me` | boolean | no | A presenter's invitation for the signed-in account itself (ADR-0274): the Solo DJ's own microphone link, allowed at every step for the show's presenter. The name is the account's unless one is given, and the identity is the account's own, so the same link can be made again. Needs a staff session, not the station key. |
 | `name` | string | no |  |
-| `role` | [Role](#schema-role) | yes |  |
+| `role` | [Role](#schema-role), or null | no |  |
 | `ttl_s` | integer (int64), or null | no | Seconds; the station's `join.invite_ttl_s` when left out, and never more. |
 
 ### Schema: Joined
@@ -3740,12 +3941,15 @@ one of `warning`, `serious`
 
 ### Schema: ListenerDelay
 
-The listener delay the surfaces show: a setting until it is measured (ADR-0103), plus the profanity delay's current length (ADR-0165).
+The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read live, and the rest as the station's setting. What is read live is the profanity delay (the desk reports it) and what the listener process holds of playout's feed (its own `feed.buffer_length`). What is not: the listener process's mount holds back a fixed stretch before it serves listeners, and each listener's player buffers on top. No marker travels in the stream (a metadata change would chain the Ogg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a listener's ear; `measured` says whether there is one.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `measured` | boolean | yes | Always false in this build: nothing measures it yet, so the app labels it a setting. |
-| `ms` | integer (int64) | yes | The `studio.listener_delay_ms` setting plus how much the desk's profanity delay holds now. |
+| `desk_ms` | integer (int64) | yes | How much the desk's profanity delay holds now (read live from the desk), to 0.1 s. |
+| `measured` | boolean | yes | True only when no part of `ms` is a setting. Nothing measures the mount's hold or a player's buffer, so it is false in this build; the app words the figure as an estimate and names the parts that are read. |
+| `ms` | integer (int64) | yes | The total: `desk_ms` plus `process_ms` plus `rest_ms`. |
+| `process_ms` | integer (int64), or null | no | How much of playout's feed the listener process holds now (read live from it, to 0.1 s); `None` while it does not answer. |
+| `rest_ms` | integer (int64) | yes | The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own hold, playout and a listener's player. Never read. |
 
 ### Schema: ListenerHour
 
@@ -3834,6 +4038,7 @@ An item of the generated log.
 | `account` | [Account](#schema-account), or null | no |  |
 | `expires_ms` | integer (int64), or null | no |  |
 | `kind` | string | yes | `staff`, `station` (the station key) or `token`. |
+| `preparing` | boolean | yes | This window is preparing a show (ADR-0276): it cannot change what is on air. Always false for the station key and API tokens. |
 | `role` | [StaffRole](#schema-staffrole) | yes |  |
 
 ### Schema: Mode
@@ -3841,6 +4046,23 @@ An item of the generated log.
 A room-wide chat mode the screener switches with one key.
 
 one of `slow`, `hold_new`, `links_trusted`
+
+### Schema: ModeRequest
+
+The body of `POST /api/v1/playout/mode`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `mode` | [StationMode](#schema-stationmode) | yes | `auto`: automation holds the air and the desk never airs (the lamp says AUTO, ADR-0183). `live`: the desk first, automation on dead air. |
+
+### Schema: MountCount
+
+How many listeners one mount of the listener process has now.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `listeners` | integer (int32) | yes |  |
+| `mount` | string | yes | The mount's path as the listener process names it, such as `/programme.opus`. |
 
 ### Schema: NewAccount
 
@@ -3943,6 +4165,7 @@ What listeners are told is playing.
 | `identity` | string | yes |  |
 | `kind` | [PassKind](#schema-passkind) | yes |  |
 | `name` | string | yes |  |
+| `not_now` | string, or null | no | Why the pass cannot join the room now, in a sentence for its page, while the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later. `None` when it can join. |
 | `relay` | [RelayInfo](#schema-relayinfo) | yes |  |
 | `role` | [Role](#schema-role) | yes |  |
 | `show` | string | yes |  |
@@ -4549,6 +4772,12 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 |---|---|---|---|
 | `email` | any | yes |  |
 
+### Schema: SetMode
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `preparing` | boolean | yes | `true`: this window is preparing a show and cannot change what is on air. `false`: live. |
+
 ### Schema: SetPassword
 
 | Field | Type | Needed | Meaning |
@@ -4609,6 +4838,7 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 | `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218): the wizard's answers are its defaults. Cleared when the account goes. |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `slug` | string | yes |  |
+| `step` | [Step](#schema-step) | no | How much of the studio the show uses (ADR-0271). Shows that existed before steps are `full`; a new show starts at `solo`. |
 | `tags` | array of string | yes |  |
 
 ### Schema: ShowInput
@@ -4629,6 +4859,7 @@ A show as the studio app sends it; hosts by name.
 | `presenter` | string, or null | no | The presenter's on-air name (ADR-0214). Absent keeps what is stored; empty clears it. |
 | `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218). Absent keeps what is stored; `null` clears it. A member of staff who is not an admin may name only themselves. |
 | `slot` | [Slot](#schema-slot), or null | no |  |
+| `step` | [Step](#schema-step), or null | no |  |
 | `tags` | array of string | no |  |
 
 ### Schema: ShowView
@@ -4691,6 +4922,7 @@ One cart sounding, as the control plane keeps it.
 | `cart` | string (uuid) | yes |  |
 | `cue` | boolean | yes | Cued into the presenters' ears, not on air. |
 | `ends_ms` | integer (int64), or null | no |  |
+| `label` | string | yes | The cart's label, so a window whose banks do not hold it (another show's) can name it. |
 | `mode` | [CartMode](#schema-cartmode) | yes |  |
 | `play` | integer (int64) | yes | The desk's number for this play. |
 | `player` | integer (int32) | yes |  |
@@ -4777,6 +5009,64 @@ The steering manifest (HLS content steering): the keys are the specification's.
 | `RELOAD-URI` | string | yes |  |
 | `TTL` | integer (int32) | yes |  |
 | `VERSION` | integer (int32) | yes |  |
+
+### Schema: Step
+
+How much of the studio a show uses (ADR-0271): each step adds one kind of person. Whatever a step leaves out is switched off while the show is on air.
+
+one of `solo`, `guests`, `callers`, `full`
+
+### Schema: StepBody
+
+A show's new step.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `step` | [Step](#schema-step) | yes |  |
+
+### Schema: StepChanged
+
+The change, and the station's step now.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `previous` | [Step](#schema-step) | yes | What it was. |
+| `show` | string | yes | The show's path segment. |
+| `station` | [StepView](#schema-stepview) | yes | The station's step now: it moves with the show only when this show is the one the step comes from. |
+| `step` | [Step](#schema-step) | yes | The show's step now. |
+
+### Schema: StepNext
+
+The next show to start.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `slug` | string | yes |  |
+| `start_ms` | integer (int64) | yes | When it starts, in epoch milliseconds. |
+| `step` | [Step](#schema-step) | yes |  |
+
+### Schema: StepShow
+
+The show a step comes from.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `slug` | string | yes |  |
+
+### Schema: StepView
+
+The station's beginner step as the studio's windows see it (ADR-0271, ADR-0274).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `may_change` | boolean | yes | Whether the account asking may change the step: an admin, a producer or the show's presenter. Filled in for each request (the shared view says `false`). |
+| `next` | [StepNext](#schema-stepnext), or null | no |  |
+| `on_air` | boolean | yes | That show is on air now (false: it is the show last on air). |
+| `show` | [StepShow](#schema-stepshow), or null | no |  |
+| `step` | [Step](#schema-step) | yes | The step in force: the step of the show on air; between shows, of the show last on air; `full` when no show has ever been on air. |
 
 ### Schema: StillInfo
 
@@ -4931,6 +5221,7 @@ Where the player finds the HLS: `live` (AV1 with Opus) and `audio` (the same Opu
 | `show` | [StudioShow](#schema-studioshow) | yes |  |
 | `sources` | array of [Source](#schema-source) | yes | Slots 1 to 5 that hold a source, in slot order. |
 | `station` | string | yes |  |
+| `step` | [StepView](#schema-stepview) | yes | The station's beginner step (ADR-0271): what the studio shows and what is switched off. |
 
 ### Schema: Warning
 

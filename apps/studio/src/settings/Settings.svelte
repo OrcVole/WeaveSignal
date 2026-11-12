@@ -21,6 +21,7 @@
   import ChatPictures from './ChatPictures.svelte';
   import { sandboxed, type Me } from '../lib/api.ts';
   import { account } from '../lib/account.svelte.ts';
+  import { studio } from '../lib/studio.svelte.ts';
   import { isAdmin } from '../lib/account.ts';
   import {
     CUSTOM,
@@ -428,8 +429,15 @@
 <main class="settings" aria-labelledby="settings-h">
   <div class="inner">
     <header class="sh">
-      <h1 id="settings-h">Settings</h1>
-      <p class="lede">Station settings. Changes here apply to the whole station.</p>
+      <div>
+        <h1 id="settings-h">Settings</h1>
+        <p class="lede">Station settings. Changes here apply to the whole station.</p>
+      </div>
+      <!-- The way out (the 1.0.1 test run: "we struggled to get out of the settings section"): the
+           tabs above leave Settings too, but nothing on the page said so. -->
+      <button type="button" class="btn back" onclick={() => (studio.settings = false)}
+        >Back to the {studio.tab === 'desk' ? 'desk' : studio.tab} <kbd>⌃{['desk', 'screener', 'carts', 'chat', 'schedule'].indexOf(studio.tab) + 1}</kbd></button
+      >
     </header>
 
     <!-- The studio app's own updates: for whoever runs this window, whatever their role. -->
@@ -881,8 +889,18 @@
     display: grid;
     gap: var(--s-4);
   }
+  .sh {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+  }
   .sh h1 {
     font-size: var(--fs-24);
+  }
+  .sh .back {
+    flex: none;
   }
   .lede {
     color: var(--ink-2);

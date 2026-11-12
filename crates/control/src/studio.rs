@@ -33,6 +33,8 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use weavesignal_model::shows::Step;
 use weavesignal_proto::Role;
 
 use crate::desk::{DeskDelay, DeskPerson, DeskStatus, PlayoutLink, StationMode};
@@ -238,6 +240,13 @@ pub struct Studio {
     /// Listeners connected now, from the listener process; `None` until counted, and while it
     /// does not answer (ADR-0046).
     listeners: Option<u32>,
+    /// Those listeners by mount, the busiest first; empty while not counted.
+    mounts: Vec<MountCount>,
+    /// Why the count is missing, in words, while `listeners` is `None`.
+    audience_error: Option<String>,
+    /// How much of playout's feed the listener process holds now, in ms: the part of the
+    /// listener delay that is read live; `None` while it does not answer.
+    feed_buffer_ms: Option<u64>,
     /// Whether the station has edges or a CDN configured (`steering.edges`, ADR-0017).
     edges: bool,
     /// The station's mode, from the playout settings (ADR-0045); `None` until read.
@@ -249,6 +258,13 @@ pub struct Studio {
     /// The listener stream is playing WeaveSignal's shipped default loop, because the station has
     /// no fallback files of its own yet (ADR-0130).
     default_fallback: bool,
+    /// The station's step (ADR-0271) and where it comes from.
+    step: StepState,
+    /// What waits for a moderator in the chat (ADR-0274); `None` until counted.
+    chat_counts: Option<weavesignal_model::chat::ModerationCounts>,
+    /// The picture mode the desk had before the slate was held below Full (the desk's
+    /// `desk.picture` mode as it reports it), to put back when the step returns to Full.
+    held_picture: Option<serde_json::Value>,
 }
 
 /// How long a dropped caller is not taken back from the desk's list, whatever it says (its
@@ -280,6 +296,8 @@ pub struct View {
     pub default_fallback: bool,
     /// Who is listening and what carries them (the desk's `desk.audience`).
     pub audience: AudienceView,
+    /// The station's beginner step (ADR-0271): what the studio shows and what is switched off.
+    pub step: StepView,
     /// The station's mode (ADR-0045): `live`, the desk first with automation on dead air, or
     /// `auto`, automation holding the air, where the master lamp is to say AUTO (ADR-0183).
     /// The playout setting the control plane holds playout to; `None` until it has been read
@@ -287,25 +305,61 @@ pub struct View {
     pub mode: Option<StationMode>,
 }
 
+/// How many listeners one mount of the listener process has now.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct MountCount {
+    /// The mount's path as the listener process names it, such as `/programme.opus`.
+    pub mount: String,
+    pub listeners: u32,
+}
+
 /// The audience as the app shows it, and the figures its CDN warning (ADR-0017) reads.
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct AudienceView {
-    /// Listeners connected to the station's stream now; `None` while not counted.
+    /// Listeners connected to the station's stream now, every mount together; `None` while
+    /// not counted (see `error`).
     pub listeners: Option<u32>,
+    /// The same by mount, most listeners first; empty while not counted.
+    pub by_mount: Vec<MountCount>,
+    /// Why there is no count, in words the studio can show: the listener process does not
+    /// answer, or the control plane has no playout layer to ask it. `None` while counted.
+    pub error: Option<String>,
     /// The station has edges or a CDN configured: steering has a pathway beside the origin, or
     /// `join.hls_url` points the player at another address.
     pub edges: bool,
 }
 
-/// The listener delay the surfaces show: a setting until it is measured (ADR-0103), plus the
-/// profanity delay's current length (ADR-0165).
+/// The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read
+/// live, and the rest as the station's setting.
+///
+/// What is read live is the profanity delay (the desk reports it) and what the listener process
+/// holds of playout's feed (its own `feed.buffer_length`). What is not: the listener
+/// process's mount holds back a fixed stretch before it serves listeners, and each listener's
+/// player buffers on top. No marker travels in the stream (a metadata change would chain the
+/// Ogg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a
+/// listener's ear; `measured` says whether there is one.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 pub struct ListenerDelay {
-    /// The `studio.listener_delay_ms` setting plus how much the desk's profanity delay holds now.
+    /// The total: `desk_ms` plus `process_ms` plus `rest_ms`.
     pub ms: u64,
-    /// Always false in this build: nothing measures it yet, so the app labels it a setting.
+    /// True only when no part of `ms` is a setting. Nothing measures the mount's hold or a
+    /// player's buffer, so it is false in this build; the app words the figure as an estimate
+    /// and names the parts that are read.
     pub measured: bool,
+    /// How much the desk's profanity delay holds now (read live from the desk), to 0.1 s.
+    pub desk_ms: u64,
+    /// How much of playout's feed the listener process holds now (read live from it, to
+    /// 0.1 s); `None` while it does not answer.
+    pub process_ms: Option<u64>,
+    /// The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own
+    /// hold, playout and a listener's player. Never read.
+    pub rest_ms: u64,
 }
+
+/// What the `studio.listener_delay_ms` setting is taken to include of the listener process's
+/// feed buffer (the 0.5 s default of `FEED_BUFFER_S`): when the live reading exists it replaces
+/// this share of the setting, so the buffer is counted once.
+const NOMINAL_FEED_BUFFER_MS: u64 = 500;
 
 #[derive(Clone, Debug, Serialize, PartialEq, utoipa::ToSchema)]
 #[schema(as = StudioShow)]
@@ -413,6 +467,95 @@ pub struct ChatView {
     pub modes: ChatModes,
     pub influx: bool,
     pub influx_since_ms: Option<u64>,
+    /// Messages held for a moderator (the chat service's queue); `None` when not counted. The
+    /// desk's chat panel says when a moderator is needed (ADR-0274).
+    pub held: Option<u32>,
+    /// Open reports, notices and reviews waiting for a moderator; `None` when not counted.
+    pub open_reports: Option<u32>,
+}
+
+/// The station's beginner step as the studio's windows see it (ADR-0271, ADR-0274).
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct StepView {
+    /// The step in force: the step of the show on air; between shows, of the show last on air;
+    /// `full` when no show has ever been on air.
+    pub step: Step,
+    /// The show the step comes from; `None` when no show has ever been on air.
+    pub show: Option<StepShow>,
+    /// That show is on air now (false: it is the show last on air).
+    pub on_air: bool,
+    /// The next show to start by the schedule, with its step.
+    pub next: Option<StepNext>,
+    /// Whether the account asking may change the step: an admin, a producer or the show's
+    /// presenter. Filled in for each request (the shared view says `false`).
+    pub may_change: bool,
+}
+
+impl Default for StepView {
+    fn default() -> Self {
+        StepView {
+            step: Step::Full,
+            show: None,
+            on_air: false,
+            next: None,
+            may_change: false,
+        }
+    }
+}
+
+/// The show a step comes from.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct StepShow {
+    pub slug: String,
+    pub name: String,
+}
+
+/// The next show to start.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct StepNext {
+    pub slug: String,
+    pub name: String,
+    /// When it starts, in epoch milliseconds.
+    pub start_ms: u64,
+    pub step: Step,
+}
+
+/// What the control plane reads from the schedule and the shows to know the step.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StepFacts {
+    pub view: StepView,
+    /// The id of the show the step comes from.
+    pub show_id: Option<Uuid>,
+    /// The staff account that presents that show, if it names one.
+    pub presenter_account: Option<Uuid>,
+}
+
+/// What the studio holds of the step: the view, and what the seat checks need beside it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct StepState {
+    view: StepView,
+    show_id: Option<Uuid>,
+    presenter_account: Option<Uuid>,
+    /// Why the last fall below Callers happened, for callers let go at later looks.
+    release_cause: Option<crate::steps::ReleaseCause>,
+}
+
+/// How the step moved when new facts came in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StepMove {
+    pub from: Step,
+    pub to: Step,
+    /// Another show now holds the step (a show took the air, or its time ended).
+    pub other_show: bool,
+    /// Anything the view carries changed.
+    pub changed: bool,
+}
+
+/// What the seat checks and the commands need to know of the step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StepPolicy {
+    pub step: Step,
+    pub presenter_account: Option<Uuid>,
 }
 
 fn preferred(role: Role) -> &'static [usize] {
@@ -430,7 +573,7 @@ impl Studio {
         Studio {
             show: show.to_owned(),
             rundown,
-            listener_delay_ms: 15_000,
+            listener_delay_ms: 13_000,
             ..Studio::default()
         }
     }
@@ -462,9 +605,136 @@ impl Studio {
         self.mode
     }
 
-    /// Listeners connected now (`None`: not counted). Returns whether the figure changed.
-    pub fn set_listeners(&mut self, n: Option<u32>) -> bool {
-        std::mem::replace(&mut self.listeners, n) != n
+    /// The count of listeners the listener process reports, by mount, or why there is none.
+    /// Returns whether anything the view shows changed.
+    pub fn set_audience(
+        &mut self,
+        counted: Option<Vec<MountCount>>,
+        error: Option<String>,
+    ) -> bool {
+        let (total, mut mounts) = match counted {
+            Some(m) => (Some(m.iter().map(|c| c.listeners).sum()), m),
+            None => (None, Vec::new()),
+        };
+        mounts.sort_by(|a, b| b.listeners.cmp(&a.listeners).then(a.mount.cmp(&b.mount)));
+        let error = if total.is_some() { None } else { error };
+        let changed =
+            self.listeners != total || self.mounts != mounts || self.audience_error != error;
+        self.listeners = total;
+        self.mounts = mounts;
+        self.audience_error = error;
+        changed
+    }
+
+    /// How much of playout's feed the listener process holds, in ms (`None`: it does not answer).
+    /// Shown to 0.1 s, and a move of under 0.2 s is not a change: the reading wobbles every poll,
+    /// and a change wakes every app that follows the view.
+    pub fn set_feed_buffer(&mut self, ms: Option<u64>) -> bool {
+        let ms = ms.map(|m| m / 100 * 100);
+        if let (Some(old), Some(new)) = (self.feed_buffer_ms, ms)
+            && old.abs_diff(new) < 200
+        {
+            return false;
+        }
+        std::mem::replace(&mut self.feed_buffer_ms, ms) != ms
+    }
+
+    /// Take the step the schedule and the shows give (ADR-0271); says how it moved.
+    pub fn set_step(&mut self, facts: StepFacts) -> StepMove {
+        let before = &self.step;
+        let mut view = facts.view;
+        // `may_change` is for each request to fill in.
+        view.may_change = false;
+        let mv = StepMove {
+            from: before.view.step,
+            to: view.step,
+            other_show: before.show_id != facts.show_id,
+            changed: before.view != view
+                || before.show_id != facts.show_id
+                || before.presenter_account != facts.presenter_account,
+        };
+        self.step = StepState {
+            view,
+            show_id: facts.show_id,
+            presenter_account: facts.presenter_account,
+            release_cause: self.step.release_cause,
+        };
+        mv
+    }
+
+    /// Keep why the step fell below Callers (for callers let go at later looks).
+    pub fn note_release_cause(&mut self, cause: crate::steps::ReleaseCause) {
+        self.step.release_cause = Some(cause);
+    }
+
+    /// Why the step last fell below Callers; `StepMovedDown` if it never did in this run.
+    pub fn release_cause(&self) -> crate::steps::ReleaseCause {
+        self.step
+            .release_cause
+            .unwrap_or(crate::steps::ReleaseCause::StepMovedDown)
+    }
+
+    /// The show the station's step comes from: the show on air, or between shows the show last
+    /// on air. Its own cart banks are the live studio's (1.0.2).
+    pub fn step_show(&self) -> Option<&StepShow> {
+        self.step.view.show.as_ref()
+    }
+
+    /// The step in force and who presents the show it comes from.
+    pub fn step_policy(&self) -> StepPolicy {
+        StepPolicy {
+            step: self.step.view.step,
+            presenter_account: self.step.presenter_account,
+        }
+    }
+
+    /// The callers a falling step lets go: everyone in the queue except those who hold the desk's
+    /// strip for callers or are in cue or on air (ADR-0271: a caller on strip 4 stays until
+    /// dropped). Includes callers whose link dropped and whose place is held.
+    pub fn releasable(&self, desk: Option<&DeskStatus>) -> Vec<String> {
+        let person = |id: &str| desk.and_then(|d| d.people.iter().find(|p| p.identity == id));
+        self.callers
+            .iter()
+            .filter(|c| {
+                self.slot_of(&c.identity).is_none()
+                    && !person(&c.identity).is_some_and(|p| p.on_air || p.cue)
+            })
+            .map(|c| c.identity.clone())
+            .collect()
+    }
+
+    /// What waits for a moderator, as counted; returns whether it changed.
+    pub fn set_chat_counts(
+        &mut self,
+        counts: Option<weavesignal_model::chat::ModerationCounts>,
+    ) -> bool {
+        std::mem::replace(&mut self.chat_counts, counts) != counts
+    }
+
+    /// Keep the picture mode the desk had when the slate was taken to hold it.
+    pub fn hold_picture(&mut self, mode: Option<serde_json::Value>) {
+        self.held_picture = mode;
+    }
+
+    /// The picture mode held for Full, if the slate is being held.
+    pub fn held_picture(&self) -> Option<&serde_json::Value> {
+        self.held_picture.as_ref()
+    }
+
+    /// Say that a show's step moved, and who moved it if that is known, for every window
+    /// (ADR-0271).
+    pub fn step_moved(&mut self, now: u64, who: Option<&str>, show: &str, step: Step) {
+        let title = match who {
+            Some(who) => format!("{who} moved {show} to {}.", step.word()),
+            None => format!("{show} moved to {}.", step.word()),
+        };
+        self.notice(
+            now,
+            (Surface::Desk, Tone::Good, "step.moved"),
+            None,
+            title,
+            String::new(),
+        );
     }
 
     /// A notice from playout (dead air, the logger) for the desk.
@@ -742,6 +1012,19 @@ impl Studio {
                 "`{id}` has no consent to record on file; a caller cannot go to the desk without it"
             )));
         }
+        // At Callers the desk has one strip for callers (ADR-0271): a second caller waits until
+        // the first is dropped or sent back. A caller the desk declined has left the strip.
+        if self.step.view.step == crate::steps::Step::Callers
+            && let Some(other) = self
+                .callers
+                .iter()
+                .find(|o| o.identity != id && o.state == CallerState::Ready && o.declined.is_none())
+        {
+            let name = self.short_name(&other.identity);
+            return Err(StudioError::NotNow(format!(
+                "At Callers the desk takes one caller at a time, and {name} is on the callers' strip. Drop them or send them back first, or move the show to Full."
+            )));
+        }
         let c = self.caller_mut(id)?;
         if c.dropped_ms.is_some() {
             return Err(StudioError::NotNow(format!(
@@ -906,6 +1189,27 @@ impl Studio {
 
     // ---- the view ----
 
+    /// The listener delay: the desk's profanity delay and the listener process's feed buffer as
+    /// read, and the rest of the path as the setting. When the buffer is read it replaces its
+    /// nominal share of the setting, so it is not counted twice.
+    fn listener_delay(&self, delay: Option<&crate::desk::DeskDelay>) -> ListenerDelay {
+        let desk_ms = delay.map_or(0, |x| u64::from(x.delay_ms / 100 * 100));
+        let process_ms = self.feed_buffer_ms;
+        let rest_ms = match process_ms {
+            Some(_) => self
+                .listener_delay_ms
+                .saturating_sub(NOMINAL_FEED_BUFFER_MS),
+            None => self.listener_delay_ms,
+        };
+        ListenerDelay {
+            ms: desk_ms + process_ms.unwrap_or(0) + rest_ms,
+            measured: false,
+            desk_ms,
+            process_ms,
+            rest_ms,
+        }
+    }
+
     pub fn view(
         &self,
         station: &str,
@@ -1039,23 +1343,22 @@ impl Studio {
                 modes: self.modes,
                 influx: self.before_influx.is_some(),
                 influx_since_ms: self.influx_since,
+                held: self.chat_counts.map(|c| c.held),
+                open_reports: self.chat_counts.map(|c| c.reports),
             },
             notices: self.notices.iter().cloned().collect(),
             carts: crate::carts::CartsView::default(),
             // The setting is the path beyond the desk; the profanity delay's current length is
             // added (ADR-0165), so a dump or a rebuild moves the figure too.
-            listener_delay: ListenerDelay {
-                ms: self.listener_delay_ms
-                    + d.delay
-                        .as_ref()
-                        .map_or(0, |x| u64::from(x.delay_ms / 100 * 100)),
-                measured: false,
-            },
+            listener_delay: self.listener_delay(d.delay.as_ref()),
             default_fallback: self.default_fallback,
             audience: AudienceView {
                 listeners: self.listeners,
+                by_mount: self.mounts.clone(),
+                error: self.audience_error.clone(),
                 edges: self.edges,
             },
+            step: self.step.view.clone(),
             mode: self.mode,
         }
     }
@@ -1065,6 +1368,13 @@ impl Studio {
 mod tests {
     use super::*;
 
+    fn mount(name: &str, n: u32) -> MountCount {
+        MountCount {
+            mount: name.into(),
+            listeners: n,
+        }
+    }
+
     #[test]
     fn the_view_carries_the_audience_for_the_apps_cdn_warning() {
         let mut s = Studio::default();
@@ -1073,27 +1383,104 @@ mod tests {
             v.audience,
             AudienceView {
                 listeners: None,
+                by_mount: vec![],
+                error: None,
                 edges: false
             }
         );
-        assert!(s.set_listeners(Some(612)), "a new figure is a change");
-        assert!(!s.set_listeners(Some(612)), "the same figure is not");
+        let counted = vec![mount("/programme.mp3", 112), mount("/programme.opus", 500)];
+        assert!(
+            s.set_audience(Some(counted.clone()), None),
+            "a new figure is a change"
+        );
+        assert!(
+            !s.set_audience(Some(counted), None),
+            "the same figure is not"
+        );
         s.set_edges(true);
         let v = s.view("", None, None, 0);
         assert_eq!(
             v.audience,
             AudienceView {
                 listeners: Some(612),
+                by_mount: vec![mount("/programme.opus", 500), mount("/programme.mp3", 112)],
+                error: None,
                 edges: true
-            }
+            },
+            "the total adds the mounts, the busiest first"
         );
-        assert!(s.set_listeners(None), "not counted is a change too");
-        assert_eq!(s.view("", None, None, 0).audience.listeners, None);
+        assert!(
+            s.set_audience(None, Some("the listener process does not answer".into())),
+            "not counted is a change too"
+        );
+        let v = s.view("", None, None, 0);
+        assert_eq!(v.audience.listeners, None);
+        assert!(v.audience.by_mount.is_empty(), "no stale mounts");
+        assert_eq!(
+            v.audience.error.as_deref(),
+            Some("the listener process does not answer")
+        );
         let json = serde_json::to_value(s.view("", None, None, 0)).unwrap();
         assert_eq!(
             json["audience"],
-            serde_json::json!({ "listeners": null, "edges": true })
+            serde_json::json!({
+                "listeners": null,
+                "by_mount": [],
+                "error": "the listener process does not answer",
+                "edges": true
+            })
         );
+        // A count wipes the reason.
+        s.set_audience(Some(vec![mount("/programme.opus", 0)]), Some("old".into()));
+        assert_eq!(s.view("", None, None, 0).audience.error, None);
+        assert_eq!(s.view("", None, None, 0).audience.listeners, Some(0));
+    }
+
+    #[test]
+    fn the_listener_delay_names_what_is_read_and_what_is_set() {
+        let mut s = Studio::new("Show", vec![]);
+        let delay = |ms| crate::desk::DeskDelay {
+            delay_ms: ms,
+            target_ms: 8_000,
+            rebuilding: false,
+            dumps: 0,
+            dumped_ms_ago: None,
+        };
+        // Nothing read from the listener process: the setting stands as it did, plus the desk.
+        let none = s.listener_delay(Some(&delay(8_040)));
+        assert_eq!(
+            none,
+            ListenerDelay {
+                ms: 21_000,
+                measured: false,
+                desk_ms: 8_000,
+                process_ms: None,
+                rest_ms: 13_000
+            }
+        );
+        // Its buffer read: it replaces the 0.5 s the setting is taken to hold, once.
+        assert!(s.set_feed_buffer(Some(3_270)));
+        assert!(
+            !s.set_feed_buffer(Some(3_310)),
+            "a wobble of a tenth is no change"
+        );
+        assert!(s.set_feed_buffer(Some(3_600)), "a move of 0.4 s is");
+        let read = s.listener_delay(Some(&delay(8_040)));
+        assert_eq!(read.process_ms, Some(3_600));
+        assert_eq!(read.rest_ms, 12_500);
+        assert_eq!(read.ms, 8_000 + 3_600 + 12_500);
+        assert_eq!(
+            read.ms,
+            read.desk_ms + read.process_ms.unwrap() + read.rest_ms
+        );
+        assert!(
+            !read.measured,
+            "the mount's hold and the player are never read"
+        );
+        // No desk: no profanity delay.
+        assert_eq!(s.listener_delay(None).desk_ms, 0);
+        assert!(s.set_feed_buffer(None));
+        assert_eq!(s.listener_delay(None).ms, 13_000);
     }
 
     #[test]
@@ -1336,6 +1723,37 @@ mod tests {
     }
 
     #[test]
+    fn at_callers_the_desk_takes_one_caller_at_a_time() {
+        use crate::steps::{Step, facts_from, test_show};
+        let mut s = Studio::new("", vec![]);
+        s.set_step(facts_from(
+            Some(&test_show(Step::Callers, None)),
+            true,
+            None,
+        ));
+        consented(&mut s, "niall");
+        consented(&mut s, "jessie");
+        let room = desk(vec![
+            person("eilidh", Role::Presenter),
+            person("niall", Role::Caller),
+            person("jessie", Role::Caller),
+        ]);
+        s.sync(&room, 0);
+        s.send("niall", 1).unwrap();
+        let err = s.send("jessie", 2).unwrap_err();
+        assert!(
+            matches!(&err, StudioError::NotNow(m) if m.contains("one caller at a time")),
+            "{err}"
+        );
+        s.decline("niall", "", 3).unwrap();
+        s.send("jessie", 4)
+            .expect("a declined caller has left the strip");
+        s.set_step(facts_from(Some(&test_show(Step::Full, None)), true, None));
+        s.send("niall", 5)
+            .expect("at Full the screener may send more");
+    }
+
+    #[test]
     fn a_decline_is_desk_busy_until_sent_again() {
         let mut s = Studio::new("", vec![]);
         consented(&mut s, "niall");
@@ -1534,5 +1952,106 @@ mod tests {
         let v = s.view("", None, Some("no answer".into()), 0);
         assert!(!v.desk.reachable && !v.desk.playout.connected);
         assert_eq!(v.desk.error.as_deref(), Some("no answer"));
+    }
+
+    #[test]
+    fn the_view_carries_the_step_and_the_chats_counts() {
+        use crate::steps::{facts_from, test_show};
+        let mut s = Studio::default();
+        let v = s.view("", None, None, 0);
+        assert_eq!(v.step.step, Step::Full, "no show has been on air: full");
+        assert!(v.step.show.is_none() && !v.step.on_air && v.step.next.is_none());
+        assert_eq!((v.chat.held, v.chat.open_reports), (None, None));
+
+        let kettle = test_show(Step::Solo, None);
+        let steeped = crate::steps::test_show(Step::Full, None);
+        let mv = s.set_step(facts_from(Some(&kettle), true, Some((&steeped, 1_000))));
+        assert_eq!(
+            (mv.from, mv.to, mv.other_show, mv.changed),
+            (Step::Full, Step::Solo, true, true)
+        );
+        let again = s.set_step(facts_from(Some(&kettle), true, Some((&steeped, 1_000))));
+        assert!(!again.changed && !again.other_show, "nothing moved");
+        // The same show, another step: not another show.
+        let moved = s.set_step(facts_from(
+            Some(&test_show(Step::Guests, None)),
+            true,
+            Some((&steeped, 1_000)),
+        ));
+        assert_eq!(
+            (moved.from, moved.to, moved.other_show),
+            (Step::Solo, Step::Guests, false)
+        );
+        assert_eq!(s.step_policy().step, Step::Guests);
+
+        assert!(
+            s.set_chat_counts(Some(weavesignal_model::chat::ModerationCounts {
+                held: 2,
+                reports: 1
+            }))
+        );
+        let json = serde_json::to_value(s.view("", None, None, 0)).unwrap();
+        assert_eq!(json["step"]["step"], "guests");
+        assert_eq!(json["step"]["show"]["slug"], "morning-kettle");
+        assert_eq!(json["step"]["on_air"], true);
+        assert_eq!(json["step"]["may_change"], false);
+        assert_eq!(json["step"]["next"]["start_ms"], 1_000_000);
+        assert_eq!(json["step"]["next"]["step"], "full");
+        assert_eq!(json["chat"]["held"], 2);
+        assert_eq!(json["chat"]["open_reports"], 1);
+        assert!(
+            !s.set_chat_counts(Some(weavesignal_model::chat::ModerationCounts {
+                held: 2,
+                reports: 1
+            }))
+        );
+    }
+
+    #[test]
+    fn a_falling_step_lets_waiting_callers_go_but_not_the_one_on_the_desks_strip() {
+        let mut s = Studio::default();
+        let desk = DeskStatus {
+            people: vec![
+                {
+                    let mut p = person("caller-niall", Role::Caller);
+                    p.name = "Niall".into();
+                    p
+                },
+                {
+                    let mut p = person("caller-jessie", Role::Caller);
+                    p.name = "Jessie".into();
+                    p
+                },
+                person("caller-dougal", Role::Caller),
+            ],
+            ..DeskStatus::default()
+        };
+        for id in ["caller-niall", "caller-jessie", "caller-dougal"] {
+            s.call_in(CallIn {
+                identity: id.into(),
+                name: id.into(),
+                topic: "No bus".into(),
+                consent: Consent {
+                    at_ms: 0,
+                    version: "v".into(),
+                    by: ConsentBy::Caller,
+                    text: "words".into(),
+                },
+            });
+        }
+        s.sync(&desk, 1);
+        // Jessie is being screened, Dougal was sent to the desk and holds its strip.
+        s.screen("caller-jessie", 2).unwrap();
+        s.send("caller-dougal", 3).unwrap();
+        s.sync(&desk, 4);
+        assert_eq!(s.slot_of("caller-dougal"), Some(4));
+        assert_eq!(
+            s.releasable(Some(&desk)),
+            vec!["caller-niall".to_owned(), "caller-jessie".to_owned()]
+        );
+        // One in cue stays too, even without the strip.
+        let mut cued = desk.clone();
+        cued.people[0].cue = true;
+        assert_eq!(s.releasable(Some(&cued)), vec!["caller-jessie".to_owned()]);
     }
 }

@@ -10,6 +10,7 @@
 
 import { CHIP, type Chip } from '../../../../packages/ui/states.ts';
 import type { MeState, Role } from './api.ts';
+import { releasedWords } from './lines.ts';
 
 /** The page's own link to the room. */
 /** `no-mic`: the browser refused the microphone, so the page never joined; it can try again. */
@@ -29,6 +30,7 @@ const CONNECTING: Chip = { cls: 'hollow hollow-standby', glyph: 'g-standby', gly
 const ENDED: Chip = { cls: 'hollow hollow-off', glyph: 'g-muted', glyphCls: '', word: 'Ended' };
 const NO_MIC: Chip = { cls: 'hollow hollow-off', glyph: 'g-muted', glyphCls: '', word: 'No microphone' };
 const OFF_AIR: Chip = { cls: 'hollow hollow-standby', glyph: 'g-standby', glyphCls: '', word: 'Off air' };
+const LINES_CLOSED: Chip = { cls: 'hollow hollow-off', glyph: 'g-muted', glyphCls: '', word: 'Lines closed' };
 
 /** "Rory" from "Rory Bruce"; a fallback when there is no name. */
 export function firstName(name: string, fallback: string): string {
@@ -41,14 +43,24 @@ export function mmss(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** The banner: the link first (a page that is not connected cannot be on air), then the phase. */
-export function banner(role: Role, me: MeState | null, link: Link, now: number, heldUntil: number | null): Banner {
+/** The banner: the link first (a page that is not connected cannot be on air), then the phase.
+ *  `name` is the person's own, as they gave it, for the one banner that thanks them. */
+export function banner(role: Role, me: MeState | null, link: Link, now: number, heldUntil: number | null, name = ''): Banner {
   const p = firstName(me?.presenter ?? '', 'the presenter');
   const P = p === 'the presenter' ? 'The presenter' : p;
+  // Who answers the phone: the producer, or at the Callers step the presenter themselves.
+  const A = me?.presenter_answers ? P : 'The producer';
+  // A waiting caller let go because the lines closed (ADR-0271): before anything the link says,
+  // because their pass is ended and they are taken out of the room at the same moment, which
+  // would otherwise read as a call that ended or a line that was lost.
+  if (role === 'caller' && me?.released) {
+    const w = releasedWords(me.released, name);
+    return { tone: 'ended', chip: LINES_CLOSED, headline: w.headline, detail: `${w.thanks} ${w.detail}` };
+  }
   if (link === 'ended' || me?.phase === 'ended') {
     return role === 'caller'
       ? { tone: 'ended', chip: ENDED, headline: 'Your call has ended', detail: `Thanks for calling ${me?.station || 'the station'}. To call again, start from the player page.` }
-      : { tone: 'ended', chip: ENDED, headline: 'You have left the studio', detail: 'Open your invite link again to rejoin while it lasts.' };
+      : { tone: 'ended', chip: ENDED, headline: 'You have left the studio', detail: 'Open your invitation link again to rejoin while it lasts.' };
   }
   // Not a lost line: the page never joined (Firefox on a phone whose settings deny it the
   // microphone said "The line was lost", 2026-11-03).
@@ -65,7 +77,7 @@ export function banner(role: Role, me: MeState | null, link: Link, now: number, 
       tone: 'ended',
       chip: ENDED,
       headline: 'The line was lost',
-      detail: role === 'caller' ? 'Your place was held for 5 minutes and has gone. To call again, start from the player page.' : 'Check your connection, then open your invite link again.',
+      detail: role === 'caller' ? 'Your place was held for 5 minutes and has gone. To call again, start from the player page.' : 'Check your connection, then open your invitation link again.',
     };
   }
   if (link === 'reconnecting') {
@@ -100,17 +112,17 @@ export function banner(role: Role, me: MeState | null, link: Link, now: number, 
     switch (me.phase) {
       case 'screening':
         return me.screener_talking
-          ? { tone: 'talk', chip: CHIP.talk, headline: 'The producer is talking to you', detail: 'Only the studio hears you. Speak normally.' }
-          : { tone: 'talk', chip: CHIP.screening, headline: 'The producer has picked up your call', detail: "They'll speak to you here in a moment. You're not on air." };
+          ? { tone: 'talk', chip: CHIP.talk, headline: `${A} is talking to you`, detail: 'Only the studio hears you. Speak normally.' }
+          : { tone: 'talk', chip: CHIP.screening, headline: `${A} has picked up your call`, detail: "They'll speak to you here in a moment. You're not on air." };
       case 'ready':
-        return { tone: 'good', chip: CHIP.ready, headline: "You're next", detail: `The producer has passed you to ${p}. Stay on the line; this page says when you're on air.` };
+        return { tone: 'good', chip: CHIP.ready, headline: "You're next", detail: me.presenter_answers ? "Stay on the line; this page says when you're on air." : `The producer has passed you to ${p}. Stay on the line; this page says when you're on air.` };
       case 'desk_busy':
         return { tone: 'warn', chip: CHIP.deskBusy, headline: `${P} is busy just now`, detail: "You keep your place. Stay on the line; you'll hear the show while you wait." };
       default: {
         const where = me.place ? `You're number ${me.place} in the queue` : "You're in the queue";
         return me.screener_talking
-          ? { tone: 'talk', chip: CHIP.talk, headline: 'The producer is talking to you', detail: 'Only the studio hears you. Speak normally.' }
-          : { tone: 'wait', chip: CHIP.waiting, headline: where, detail: "You'll hear the show while you wait. The producer will pick up soon; you're not on air." };
+          ? { tone: 'talk', chip: CHIP.talk, headline: `${A} is talking to you`, detail: 'Only the studio hears you. Speak normally.' }
+          : { tone: 'wait', chip: CHIP.waiting, headline: where, detail: `You'll hear the show while you wait. ${A} will pick up soon; you're not on air.` };
       }
     }
   }

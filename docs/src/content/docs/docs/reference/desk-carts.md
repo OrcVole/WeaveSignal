@@ -3,10 +3,11 @@ title: "Carts in the desk"
 description: "How a fired cart reaches every ear: the control plane's cart routes, the desk's cart players and its socket words, cue, ducking, the play events, the media worker, and loading a pack."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-12
 ---
 
-A cart is a row in PostgreSQL (`cart_bank`, `cart`, per station) with a FLAC file, a gain, a mode and an optional ramp.
+A cart is a row in PostgreSQL (`cart_bank`, `cart`) with a FLAC file, a gain, a mode and an optional ramp.
+Its bank is the station's, shared by every show, or one show's own (from 1.0.2): the station's banks and each show's are numbered 1 to 5 apart ([Cart wall](/docs/reference/surfaces/carts/#a-cart-wall-per-show)).
 When it fires, the control plane tells the desk over the desk's [control socket](/docs/reference/desk-control/), and the desk plays the file as a source of its one mixing pass (ADR-0117).
 So a cart is heard by listeners and in every return, the presenter's and the guests' alike; it sits inside the profanity delay, and a dump takes it with everything else held; and the limiters on the programme and on every return come after it.
 
@@ -64,13 +65,31 @@ All take a staff bearer: a staff session or the station key ([Add staff](/docs/h
 
 | Route | Does |
 |---|---|
-| `GET /api/v1/carts` | banks and carts, each with `missing` |
+| `GET /api/v1/carts` | the station's banks and carts, each with `missing`; with `?show=<slug>`, that show's own beside them |
 | `POST /api/v1/carts/commands` | `toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue` |
-| `PUT /api/v1/carts/banks/{n}` | makes or renames a bank: `{"name", "colour_slot"}` |
-| `PUT /api/v1/carts/banks/{bank}/slots/{slot}?label=&mode=` | an audio file as the body; the media worker makes it the slot's cart |
-| `DELETE /api/v1/carts/banks/{bank}/slots/{slot}` | empties a slot, and deletes its file |
+| `PUT /api/v1/carts/banks/{n}` | makes or renames a station bank: `{"name", "colour_slot"}` |
+| `PUT /api/v1/carts/banks/{bank}/slots/{slot}?label=&mode=` | an audio file as the body; the media worker makes it the station slot's cart |
+| `DELETE /api/v1/carts/banks/{bank}/slots/{slot}` | empties a station slot, and deletes its file |
 
-The studio's view (`GET /api/v1/studio` and its event stream) carries `carts`: what is sounding (each with `cue` and `play`), FILE MISSING, whether the desk answers (`desk`, `desk_error`), whether beds are dipped and a microphone is open, and the catalogue's version.
+A show's own banks have the same routes under the show (1.0.2), and one more to remove a bank:
+
+| Route | Does |
+|---|---|
+| `PUT /api/v1/shows/{show}/carts/banks/{n}` | makes or renames the show's bank `n` |
+| `DELETE /api/v1/shows/{show}/carts/banks/{n}` | removes it with its carts and their files; a cart of it that sounds is stopped |
+| `PUT /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}?label=&mode=` | an audio file into the show's slot |
+| `DELETE /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}` | empties the show's slot |
+
+They change only that show's banks, never another show's or the station's.
+The people who may change a show's step may change its banks: the station key, an admin, a producer, or the show's presenter; a preparing window may, as its own show is not on air; an API token may not.
+Each answers with the station's catalogue and the show's; the station's routes answer with the station's alone.
+
+Every bank and cart in the catalogue names its show (`show`, the show's slug), or `null` for the station's.
+A cart in a show's bank starts (`toggle`, `fire` or `cue` when it is not sounding) only while that show is the one the station's step comes from: the show on air, or between shows the show last on air ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)).
+Otherwise the answer is 409, *“Woof” is in another show's own bank: it fires only while that show is the one on air*.
+Stopping it, `stop_last`, `fade_all` and `clear_cue` work on anything sounding, so a bed left over from the show before can always be faded.
+
+The studio's view (`GET /api/v1/studio` and its event stream) carries `carts`: what is sounding (each with its `label`, `cue` and `play`), FILE MISSING, whether the desk answers (`desk`, `desk_error`), whether beds are dipped and a microphone is open, and the catalogue's version.
 
 ## The media worker
 
@@ -85,4 +104,5 @@ The control plane writes the files to `carts.media_dir`; the desk reads the same
 weavesignal-control --config control.toml carts load-pack assets/carts-demo
 ```
 
-Or set `carts.demo_pack`: a station with no banks loads it at first start.
+Or set `carts.demo_pack`: a station with no banks of its own loads it at first start (a show's own banks do not count).
+A pack always loads into the station's banks.

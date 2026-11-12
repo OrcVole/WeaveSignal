@@ -2,6 +2,16 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.0.2]
+
+- **Beginner steps** (ADR-0271): each show runs at Solo, Guests, Callers or Full, and the studio and the public pages show only what that step needs; hidden means off (call-in closed, seats refused). New shows start at Solo; shows that exist stay Full. **Migration 0033.**
+- **Prepare mode** (ADR-0276): a studio window is Live or Preparing; a preparing window sees the live desk but cannot change what is on air, so the next DJ can get ready during someone else's show.
+- **End show and Hand to automation** (issue 15): End show takes everyone off air, fades the carts and hands the air to automation once the delay has played out; a button by the lamp switches auto and live.
+- **The listener count by mount and a delay that says what it reads** (issue 17); `studio.listener_delay_ms` now defaults to 13 s (it was 15), so a default station shows about 21 s.
+- **RTMP presets for YouTube, Owncast, X and Gab** beside Rumble, Odysee and PeerTube, each with the profile it takes (tried live against Owncast only).
+- **Simple guides** for people at `/guides/` in the documentation; the studio's frame no longer clips at a large text size.
+- **A cart wall per show**: a show can have cart banks of its own beside the station's, which every show shares. **Migration 0034** gives each bank an id and an owner; the banks a station has stay the station's, with their carts, so an upgrade loses nothing. No new settings; the public domain is unchanged (the new routes are under `/api/v1/shows/{show}/carts/` on the station's domain). Not yet tried on a Cloudron install.
+
 [1.0.1]
 
 - **Browser cameras work** with `VIDEO=true`: the image gains gst-plugins-rs's RTP plugin, whose `rtpav1depay` takes a Chromium browser's AV1 camera (without it that guest's voice failed too), and the desk gives cameras a 300 ms jitter buffer and asks for a keyframe after a loss. Tried on a Cloudron install: a Brave camera through the desk's picture to an RTMP destination (Owncast).

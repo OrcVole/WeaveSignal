@@ -5,7 +5,7 @@
 // around it (what you will learn, what you did). The scenarios are data; `station.ts` runs
 // them and `Guide.svelte` shows them. Nothing here touches the DOM.
 
-import type { Role, RundownItem } from '../../lib/api.ts';
+import type { Role, RundownItem, ShowStep } from '../../lib/api.ts';
 import type { StationMode } from '../../../../../packages/ui/states.ts';
 import type { Beat } from '../lines.ts';
 import type { Station } from '../station.ts';
@@ -55,6 +55,9 @@ export interface Scenario {
   blurb: string;
   /** About how long it takes. */
   minutes: number;
+  /** The step the show runs at (ADR-0271): the chooser's rung, and what the simulated station
+   *  switches on. Nobody in the cast, and no caller, may need a seat the step hides. */
+  step: ShowStep;
   /** The start card: what you will learn. */
   learn: string[];
   /** Whose chair you sit in: their keys are yours and their recorded voice stands in for yours. */

@@ -3,7 +3,7 @@ title: "Hand over to the next DJ"
 description: "When one DJ's show follows another's: set both shows up back to back, bring the next DJ into the room early with an invitation, and hand over on air with an overlap, so listeners hear a handover and never a gap."
 type: howto
 status: draft
-last_verified: 2026-11-10
+last_verified: 2026-11-11
 sidebar:
   order: 5
 ---
@@ -22,6 +22,7 @@ In the studio app 1.0.0 `⇧⏎` only showed a note; there, use the keys in [By 
    At the post the schedule moves the station on to the next show by itself, and with it the words a caller agrees to: from ten they name Finlay's contact, not Eilidh's (ADR-0214).
    A caller who rang before the post keeps the words they agreed to.
 2. **Each DJ has a staff account** to sign in to the studio app with ([Add staff and sign in](/docs/how-to/add-staff/)).
+   From 1.0.2 the next DJ's studio app starts **Preparing** while your show is on air: it shows the live desk and cannot change what is on air, so he can set up his own show beside yours ([Prepare your show while another is on air](/docs/how-to/prepare-your-show/)).
 3. **Agree the times**: when Finlay joins the room (ten or fifteen minutes before the post is plenty), when he comes on air, and who says what in the overlap.
 
 ## Bring the next DJ into the room early
@@ -55,6 +56,7 @@ If the rundown has a row whose key is `⇧⏎`, the button is under that row too
 If no DJ is in the room, `⇧⏎` says so and changes nothing.
 
 From here the desk is Finlay's: he drives it from his own studio app, signed in as himself.
+His window has been **Preparing** until now (from 1.0.2), so he presses **Switch to Live…** in the band under its top bar; if the schedule has not yet moved on to his show, the window asks once, and `⏎` confirms ([Switch to Live when the desk is yours](/docs/how-to/prepare-your-show/#switch-to-live-when-the-desk-is-yours)).
 Callers still waiting in the queue stay there for him, and the screener carries on as before.
 
 **Talkback after the handover.**

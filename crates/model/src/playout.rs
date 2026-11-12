@@ -138,6 +138,22 @@ pub async fn put_settings(
     Ok(())
 }
 
+/// Set the station's mode (`live` or `auto`) and nothing else. Unlike [`put_settings`] it does
+/// not mark the time zone as chosen (`zone_set`, ADR-0189): handing the air to automation, End
+/// show (ADR-0272), is not the admin's one-time choice of zone, and it must not write the other
+/// settings back from a read that may be a moment old.
+pub async fn put_mode(pool: &PgPool, station: StationId, mode: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO playout_settings (station_id, mode) VALUES ($1, $2)
+         ON CONFLICT (station_id) DO UPDATE SET mode = EXCLUDED.mode, updated_at = now()",
+    )
+    .bind(station.as_uuid())
+    .bind(mode)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Whether the programme is sent to another Icecast server (ADR-0226).
 ///
 /// The server's address and password are the deployment's settings; this is the one choice made

@@ -16,7 +16,7 @@ Times on the grid are the station's wall clock in its own zone (chosen once in *
 
 ## `calendar.frame`
 
-Not drawn on the tab: the app's own frame, `studio.frame`, is above every tab.
+Not drawn on the tab: the app’s top bar, `studio.frame`, is above every tab.
 
 ## `calendar.toolbar`
 
@@ -82,6 +82,13 @@ The station reads the picture in its sandbox and says why when it refuses one.
 A show without a picture of its own gets the station's on the slate.
 
 ![The Slate picture field with a picture chosen: its preview, its size, and Replace and Remove.](../../../../../assets/screens/reference-calendar-show-still.png)
+
+## `calendar.show-step`
+
+The show's step, under its name in the show editor: Solo, Guests, Callers or Full, each with what it adds (ADR-0271).
+Whatever a step leaves out is switched off while the show is on air; under Solo and Guests the call-in page says the lines are closed.
+It is the same value the top bar's step dialog changes; on air a change takes effect at once.
+A new show starts at Solo; an admin, a producer or the show's presenter may change it ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)).
 
 ## `calendar.show-presenter`
 

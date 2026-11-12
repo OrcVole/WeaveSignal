@@ -19,11 +19,17 @@
   import Statement from './Statement.svelte';
   import AttachmentView from './AttachmentView.svelte';
   import Room from './Room.svelte';
+  import { nudge, preparing } from '../lib/prepare.svelte.ts';
+  import { OFF_WHY } from '../lib/prepare.ts';
 
   // The chat link starts with the screener and keeps going on the other tabs.
   onMount(startChat);
 
   const v = $derived(studio.view);
+  /** This window is preparing (ADR-0276): the queue is to read; talking to a caller, their notes,
+   *  sending and dropping are the live screener's. The chat's panels work as usual. */
+  const prep = $derived(preparing());
+  const prepWhy = $derived(prep ? OFF_WHY : undefined);
   /** The listener delay: the `studio.listener_delay_ms` setting, labelled until measured (ADR-0103). */
   const LISTENER_DELAY_MS = $derived(listenerDelayMs(v?.listener_delay));
   const behind = $derived(delayWords(v?.listener_delay));
@@ -69,27 +75,29 @@
   function save() {
     clearTimeout(timer);
     const c = sel;
-    if (!c) return;
+    if (!c || prep) return;
     api
       .screener({ op: 'notes', identity: c.identity, line, note, name_on_air: nameOnAir })
       .then(takeView)
       .catch((e) => say('warning', 'Not saved', e instanceof Error ? e.message : String(e)));
   }
   function typed() {
+    if (prep) return nudge();
     clearTimeout(timer);
     timer = setTimeout(save, 600);
   }
 
   // ---- the toast slot under the Room head ----
-  type Act = { label: string; keys: string[]; go: () => void; talk?: boolean };
+  /** `air`: the action changes what is on air, so a preparing window does not offer it. */
+  type Act = { label: string; keys: string[]; go: () => void; talk?: boolean; air?: boolean };
   type Toast = { tone: 'good' | 'warning' | 'serious'; glyph: string; title: string; msg: string; acts: Act[] };
   const dropped = $derived(callers.find((c) => c.dropped_ms !== null) ?? null);
   const declined = $derived(callers.find((c) => c.declined && c.dropped_ms === null) ?? null);
   const lastNotice = $derived(
     v?.notices.filter((n) => n.surface === 'screener' && !studio.dismissed.includes(n.id) && now - n.at_ms < 20_000).at(-1) ?? null,
   );
-  const tellPresenter: Act = $derived({ label: `Tell ${presenter} · hold`, keys: ['⌃T'], go: () => {}, talk: true });
-  const toast: Toast | null = $derived.by(() => {
+  const tellPresenter: Act = $derived({ label: `Tell ${presenter} · hold`, keys: ['⌃T'], go: () => {}, talk: true, air: true });
+  const anyToast: Toast | null = $derived.by(() => {
     if (studio.note) return { tone: studio.note.tone, glyph: 'g-good', title: studio.note.title, msg: studio.note.message, acts: [] };
     if (v?.chat.influx) {
       return {
@@ -107,7 +115,7 @@
         glyph: 'g-link-degraded',
         title: `${n}'s link dropped at ${hms(dropped.dropped_ms!)}`,
         msg: `Their place in the queue is held for 5 min; if they call in again they come back as number ${dropped.ordinal}. ${presenter} has not been told.`,
-        acts: [{ label: 'Let the place go', keys: ['⇧', 'C'], go: () => run({ type: 'release-place' }) }, tellPresenter],
+        acts: [{ label: 'Let the place go', keys: ['⇧', 'C'], air: true, go: () => run({ type: 'release-place' }) }, tellPresenter],
       };
     }
     if (declined) {
@@ -118,13 +126,18 @@
         title: `${presenter} is not taking callers`,
         msg: `${presenter} declined ${n} at ${hms(declined.declined!.at_ms)}${declined.declined!.reason ? `: “${declined.declined!.reason}”` : ''}. ${n} stays ready and hears the programme.`,
         acts: [
-          { label: `Send ${n} again`, keys: ['P'], go: () => { studio.selected = declined.identity; void run({ type: 'send' }); } },
+          { label: `Send ${n} again`, keys: ['P'], air: true, go: () => { studio.selected = declined.identity; void run({ type: 'send' }); } },
           tellPresenter,
         ],
       };
     }
     if (lastNotice) return { tone: lastNotice.tone, glyph: lastNotice.tone === 'good' ? 'g-good' : 'g-degraded', title: lastNotice.title, msg: lastNotice.message, acts: [] };
     return null;
+  });
+  const toast: Toast | null = $derived.by(() => {
+    const t = anyToast;
+    // A preparing window reads the toast and is offered only what is not the air's.
+    return t && prep ? { ...t, acts: t.acts.filter((a) => !a.air) } : t;
   });
 
   // The chat's toast (a moderation act, a refused command) sits under the callers' toast and
@@ -160,6 +173,8 @@
       class="btn sm"
       class:lit-talk={talkingToPresenter}
       aria-label="Talk to {presenter}, held: your voice in {presenter}'s headphones only"
+      disabled={prep}
+      title={prepWhy}
       onpointerdown={() => run({ type: 'talk-seat', held: true })}
       onpointerup={() => run({ type: 'talk-seat', held: false })}
       ><svg class="g" aria-hidden="true"><use href="#g-talk" /></svg>Talk to {presenter} · hold <kbd>⌃T</kbd></button
@@ -238,6 +253,8 @@
               class:lit-talk={talking}
               aria-pressed={talking}
               aria-label="Talk to {who(sel)}, held"
+              disabled={prep}
+              title={prepWhy}
               onpointerdown={() => run({ type: 'screen-talk', held: true })}
               onpointerup={() => run({ type: 'screen-talk', held: false })}
               onpointerleave={() => talking && run({ type: 'screen-talk', held: false })}>Talk · hold <kbd>T</kbd></button
@@ -251,7 +268,7 @@
             <div class="form">
               <div class="field">
                 <label for="f-line">One line for {presenter}</label>
-                <input class="in" id="f-line" bind:value={line} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }} placeholder={sel.topic || 'What they want to say, in a line'} />
+                <input class="in" id="f-line" readonly={prep} title={prepWhy} bind:value={line} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }} placeholder={sel.topic || 'What they want to say, in a line'} />
               </div>
               <div class="chks" aria-label="Checks">
                 {#if sel.consent}
@@ -266,12 +283,12 @@
               </div>
               <div class="field">
                 <label for="f-note">Note {presenter} sees, listeners do not</label>
-                <textarea class="in ta" id="f-note" rows="2" bind:value={note} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }}></textarea>
+                <textarea class="in ta" id="f-note" rows="2" readonly={prep} title={prepWhy} bind:value={note} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }}></textarea>
               </div>
               <div class="two-up">
                 <div class="field">
                   <label for="f-name">Name on air <kbd>N</kbd></label>
-                  <input class="in" id="f-name" bind:value={nameOnAir} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }} placeholder={firstName(sel.name, sel.identity)} />
+                  <input class="in" id="f-name" readonly={prep} title={prepWhy} bind:value={nameOnAir} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }} placeholder={firstName(sel.name, sel.identity)} />
                 </div>
                 <div class="field">
                   <span class="lbl">Signed in as</span>
@@ -314,18 +331,19 @@
             <button
               type="button"
               class="btn primary"
-              disabled={!sel || sel.dropped_ms !== null || !sel.consent}
-              title={sel && !sel.consent ? 'No consent to record on file' : undefined}
+              disabled={prep || !sel || sel.dropped_ms !== null || !sel.consent}
+              title={prepWhy ?? (sel && !sel.consent ? 'No consent to record on file' : undefined)}
               onclick={() => run({ type: 'send' })}
               >{sel?.declined ? 'Send again' : 'Send to desk'} <kbd>P</kbd></button
             >
-            <button type="button" class="btn" disabled={!sel || sel.on_air} onclick={() => run({ type: 'back' })}>To queue <kbd>W</kbd></button>
+            <button type="button" class="btn" disabled={prep || !sel || sel.on_air} title={prepWhy} onclick={() => run({ type: 'back' })}>To queue <kbd>W</kbd></button>
             <span class="grow"></span>
             <button
               type="button"
               class="btn danger-hollow"
               class:armed={dropArmed}
-              disabled={!sel || sel.dropped_ms !== null}
+              disabled={prep || !sel || sel.dropped_ms !== null}
+              title={prepWhy}
               onclick={() => run(dropArmed ? { type: 'drop' } : { type: 'arm', what: 'drop' })}
               >{dropArmed ? 'Press again' : 'Drop'} <kbd>⌃D</kbd><kbd>⌃D</kbd></button
             >
