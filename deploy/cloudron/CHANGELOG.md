@@ -2,6 +2,12 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.0.3]
+
+- **RTMP destinations for YouTube, Owncast and X save**: 1.0.2 offered their forms, but the database refused them ("the database refused that"). **Migration 0035.** Gab leaves the forms: its live streaming is not open to streamers yet.
+- **Drafting a series' first episode through the API** takes the slot under way, as the studio app already did.
+- No new settings; the domains and routes are unchanged.
+
 [1.0.2]
 
 - **Beginner steps** (ADR-0271): each show runs at Solo, Guests, Callers or Full, and the studio and the public pages show only what that step needs; hidden means off (call-in closed, seats refused). New shows start at Solo; shows that exist stay Full. **Migration 0033.**

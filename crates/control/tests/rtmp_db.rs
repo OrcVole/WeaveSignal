@@ -311,8 +311,8 @@ async fn an_admin_keeps_rtmp_destinations_and_the_desk_gets_them_with_their_keys
     assert_eq!(list["video"], true);
     assert_eq!(
         list["platforms"].as_array().unwrap().len(),
-        8,
-        "YouTube, Owncast, X and Gab joined the first four"
+        7,
+        "YouTube, Owncast and X joined the first four (Gab not yet: its live streaming is not open)"
     );
 
     // Removed: the desk is sent an empty set.
@@ -335,4 +335,31 @@ async fn an_admin_keeps_rtmp_destinations_and_the_desk_gets_them_with_their_keys
         0
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every form the studio app offers can be saved (1.0.2's presets answered 500: the table's check
+/// still named only the first four platforms; migration 0035).
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn every_platform_the_studio_offers_can_be_saved() {
+    let (app, _state, _pool, _desk, dir) = setup().await;
+    for p in rtmp::PLATFORMS {
+        let url = if p.url.is_empty() {
+            "rtmps://live.example/app"
+        } else {
+            p.url
+        };
+        let (code, made) = send(
+            &app,
+            "POST",
+            "/api/v1/rtmp/destinations",
+            Some(KEY),
+            json!({"name": format!("Preset {}", p.platform), "platform": p.platform,
+                   "url": url, "key": "k123", "profile": p.profile}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CREATED, "{}: {made}", p.platform);
+        assert_eq!(made["platform"], p.platform);
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }

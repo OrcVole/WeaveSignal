@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.2:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.3:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot

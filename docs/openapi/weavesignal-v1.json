@@ -6043,7 +6043,7 @@
           "shows"
         ],
         "summary": "Draft episodes",
-        "description": "The next episode, or `count` of them, filled in from the series' rule.",
+        "description": "The next episode, or `count` of them, filled in from the series' rule. The first episode of a series with none follows its start date, or else is the slot under way now (its length, or an hour), or else the next.",
         "operationId": "shows_create_episodes",
         "parameters": [
           {
@@ -13934,7 +13934,7 @@
           },
           "platform": {
             "type": "string",
-            "description": "`rumble`, `odysee`, `peertube` or `custom`: the form the URL came from."
+            "description": "`youtube`, `owncast`, `x`, `gab`, `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from."
           },
           "profile": {
             "type": "string",
@@ -13973,7 +13973,7 @@
           },
           "platform": {
             "type": "string",
-            "description": "`rumble`, `odysee`, `peertube` or `custom`."
+            "description": "`youtube`, `owncast`, `x`, `rumble`, `odysee`, `peertube` or `custom`."
           },
           "profile": {
             "type": [

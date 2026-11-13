@@ -31,7 +31,7 @@ The relay's own source and relay passwords are random at every start, and it tak
 
 - One machine per edge with a public address, Podman or Docker, and a 1 Gbit/s port or better. Size by the port, not the processor: about 1,000 video viewers per Gbit/s at the default quality, or about 9,000 audio listeners (*inference* from bench 02, where two edges served 4,000 viewers on under 5 % of a core each).
 - A host name per edge under a subdomain kept for edges, such as `edge-1.edges.example`, and a wildcard certificate for that subdomain only: its key sits on machines you may throw away.
-- The images. They are published as `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.2` and `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.2`; or build them from the repository with `just edge-image`, which tags them `localhost/weavesignal-edge:m1` and `localhost/weavesignal-relay:m1`.
+- The images. They are published as `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.3` and `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.3`; or build them from the repository with `just edge-image`, which tags them `localhost/weavesignal-edge:m1` and `localhost/weavesignal-relay:m1`.
 - The station's HLS origin running (the control plane serves the desk's HLS at `/hls/`, with video on) and published through its reverse proxy, with its `/health` published too: each edge's `/health` asks it.
 
 ## Run an edge
@@ -43,12 +43,12 @@ podman run -d --name weavesignal-edge --network host \
   -e EDGE_ORIGIN=https://station.example \
   -v /etc/weavesignal-edge/tls:/etc/weavesignal-edge/tls:ro \
   -e EDGE_RELAY=127.0.0.1:8000 \
-  forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.2
+  forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.3
 
 podman run -d --name weavesignal-relay --network host \
   -e RELAY_ORIGIN_HOST=station.example \
   -e RELAY_MOUNTS=/programme.opus -e RELAY_BIND=127.0.0.1 \
-  forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.2
+  forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.3
 ```
 
 The edge listens on 80 and, with a certificate, 443; it pulls `/hls/` from the station over HTTPS, checking the station's certificate.

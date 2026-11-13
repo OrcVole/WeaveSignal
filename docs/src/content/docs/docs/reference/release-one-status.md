@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04, and **1.0.1** and **1.0.2** on 2026-11-12 add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, and **1.0.3** on 2026-11-13, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -77,8 +77,15 @@ Released in 1.0.2 (2026-11-12), ADR-0272:
 | **The chat to read, on the desk** | the desk's Chat panel shows the room's last messages at every step, and says when held messages or reports wait for a moderator; built for 1.0.2 |
 | **Prepare mode** | a studio window is Live or Preparing; a preparing window sees the live desk but cannot change what is on air (ADR-0276; [Get your show ready while someone else is on air](/docs/how-to/prepare-your-show/)) |
 | **A cart wall per show** | a show's own banks beside the station's shared ones; a preparing window edits its own show's banks without touching the live show's (ADR-0276); made and filled through the API for now |
-| **RTMP presets** | YouTube, Owncast, X and Gab beside Rumble, Odysee and PeerTube, each with its profile; tried live against Owncast only ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
+| **RTMP presets** | YouTube, Owncast and X beside Rumble, Odysee and PeerTube (Gab is not offered: its live streaming is not open yet), each with its profile; tried live against Owncast only ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
 | **Simple guides** | eleven short guides for people at [/guides/](/guides/) |
+
+Released in 1.0.3 (2026-11-13), a patch:
+
+| Part | What it brings |
+|---|---|
+| **RTMP presets that save** | a YouTube, Owncast or X destination is saved (1.0.2's database refused them; migration 0035); YouTube and X went live from the test station on 2026-11-12; Gab leaves the forms until its live streaming opens ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
+| **A first episode through the API** | drafting a series' first episode with nothing drafted and no start date takes the slot under way, as the studio app already did |
 
 ## Decisions that changed release one
 

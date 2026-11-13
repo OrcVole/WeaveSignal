@@ -1237,7 +1237,7 @@ async fn episode_answer(state: &ShowsState, show: &Show, series: &Series, n: u32
     operation_id = "shows_create_episodes",
     tag = "shows",
     summary = "Draft episodes",
-    description = "The next episode, or `count` of them, filled in from the series' rule.",
+    description = "The next episode, or `count` of them, filled in from the series' rule. The first episode of a series with none follows its start date, or else is the slot under way now (its length, or an hour), or else the next.",
     params(("show" = String, Path, description = "The show's slug"), ("series" = u32, Path, description = "The series' number in the show")),
     request_body = weavesignal_model::shows::NewEpisodes,
     responses(

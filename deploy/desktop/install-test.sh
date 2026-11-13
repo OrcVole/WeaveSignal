@@ -58,7 +58,9 @@ done
 for image in "${rpms[@]}"; do
   run "AppImage on ${image##*/}" "$image" "dnf install -y -q $desktop_rpm >/dev/null 2>&1; /dist/$appimage --appimage-extract-and-run --version"
 done
-# The window, on a virtual X display.
+# The window, on a virtual X display. The process is looked up by its name as the kernel keeps
+# it, cut to 15 characters (`weavesignal-stu`); procps refuses a longer `-x` pattern outright, so
+# since the rename (ADR-0206) the check failed with the window up.
 shots="$root/target/desktop-shots"; mkdir -p "$shots"
 window() { # name image install-command launch-command
   local name=$1 image=$2 install=$3 launch=$4 shot
@@ -70,7 +72,7 @@ window() { # name image install-command launch-command
     $launch > /tmp/app.log 2>&1 &
     for i in \$(seq 1 15); do sleep 1; done
     xwd -root -silent | convert xwd:- /shots/$shot
-    if pgrep -x weavesignal-studi >/dev/null && pgrep -f WebKitWebProcess >/dev/null; then echo '$want'; else tail -5 /tmp/app.log; fi" > "$shots/$shot.log" 2>&1
+    if pgrep -x weavesignal-stu >/dev/null && pgrep -f WebKitWebProcess >/dev/null; then echo '$want'; else tail -5 /tmp/app.log; fi" > "$shots/$shot.log" 2>&1
   if [ "$(tail -1 "$shots/$shot.log")" = "$want" ]; then
     echo "pass  window of $name: up after 15 s, target/desktop-shots/$shot"
   else

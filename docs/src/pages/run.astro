@@ -5,8 +5,8 @@
 // requirements and guide, then the studio app's downloads. The commands are the guides' own.
 import Site from '../layouts/Site.astro';
 
-const release = 'https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.2';
-const asset = (f: string) => `https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/download/v1.0.2/${f}`;
+const release = 'https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.3';
+const asset = (f: string) => `https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/download/v1.0.3/${f}`;
 ---
 
 <Site
@@ -30,7 +30,7 @@ const asset = (f: string) => `https://forgejo.weavesignal.top/WeaveSignal/weaves
           <pre><code>git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git
 cd weavesignal
 deploy/compose/weavesignal.sh</code></pre>
-          <p>The script finds Podman or Docker, makes the station's secrets on your machine, picks free ports, pulls <code>weavesignal-server:1.0.2</code> and starts the station, listening on this machine only. Run it again with <code>--public station.example</code> to put a reverse proxy with a certificate in front and open the room to the internet.</p>
+          <p>The script finds Podman or Docker, makes the station's secrets on your machine, picks free ports, pulls <code>weavesignal-server:1.0.3</code> and starts the station, listening on this machine only. Run it again with <code>--public station.example</code> to put a reverse proxy with a certificate in front and open the room to the internet.</p>
           <ul>
             <li>Docker Engine with the Compose plugin, or Podman 5 with <code>docker-compose</code> as its provider. Not <code>podman-compose</code>: the script refuses it.</li>
             <li>The repository checked out where it will stay: the bundle mounts playout's scripts from it.</li>
@@ -75,23 +75,23 @@ deploy/quadlets/generate.sh --env-file ~/.config/weavesignal/station.env \
   <section class="section" id="studio-app" aria-labelledby="studio-h">
     <div class="wrap">
       <h2 id="studio-h">The studio app</h2>
-      <p class="lead">For whoever runs the desk and screens the calls. Presenters, guests, callers and listeners need nothing but a browser. Release 1.0.2, from <a href={release}>the release on the Forgejo</a>; check each file against its checksum before you install it.</p>
+      <p class="lead">For whoever runs the desk and screens the calls. Presenters, guests, callers and listeners need nothing but a browser. Release 1.0.3, from <a href={release}>the release on the Forgejo</a>; check each file against its checksum before you install it.</p>
       <div class="cols" data-n="3">
         <div>
           <h3>Linux, 64-bit Intel and AMD</h3>
           <ul class="downloads">
-            <li><a href={asset('WeaveSignal_1.0.2_amd64.AppImage')}>AppImage</a> <span class="file">WeaveSignal_1.0.2_amd64.AppImage</span></li>
-            <li><a href={asset('WeaveSignal_1.0.2_amd64.deb')}>.deb</a> <span class="file">Debian 13 and later, Ubuntu 24.04 and later</span></li>
-            <li><a href={asset('WeaveSignal-1.0.2-1.x86_64.rpm')}>.rpm</a> <span class="file">Fedora 43 and later</span></li>
-            <li><a href={asset('SHA256SUMS-1.0.2')}>SHA256SUMS-1.0.2</a> <span class="file">the checksums</span></li>
+            <li><a href={asset('WeaveSignal_1.0.3_amd64.AppImage')}>AppImage</a> <span class="file">WeaveSignal_1.0.3_amd64.AppImage</span></li>
+            <li><a href={asset('WeaveSignal_1.0.3_amd64.deb')}>.deb</a> <span class="file">Debian 13 and later, Ubuntu 24.04 and later</span></li>
+            <li><a href={asset('WeaveSignal-1.0.3-1.x86_64.rpm')}>.rpm</a> <span class="file">Fedora 43 and later</span></li>
+            <li><a href={asset('SHA256SUMS-1.0.3')}>SHA256SUMS-1.0.3</a> <span class="file">the checksums</span></li>
           </ul>
           <p style="margin-top:0.75rem"><a href="/docs/how-to/install-studio-linux/">Install the studio app on Linux</a></p>
         </div>
         <div>
           <h3>Windows 10 and 11, x64</h3>
           <ul class="downloads">
-            <li><a href={asset('WeaveSignal_1.0.2_x64-setup.exe')}>Installer</a> <span class="file">WeaveSignal_1.0.2_x64-setup.exe</span></li>
-            <li><a href={asset('SHA256SUMS-1.0.2-windows')}>SHA256SUMS-1.0.2-windows</a> <span class="file">the checksum</span></li>
+            <li><a href={asset('WeaveSignal_1.0.3_x64-setup.exe')}>Installer</a> <span class="file">WeaveSignal_1.0.3_x64-setup.exe</span></li>
+            <li><a href={asset('SHA256SUMS-1.0.3-windows')}>SHA256SUMS-1.0.3-windows</a> <span class="file">the checksum</span></li>
           </ul>
           <p style="margin-top:0.75rem">The installer is unsigned, so Windows' SmartScreen stops it the first time, and it has been built on Linux and inspected but not yet run on Windows. <a href="/docs/how-to/install-studio-windows/">Install the studio app on Windows</a> says how to check it and get past the warning.</p>
         </div>

@@ -84,7 +84,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.3}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
     environment:
@@ -128,7 +128,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.3}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
     environment:
@@ -165,7 +165,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.3}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
     environment:

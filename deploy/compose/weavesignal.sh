@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.3, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -183,7 +183,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.2)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.3)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}

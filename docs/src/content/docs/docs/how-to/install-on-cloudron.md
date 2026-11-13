@@ -67,8 +67,8 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.0.2 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.0.2
+podman build -t registry.station.example/weavesignal-cloudron:1.0.3 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.0.3
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.

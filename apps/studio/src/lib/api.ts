@@ -856,7 +856,7 @@ export interface RtmpDeskState {
 export interface RtmpDestinationInfo {
   id: string;
   name: string;
-  /** `rumble`, `odysee`, `peertube` or `custom`. */
+  /** `youtube`, `owncast`, `x`, `rumble`, `odysee`, `peertube` or `custom`. */
   platform: string;
   url: string;
   /** `compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP). */

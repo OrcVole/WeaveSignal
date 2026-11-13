@@ -88,7 +88,7 @@ All admin only (`x-admin`); an API token never reaches them. The full descriptio
 | Route | Does |
 |---|---|
 | `GET /api/v1/rtmp` | every destination (never its key) with the desk's view of it (`desk`), whether the desk runs video, the encoders running, and each platform's form |
-| `POST /api/v1/rtmp/destinations` | add one: `name`, `platform` (`rumble`, `odysee`, `peertube`, `custom`), `url` (`rtmp://` or `rtmps://`, without the key), `key`, `profile` (`compatible` or `open`), `enabled` (off unless asked); at most 10 |
+| `POST /api/v1/rtmp/destinations` | add one: `name`, `platform` (`youtube`, `owncast`, `x`, `rumble`, `odysee`, `peertube`, `custom`), `url` (`rtmp://` or `rtmps://`, without the key), `key`, `profile` (`compatible` or `open`), `enabled` (off unless asked); at most 10 |
 | `PUT /api/v1/rtmp/destinations/{id}` | change any of them; a field left out is kept, the key too |
 | `PUT /api/v1/rtmp/destinations/{id}/enabled` | `{"enabled": true}` or `false`: on or off |
 | `DELETE /api/v1/rtmp/destinations/{id}` | remove it, with its key |

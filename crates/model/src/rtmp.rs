@@ -15,7 +15,7 @@ use crate::StationId;
 pub struct RtmpDestination {
     pub id: Uuid,
     pub name: String,
-    /// `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from.
+    /// `youtube`, `owncast`, `x`, `gab`, `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from.
     pub platform: String,
     /// The server URL, without the key.
     pub url: String,

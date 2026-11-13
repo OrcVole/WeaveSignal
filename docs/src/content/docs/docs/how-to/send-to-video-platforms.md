@@ -1,6 +1,6 @@
 ---
 title: "Send your show to YouTube, Owncast, Rumble and other platforms"
-description: "Send the studio's picture and sound, behind the delay, to YouTube, Owncast, X, Gab, Rumble, Odysee, PeerTube or any RTMP server: turn video on, find the platform's server URL and stream key, add the destination, and go live."
+description: "Send the studio's picture and sound, behind the delay, to YouTube, Owncast, X, Rumble, Odysee, PeerTube or any RTMP server: turn video on, find the platform's server URL and stream key, add the destination, and go live."
 type: howto
 status: draft
 last_verified: 2026-11-11
@@ -39,7 +39,6 @@ Copy both from the platform's own page: the URLs below are the usual ones, but t
 | YouTube | YouTube Studio: **Create**, **Go live**, **Stream** | `rtmps://a.rtmps.youtube.com:443/live2` |
 | Owncast | its admin: **Server Setup**, **Stream Keys**; the server is your Owncast's address and RTMP port (on Cloudron, the app's RTMP port) | `rtmp://<your owncast>:1935/live` |
 | X | X Premium: **Creator Studio**, **Live Studio**, **New Livestream**, an RTMP source; then start the broadcast on X | per source, shown by X |
-| Gab | GabPRO: **Live**, **Go Live Now**, **OBS / External Encoder** | shown by Gab |
 | Rumble | **Go Live**, then **Get the Streamer Configuration** | `rtmp://rtmp.rumble.com/live` |
 | Odysee | **Go Live**, your livestream, the **RTMP Setup** tab | `rtmp://publish.odysee.live/live` |
 | PeerTube | **Publish**, **Go live** (the instance's admin must have turned live on); the live's page shows its RTMP URL (and RTMPS URL, port 1936, where the admin turned RTMPS on) and its stream key | `rtmp://<your instance>:1935/live` |
@@ -55,7 +54,7 @@ Keep it out of chats, screenshots and shared screens.
 3. Paste the **server URL** and the **stream key**.
    The key goes in its own field, never on the end of the URL; it is kept sealed by the station and never shown again.
 4. Leave **Formats** at **H.264 and AAC**.
-   That is what Owncast, X, Gab, Rumble, Odysee and PeerTube take, and YouTube too.
+   That is what Owncast, X, Rumble, Odysee and PeerTube take, and YouTube too.
    Choose **AV1 and Opus** only for a server that says it takes them over Enhanced RTMP: in local tests PeerTube 8.3.1 showed nothing, and OvenMediaEngine (which Odysee appears to run) kept the picture and dropped the sound.
 5. Leave **On** unticked until the show should go there, and choose **Add the destination**.
 
@@ -82,13 +81,16 @@ A destination that fails never touches the others, the station's own player, the
 ## What has been tried
 
 RTMP out was tested against servers on the test machine (MediaMTX, OvenMediaEngine and PeerTube 8.3.1; [What each platform took](/docs/reference/rtmp-out/#what-each-platform-took)) and, on 2026-11-11, from a Cloudron station to **Owncast 0.3.0** on another Cloudron: **H.264 and AAC** went live and played; with **AV1 and Opus** Owncast closed every connection within a second.
-Not tried yet (checked 2026-11-11; check again before each release):
 
-- **YouTube.** It takes AV1 video over Enhanced RTMP, but its RTMP ingest is reported to take AAC sound only, not Opus, so **AV1 and Opus** is likely refused there; keep **Compatible** until WeaveSignal has an AV1-and-AAC profile. YouTube re-encodes every stream, and gives viewers its VP9 or AV1 copies mostly from 1440p up.
-- **X and Gab.** Both take H.264 and AAC from an encoder, behind a paid tier (X Premium, GabPRO); neither has been streamed to.
+On 2026-11-12 the test station went live on **YouTube** (`rtmps://a.rtmps.youtube.com:443/live2`, Compatible: YouTube showed the picture and called the stream's health excellent) and on **X** (`rtmps://a.live.x.com/x`, Compatible), both added as **Another server** before the YouTube and X forms could be saved.
+
+- **YouTube** takes AV1 video over Enhanced RTMP, but its sound must be AAC or MP3, not Opus (YouTube's live encoder settings, read 2026-11-12), so it refuses **AV1 and Opus**; keep **Compatible**. YouTube re-encodes every stream, and gives viewers its VP9 or AV1 copies mostly from 1440p up. It warns when the bitrate is under 1,000 kbit/s, which a still slate can be.
+- **X** needs X Premium. X ends a stream after 24 hours (reported, 2026-11-12), so a station on all day needs a new broadcast on X each day; leave X's **Use authentication** off.
+- **Gab** is not offered: its live streaming is not open to streamers yet (2026-11-12, its **Go Live Now** failed), and Gab says it is working on it.
+
+Not tried yet (check again before each release):
 
 - **Rumble and Odysee themselves.** The formats come from their own setup pages: Rumble asks for H.264 and AAC, and Odysee's tips are H.264 settings.
-- **RTMPS** against any server: the URL form is taken (`rtmps://`), but no server has answered it in a test.
 - **PeerTube's codecs** are not in its documentation; PeerTube 8.3.1 took **H.264 and AAC** and showed nothing for **AV1 and Opus**.
 - **NVENC** for H.264, on a GPU.
 

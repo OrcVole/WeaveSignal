@@ -893,7 +893,7 @@ Request body: [SeriesInput](#schema-seriesinput).
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-The next episode, or `count` of them, filled in from the series' rule.
+The next episode, or `count` of them, filled in from the series' rule. The first episode of a series with none follows its start date, or else is the slot under way now (its length, or an hour), or else the next.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -4616,7 +4616,7 @@ A destination as it is kept.
 | `enabled` | boolean | yes |  |
 | `id` | string (uuid) | yes |  |
 | `name` | string | yes |  |
-| `platform` | string | yes | `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from. |
+| `platform` | string | yes | `youtube`, `owncast`, `x`, `gab`, `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from. |
 | `profile` | string | yes | `compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP). |
 | `updated_ms` | integer (int64) | yes |  |
 | `url` | string | yes | The server URL, without the key. |
@@ -4628,7 +4628,7 @@ A destination as it is kept.
 | `enabled` | boolean | no | Off unless asked. |
 | `key` | string | yes | The stream key; never shown again. |
 | `name` | string | yes |  |
-| `platform` | string | yes | `rumble`, `odysee`, `peertube` or `custom`. |
+| `platform` | string | yes | `youtube`, `owncast`, `x`, `rumble`, `odysee`, `peertube` or `custom`. |
 | `profile` | string, or null | no | `compatible` (the default: H.264 and AAC) or `open` (AV1 and Opus). |
 | `url` | string | yes | The server URL, `rtmp://` or `rtmps://`, without the key. |
 
@@ -4881,7 +4881,7 @@ A destination as the studio shows it: never its key.
 | `enabled` | boolean | yes |  |
 | `id` | string (uuid) | yes |  |
 | `name` | string | yes |  |
-| `platform` | string | yes | `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from. |
+| `platform` | string | yes | `youtube`, `owncast`, `x`, `gab`, `rumble`, `odysee`, `peertube` or `custom`: the form the URL came from. |
 | `profile` | string | yes | `compatible` (H.264 and AAC) or `open` (AV1 and Opus over Enhanced RTMP). |
 | `updated_ms` | integer (int64) | yes |  |
 | `url` | string | yes | The server URL, without the key. |

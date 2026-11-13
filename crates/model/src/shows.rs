@@ -717,10 +717,14 @@ pub fn fill_next(
         .max()
         .and_then(|t| Timestamp::from_second(t).ok());
     if after.is_none() {
+        // With nothing drafted and no start date, the first episode is the slot under way, if
+        // one is (its length, or the studio's 60 minutes), else the next: the studio app drafts
+        // the block under way, and the API now does the same.
+        let under_way = slot.map_or(0, |s| i64::from(s.minutes.unwrap_or(60)) * 60);
         after = starts_on
             .and_then(|d| d.at(0, 0, 0, 0).to_zoned(zone.clone()).ok())
             .map(|z| z.timestamp() - 1.second())
-            .or(Some(now));
+            .or_else(|| now.checked_sub(under_way.seconds()).ok());
     }
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
@@ -2048,6 +2052,54 @@ mod tests {
         assert_eq!(
             fill_next(None, &london(), None, &existing, 1, Timestamp::now())[0],
             (7, None)
+        );
+    }
+
+    #[test]
+    fn the_first_episode_is_the_slot_under_way() {
+        // Saturday 20:00 for three hours; it is 21:30 that Saturday and nothing is drafted.
+        let got = fill_next(
+            Some(saturday_eight()),
+            &london(),
+            None,
+            &[],
+            2,
+            ts("2026-10-17T21:30[Europe/London]"),
+        );
+        assert_eq!(
+            got[0].1,
+            Some(ts("2026-10-17T20:00[Europe/London]").as_second())
+        );
+        assert_eq!(
+            got[1].1,
+            Some(ts("2026-10-24T20:00[Europe/London]").as_second())
+        );
+        // Once it has ended (23:00), the next one.
+        let got = fill_next(
+            Some(saturday_eight()),
+            &london(),
+            None,
+            &[],
+            1,
+            ts("2026-10-17T23:00[Europe/London]"),
+        );
+        assert_eq!(
+            got[0].1,
+            Some(ts("2026-10-24T20:00[Europe/London]").as_second())
+        );
+        // A slot without a length counts as an hour, as the studio app draws it.
+        let short = Slot {
+            minutes: None,
+            ..saturday_eight()
+        };
+        let at = |now| fill_next(Some(short), &london(), None, &[], 1, ts(now))[0].1;
+        assert_eq!(
+            at("2026-10-17T20:59[Europe/London]"),
+            Some(ts("2026-10-17T20:00[Europe/London]").as_second())
+        );
+        assert_eq!(
+            at("2026-10-17T21:00[Europe/London]"),
+            Some(ts("2026-10-24T20:00[Europe/London]").as_second())
         );
     }
 

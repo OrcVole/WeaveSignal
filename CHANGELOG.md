@@ -2,6 +2,21 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.0.3 (2026-11-13)
+
+- **Saving a YouTube, Owncast or X destination no longer fails** ("the database refused
+  that"): 1.0.2 offered their forms, but the database still allowed only Rumble, Odysee,
+  PeerTube and another server. Migration 0035 allows every form the studio app offers, and a
+  test saves each of them.
+- **Drafting a series' first episode through the API takes the slot under way**, as the studio
+  app already did: with nothing drafted and no start date, the first episode is the slot on air
+  now (its length, or an hour), not next week's.
+- **Gab is no longer offered as a video platform**: its live streaming is not open to streamers
+  yet (its Go Live Now failed on the test station), and Gab says it is working on it. The
+  database still allows a Gab destination, so the form can come back when Gab opens it.
+- **The guide to video platforms says what has gone live**: YouTube and X from the test station
+  (2026-11-12), with their server URLs.
+
 ## 1.0.2 (2026-11-12)
 
 Public issues 15 and 17 (ADR-0272).

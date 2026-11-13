@@ -122,7 +122,10 @@ pub struct Platform {
 // What each platform takes was checked on 2026-11-11 (research recce 30 and the 1.0.1 test run);
 // re-check before each release. "compatible" is H.264 and AAC, which every platform here takes;
 // "open" is AV1 and Opus over Enhanced RTMP, which only some take, and the hint says so.
-pub const PLATFORMS: [Platform; 8] = [
+/// Gab is not offered: its live streaming is not open to streamers yet (the test station,
+/// 2026-11-12: Go Live Now answered 502; Gab says it is working on it). The database still allows
+/// `gab` (migration 0035), so it can come back as a form when Gab opens it.
+pub const PLATFORMS: [Platform; 7] = [
     Platform {
         platform: "youtube",
         name: "YouTube",
@@ -143,13 +146,6 @@ pub const PLATFORMS: [Platform; 8] = [
         url: "",
         profile: "compatible",
         where_to_find: "X (Premium needed): Creator Studio, Live Studio (once Media Studio Producer), New Livestream, an RTMP source in your region: its RTMPS URL and stream key. Then start the broadcast on X. X takes H.264 and AAC: keep Compatible.",
-    },
-    Platform {
-        platform: "gab",
-        name: "Gab",
-        url: "",
-        profile: "compatible",
-        where_to_find: "Gab (GabPRO needed): Live, Go Live Now, OBS / External Encoder: the server URL and the stream key. Keep Compatible (Gab names OBS's usual H.264 and AAC).",
     },
     Platform {
         platform: "rumble",
@@ -243,7 +239,8 @@ fn check_platform(p: &str) -> Result<String, String> {
     if PLATFORMS.iter().any(|x| x.platform == p) {
         Ok(p.to_owned())
     } else {
-        Err("The platform is rumble, odysee, peertube or custom.".into())
+        let names: Vec<&str> = PLATFORMS.iter().map(|x| x.platform).collect();
+        Err(format!("The platform is one of {}.", names.join(", ")))
     }
 }
 
@@ -369,7 +366,7 @@ async fn list(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respons
 #[serde(deny_unknown_fields)]
 struct RtmpNewBody {
     name: String,
-    /// `rumble`, `odysee`, `peertube` or `custom`.
+    /// `youtube`, `owncast`, `x`, `rumble`, `odysee`, `peertube` or `custom`.
     platform: String,
     /// The server URL, `rtmp://` or `rtmps://`, without the key.
     url: String,
