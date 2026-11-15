@@ -185,7 +185,7 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
       pre = doc.createElement('pre');
       pre.id = 'pn-audit';
       pre.style.cssText =
-        'position:fixed;left:8px;bottom:8px;z-index:99;max-height:60vh;overflow:auto;background:var(--plane);color:var(--ink);font:600 13px/1.35 monospace;padding:8px 10px;border-radius:6px;opacity:.95;margin:0';
+        'position:fixed;left:8px;bottom:8px;z-index:99;max-height:calc(var(--win-h, 100vh) * 0.6);overflow:auto;background:var(--plane);color:var(--ink);font:600 13px/1.35 monospace;padding:8px 10px;border-radius:6px;opacity:.95;margin:0';
       doc.body.appendChild(pre);
     }
     pre.textContent = `plates ${tags.length}\n${out.join('\n')}`;

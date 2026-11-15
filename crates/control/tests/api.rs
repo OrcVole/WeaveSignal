@@ -94,6 +94,8 @@ fn plane(config: ApiConfig, gated: bool) -> Plane {
         publishing: Default::default(),
         zone: Arc::new(StationZone::new("Europe/London")),
         live: None,
+        hub: None,
+        video: None,
     })));
     let app = if gated {
         layer(app, staff.clone())

@@ -9,8 +9,11 @@
 pub mod carts;
 pub mod chat;
 pub mod passes;
+pub mod planner;
 pub mod playout;
 pub mod retention;
+pub mod rule;
+pub mod ruleplan;
 pub mod setup;
 pub mod shows;
 pub mod staff;

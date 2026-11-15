@@ -296,3 +296,194 @@ async fn migration_17_marks_existing_chat_accounts_and_drops_pending_codes() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn migration_36_turns_every_slot_into_the_slot_shaped_rule_and_episodes_get_their_dates() {
+    use jiff::tz::TimeZone;
+    use sqlx::Connection;
+    use weavesignal_model::rule::Rule;
+    use weavesignal_model::shows::Slot;
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let mut db = sqlx::PgConnection::connect(&url).await.expect("connect");
+    // A schema of its own, migrated up to 0035 as a station's database was before 1.0.4.
+    let schema = format!("m36_{}", uuid::Uuid::new_v4().simple());
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE SCHEMA {schema}; SET search_path TO {schema}"
+    )))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    let mut thirty_six = None;
+    for m in weavesignal_model::MIGRATOR.iter() {
+        if m.version < 36 {
+            sqlx::raw_sql(sqlx::AssertSqlSafe(m.sql.as_str().to_owned()))
+                .execute(&mut db)
+                .await
+                .unwrap_or_else(|e| panic!("migration {}: {e}", m.version));
+        } else if m.version == 36 {
+            thirty_six = Some(m.sql.as_str().to_owned());
+        }
+    }
+    let thirty_six = thirty_six.expect("migration 0036");
+    let (station, tuesdays, fridays, plain) = (
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+    );
+    let (series_a, series_b, series_c) = (
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+    );
+    // Tuesdays 20:00 for 90 minutes (series A follows it, series B has a slot of its own: Friday
+    // 07:00 with no length), and a show with no slot at all.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO station (id, name) VALUES ('{station}', 'Kettle FM');
+         INSERT INTO show (id, station_id, slug, name, colour_slot, slot_weekday, slot_start, slot_minutes)
+           VALUES ('{tuesdays}', '{station}', 'tuesdays', 'Tuesdays', 1, 2, 1200, 90),
+                  ('{fridays}', '{station}', 'fridays', 'Fridays', 2, 5, 420, NULL);
+         INSERT INTO show (id, station_id, slug, name, colour_slot)
+           VALUES ('{plain}', '{station}', 'plain', 'Plain', 3);
+         INSERT INTO series (id, station_id, show_id, number)
+           VALUES ('{series_a}', '{station}', '{tuesdays}', 1);
+         INSERT INTO series (id, station_id, show_id, number, slot_weekday, slot_start)
+           VALUES ('{series_b}', '{station}', '{tuesdays}', 2, 5, 420);
+         INSERT INTO series (id, station_id, show_id, number)
+           VALUES ('{series_c}', '{station}', '{plain}', 1);"
+    )))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    // Series A: episode 1 on its Tuesday; 2 moved by hand to the Wednesday of its week; 3 and 4
+    // both in one week (the second was made by hand); 5 on a Tuesday over the clocks going back.
+    // Series C has no slot, so its episode fills no date.
+    for (series, number, air) in [
+        (series_a, 1, "2026-10-06 19:00+00"),
+        (series_a, 2, "2026-10-14 20:00+00"),
+        (series_a, 3, "2026-10-20 19:00+00"),
+        (series_a, 4, "2026-10-22 19:00+00"),
+        (series_a, 5, "2026-10-27 20:00+00"),
+        (series_c, 1, "2026-10-06 19:00+00"),
+    ] {
+        sqlx::query(
+            "INSERT INTO episode (id, station_id, series_id, number, air_at)
+             VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(station)
+        .bind(series)
+        .bind(number)
+        .bind(air)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    }
+
+    sqlx::raw_sql(sqlx::AssertSqlSafe(thirty_six))
+        .execute(&mut db)
+        .await
+        .expect("0036 applies over existing rows");
+
+    // Each slot became exactly the rule `Rule::from(Slot)` is, and a show without one has none.
+    let read = |rows: Vec<(uuid::Uuid, Option<String>)>| {
+        rows.into_iter()
+            .map(|(id, r)| {
+                (
+                    id,
+                    r.map(|r| serde_json::from_str::<Rule>(&r).expect("parses")),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>()
+    };
+    let shows = read(
+        sqlx::query_as("SELECT id, rule::text FROM show")
+            .fetch_all(&mut db)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        shows[&tuesdays],
+        Some(Rule::from(Slot {
+            weekday: 2,
+            start: 1200,
+            minutes: Some(90)
+        }))
+    );
+    assert_eq!(
+        shows[&fridays],
+        Some(Rule::from(Slot {
+            weekday: 5,
+            start: 420,
+            minutes: None
+        }))
+    );
+    assert_eq!(shows[&plain], None);
+    let series = read(
+        sqlx::query_as("SELECT id, rule::text FROM series")
+            .fetch_all(&mut db)
+            .await
+            .unwrap(),
+    );
+    assert_eq!(series[&series_a], None, "follows its show");
+    assert_eq!(
+        series[&series_b],
+        Some(Rule::from(Slot {
+            weekday: 5,
+            start: 420,
+            minutes: None
+        }))
+    );
+    assert_eq!(series[&series_c], None);
+    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM episode WHERE occurrence IS NOT NULL")
+        .fetch_one(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(
+        n, 0,
+        "the dates need the station's zone: the control plane fills them in"
+    );
+
+    // The once-only backfill gives each episode the Tuesday of its week: 2026-10-06, the same
+    // week's Tuesday for the moved one, 2026-10-20, none for the second in a week, and the
+    // Tuesday after the clocks went back.
+    let zone = TimeZone::get("Europe/London").unwrap();
+    let given = weavesignal_model::ruleplan::backfill_in(&mut db, &zone)
+        .await
+        .unwrap();
+    assert_eq!(given, 4);
+    let dates: Vec<(uuid::Uuid, i32, Option<String>)> = sqlx::query_as(
+        "SELECT series_id, number, occurrence::text FROM episode ORDER BY series_id, number",
+    )
+    .fetch_all(&mut db)
+    .await
+    .unwrap();
+    let of = |series: uuid::Uuid, number: i32| {
+        dates
+            .iter()
+            .find(|(s, n, _)| *s == series && *n == number)
+            .and_then(|(_, _, d)| d.clone())
+    };
+    assert_eq!(of(series_a, 1).as_deref(), Some("2026-10-06"));
+    assert_eq!(of(series_a, 2).as_deref(), Some("2026-10-13"));
+    assert_eq!(of(series_a, 3).as_deref(), Some("2026-10-20"));
+    assert_eq!(of(series_a, 4), None);
+    assert_eq!(of(series_a, 5).as_deref(), Some("2026-10-27"));
+    assert_eq!(of(series_c, 1), None);
+    // A date is held once per series.
+    assert!(
+        sqlx::query(
+            "UPDATE episode SET occurrence = '2026-10-06' WHERE series_id = $1 AND number = 5"
+        )
+        .bind(series_a)
+        .execute(&mut db)
+        .await
+        .is_err()
+    );
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&mut db)
+        .await
+        .unwrap();
+}

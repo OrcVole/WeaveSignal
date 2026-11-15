@@ -263,6 +263,9 @@ async fn read(
 pub async fn refresh(state: &AppState) {
     let Some(pool) = &state.db else { return };
     let _one_at_a_time = state.hub.live.step_gate().await;
+    for title in state.hub.live.take_rule_changes() {
+        state.hub.with_studio(|s, now| s.rule_changed(now, title));
+    }
     let facts = match read(pool, state.station.id).await {
         Ok(f) => f,
         Err(e) => {
@@ -548,6 +551,7 @@ pub(crate) fn test_show(step: Step, presenter: Option<Uuid>) -> Show {
         colour_slot: 1,
         layout: "poster".into(),
         slot: None,
+        rule: None,
         hosts: vec![],
         tags: vec![],
         explicit: false,

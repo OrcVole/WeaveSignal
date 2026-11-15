@@ -2,6 +2,14 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.0.4]
+
+- **New show, guided like calendar software** (ADR-0278): once, weekly, monthly, yearly or on chosen dates, with skips, moves and an end; the station says each rule back in words, shows its dates, marks clashes and the clocks changing, and offers a clear time when every date clashes. **Migration 0036** turns each weekly slot into the same rule, airing at exactly the same times; drafted episodes keep their dates.
+- **Delete show** (ADR-0279) for a show none of whose episodes has aired.
+- **The studio grows with its window** (ADR-0277), and its dialogs fit any window and text size.
+- Playout sends the desk its copy of the programme on its own clock.
+- No new settings; the domains and routes are unchanged (the new routes are under `/api/v1/` on the station's domain). Tried on a Cloudron install (the test station).
+
 [1.0.3]
 
 - **RTMP destinations for YouTube, Owncast and X save**: 1.0.2 offered their forms, but the database refused them ("the database refused that"). **Migration 0035.** Gab leaves the forms: its live streaming is not open to streamers yet.

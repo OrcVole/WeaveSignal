@@ -1,21 +1,30 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The DJ's show setup (ADR-0218, ADR-0219): three parts in a dialog over the surface.
+  // The DJ's show setup (ADR-0218, ADR-0219, ADR-0278): four parts in a dialog over the surface.
   // About you (the on-air name and the takedown contact), Your show (its name, the links to
-  // your channels, the usual day and time, whether it plays commercial music, and how much of
-  // the studio to start with: the show's step, Solo picked, ADR-0271), Done (what the answers
-  // now do, and where the studio starts). They are "parts" so that "step" means one thing.
-  // The answers become the show's own fields in the station, tied to this account, so the consent words name the DJ while the show is on air (ADR-0214) and
-  // new episodes take the usual slot. It opens by itself for a newly signed-in presenter
-  // with no show of their own, and again from Settings. No email is sent or needed. Panel
-  // name `studio.show-setup` (ADR-0070). A dialog owns the keyboard (keymap rule 5): only
-  // the ⌃ chords reach the keymap while it is open.
+  // your channels, whether it plays commercial music, and how much of the studio to start
+  // with: the show's step, Solo picked, ADR-0271), When it is on (`calendar.rule`: the same
+  // questions and preview as New show, opened on the list), Done (what the answers now do, and
+  // where the studio starts). They are "parts" so that "step" means one thing.
+  // The answers become the show's own fields in the station, tied to this account, so the
+  // consent words name the DJ while the show is on air (ADR-0214). Save my show saves the show
+  // and drafts its first episode in one transaction. A first date that is another show's is
+  // refused, with the other show named (a presenter may not draft over another show); a later
+  // date that clashes is only a warning until the DJ comes to draft it. Run again from
+  // Settings, the third part shows the show's rule and behaves as a change: the drafted
+  // episodes are listed before anything is saved. It opens by itself for a newly signed-in
+  // presenter with no show of their own. No email is sent or needed. Panel name
+  // `studio.show-setup` (ADR-0070). A dialog owns the keyboard (keymap rule 5): only the ⌃
+  // chords reach the keymap while it is open.
   import { untrack } from 'svelte';
-  import type { Me } from '../lib/api.ts';
-  import { placeError } from '../lib/account.ts';
+  import * as rulesApi from '../lib/api.ts';
+  import type { DraftedChoice, IsoDate, Me, RulePreview, ShowSaved } from '../lib/api.ts';
+  import { isAdmin, placeError } from '../lib/account.ts';
   import * as api from '../lib/schedule.ts';
-  import type { Show, ShowView } from '../lib/schedule.ts';
+  import type { Show } from '../lib/schedule.ts';
+  import { sched } from '../lib/schedule.svelte.ts';
+  import { stationNow, studio } from '../lib/studio.svelte.ts';
   import {
     CONTACT_MAX,
     MUSIC_REMINDER,
@@ -24,25 +33,35 @@
     STEP_QUESTION,
     startsAt,
     SHOW_NAME_MAX,
-    WEEKDAYS,
     aboutProblems,
     freeSlug,
     fromShow,
     nextColour,
     showProblems,
-    slotLine,
     splitLinks,
     toShowInput,
-    overnight,
     type Answers,
   } from '../lib/wizard.ts';
   import StepList from '../lib/StepList.svelte';
+  import RuleChange from '../schedule/rule/RuleChange.svelte';
+  import RulePart from '../schedule/rule/RulePart.svelte';
+  import { fromRule, newForm, ruleOfSlot, whenFields, type RuleForm } from '../schedule/rule/form.ts';
+  import { dialogKeys } from '../schedule/rule/keys.ts';
+  import { dateIn, firstState, firstWords, hasEpisodes, movable, ruleStatus, saveWords } from '../schedule/rule/view.ts';
 
   let {
     me,
     shows,
     initial = null,
     part: firstPart = 1,
+    zone = sched.zone,
+    today = dateIn(stationNow(), sched.zone),
+    rules = sched.rules === true,
+    form: firstForm = null,
+    preview = null,
+    saved: firstSaved = null,
+    changing = false,
+    live = true,
     onDone,
     onSkip,
     onClose,
@@ -53,48 +72,86 @@
     /** The show this account presents, when the wizard is run again. */
     initial?: Show | null;
     /** The part to open on (a test's). */
-    part?: 1 | 2 | 3;
+    part?: 1 | 2 | 3 | 4;
+    /** The station's zone, its date today, and whether it stores rules (1.0.4 or later). */
+    zone?: string;
+    today?: IsoDate;
+    rules?: boolean;
+    /** The third part's answers, its preview, the saved show and Before you save (a test's). */
+    form?: RuleForm | null;
+    preview?: RulePreview | null;
+    saved?: ShowSaved | null;
+    changing?: boolean;
+    live?: boolean;
     /** The show was saved. */
-    onDone: (saved: ShowView) => void;
+    onDone: (saved: ShowSaved) => void;
     /** Skipped for now: not asked again on this machine. */
     onSkip: () => void;
     onClose: () => void;
   } = $props();
 
-  const seed = untrack(() => ({ initial, part: firstPart }));
-  let part = $state<1 | 2 | 3>(seed.part);
+  const seed = untrack(() => ({ initial, part: firstPart, firstForm, firstSaved, today, rules, changing, preview }));
+  const PARTS = ['About you', 'Your show', 'When it is on', 'Done'] as const;
+
+  /** When the show is on, as the third part first shows it: the show's rule when it has one
+   *  (from its next date, as a change does), else today, once only. Always on the list where
+   *  the list can say it. */
+  function firstAnswers(): RuleForm {
+    if (seed.firstForm) return seed.firstForm;
+    const s = seed.initial;
+    const stored = s ? (seed.rules ? (s.rule ?? null) : s.slot ? ruleOfSlot(s.slot) : null) : null;
+    if (!stored) return newForm(seed.today);
+    const start = stored.starts_on && stored.starts_on >= seed.today ? stored.starts_on : (s?.next_on?.on ?? seed.today);
+    return fromRule({ ...stored, starts_on: start }, start);
+  }
+
+  let part = $state<1 | 2 | 3 | 4>(seed.part);
   let a = $state<Answers>(untrack(() => fromShow(seed.initial, me)));
-  let errors = $state<{ presenter?: string; contact?: string; show?: string; links?: string; time?: string; form?: string }>({});
+  let form = $state<RuleForm>(firstAnswers());
+  let pst = $state(firstState(seed.preview));
+  const status = $derived(ruleStatus(form, pst, rules));
+  let errors = $state<{ presenter?: string; contact?: string; show?: string; links?: string; form?: string }>({});
   let saving = $state(false);
-  /** The past-midnight slot confirmed (ADR-0244); asked again when the times change. */
-  let overnightOk = $state(false);
-  let overnightFor = '';
-  let saved = $state<ShowView | null>(null);
+  let saved = $state<ShowSaved | null>(seed.firstSaved);
+  /** Before you save: the drafted episodes a changed rule would move (run again only). */
+  let confirming = $state(seed.changing);
+  let choice = $state<DraftedChoice>('move');
+  let said = $state(seed.preview?.sentence ?? '');
   let dialogEl = $state<HTMLDialogElement | null>(null);
 
   const again = $derived(seed.initial !== null);
-  const parts = ['About you', 'Your show', 'Done'] as const;
+  const hadRule = seed.initial ? (seed.rules ? !!seed.initial.rule : !!seed.initial.slot) : false;
+  const initialForm = JSON.stringify(untrack(() => form));
+  const ruleChanged = $derived(JSON.stringify(form) !== initialForm);
   const starts = $derived(startsAt(a.step));
   const musicNote = $derived(a.commercial_music ? MUSIC_REMINDER : '');
   const linkCount = $derived(splitLinks(a.links).length);
-
+  const canChooseZone = $derived(isAdmin(me));
+  let lastPlan = $state(seed.preview?.change ?? null);
   $effect(() => {
-    const key = `${a.from}-${a.until}`;
-    if (key !== overnightFor) {
-      overnightFor = key;
-      overnightOk = false;
+    if (status.answer) {
+      lastPlan = status.answer.change;
+      said = status.answer.sentence;
     }
   });
+  const plan = $derived(lastPlan);
+  const firstEp = $derived(saved?.drafted?.episode ?? null);
+  const savedRule = $derived(saved?.show.rule ?? null);
+  const firstWhen = $derived(firstEp?.air_at ? firstWords({ start: firstEp.air_at, minutes: firstEp.minutes ?? savedRule?.minutes ?? 60 }, zone, today) : '');
+  /** The sentence inside a sentence: `It is on every week on Friday, 23:00 to 01:00 the next day.` */
+  const isOn = $derived.by(() => {
+    const s = saved?.show.rule_words?.sentence ?? (saved && (savedRule || saved.show.slot) ? said : '');
+    return s ? `It is on ${s.charAt(0).toLowerCase()}${s.slice(1)}` : '';
+  });
 
-  function focusFirst(id: string) {
-    queueMicrotask(() => document.getElementById(id)?.focus());
-  }
+  const focusFirst = (id: string) => queueMicrotask(() => document.getElementById(id)?.focus());
+  const firstField = () => (part === 1 ? 'sw-presenter' : part === 2 ? 'sw-show' : part === 3 ? 'sw-first' : 'sw-done');
 
   $effect(() => {
     const d = dialogEl;
     if (d && !d.open) {
       d.showModal();
-      focusFirst(part === 1 ? 'sw-presenter' : 'sw-show');
+      focusFirst(firstField());
     }
   });
 
@@ -104,36 +161,68 @@
       errors = p;
       if (p.presenter || p.contact) return focusFirst(p.presenter ? 'sw-presenter' : 'sw-contact');
       part = 2;
-      focusFirst('sw-show');
+    } else if (part === 2) {
+      const p = showProblems(a);
+      errors = p;
+      if (p.show || p.links) return focusFirst(p.show ? 'sw-show' : 'sw-links');
+      part = 3;
     }
+    focusFirst(firstField());
   }
 
   function back() {
     errors = {};
-    part = 1;
-    focusFirst('sw-presenter');
+    if (confirming) confirming = false;
+    else part = part === 3 ? 2 : 1;
+    focusFirst(firstField());
   }
 
-  async function save(e: SubmitEvent) {
-    e.preventDefault();
-    if (saving) return;
-    const p = showProblems(a);
-    if (!p.time && overnight(a) && !overnightOk) p.time = 'It ends before it starts, so it runs past midnight. Tick the box below if it does, or change the times.';
-    errors = p;
-    if (p.show || p.links || p.time) return focusFirst(p.show ? 'sw-show' : p.links ? 'sw-links' : p.time && overnight(a) ? 'sw-overnight' : 'sw-from');
+  /** Save my show. `withDates` false is No dates yet: the show is saved with none. */
+  async function save(withDates: boolean) {
+    if (saving || (withDates && (status.held || !status.rule))) return;
+    // Run again with a changed rule: the drafted episodes are listed before anything is saved.
+    if (again && rules && withDates && hadRule && ruleChanged && !confirming && hasEpisodes(plan) && movable(plan) > 0) {
+      confirming = true;
+      return focusFirst('sw-h');
+    }
     saving = true;
+    errors = {};
     try {
       // The show this account presents is changed in place; a new one takes a free path.
       const existing = seed.initial ? await api.show(seed.initial.slug) : null;
       const slug = existing ? existing.show.slug : freeSlug(a.show, shows.map((s) => s.slug));
-      const v = await api.putShow(slug, toShowInput(a, me, existing, nextColour(shows.length)));
-      saved = v;
-      part = 3;
+      const rule = withDates ? status.rule : null;
+      // A show with a rule already has it changed on the rule's own route, after the show is
+      // saved with the rule as stored; a show without one takes the rule with the save, and
+      // its first episode is drafted in the same transaction.
+      const viaRuleRoute = !!existing && rules && hadRule;
+      const when = viaRuleRoute
+        ? { ...whenFields(existing.show.rule ?? null, { rules: true }), slot: existing.show.slot }
+        : whenFields(rule, { rules, draftFirst: !existing || existing.series.length === 0 });
+      let v = await rulesApi.saveShow(slug, toShowInput(a, me, existing, nextColour(shows.length), when));
+      if (viaRuleRoute && withDates && ruleChanged) {
+        await rulesApi.putShowRule(slug, rule, choice);
+        v = { ...(await api.show(slug)), drafted: null };
+      }
+      saved = { ...v, show: api.asShow(v.show) };
+      confirming = false;
+      part = 4;
       focusFirst('sw-done');
     } catch (err) {
-      const placed = placeError(err, ['name', 'presenter', 'contact', 'links', 'slot'] as const);
-      const field = placed.field === 'name' ? 'show' : placed.field === 'slot' ? 'time' : placed.field;
-      errors = field ? { [field]: placed.message } : { form: placed.message };
+      const placed = placeError(err, ['name', 'presenter', 'contact', 'links'] as const);
+      confirming = false;
+      if (placed.field === 'presenter' || placed.field === 'contact') {
+        part = 1;
+        errors = { [placed.field]: placed.message };
+        focusFirst(`sw-${placed.field}`);
+      } else if (placed.field === 'name' || placed.field === 'links') {
+        part = 2;
+        errors = { [placed.field === 'name' ? 'show' : 'links']: placed.message };
+        focusFirst(placed.field === 'name' ? 'sw-show' : 'sw-links');
+      } else {
+        // A clash's refusal names the other show, in the station's words.
+        errors = { form: placed.message };
+      }
     } finally {
       saving = false;
     }
@@ -149,26 +238,41 @@
     dialogEl?.close();
   }
 
-  function onCancel(e: Event) {
-    // Esc: the dialog's own key. Leaving without saving is not a skip: it asks again next time.
-    e.preventDefault();
+  /** Esc: leaving without saving is not a skip, so the wizard asks again next time. */
+  function leave() {
+    if (confirming) return back();
+    if (saved) onDone(saved);
     dialogEl?.close();
+  }
+
+  function keys(e: KeyboardEvent) {
+    if (!dialogEl) return;
+    dialogKeys(e, dialogEl, leave, () => {
+      if (part < 3) next();
+      else if (part === 3) void save(true);
+      else finish();
+    });
   }
 </script>
 
-<dialog bind:this={dialogEl} data-panel="studio.show-setup" aria-labelledby="sw-h" oncancel={onCancel} onclose={onClose}>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<dialog bind:this={dialogEl} class="wz" class:wide={part === 3 && rules && !confirming} class:mid={part === 3 && (!rules || confirming)} data-panel="studio.show-setup" aria-labelledby="sw-h" tabindex="-1" onkeydown={keys} oncancel={(e) => { e.preventDefault(); leave(); }} onclose={onClose}>
   <div class="head">
     <p class="crumbs" aria-hidden="true">
-      {#each parts as s, i (s)}
+      {#each PARTS as s, i (s)}
         <span class:now={part === i + 1} class:done={part > i + 1}>{i + 1} {s}</span>
       {/each}
     </p>
-    <h2 id="sw-h" data-panel-title>{again ? 'Your show' : 'Set up your show'}</h2>
-    <p class="small"><span class="sr-only">Part {part} of 3: {parts[part - 1]}. </span>
+    <h2 id="sw-h" data-panel-title tabindex="-1">{confirming ? 'Before you save' : again ? 'Your show' : 'Set up your show'}</h2>
+    <p class="small"><span class="sr-only">Part {part} of 4: {PARTS[part - 1]}. </span>
       {#if part === 1}
         What callers hear about you. Two questions, then your show.
       {:else if part === 2}
-        Your show in the station: its name, where people find you, and when it is on.
+        Your show in the station: its name, where people find you, and how much of the studio it starts with.
+      {:else if part === 3 && confirming}
+        <b class="ink">{a.show.trim()}</b>{said ? `: ${said}` : '.'}
+      {:else if part === 3}
+        When your show is on. Give its first date, then say whether it comes back.
       {:else}
         {again ? 'Your show is up to date.' : 'That is everything the station needs.'}
       {/if}
@@ -217,7 +321,7 @@
       </div>
     </form>
   {:else if part === 2}
-    <form onsubmit={save} novalidate>
+    <form onsubmit={(e) => { e.preventDefault(); next(); }} novalidate>
       <div class="field">
         <label for="sw-show">Show name</label>
         <input
@@ -246,21 +350,6 @@
         <span id="sw-links-hint" class="hint">One per line: Rumble, Odysee, AzuraCast, wherever your audience already is.{#if linkCount}<span class="count">{linkCount} {linkCount === 1 ? 'link' : 'links'}.</span>{/if}</span>
         {#if errors.links}<p id="sw-links-err" class="err">{errors.links}</p>{/if}
       </div>
-      <fieldset class="field when" aria-describedby={errors.time ? 'sw-time-err sw-time-hint' : 'sw-time-hint'}>
-        <legend>Usual day and time</legend>
-        <div class="row">
-          <select id="sw-weekday" bind:value={a.weekday} aria-label="Weekday">
-            {#each WEEKDAYS as d, i (d)}<option value={i + 1}>{d}</option>{/each}
-          </select>
-          <label class="t"><span aria-hidden="true">from</span><input id="sw-from" type="time" bind:value={a.from} aria-label="Start, station time" aria-invalid={errors.time ? true : undefined} /></label>
-          <label class="t"><span aria-hidden="true">until</span><input id="sw-until" type="time" bind:value={a.until} aria-label="End, station time" aria-invalid={errors.time ? true : undefined} /></label>
-        </div>
-        <span id="sw-time-hint" class="hint">Station time. {slotLine(a)}. New episodes start from it; leave the times empty if the show has no usual slot yet.</span>
-        {#if errors.time}<p id="sw-time-err" class="err">{errors.time}</p>{/if}
-        {#if overnight(a)}
-          <label class="check-inline"><input id="sw-overnight" type="checkbox" bind:checked={overnightOk} /> Yes, it runs past midnight</label>
-        {/if}
-      </fieldset>
       <div class="check">
         <input id="sw-music" type="checkbox" bind:checked={a.commercial_music} aria-describedby="sw-music-hint" />
         <label for="sw-music">The show plays commercial music</label>
@@ -271,18 +360,57 @@
         <StepList bind:value={a.step} name="sw-step" describedby="sw-step sw-step-hint" />
         <span id="sw-step-hint" class="hint">{STEP_HINT}</span>
       </div>
-      {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
       <div class="acts">
-        <button type="button" class="btn quiet" onclick={back} disabled={saving}>Back</button>
-        <button type="submit" class="btn primary" disabled={saving} aria-busy={saving || undefined}>{saving ? 'Saving…' : again ? 'Save changes' : 'Save my show'}</button>
+        <button type="button" class="btn quiet" onclick={back}>Back</button>
+        <button type="submit" class="btn primary">Next: when it is on</button>
+      </div>
+    </form>
+  {:else if part === 3}
+    <form onsubmit={(e) => { e.preventDefault(); void save(true); }} novalidate>
+      <!-- The questions stay mounted behind Before you save, so going back finds them as they were. -->
+      <div class="keep" hidden={confirming}>
+        <RulePart
+          bind:form
+          bind:state={pst}
+          {zone}
+          {today}
+          zoneSet={sched.zoneSet !== false}
+          {canChooseZone}
+          onzone={() => (studio.settings = true)}
+          {rules}
+          show={initial?.slug ?? null}
+          colour={initial?.colour_slot ?? nextColour(shows.length)}
+          label={hadRule && (plan?.aired ?? 0) > 0 ? 'Changes from' : 'First on'}
+          idp="sw"
+          {live}
+        />
+      </div>
+      {#if confirming && plan}<RuleChange {plan} {zone} bind:choice name="sw" />{/if}
+      <div class="foot2">
+        {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
+        <div class="acts">
+          <button type="button" class="btn quiet left" onclick={back} disabled={saving}>Back</button>
+          {#if !hadRule && !confirming}<button type="button" class="btn quiet" onclick={() => save(false)} disabled={saving}>No dates yet</button>{/if}
+          <button type="submit" class="btn primary" disabled={saving || !!status.held} title={status.held || undefined} aria-busy={saving || undefined}>{saving ? 'Saving…' : confirming ? saveWords(plan, choice) : again ? 'Save changes' : 'Save my show'}</button>
+        </div>
       </div>
     </form>
   {:else}
     <div class="done" id="sw-done" tabindex="-1">
-      <p class="lead"><svg class="g-good" aria-hidden="true"><use href="#g-good" /></svg><strong>{saved?.show.name ?? a.show}</strong> is set up as your show.</p>
+      <p class="lead"><svg class="g-good" aria-hidden="true"><use href="#g-good" /></svg><span><strong>{saved?.show.name ?? a.show}</strong> is set up as your show.</span></p>
       <ul>
         <li>While it is on air, callers agree to be recorded under your name{a.contact.trim() ? ', with your takedown contact first and the station’s as the host' : ', with the station’s takedown contact'}.</li>
-        <li>{slotLine(a) === 'No usual time yet' ? 'It has no usual time yet; set one from the Schedule tab when you know it.' : `New episodes start on ${slotLine(a)}.`}</li>
+        {#if firstEp}<li><b class="ink">Episode {firstEp.number} is drafted</b>{firstWhen ? ` for ${firstWhen}` : ''}. Give it a title and guests when you know them.</li>{/if}
+        {#if isOn}
+          <li>{isOn}</li>
+          {#if savedRule?.repeat.kind === 'once'}
+            <li>It airs once, so there is nothing more to draft.</li>
+          {:else}
+            <li>The other dates wait in the week as dotted blocks. Draft each when you are ready.</li>
+          {/if}
+        {:else}
+          <li>It has no dates yet, so nothing is drafted. Give it dates from the Schedule tab when you know them.</li>
+        {/if}
         {#if a.commercial_music}<li>{MUSIC_REMINDER}</li>{/if}
         <li data-step={a.step}><b class="ink">{starts.lead}</b> {starts.rest}</li>
         <li>Change any of this from Settings, under <b>Your show</b>, or on the Schedule tab.</li>
@@ -293,188 +421,3 @@
     </div>
   {/if}
 </dialog>
-
-<style>
-  .check-inline { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); font-size: var(--fs-14); }
-  /* The step question reads as the other fields' labels do. */
-  .q { font-weight: 600; }
-  .ink { color: var(--ink); }
-  /* A tall form on a short window scrolls inside the dialog. */
-  dialog { max-height: calc(100vh - 4rem); overflow-y: auto; }
-  dialog {
-    width: min(32rem, calc(100vw - 2 * var(--s-4)));
-    margin: 3rem auto auto;
-    background: var(--surface);
-    color: var(--ink);
-    border: 1px solid var(--axis);
-    border-radius: var(--r-3);
-    box-shadow: var(--e-3);
-    padding: var(--s-5);
-    display: none;
-    gap: var(--s-4);
-  }
-  dialog[open] {
-    display: grid;
-  }
-  dialog::backdrop {
-    background: var(--scrim);
-  }
-  .head {
-    display: grid;
-    gap: var(--s-1);
-  }
-  .crumbs {
-    display: flex;
-    gap: var(--s-3);
-    font-size: var(--fs-12);
-    letter-spacing: var(--tracking-caps);
-    text-transform: uppercase;
-    color: var(--muted);
-    font-weight: 600;
-  }
-  .crumbs .now {
-    color: var(--ink);
-    border-bottom: 2px solid var(--accent);
-  }
-  .crumbs .done {
-    color: var(--ink-2);
-  }
-  h2 {
-    font-size: var(--fs-20);
-  }
-  .small {
-    line-height: var(--lh-body);
-    color: var(--ink-2);
-  }
-  form,
-  .done {
-    display: grid;
-    gap: var(--s-3);
-  }
-  .field {
-    display: grid;
-    gap: var(--s-1);
-    border: 0;
-    padding: 0;
-    margin: 0;
-    min-width: 0;
-  }
-  label,
-  legend {
-    font-weight: 600;
-    padding: 0;
-  }
-  input,
-  select,
-  textarea {
-    font: inherit;
-    color: var(--ink);
-    background: var(--plane);
-    border: 1px solid var(--muted);
-    border-radius: var(--r-2);
-    min-height: 2.25rem;
-    padding: 0 var(--s-2);
-    width: 100%;
-    color-scheme: dark;
-  }
-  textarea {
-    padding: var(--s-1) var(--s-2);
-    line-height: var(--lh-body);
-    resize: vertical;
-    font-family: var(--font-mono);
-    font-size: var(--fs-13);
-  }
-  :global(:root[data-theme='light']) input,
-  :global(:root[data-theme='light']) select,
-  :global(:root[data-theme='light']) textarea {
-    color-scheme: light;
-  }
-  input[aria-invalid='true'],
-  textarea[aria-invalid='true'] {
-    border-color: var(--status-critical);
-    border-width: 2px;
-  }
-  .row {
-    display: flex;
-    gap: var(--s-2);
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .row select {
-    width: auto;
-    flex: 1 1 8rem;
-    min-width: 0;
-  }
-  .count {
-    color: var(--ink-2);
-    margin-left: 0.4em;
-  }
-  .t {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--s-1);
-    font-weight: 400;
-    color: var(--ink-2);
-  }
-  .t input {
-    width: 6.5rem;
-  }
-  .check {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: var(--s-2);
-    align-items: center;
-  }
-  .check input {
-    width: 1.1rem;
-    height: 1.1rem;
-    min-height: 0;
-    margin: 0;
-    accent-color: var(--accent);
-  }
-  .check .hint {
-    grid-column: 2;
-  }
-  .hint {
-    display: block;
-    font-size: var(--fs-13);
-    color: var(--muted);
-    line-height: var(--lh-body);
-  }
-  .err {
-    color: var(--ink);
-    font-size: var(--fs-13);
-    line-height: var(--lh-body);
-    border-left: 3px solid var(--status-critical);
-    padding-left: var(--s-2);
-  }
-  .acts {
-    display: flex;
-    gap: var(--s-2);
-    justify-content: flex-end;
-    flex-wrap: wrap;
-    margin-top: var(--s-1);
-  }
-  .lead {
-    display: flex;
-    gap: var(--s-2);
-    align-items: center;
-    line-height: var(--lh-body);
-  }
-  .lead svg {
-    width: 1.25rem;
-    height: 1.25rem;
-    flex: none;
-  }
-  .done ul {
-    margin: 0;
-    padding-left: 1.25rem;
-    display: grid;
-    gap: var(--s-1);
-    line-height: var(--lh-body);
-    color: var(--ink-2);
-  }
-  .done:focus {
-    outline: none;
-  }
-</style>

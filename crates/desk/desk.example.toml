@@ -133,7 +133,8 @@ thumbnails = true             # with the other cameras along the bottom
 enabled = true
 bind = "127.0.0.1"
 port = 7317                   # ports.desk_feed (ADR-0075)
-cushion_ms = 200              # the feed is placed this far ahead of the mixing pass
+cushion_ms = 200              # the feed is placed this far ahead of the mixing pass: a pause in
+                              # it this long or shorter is not heard (50 to 1000)
 crossfade_ms = 300            # each switch between the desk and the feed
 off_air_hold_ms = 3000        # the desk stays this long after the last person goes off air
 absent_ms = 500               # no feed for this long: the desk's programme instead

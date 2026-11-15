@@ -194,7 +194,7 @@
     }
   }
   dialog {
-    width: min(24rem, calc(100vw - 2 * var(--s-4)));
+    width: min(24rem, calc(var(--win-w, 100vw) - 2 * var(--s-4)));
     margin: 3rem var(--s-3) auto auto;
     background: var(--surface);
     color: var(--ink);

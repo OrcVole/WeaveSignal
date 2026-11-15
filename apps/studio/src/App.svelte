@@ -289,7 +289,7 @@
     </span>
     <div class="seg" role="group" aria-label="Text size">
       <button type="button" onclick={zoomOut} aria-label="Smaller text" title="Smaller text (Ctrl+−)">A−</button>
-      <button type="button" onclick={zoomReset} aria-label="Reset text size" title="Reset (Ctrl+0)">{Math.round(zoom.level * 100)}%</button>
+      <button type="button" onclick={zoomReset} aria-label="Reset text size" title={zoom.fit > 1 ? `Reset (Ctrl+0). The window adds ×${zoom.fit.toFixed(2)} on top.` : 'Reset (Ctrl+0)'}>{Math.round(zoom.level * 100)}%</button>
       <button type="button" onclick={zoomIn} aria-label="Larger text" title="Larger text (Ctrl++)">A+</button>
     </div>
     <div class="seg" role="group" aria-label="Theme">

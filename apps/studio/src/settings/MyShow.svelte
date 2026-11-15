@@ -9,7 +9,8 @@
   import type { Me } from '../lib/api.ts';
   import type { Show } from '../lib/schedule.ts';
   import { loadShows, mine, openSetup, setup } from '../lib/wizard.svelte.ts';
-  import { hhmm, WEEKDAYS, myShow } from '../lib/wizard.ts';
+  import { myShow } from '../lib/wizard.ts';
+  import { shortOfSlot } from '../schedule/rule/form.ts';
 
   let { me, initial = null }: { me: Me; initial?: Show[] | null } = $props();
 
@@ -23,10 +24,10 @@
     if (seed === null) void loadShows();
   });
 
+  /** When it is on, in the station's own sentence; an older station keeps a weekly time only. */
   function when(s: Show): string {
-    if (!s.slot) return 'No usual time yet';
-    const day = WEEKDAYS[s.slot.weekday - 1] ?? 'Saturday';
-    return s.slot.minutes ? `${day}s, ${hhmm(s.slot.start)} to ${hhmm(s.slot.start + s.slot.minutes)}` : `${day}s from ${hhmm(s.slot.start)}`;
+    if (s.rule_words?.sentence) return s.rule_words.sentence;
+    return s.slot ? shortOfSlot(s.slot) : 'No dates yet';
   }
 </script>
 
@@ -47,7 +48,7 @@
   {:else if !loaded}
     <p role="status" class="small">Loading your show…</p>
   {:else if show}
-    <p class="help">What the station keeps about you and your show: callers agree to be recorded under this name and contact while it is on air (ADR-0214), and new episodes start from the usual time.</p>
+    <p class="help">What the station keeps about you and your show: callers agree to be recorded under this name and contact while it is on air (ADR-0214), and its dates come from when it is on.</p>
     <dl class="facts">
       <dt>Show</dt>
       <dd>{show.name}</dd>
@@ -61,7 +62,7 @@
           <ul class="links">{#each show.links as l (l)}<li>{l}</li>{/each}</ul>
         {:else}<span class="muted">none</span>{/if}
       </dd>
-      <dt>Usual time</dt>
+      <dt>When it is on</dt>
       <dd>{when(show)}</dd>
       <dt>Commercial music</dt>
       <dd>{show.commercial_music ? 'Yes: a UK webcast needs PPL and PRS for Music licences' : 'No'}</dd>
@@ -71,7 +72,7 @@
     </div>
   {:else}
     <p class="help">
-      You have not set up a show yet. Three short steps: your on-air name and takedown contact, your show and when it is on, done.
+      You have not set up a show yet. Three short parts, then done: your on-air name and takedown contact, your show, and when it is on.
       The answers are kept in the station as the defaults for you and your show; nothing is emailed.
     </p>
     <div class="acts">

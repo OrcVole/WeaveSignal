@@ -3317,7 +3317,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/End"
+                "$ref": "#/components/schemas/RecordingEnd"
               }
             }
           },
@@ -3460,7 +3460,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Listed"
+                  "$ref": "#/components/schemas/RtmpList"
                 }
               }
             }
@@ -3929,7 +3929,7 @@
           "schedule"
         ],
         "summary": "Episodes in a range",
-        "description": "Every episode airing in the range with its show, series and resolved fields: the calendar's week.",
+        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule.",
         "operationId": "shows_episodes_between",
         "parameters": [
           {
@@ -4289,6 +4289,79 @@
           {
             "api_token": [
               "schedule:write"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v1/schedule/rule/preview": {
+      "post": {
+        "tags": [
+          "schedule"
+        ],
+        "summary": "Preview a rule",
+        "description": "A rule's sentence and short form (British English), its next dates with their state (airs, skipped, or filled by an episode), times on the station's clock, the clocks changing over them, and the other shows' times they overlap; the last date when it ends; any problem by field; and, with `show`, what saving it would do to the episodes already made (`change`). The studio asks about 250 ms after the last change and works out nothing itself. Writes nothing. A skipped date stays in the list, marked, so it can be put back; it does not count towards `limit` or towards a count of episodes. `refused` is true on the one date drafting would take next, for a presenter (or screener) session whose draft would sit over another show's time.",
+        "operationId": "schedule_rule_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The preview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewReply"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "description": "The database failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "shows:read"
             ]
           }
         ]
@@ -5095,7 +5168,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Show"
+                    "$ref": "#/components/schemas/ShowOut"
                   }
                 }
               }
@@ -5214,7 +5287,7 @@
           "shows"
         ],
         "summary": "Make or change a show",
-        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air.",
+        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.",
         "operationId": "shows_put_show",
         "parameters": [
           {
@@ -5291,6 +5364,70 @@
             "api_token": [
               "shows:write"
             ]
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "shows"
+        ],
+        "summary": "Delete a show that has never aired",
+        "description": "An admin or a producer (and the station key) may; a presenter, even of their own show, a screener and an API token may not (403). Refused (409, with one sentence naming how many episodes aired) when any of its episodes has aired or is on air now: an aired show stays as the station's record. Otherwise, in one transaction, the show goes with its series, drafted episodes, own cart banks and carts, and the logs of its step and rule changes; then its card pictures, its slate still, its carts' files and any published audio files only it named are deleted from the disk, and the open cart wall is read again. A call's consent keeps the show's name in words and loses only the link to it. It cannot be undone. Past plays, the generated log and the chat name no show by its id, so they are left as they are (a clock or a log item that named one of the show's own carts is left naming a cart that is gone, as when a show's bank is removed). Release 1.0.4 (ADR-0279).",
+        "operationId": "shows_delete_show",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShowDeleted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "description": "The database failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
           }
         ]
       }
@@ -5775,6 +5912,93 @@
         ]
       }
     },
+    "/api/v1/shows/{show}/rule": {
+      "put": {
+        "tags": [
+          "shows"
+        ],
+        "summary": "Change when a show airs",
+        "description": "Sets the show's rule alone (`null` clears it) and says what to do with the episodes already drafted for dates to come (`drafted`): `move` (the default) moves those still on their old rule dates to the new rule's dates, in order, keeping their numbers, titles and guests; `leave` leaves them. Aired episodes are never touched, and neither is an episode a person moved or made by hand. Every series that follows the show's rule is moved; one with a rule of its own is not. All in one transaction; the change is logged with who made it and every window is told. A presenter whose moved episodes would sit over another show's time is refused (409, `field` `rule`, `clashes`); others go on and the reply warns. The reply says what moved, what stayed and why.",
+        "operationId": "shows_put_show_rule",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The rule is set; what moved and what stayed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleChangedOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "description": "The database or the card renderer failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "shows:write"
+            ]
+          }
+        ]
+      }
+    },
     "/api/v1/shows/{show}/series/{series}": {
       "get": {
         "tags": [
@@ -5861,7 +6085,7 @@
           "shows"
         ],
         "summary": "Make or change a series",
-        "description": "A field left out inherits the show's.",
+        "description": "A field left out inherits the show's. `rule` is the series' own rule (release 1.0.4): a value sets it, `null` makes the series follow its show again, and left out leaves it to `slot` as a show's `PUT` does. `starts_on` and `planned_episodes` win over the rule's own start and count for this series.",
         "operationId": "shows_put_series",
         "parameters": [
           {
@@ -6043,7 +6267,7 @@
           "shows"
         ],
         "summary": "Draft episodes",
-        "description": "The next episode, or `count` of them, filled in from the series' rule. The first episode of a series with none follows its start date, or else is the slot under way now (its length, or an hour), or else the next.",
+        "description": "The next episode, or `count` of them, filled in from the series' rule: the next dates it gives that no episode fills and it does not skip, each recorded as the date it fills (`occurrence`). With nothing drafted the first is the date under way now (its length, or an hour), else the next on or after the rule's start: never a date in the past. A rule with no more dates answers 409, and fewer than `count` are drafted when it has fewer left. A series with no rule drafts numbered episodes with no time. An episode that would overlap another show's by a minute or more is refused for a presenter (409, with `field` `rule`, the other show named and `clashes`); an admin, a producer, the station key and a token go on.",
         "operationId": "shows_create_episodes",
         "parameters": [
           {
@@ -6701,6 +6925,104 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EpisodeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "description": "The database or the card renderer failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "shows:write"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v1/shows/{show}/series/{series}/rule": {
+      "put": {
+        "tags": [
+          "shows"
+        ],
+        "summary": "Change when a series airs",
+        "description": "As the show's rule route, for one series: its own rule, which wins over the show's until `null` makes it follow the show again. Only this series' drafted episodes move.",
+        "operationId": "shows_put_series_rule",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "series",
+            "in": "path",
+            "description": "The series' number in the show",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The rule is set; what moved and what stayed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleChangedOut"
                 }
               }
             }
@@ -7585,7 +7907,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Listed"
+                  "$ref": "#/components/schemas/TokenList"
                 }
               }
             }
@@ -7621,7 +7943,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NewBody"
+                "$ref": "#/components/schemas/NewToken"
               }
             }
           },
@@ -7633,7 +7955,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Made"
+                  "$ref": "#/components/schemas/TokenMade"
                 }
               }
             }
@@ -7989,7 +8311,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Listed"
+                  "$ref": "#/components/schemas/WebhookList"
                 }
               }
             }
@@ -8025,7 +8347,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NewBody"
+                "$ref": "#/components/schemas/NewWebhook"
               }
             }
           },
@@ -8037,7 +8359,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Made"
+                  "$ref": "#/components/schemas/WebhookMade"
                 }
               }
             }
@@ -8209,7 +8531,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Made"
+                  "$ref": "#/components/schemas/WebhookMade"
                 }
               }
             }
@@ -8438,23 +8760,6 @@
             }
           }
         }
-      },
-      "Answer": {
-        "type": "object",
-        "description": "The page's answer, in the call-in request.",
-        "required": [
-          "token",
-          "nonce"
-        ],
-        "properties": {
-          "nonce": {
-            "type": "string"
-          },
-          "token": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
       },
       "ApiToken": {
         "type": "object",
@@ -8789,7 +9094,7 @@
           "challenge": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Answer",
+                "$ref": "#/components/schemas/ChallengeAnswer",
                 "description": "The answered challenge ([`crate::challenge`]); needed unless `join.challenge_bits` is 0."
               },
               {
@@ -9464,6 +9769,23 @@
           }
         }
       },
+      "ChallengeAnswer": {
+        "type": "object",
+        "description": "The page's answer, in the call-in request.",
+        "required": [
+          "token",
+          "nonce"
+        ],
+        "properties": {
+          "nonce": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ChangeBody": {
         "type": "object",
         "properties": {
@@ -9496,6 +9818,52 @@
           }
         },
         "additionalProperties": false
+      },
+      "ChangePlan": {
+        "type": "object",
+        "description": "What a changed rule does to the episodes, before and after it is saved.",
+        "required": [
+          "aired",
+          "moved",
+          "by_hand",
+          "no_date",
+          "left"
+        ],
+        "properties": {
+          "aired": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Episodes that have aired, or are on air: frozen, counted and not touched.",
+            "minimum": 0
+          },
+          "by_hand": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeAt"
+            },
+            "description": "Drafted by hand or moved by hand (or already past): they stay."
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeAt"
+            },
+            "description": "`leave`: the drafted episodes left on their old dates."
+          },
+          "moved": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Moved"
+            }
+          },
+          "no_date": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeAt"
+            },
+            "description": "Drafted on a date the new rule does not give: they stay."
+          }
+        }
       },
       "ChangeReq": {
         "type": "object",
@@ -9688,6 +10056,116 @@
         },
         "additionalProperties": false
       },
+      "Clash": {
+        "type": "object",
+        "description": "An overlap between a date a show would take and another show's time.",
+        "required": [
+          "show",
+          "slug",
+          "kind",
+          "on",
+          "start_ms",
+          "end_ms",
+          "overlap_minutes",
+          "short",
+          "hosts",
+          "presenter",
+          "refused"
+        ],
+        "properties": {
+          "end_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "episode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ClashKind",
+            "description": "`episode`: it has an episode drafted there; `rule`: its rule gives that date."
+          },
+          "on": {
+            "type": "string",
+            "format": "date",
+            "description": "The other show's date."
+          },
+          "overlap_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "presenter": {
+            "type": "string"
+          },
+          "refused": {
+            "type": "boolean",
+            "description": "This session may not go on (a presenter drafting over it)."
+          },
+          "series": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "short": {
+            "type": "string",
+            "description": "The other show's rule in short (*Sat, 20:00–23:00*), else its times."
+          },
+          "show": {
+            "type": "string",
+            "description": "The other show's name and path."
+          },
+          "slug": {
+            "type": "string"
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ClashKind": {
+        "type": "string",
+        "enum": [
+          "episode",
+          "rule"
+        ]
+      },
+      "ClearTime": {
+        "type": "object",
+        "description": "A start the studio offers in place of the rule's own, clear of the other shows.",
+        "required": [
+          "start",
+          "minutes"
+        ],
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The length in minutes, the rule's.",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes after midnight.",
+            "minimum": 0
+          }
+        }
+      },
       "ClockBody": {
         "type": "object",
         "required": [
@@ -9706,6 +10184,14 @@
           }
         },
         "additionalProperties": false
+      },
+      "ClockChange": {
+        "type": "string",
+        "description": "What the clocks changing does to one start.",
+        "enum": [
+          "forward",
+          "back"
+        ]
       },
       "ClockSlot": {
         "oneOf": [
@@ -10131,6 +10617,44 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "DeletedShow": {
+        "type": "object",
+        "description": "What deleting a show removed (ADR-0279), and the files that went with its rows: the caller\ndeletes them once the transaction has committed.",
+        "required": [
+          "slug",
+          "name",
+          "series",
+          "episodes",
+          "cart_banks",
+          "carts"
+        ],
+        "properties": {
+          "cart_banks": {
+            "type": "integer",
+            "description": "Its own cart banks and the carts in them.",
+            "minimum": 0
+          },
+          "carts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "episodes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "series": {
+            "type": "integer",
+            "description": "Its series, and the drafted episodes in them.",
+            "minimum": 0
+          },
+          "slug": {
+            "type": "string"
           }
         }
       },
@@ -10683,6 +11207,14 @@
           }
         }
       },
+      "Drafted": {
+        "type": "string",
+        "description": "What to do with the episodes drafted for dates to come when a rule changes.",
+        "enum": [
+          "move",
+          "leave"
+        ]
+      },
       "EdgeHealth": {
         "type": "object",
         "description": "What the control plane knows of one edge's health.",
@@ -10834,19 +11366,64 @@
         }
       },
       "End": {
-        "type": "object",
-        "properties": {
-          "ended_at_ms": {
-            "type": [
-              "integer",
-              "null"
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
             ],
-            "format": "int64",
-            "description": "When it ended; now when left out.",
-            "minimum": 0
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "never"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Up to and including this date (the station's local date of the start).",
+            "required": [
+              "until",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "until"
+                ]
+              },
+              "until": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "After this many episodes: a skipped date does not count.",
+            "required": [
+              "count",
+              "kind"
+            ],
+            "properties": {
+              "count": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "count"
+                ]
+              }
+            }
           }
-        },
-        "additionalProperties": false
+        ],
+        "description": "When a rule stops."
       },
       "EndPassRequest": {
         "type": "object",
@@ -10971,6 +11548,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "occurrence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The rule date this episode fills, as the station's local date of the nominal start.\nDrafting sets it and dragging the episode keeps it (that makes the block MOVED); an\nepisode made or left by hand has none."
+          },
           "series_id": {
             "type": "string",
             "format": "uuid"
@@ -10986,6 +11571,41 @@
           },
           "title": {
             "type": "string"
+          }
+        }
+      },
+      "EpisodeAt": {
+        "type": "object",
+        "description": "An episode that stays where it is, and the date it holds.",
+        "required": [
+          "series",
+          "number"
+        ],
+        "properties": {
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The rule date it fills, if it fills one."
+          },
+          "series": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "start_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -11853,27 +12473,6 @@
         },
         "additionalProperties": false
       },
-      "Listed": {
-        "type": "object",
-        "required": [
-          "tokens",
-          "scopes"
-        ],
-        "properties": {
-          "scopes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Scope"
-            }
-          },
-          "tokens": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ApiToken"
-            }
-          }
-        }
-      },
       "ListenerDelay": {
         "type": "object",
         "description": "The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read\nlive, and the rest as the station's setting.\n\nWhat is read live is the profanity delay (the desk reports it) and what the listener process\nholds of playout's feed (its own `feed.buffer_length`). What is not: the listener\nprocess's mount holds back a fixed stretch before it serves listeners, and each listener's\nplayer buffers on top. No marker travels in the stream (a metadata change would chain the\nOgg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a\nlistener's ear; `measured` says whether there is one.",
@@ -12118,22 +12717,6 @@
           }
         }
       },
-      "Made": {
-        "type": "object",
-        "required": [
-          "token",
-          "secret"
-        ],
-        "properties": {
-          "secret": {
-            "type": "string",
-            "description": "The secret, shown this once."
-          },
-          "token": {
-            "$ref": "#/components/schemas/ApiToken"
-          }
-        }
-      },
       "Me": {
         "type": "object",
         "required": [
@@ -12215,6 +12798,84 @@
           }
         }
       },
+      "Move": {
+        "type": "object",
+        "description": "A date that airs at another time.",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "description": "The rule's date that is moved."
+          },
+          "minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "A length of its own for this date.",
+            "minimum": 0
+          },
+          "to": {
+            "type": "string",
+            "description": "When it airs instead, on the station's wall clock (`2027-04-13T20:00:00`).",
+            "example": "2027-04-13T20:00:00"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Moved": {
+        "type": "object",
+        "description": "An episode that moves to another date.",
+        "required": [
+          "series",
+          "number",
+          "from_on",
+          "to_on",
+          "from_ms",
+          "to_ms",
+          "clashes"
+        ],
+        "properties": {
+          "clashes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Clash"
+            },
+            "description": "Where the new time overlaps another show's."
+          },
+          "from_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "from_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "series": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "to_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "to_on": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
       "NewAccount": {
         "type": "object",
         "required": [
@@ -12235,34 +12896,6 @@
           },
           "username": {
             "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "NewBody": {
-        "type": "object",
-        "required": [
-          "name",
-          "scopes"
-        ],
-        "properties": {
-          "expires_in_days": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Days from now; left out, the token does not expire.",
-            "minimum": 0
-          },
-          "name": {
-            "type": "string"
-          },
-          "scopes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         },
         "additionalProperties": false
@@ -12367,6 +13000,87 @@
         },
         "additionalProperties": false
       },
+      "NewToken": {
+        "type": "object",
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Days from now; left out, the token does not expire.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "NewWebhook": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NextOn": {
+        "type": "object",
+        "description": "A show's next date, or why it has none.",
+        "properties": {
+          "on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NoNext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "NextUp": {
         "type": "object",
         "required": [
@@ -12381,6 +13095,16 @@
             "type": "string"
           }
         }
+      },
+      "NoNext": {
+        "type": "string",
+        "description": "Why a show has no next date.",
+        "enum": [
+          "none",
+          "once_passed",
+          "ended",
+          "complete"
+        ]
       },
       "Notice": {
         "type": "object",
@@ -12463,6 +13187,88 @@
           },
           "up_next_shown": {
             "type": "boolean"
+          }
+        }
+      },
+      "OpenDateOut": {
+        "type": "object",
+        "description": "A date to draft, for the week's dotted blocks.",
+        "required": [
+          "show",
+          "name",
+          "colour_slot",
+          "series",
+          "on",
+          "start_ms",
+          "end_ms",
+          "minutes",
+          "short"
+        ],
+        "properties": {
+          "clock": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClockChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "colour_slot": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "end_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "moved_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "2027-04-06T20:00:00"
+          },
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The number the episode would take when drafting reaches this date.",
+            "minimum": 0
+          },
+          "on": {
+            "type": "string",
+            "format": "date"
+          },
+          "series": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The show's current series (the next one to be made is 1).",
+            "minimum": 0
+          },
+          "short": {
+            "type": "string",
+            "description": "The rule in short, for a tooltip."
+          },
+          "show": {
+            "type": "string",
+            "description": "The show's path."
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -13096,6 +13902,254 @@
           }
         }
       },
+      "PreviewDate": {
+        "type": "object",
+        "description": "One date of a rule, as the preview shows it.",
+        "required": [
+          "on",
+          "state",
+          "start_ms",
+          "end_ms",
+          "minutes",
+          "start",
+          "end",
+          "end_next_day",
+          "first",
+          "under_way",
+          "clashes",
+          "refused"
+        ],
+        "properties": {
+          "clashes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Clash"
+            }
+          },
+          "clock": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClockChange",
+                "description": "The clocks change over this start."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end": {
+            "type": "string"
+          },
+          "end_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "end_next_day": {
+            "type": "boolean",
+            "description": "The end is on the day after."
+          },
+          "episode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The episode that fills it.",
+            "minimum": 0
+          },
+          "first": {
+            "type": "boolean",
+            "description": "The date that drafting would take next: the first episode of a new show."
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "moved_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The date's own nominal start, when it was moved.",
+            "example": "2027-04-06T20:00:00"
+          },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The number the episode would take when drafting reaches this date.",
+            "minimum": 0
+          },
+          "on": {
+            "type": "string",
+            "format": "date",
+            "description": "The rule date: what an episode's `occurrence` holds."
+          },
+          "refused": {
+            "type": "boolean",
+            "description": "This session may not go on over the clashes (a presenter, on `first` only)."
+          },
+          "start": {
+            "type": "string",
+            "description": "The start on the station's clock, `20:00`."
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PreviewState",
+            "description": "`airs`, `skipped` (struck through, with Put back) or `filled` (an episode has it)."
+          },
+          "under_way": {
+            "type": "boolean",
+            "description": "This date is under way now."
+          }
+        }
+      },
+      "PreviewReply": {
+        "type": "object",
+        "required": [
+          "ok",
+          "zone",
+          "problems",
+          "notes",
+          "dates",
+          "more",
+          "clash_count"
+        ],
+        "properties": {
+          "change": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChangePlan",
+                "description": "What saving would do to the episodes already made; with `show` only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clash_count": {
+            "type": "integer",
+            "description": "How many of `dates` clash.",
+            "minimum": 0
+          },
+          "clear": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClearTime",
+                "description": "When every date shown that airs clashes, the nearest start within three hours, half an\nhour at a time, at which all of them are clear (*Try 21:00 to 22:00*); `null`\notherwise, or when no such start exists. A moved date keeps its own time."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviewDate"
+            }
+          },
+          "more": {
+            "type": "boolean",
+            "description": "There are more dates than `limit`."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Things to say that are not mistakes."
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "No problem was found: the rule can be saved."
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleProblem"
+            },
+            "description": "What is wrong, by field: `start`, `minutes`, `repeat.every`, `repeat.weekdays`,\n`repeat.nth`, `repeat.day`, `repeat.dates`, `end`, `end.count`, `skip`, `moves`,\n`starts_on`."
+          },
+          "words": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RuleWords",
+                "description": "The sentence, the short form and the last date; `null` while the rule has a problem."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "zone": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviewRequest": {
+        "type": "object",
+        "description": "A rule to look at: nothing is written.",
+        "required": [
+          "rule"
+        ],
+        "properties": {
+          "drafted": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Drafted",
+                "description": "For `change`: what to do with the drafted episodes (`move` by default)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "How many dates that air to return: 1 to 60, ten by default.",
+            "minimum": 0
+          },
+          "rule": {
+            "$ref": "#/components/schemas/Rule",
+            "description": "The rule as it stands in the form."
+          },
+          "series": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "A series of that show: the rule is that series' own. Left out, it is the show's rule.",
+            "minimum": 0
+          },
+          "show": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show it is for, when it exists: dates an episode fills are marked, a count counts\nthe episodes already made, the show is left out of its own clashes, and `change` says what\nsaving would do to the episodes."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreviewState": {
+        "type": "string",
+        "enum": [
+          "airs",
+          "skipped",
+          "filled"
+        ]
+      },
       "Problem": {
         "type": "object",
         "description": "A refusal or a failure: one plain sentence, and for a refused field its name.",
@@ -13490,6 +14544,21 @@
           }
         }
       },
+      "RecordingEnd": {
+        "type": "object",
+        "properties": {
+          "ended_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it ended; now when left out.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "RecordingKind": {
         "type": "string",
         "description": "What kind of recording: the programme (logger, archive) or the screener's off-air audio.",
@@ -13526,6 +14595,164 @@
           }
         },
         "additionalProperties": false
+      },
+      "Repeat": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The start date alone.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "once"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every `every` weeks on these weekdays (weeks start on Monday).",
+            "required": [
+              "every",
+              "weekdays",
+              "kind"
+            ],
+            "properties": {
+              "every": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "weekly"
+                ]
+              },
+              "weekdays": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every `every` months on the `nth` weekday: 1 to 4, or -1 for the last.",
+            "required": [
+              "every",
+              "nth",
+              "weekday",
+              "kind"
+            ],
+            "properties": {
+              "every": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "monthly_nth"
+                ]
+              },
+              "nth": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "weekday": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every `every` months on a day of the month: 1 to 31, or -1 for the last day. A month\nwithout the day is passed over.",
+            "required": [
+              "every",
+              "day",
+              "kind"
+            ],
+            "properties": {
+              "day": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "every": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "monthly_day"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Every year on a date; 29 February gives leap years only.",
+            "required": [
+              "month",
+              "day",
+              "kind"
+            ],
+            "properties": {
+              "day": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "yearly"
+                ]
+              },
+              "month": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Chosen dates.",
+            "required": [
+              "dates",
+              "kind"
+            ],
+            "properties": {
+              "dates": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dates"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "How a rule repeats. Weekdays are 1 (Monday) to 7 (Sunday)."
       },
       "Resolved": {
         "type": "object",
@@ -13590,6 +14817,17 @@
           "layout": {
             "type": "string"
           },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "When it airs, the series' own rule or else the show's."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "series": {
             "oneOf": [
               {
@@ -13606,7 +14844,8 @@
           "slot": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Slot"
+                "$ref": "#/components/schemas/Slot",
+                "description": "The weekly slot while the rule is exactly that (frozen copies from before 1.0.4 have only\nthis)."
               },
               {
                 "type": "null"
@@ -13950,6 +15189,40 @@
           }
         }
       },
+      "RtmpList": {
+        "type": "object",
+        "required": [
+          "destinations",
+          "video",
+          "encoders",
+          "platforms"
+        ],
+        "properties": {
+          "destinations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Shown"
+            }
+          },
+          "encoders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeskRtmpEncoder"
+            },
+            "description": "The encoders running at the desk."
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Platform"
+            }
+          },
+          "video": {
+            "type": "boolean",
+            "description": "The desk runs video, which RTMP out needs."
+          }
+        }
+      },
       "RtmpNewBody": {
         "type": "object",
         "required": [
@@ -14000,6 +15273,241 @@
           }
         },
         "additionalProperties": false
+      },
+      "Rule": {
+        "type": "object",
+        "description": "When a show airs. All dates and times are the station's wall clock.",
+        "required": [
+          "start",
+          "repeat"
+        ],
+        "properties": {
+          "end": {
+            "$ref": "#/components/schemas/End"
+          },
+          "minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The length in minutes; `None` is the studio's 60.",
+            "minimum": 0
+          },
+          "moves": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Move"
+            },
+            "description": "A date aired at another time (an override with RECURRENCE-ID)."
+          },
+          "repeat": {
+            "$ref": "#/components/schemas/Repeat"
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Dates the rule gives that do not air (EXDATE)."
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes after midnight.",
+            "minimum": 0
+          },
+          "starts_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "The first date the rule may give (DTSTART's date). `None` only for a weekly rule of every\nweek, which is what an old [`Slot`] was."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleChangedOut": {
+        "type": "object",
+        "description": "What a saved rule did.",
+        "required": [
+          "show",
+          "next_on",
+          "drafted",
+          "aired",
+          "moved",
+          "by_hand",
+          "no_date",
+          "left",
+          "warnings"
+        ],
+        "properties": {
+          "aired": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Episodes that have aired, or are on air: not touched.",
+            "minimum": 0
+          },
+          "by_hand": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeAt"
+            },
+            "description": "Episodes a person placed (or already past): they stay."
+          },
+          "drafted": {
+            "$ref": "#/components/schemas/Drafted"
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeAt"
+            },
+            "description": "`leave`: the drafted episodes left on their old dates."
+          },
+          "moved": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Moved"
+            },
+            "description": "Episodes moved to the new rule's dates."
+          },
+          "next_on": {
+            "$ref": "#/components/schemas/NextOn"
+          },
+          "no_date": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeAt"
+            },
+            "description": "Drafted episodes the new rule has no date for: they stay."
+          },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "The rule now set on the show (or on the series)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule_words": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RuleWords"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SeriesOut",
+                "description": "The series whose rule was set, for the series route."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "show": {
+            "$ref": "#/components/schemas/ShowOut"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Clash"
+            },
+            "description": "Moved episodes that now overlap another show's time (an admin's, a producer's or the\nkey's warning)."
+          }
+        }
+      },
+      "RuleInput": {
+        "type": "object",
+        "description": "A rule to set, and what to do with the episodes already drafted for dates to come.",
+        "required": [
+          "rule"
+        ],
+        "properties": {
+          "drafted": {
+            "$ref": "#/components/schemas/Drafted",
+            "description": "`move` (the default): the drafted episodes still on their old rule dates move to the new\nrule's dates, in order, keeping their numbers, titles and guests; `leave`: they stay.\nAired episodes, and episodes a person moved or made by hand, never move."
+          },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "The new rule; `null` clears a show's, or makes a series follow its show again."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleProblem": {
+        "type": "object",
+        "description": "A refused field: its path in the rule and a sentence for a person.",
+        "required": [
+          "field",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "RuleWords": {
+        "type": "object",
+        "description": "A rule said back in words, by the control plane, in British English (design section 2).",
+        "required": [
+          "sentence",
+          "short",
+          "notes"
+        ],
+        "properties": {
+          "last": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "*The last is Tuesday 5 October 2027.* when the rule ends."
+          },
+          "last_on": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Dates the calendar cannot give, said rather than hidden."
+          },
+          "sentence": {
+            "type": "string",
+            "description": "*Every month on the first Tuesday, 20:00 to 21:00, from 1 December, for 10 episodes.*"
+          },
+          "short": {
+            "type": "string",
+            "description": "*First Tue monthly, 20:00–21:00*, for lists and tooltips."
+          }
+        }
       },
       "RundownItem": {
         "type": "object",
@@ -14279,6 +15787,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "The series' own rule; `None` follows the show's."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "show_id": {
             "type": "string",
             "format": "uuid"
@@ -14286,7 +15805,8 @@
           "slot": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Slot"
+                "$ref": "#/components/schemas/Slot",
+                "description": "The series' own weekly slot while its own rule is exactly that, else `null`."
               },
               {
                 "type": "null"
@@ -14344,6 +15864,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "The series' own rule; `null` follows the show's again. Absent leaves it to `slot`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slot": {
             "oneOf": [
               {
@@ -14379,6 +15910,35 @@
         },
         "additionalProperties": false
       },
+      "SeriesOut": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Series"
+          },
+          {
+            "type": "object",
+            "required": [
+              "next_on"
+            ],
+            "properties": {
+              "next_on": {
+                "$ref": "#/components/schemas/NextOn"
+              },
+              "rule_words": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RuleWords"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A series, with the words and next date of the rule that governs it (its own, else its\nshow's)."
+      },
       "SeriesView": {
         "type": "object",
         "required": [
@@ -14397,7 +15957,7 @@
             "$ref": "#/components/schemas/Resolved"
           },
           "series": {
-            "$ref": "#/components/schemas/Series"
+            "$ref": "#/components/schemas/SeriesOut"
           }
         }
       },
@@ -14479,6 +16039,29 @@
           }
         }
       },
+      "SetupAnswer": {
+        "type": "object",
+        "description": "One answer that the settings file starts and the page may override.",
+        "required": [
+          "value",
+          "source",
+          "settings_value"
+        ],
+        "properties": {
+          "settings_value": {
+            "type": "string",
+            "description": "The settings file's value, which comes back if the page's is cleared."
+          },
+          "source": {
+            "type": "string",
+            "description": "`page`: set on the setup page. `settings`: the settings file's."
+          },
+          "value": {
+            "type": "string",
+            "description": "The value in force."
+          }
+        }
+      },
       "SetupChange": {
         "type": "object",
         "properties": {
@@ -14523,7 +16106,7 @@
             "minimum": 0
           },
           "contact": {
-            "$ref": "#/components/schemas/Answer"
+            "$ref": "#/components/schemas/SetupAnswer"
           },
           "done_by": {
             "type": [
@@ -14543,7 +16126,7 @@
             "description": "What is still missing, in words, while pending."
           },
           "name": {
-            "$ref": "#/components/schemas/Answer"
+            "$ref": "#/components/schemas/SetupAnswer"
           },
           "status": {
             "type": "string",
@@ -14646,10 +16229,22 @@
             "format": "uuid",
             "description": "The staff account that presents the show (ADR-0218): the wizard's answers are its\ndefaults. Cleared when the account goes."
           },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "When the show airs (release 1.0.4, ADR-0278)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slot": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Slot"
+                "$ref": "#/components/schemas/Slot",
+                "description": "The weekly slot, while the rule is exactly that (`rule.as_slot()`), else `null`: what an\nolder studio reads. Read `rule`."
               },
               {
                 "type": "null"
@@ -14670,6 +16265,27 @@
             }
           }
         }
+      },
+      "ShowDeleted": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DeletedShow"
+          },
+          {
+            "type": "object",
+            "required": [
+              "files_deleted"
+            ],
+            "properties": {
+              "files_deleted": {
+                "type": "integer",
+                "description": "Card pictures, the slate's still, published audio files and carts' files deleted from\nthe disk with it.",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "What a delete answers: what went with the show, and how many files."
       },
       "ShowInput": {
         "type": "object",
@@ -14700,6 +16316,10 @@
           },
           "description": {
             "type": "string"
+          },
+          "draft_first": {
+            "type": "boolean",
+            "description": "Make series 1 if the show has none and draft its first episode, in the same transaction\n(a refusal, such as a presenter's clash, saves nothing)."
           },
           "explicit": {
             "type": "boolean"
@@ -14741,10 +16361,22 @@
             "format": "uuid",
             "description": "The staff account that presents the show (ADR-0218). Absent keeps what is stored;\n`null` clears it. A member of staff who is not an admin may name only themselves."
           },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "When the show airs. Absent leaves it to `slot` (an older studio); `null` clears it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slot": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Slot"
+                "$ref": "#/components/schemas/Slot",
+                "description": "The weekly slot an older studio sends with every save. With `rule` given it is ignored;\nwithout, see [`rule_write`]."
               },
               {
                 "type": "null"
@@ -14771,25 +16403,75 @@
         },
         "additionalProperties": false
       },
+      "ShowOut": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Show"
+          },
+          {
+            "type": "object",
+            "required": [
+              "next_on"
+            ],
+            "properties": {
+              "next_on": {
+                "$ref": "#/components/schemas/NextOn",
+                "description": "The next date of the show's current series."
+              },
+              "rule_words": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RuleWords",
+                    "description": "The show's own rule in words; `null` without one."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A show, with its rule said in words and its next date (release 1.0.4). The rule itself is\n`rule`; `slot` is the weekly slot while the rule is exactly that, else `null`."
+      },
       "ShowView": {
         "type": "object",
         "required": [
           "show",
           "resolved",
-          "series"
+          "series",
+          "warnings"
         ],
         "properties": {
+          "drafted": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EpisodeView",
+                "description": "The episode `draft_first` drafted, if the save asked for one and a date was there."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "resolved": {
             "$ref": "#/components/schemas/Resolved"
           },
           "series": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Series"
+              "$ref": "#/components/schemas/SeriesOut"
             }
           },
           "show": {
-            "$ref": "#/components/schemas/Show"
+            "$ref": "#/components/schemas/ShowOut"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Clash"
+            },
+            "description": "Another show's time the save went on over (an admin's, a producer's or the key's)."
           }
         }
       },
@@ -15517,6 +17199,43 @@
           }
         }
       },
+      "TokenList": {
+        "type": "object",
+        "required": [
+          "tokens",
+          "scopes"
+        ],
+        "properties": {
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            }
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiToken"
+            }
+          }
+        }
+      },
+      "TokenMade": {
+        "type": "object",
+        "required": [
+          "token",
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "The secret, shown this once."
+          },
+          "token": {
+            "$ref": "#/components/schemas/ApiToken"
+          }
+        }
+      },
       "TokenRequest": {
         "type": "object",
         "required": [
@@ -15922,6 +17641,43 @@
           }
         }
       },
+      "WebhookList": {
+        "type": "object",
+        "required": [
+          "webhooks",
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventInfo"
+            }
+          },
+          "webhooks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Webhook"
+            }
+          }
+        }
+      },
+      "WebhookMade": {
+        "type": "object",
+        "required": [
+          "webhook",
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "The signing secret, shown this once (and again only by making a new one)."
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/Webhook"
+          }
+        }
+      },
       "WeekBody": {
         "type": "object",
         "required": [
@@ -15964,9 +17720,17 @@
         "type": "object",
         "required": [
           "zone",
-          "episodes"
+          "episodes",
+          "dates"
         ],
         "properties": {
+          "dates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenDateOut"
+            },
+            "description": "Every date of every show's rule in the range that no episode fills, is not skipped and is\nnot over: what the week draws as dotted blocks, so the studio expands no rule itself."
+          },
           "episodes": {
             "type": "array",
             "items": {

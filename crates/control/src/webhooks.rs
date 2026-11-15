@@ -265,6 +265,7 @@ async fn check_resolved(u: &url::Url, allow_private: bool) -> Result<(), String>
 // ---- the routes ----
 
 #[derive(Serialize, utoipa::ToSchema)]
+#[schema(as = WebhookList)]
 struct Listed {
     webhooks: Vec<Webhook>,
     events: Vec<EventInfo>,
@@ -284,6 +285,7 @@ fn event_infos() -> Vec<EventInfo> {
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
+#[schema(as = WebhookMade)]
 struct Made {
     webhook: Webhook,
     /// The signing secret, shown this once (and again only by making a new one).
@@ -403,6 +405,7 @@ async fn list(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respons
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
+#[schema(as = NewWebhook)]
 #[serde(deny_unknown_fields)]
 struct NewBody {
     name: String,

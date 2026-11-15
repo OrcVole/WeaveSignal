@@ -750,6 +750,8 @@ mod tests {
             "id": Uuid::new_v4(), "slug": "kettle-talk", "name": "Kettle Talk", "description": "",
             "colour_slot": 0, "layout": "poster",
             "slot": slot_minutes.map(|m| serde_json::json!({"weekday": 1, "start": 480, "minutes": m})),
+            "rule": slot_minutes.map(|m| serde_json::json!({"start": 480, "minutes": m,
+                "repeat": {"kind": "weekly", "every": 1, "weekdays": [1]}})),
             "hosts": [], "tags": [], "explicit": false, "feed_guid": null, "cards": null
         }))
         .unwrap()
@@ -758,7 +760,7 @@ mod tests {
     fn series() -> weavesignal_model::shows::Series {
         serde_json::from_value(serde_json::json!({
             "id": Uuid::new_v4(), "show_id": Uuid::new_v4(), "number": 1, "title": "",
-            "slot": null, "starts_on": null, "cards": null
+            "slot": null, "rule": null, "starts_on": null, "cards": null
         }))
         .unwrap()
     }

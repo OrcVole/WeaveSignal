@@ -737,6 +737,18 @@ impl Studio {
         );
     }
 
+    /// Say that a show's rule changed (*Moira changed when The Folk Club airs.*), for every
+    /// window (release 1.0.4).
+    pub fn rule_changed(&mut self, now: u64, title: String) {
+        self.notice(
+            now,
+            (Surface::Desk, Tone::Good, "rule.changed"),
+            None,
+            title,
+            String::new(),
+        );
+    }
+
     /// A notice from playout (dead air, the logger) for the desk.
     pub fn playout_notice(
         &mut self,

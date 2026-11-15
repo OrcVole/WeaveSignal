@@ -64,6 +64,8 @@ pub struct Live(RwLock<Inner>, StepWake);
 struct StepWake {
     wake: tokio::sync::Notify,
     mover: Mutex<Option<(std::time::Instant, String)>>,
+    /// Notices of changed rules (1.0.4) waiting for the reconciler to give every window.
+    rules: Mutex<Vec<String>>,
     /// One reconciliation at a time: a later look must not be undone by an earlier one.
     gate: tokio::sync::Mutex<()>,
 }
@@ -94,6 +96,21 @@ impl Live {
         *self.1.mover.lock().unwrap_or_else(|p| p.into_inner()) =
             Some((std::time::Instant::now(), who.to_owned()));
         self.1.wake.notify_one();
+    }
+
+    /// A show's rule was changed by `who`: every window is told, at the next look.
+    pub fn rule_changed(&self, who: &str, show: &str) {
+        self.1
+            .rules
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(format!("{who} changed when {show} airs."));
+        self.1.wake.notify_one();
+    }
+
+    /// The notices of changed rules not yet given to the windows.
+    pub fn take_rule_changes(&self) -> Vec<String> {
+        std::mem::take(&mut *self.1.rules.lock().unwrap_or_else(|p| p.into_inner()))
     }
 
     /// Look at the schedule again now (a show was made or changed).
@@ -307,6 +324,7 @@ pub fn router(state: Arc<SetupState>) -> Router {
 
 /// One answer that the settings file starts and the page may override.
 #[derive(Serialize, utoipa::ToSchema)]
+#[schema(as = SetupAnswer)]
 pub struct Answer {
     /// The value in force.
     pub value: String,

@@ -1,0 +1,276 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* When a show airs (ADR-0278; new-show.md): the guided dialogs (New show, the DJ's setup, the
+   rule dialog and its Before you save), the questions, and the preview with its small months
+   and next dates. No colour is added: every value is a token. The dialog's own form is the
+   DJ's setup's (ADR-0218), moved here from that component so the three dialogs share it. */
+
+/* the dialog: 32 rem, and up to 64 rem where the preview sits beside the questions */
+dialog.wz { width: min(32rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); max-height: calc(var(--win-h, 100vh) - 4rem); overflow-y: auto; margin: 3rem auto auto; background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: var(--r-3); box-shadow: var(--e-3); padding: var(--s-5); display: none; gap: var(--s-4); container-type: inline-size; }
+dialog.wz[open] { display: grid; }
+dialog.wz::backdrop { background: var(--scrim); }
+dialog.wz.wide { width: min(64rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); }
+dialog.wz.mid { width: min(40rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); }
+dialog.wz.confirm { width: min(24rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); margin-top: 8rem; }
+/* a long preview scrolls inside the dialog; the questions and the foot stay in view */
+dialog.wz.wide[open] { grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+dialog.wz.wide > form { display: contents; }
+dialog.wz .head { display: grid; gap: var(--s-1); }
+dialog.wz .crumbs { display: flex; gap: var(--s-3); flex-wrap: wrap; font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; }
+dialog.wz .crumbs .now { color: var(--ink); border-bottom: 2px solid var(--accent); }
+dialog.wz .crumbs .done { color: var(--ink-2); }
+dialog.wz h2 { font-size: var(--fs-20); }
+dialog.wz .head h2 .of { font-weight: 400; color: var(--ink-2); }
+dialog.wz .small { line-height: var(--lh-body); color: var(--ink-2); }
+dialog.wz form, dialog.wz .done { display: grid; gap: var(--s-3); }
+dialog.wz .field { display: grid; gap: var(--s-1); border: 0; padding: 0; margin: 0; min-width: 0; }
+dialog.wz label, dialog.wz legend, dialog.wz .field > .lab2, dialog.wz .q { font-weight: 600; padding: 0; }
+dialog.wz input, dialog.wz select, dialog.wz textarea { font: inherit; color: var(--ink); background: var(--plane); border: 1px solid var(--muted); border-radius: var(--r-2); min-height: 2.25rem; padding: 0 var(--s-2); width: 100%; color-scheme: dark; }
+dialog.wz textarea { padding: var(--s-1) var(--s-2); line-height: var(--lh-body); resize: vertical; font-family: var(--font-mono); font-size: var(--fs-13); }
+:root[data-theme='light'] dialog.wz input, :root[data-theme='light'] dialog.wz select, :root[data-theme='light'] dialog.wz textarea { color-scheme: light; }
+dialog.wz input[aria-invalid='true'], dialog.wz textarea[aria-invalid='true'] { border-color: var(--status-critical); border-width: 2px; }
+dialog.wz .row { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+dialog.wz .row select { width: auto; flex: 1 1 8rem; min-width: 0; }
+dialog.wz .count { color: var(--ink-2); margin-left: 0.4em; }
+dialog.wz .t { display: inline-flex; align-items: center; gap: var(--s-1); font-weight: 400; color: var(--ink-2); }
+dialog.wz .t input { width: 6.5rem; }
+dialog.wz .check { display: grid; grid-template-columns: auto 1fr; column-gap: var(--s-2); align-items: center; }
+dialog.wz .check input, dialog.wz .check-inline input { width: 1.1rem; height: 1.1rem; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); flex: none; }
+dialog.wz .check .hint { grid-column: 2; }
+dialog.wz .check-inline { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-1); font-size: var(--fs-14); font-weight: 400; }
+dialog.wz .hint { display: block; font-size: var(--fs-13); color: var(--muted); line-height: var(--lh-body); }
+dialog.wz .err { color: var(--ink); font-size: var(--fs-13); line-height: var(--lh-body); border-left: 3px solid var(--status-critical); padding-left: var(--s-2); }
+dialog.wz .acts { display: flex; gap: var(--s-2); justify-content: flex-end; flex-wrap: wrap; margin-top: var(--s-1); }
+dialog.wz .acts .left { margin-right: auto; }
+dialog.wz .lead { display: flex; gap: var(--s-2); align-items: center; line-height: var(--lh-body); }
+dialog.wz .lead svg { width: 1.25rem; height: 1.25rem; flex: none; }
+dialog.wz .done ul { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--s-1); line-height: var(--lh-body); color: var(--ink-2); }
+dialog.wz .done:focus, dialog.wz h2:focus { outline: none; }
+dialog.wz .ink { color: var(--ink); }
+
+dialog.wz .note { display: flex; gap: var(--s-2); align-items: flex-start; padding: var(--s-2) var(--s-3); border-left: 3px solid var(--axis); background: var(--surface-2); border-radius: var(--r-2); color: var(--ink-2); font-size: var(--fs-13); line-height: var(--lh-body); }
+dialog.wz .note svg { width: 14px; height: 14px; flex: none; margin-top: 3px; color: var(--muted); }
+dialog.wz .note b { color: var(--ink); }
+
+/* part 1: the colour, as the show editor draws it */
+dialog.wz .swatches { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--s-1); }
+dialog.wz .swatches button { appearance: none; border: 2px solid transparent; border-radius: var(--r-1); min-height: 2rem; display: grid; place-items: center; font: inherit; font-size: var(--fs-12); font-weight: 700; cursor: pointer; background: var(--surface-2); color: var(--ink); padding: 2px; }
+dialog.wz .swatches button i { display: block; width: 100%; height: 6px; border-radius: 3px; background: var(--sw); }
+dialog.wz .swatches button[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-3); }
+
+/* calendar.rule: the questions on the left, what they make on the right */
+.rule { display: grid; grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); gap: var(--s-5); align-items: start; }
+.rule.bare { grid-template-columns: minmax(0, 1fr); }
+.rule .qs { display: grid; gap: var(--s-4); align-content: start; min-width: 0; }
+dialog.wz .rule input.date { width: 11.5rem; }
+dialog.wz .rule input.time { width: 4.75rem; text-align: center; font-variant-numeric: tabular-nums; }
+dialog.wz .rule input.n { width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+dialog.wz .rule select { width: auto; flex: 0 1 auto; }
+.rule .len { color: var(--ink-2); font-size: var(--fs-13); white-space: nowrap; border: 1px dashed var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); line-height: 1.6; }
+.rule .rows2 { display: grid; gap: var(--s-2); }
+/* New show: First on and from came from the block selected in the week, and say so */
+dialog.wz .seeded { margin: 2px 0; padding: var(--s-1) var(--s-2); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink-2); text-wrap: pretty; }
+dialog.wz .seeded b { color: var(--ink); }
+dialog.wz .seeded .act2 { background: var(--surface); margin: 2px 0 2px var(--s-1); vertical-align: middle; }
+dialog.wz .seeded .act2:hover { background: var(--surface-3); }
+
+/* Repeats as a list: radio rows in the form of the step list */
+.choices { display: grid; gap: 2px; }
+dialog.wz .choices label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-2); align-items: center; min-height: 2.25rem; padding: var(--s-1) var(--s-2); border: 1px solid transparent; border-radius: var(--r-2); cursor: pointer; font-weight: 400; color: var(--ink); }
+dialog.wz .choices label:hover { background: var(--surface-2); }
+dialog.wz .choices label:has(input:checked) { background: var(--surface-2); border-color: var(--accent); font-weight: 600; }
+dialog.wz .choices input, dialog.wz .ends input[type="radio"], dialog.wz .monthly input[type="radio"], dialog.wz .twoway input[type="radio"] { width: 1rem; height: 1rem; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); flex: none; }
+.rule .morebtn { justify-self: start; }
+
+/* Repeats as the whole rule: five kinds, then that kind's own controls */
+.seg5 { display: flex; border: 1px solid var(--axis); border-radius: var(--r-2); overflow: hidden; }
+.seg5 button { appearance: none; border: 0; border-right: 1px solid var(--axis); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-13); font-weight: 600; padding: 0 var(--s-2); min-height: 2rem; cursor: pointer; white-space: nowrap; flex: 1 1 auto; }
+.seg5 button:last-child { border-right: 0; }
+.seg5 button[aria-checked="true"] { background: var(--surface-3); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.rulebox { display: grid; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-2); background: var(--surface-2); }
+.rulebox .row { color: var(--ink-2); }
+.wdays { display: flex; gap: var(--s-1); flex-wrap: wrap; }
+.wdays button { appearance: none; font: inherit; font-size: var(--fs-13); font-weight: 600; min-width: 2.75rem; min-height: 2.25rem; padding: 0 var(--s-1); border: 1px solid var(--axis); border-radius: var(--r-2); background: var(--surface); color: var(--ink-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 3px; }
+.wdays button svg { width: 10px; height: 10px; display: none; }
+.wdays button[aria-pressed="true"] { background: var(--surface-3); color: var(--ink); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.wdays button[aria-pressed="true"] svg { display: block; }
+dialog.wz .monthly label, dialog.wz .ends label, dialog.wz .twoway label { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; font-weight: 400; min-height: 2.25rem; color: var(--ink); cursor: pointer; }
+.monthly, .ends, .twoway { display: grid; gap: 2px; }
+/* Ends stands under Repeats: its radios sit on the same line as the rows' above */
+dialog.wz .ends label { padding: 0 calc(var(--s-2) + 1px); }
+.picked { display: flex; gap: var(--s-1); flex-wrap: wrap; }
+/* a chip is the date and, divided from it, a part that removes it: a cross drawn in the ink,
+   on its own ground, with the date struck through while the pointer or the focus is on it */
+.picked .chip { display: inline-flex; align-items: stretch; border: 1px solid var(--axis); border-radius: var(--r-pill); min-height: 1.75rem; font-size: var(--fs-13); color: var(--ink); background: var(--surface); overflow: hidden; }
+.picked .chip > span { display: inline-flex; align-items: center; padding: 0 var(--s-2) 0 var(--s-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.picked .chip button { appearance: none; display: grid; place-items: center; border: 0; border-left: 1px solid var(--axis); background: var(--surface-2); color: var(--ink); cursor: pointer; min-width: 1.75rem; padding: 0 3px 0 1px; }
+.picked .chip button svg { width: 0.625rem; height: 0.625rem; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+.picked .chip button:hover { background: var(--surface-3); }
+.picked .chip button:focus-visible { outline-offset: -2px; border-radius: 0 var(--r-pill) var(--r-pill) 0; }
+.picked .chip:has(button:hover) > span, .picked .chip:has(button:focus-visible) > span { text-decoration: line-through; color: var(--ink-2); }
+
+/* calendar.rule.preview: the sentence, the small months, the next dates */
+.preview { display: grid; gap: var(--s-3); align-content: start; min-width: 0; padding: var(--s-3) var(--s-4) var(--s-4); background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-2); }
+.preview > h3 { font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+.summary { display: grid; gap: var(--s-1); border-left: 4px solid var(--show-colour, var(--accent)); padding-left: var(--s-3); }
+.summary .say { font-size: var(--fs-16); font-weight: 600; color: var(--ink); line-height: 1.4; text-wrap: pretty; }
+.summary .last { font-size: var(--fs-13); color: var(--ink-2); }
+.summary.none { border-left-color: var(--status-warning); }
+.summary.wait .say { font-weight: 400; color: var(--ink-2); }
+.preview.stale .months, .preview.stale .nd, .preview.stale .summary { opacity: 0.45; }
+.preview .working { font-size: var(--fs-13); color: var(--ink-2); }
+
+.warn { display: grid; gap: var(--s-1); padding: var(--s-2) var(--s-3); border: 1.5px solid var(--status-warning); border-radius: var(--r-2); background: var(--surface); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink-2); }
+.warn .top { display: flex; gap: var(--s-2); align-items: flex-start; color: var(--ink); font-weight: 600; }
+.warn .top svg { width: 14px; height: 14px; flex: none; margin-top: 3px; color: var(--status-warning); }
+.warn .btn { justify-self: start; }
+.warn.refused { border-color: var(--status-critical); }
+.warn.refused .top svg { color: var(--status-critical); }
+.warn.plain { border-color: var(--axis); }
+.warn.plain .top svg { color: var(--muted); }
+
+.months { display: grid; grid-template-columns: repeat(auto-fill, 10.5rem); gap: var(--s-3) var(--s-2); justify-content: space-between; }
+.month { display: grid; gap: 2px; width: 10.5rem; align-content: start; }
+.month .cap { font-size: var(--fs-12); font-weight: 600; color: var(--ink-2); }
+.month .grid { display: grid; grid-template-columns: repeat(7, 1.5rem); grid-auto-rows: 1.5rem; gap: 0; justify-content: space-between; font-size: var(--fs-12); font-variant-numeric: tabular-nums; text-align: center; }
+.month .grid .h { color: var(--ink-2); font-weight: 600; line-height: 1.4; }
+.month .grid .d { position: relative; display: grid; place-items: center; width: 1.5rem; height: 1.5rem; box-sizing: border-box; color: var(--ink-2); border: 1.5px solid transparent; border-radius: var(--r-1); background: transparent; font: inherit; padding: 0; }
+.month .grid .d.today { color: var(--ink); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.month .grid .d.air { background: var(--accent); color: var(--accent-ink); font-weight: 700; }                                   /* airs: filled */
+.month .grid .d.skip { border: 1.5px dashed var(--muted); color: var(--ink-2); text-decoration: line-through; }               /* skipped: hollow, dashed, struck */
+.month .grid .d.from { border: 1.5px dashed var(--accent); color: var(--ink-2); }                                             /* moved away from: hollow, dashed */
+.month .grid .d.clash { background: transparent; border: 2px solid var(--status-warning); color: var(--ink); font-weight: 700; } /* clashes: hollow, with the triangle */
+.month .grid .d.clash::after { content: ""; position: absolute; top: -4px; right: -4px; width: 9px; height: 8px; background: var(--status-warning); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.month .grid .d.filled { background: var(--surface-3); color: var(--ink); font-weight: 700; border: 1.5px solid var(--ink-2); }  /* an episode already drafted */
+.keyrow { display: flex; gap: var(--s-3); flex-wrap: wrap; font-size: var(--fs-12); color: var(--ink-2); align-items: center; }
+.keyrow span { display: inline-flex; align-items: center; gap: var(--s-1); }
+.keyrow i { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: var(--r-1); position: relative; }
+.keyrow i.air { background: var(--accent); }
+.keyrow i.skip { border: 1.5px dashed var(--muted); }
+.keyrow i.clash { border: 2px solid var(--status-warning); }
+.keyrow i.clash::after { content: ""; position: absolute; top: -4px; right: -4px; width: 7px; height: 6px; background: var(--status-warning); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.keyrow i.filled { background: var(--surface-3); border: 1.5px solid var(--ink-2); }
+
+.nd { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.nd li.r { display: grid; grid-template-columns: 2.75rem 8.5rem 6.5rem minmax(0, 1fr) auto; gap: 2px var(--s-2); align-items: center; min-height: 2.25rem; padding: 2px var(--s-2) 2px var(--s-2); background: var(--surface); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); border-radius: var(--r-1); font-size: var(--fs-13); color: var(--ink-2); }
+.nd li.r .n { color: var(--ink-2); font-size: var(--fs-12); white-space: nowrap; }
+.nd li.r .on { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.nd li.r .t { font-family: var(--font-mono); font-size: var(--fs-12); white-space: nowrap; }
+.nd li.r .st.below { grid-column: 2 / -1; grid-row: 2; padding-bottom: 3px; }
+.nd li.r .do { grid-column: 5; grid-row: 1; }
+.nd li.r .st { display: flex; gap: var(--s-1) var(--s-2); align-items: center; flex-wrap: wrap; min-width: 0; }
+.nd li.r .why { font-size: var(--fs-12); color: var(--ink-2); line-height: var(--lh-label); }
+.nd li.r .do { display: flex; gap: var(--s-1); }
+.nd li.r.skipped { border-style: dashed; border-left-style: solid; border-left-color: var(--deemph); background: transparent; }
+.nd li.r.skipped .on, .nd li.r.skipped .t { text-decoration: line-through; color: var(--ink-2); font-weight: 400; }
+.nd li.r.clash { border-color: var(--status-warning); border-left-color: var(--show-colour, var(--deemph)); }
+.nd li.r.drafted { background: transparent; }
+.nd .flag { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 1px 4px; line-height: 1.25; white-space: nowrap; }
+.nd .flag svg { width: 11px; height: 11px; color: var(--status-warning); }
+.nd .flag.moved { border-color: var(--accent); }
+.nd .flag.moved svg { color: var(--accent); }
+.nd .flag.skip { border-color: var(--muted); color: var(--ink-2); }
+.nd .flag.skip svg { color: var(--muted); }
+.nd .flag.onair { border-color: var(--live-onair); background: var(--live-onair); color: var(--live-onair-ink); }
+.nd .flag.onair svg { color: var(--live-onair-ink); }
+.nd .tag { display: inline-flex; align-items: center; font-size: var(--fs-12); color: var(--ink-2); border: 1px dashed var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); line-height: 1.5; white-space: nowrap; }
+.act2 { appearance: none; font: inherit; font-size: var(--fs-12); font-weight: 600; color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-2); cursor: pointer; padding: 0 var(--s-2); min-height: 1.75rem; white-space: nowrap; }
+.act2:hover { background: var(--surface-3); }
+.nd li.mv { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; padding: var(--s-2) var(--s-3); margin-left: var(--s-4); border: 1px solid var(--accent); border-radius: var(--r-2); background: var(--surface); font-size: var(--fs-13); color: var(--ink-2); }
+.nd li.mv .hint { flex-basis: 100%; }
+.preview .after { font-size: var(--fs-13); color: var(--ink-2); display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; }
+
+/* calendar.rule.change: what a changed rule does to episodes */
+.groups { display: grid; gap: var(--s-3); }
+.grp { display: grid; gap: var(--s-1); padding: var(--s-2) var(--s-3); border: 1px solid var(--hairline); border-left: 3px solid var(--axis); border-radius: var(--r-2); background: var(--surface-2); line-height: var(--lh-body); color: var(--ink-2); }
+.grp.frozen { border-left-color: var(--muted); }
+.grp.go { border-left-color: var(--accent); }
+.grp .gh { display: flex; gap: var(--s-2); align-items: center; color: var(--ink); }
+.grp .gh svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.grp ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: var(--fs-13); }
+.grp li { display: grid; grid-template-columns: 3rem auto auto minmax(0, 1fr); gap: var(--s-2); align-items: center; font-variant-numeric: tabular-nums; }
+.grp li svg { width: 12px; height: 12px; color: var(--accent); }
+.grp li .to { color: var(--ink); font-weight: 600; }
+.grp li.stay { grid-template-columns: 3rem minmax(0, 1fr); }
+/* every line of a group shares the group's columns: the old date as wide as the longest, the
+   arrow close beside it, and the new date after, instead of an arrow adrift in the middle */
+@supports (grid-template-columns: subgrid) {
+  .grp ul { grid-template-columns: 3rem minmax(0, max-content) auto minmax(0, 1fr); column-gap: var(--s-2); }
+  .grp li, .grp li.stay, .grp li.clash { grid-column: 1 / -1; grid-template-columns: subgrid; }
+  .grp li.stay > span:last-child { grid-column: 2 / -1; }
+}
+
+/* the right panel: when it airs, nothing coming up, a dotted block */
+.schedule .field .val .next { color: var(--ink-2); font-size: var(--fs-13); }
+.unsched { display: grid; gap: var(--s-3); }
+.unsched .g { border-left: 3px solid var(--status-warning); background: var(--surface-2); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); }
+.unsched .g.done { border-left-color: var(--axis); }
+.unsched .g > p b { color: var(--ink); }
+.unsched ul { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; gap: var(--s-2); }
+.unsched li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--s-2); align-items: center; }
+.unsched li .nm { color: var(--ink); font-weight: 600; }
+.unsched li .wy { grid-column: 1; font-size: var(--fs-12); color: var(--ink-2); }
+.unsched li .btn { grid-row: 1 / span 2; grid-column: 2; }
+.unsched summary { cursor: pointer; color: var(--ink-2); }
+.unsched summary b { color: var(--ink); }
+
+
+/* text on the raised ground keeps 4.5:1: the hints inside a box take the second ink */
+.rulebox .hint, .grp .small, dialog.wz .rulebox .hint { color: var(--ink-2); }
+.month .grid .d.air, .month .grid .d.clash, .month .grid .d.filled { color: var(--ink); }
+.month .grid .d.air { color: var(--accent-ink); }
+/* the tick of a pressed day sits in its corner, so pressing a day never changes its width */
+.wdays button { position: relative; width: 2.75rem; min-width: 0; }
+.wdays button svg { position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; }
+.seg5 button { padding: 0 6px; }
+
+/* in the real dialog: both columns scroll by themselves beside each other, and narrower than
+   56 rem the preview goes under the questions and the two scroll as one. RulePart measures
+   that and sets .narrow: a container query's rem is multiplied by <html>'s zoom while the
+   container is measured without it, so at 110 % the widest dialog stacked (the 1.0.4 run) */
+dialog.wz.wide .rule { min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+dialog.wz.wide .rule > .qs, dialog.wz.wide .rule > .preview { min-height: 0; overflow-y: auto; }
+dialog.wz.wide .rule > .qs { padding: 2px var(--s-2) 2px 2px; }
+dialog.wz.wide .rule.narrow { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; overflow-y: auto; }
+dialog.wz.wide .rule.narrow > .qs, dialog.wz.wide .rule.narrow > .preview { overflow-y: visible; min-height: auto; }
+/* a column with more above or below what is in view fades at that edge (edges.ts marks it) */
+dialog.wz.wide .rule > [data-more~='above'] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem); mask-image: linear-gradient(to bottom, transparent, #000 1.75rem); }
+dialog.wz.wide .rule > [data-more~='below'] { -webkit-mask-image: linear-gradient(to top, transparent, #000 1.75rem); mask-image: linear-gradient(to top, transparent, #000 1.75rem); }
+dialog.wz.wide .rule > [data-more='above below'] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent); mask-image: linear-gradient(to bottom, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent); }
+/* a native date or time field keeps to its content */
+dialog.wz .rule input[type='date'] { width: 11.5rem; }
+dialog.wz .rule input[type='time'] { width: 6.5rem; }
+dialog.wz .rule input[type='number'] { width: 4.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+dialog.wz .ends label:has(input[type='radio']:not(:checked)) input:not([type='radio']) { color: var(--muted); border-color: var(--axis); }
+/* the small months and the rows take the keyboard: one stop each, the arrows inside */
+.month .grid .d[tabindex] { cursor: default; }
+/* a day that takes a click says so: a date to pick or take back, or one that leads to its row */
+.months.pick .month .grid .d, .month .grid .d.go { cursor: pointer; }
+.months.pick .month .grid .d:not(.air):hover { background: var(--surface-3); color: var(--ink); }
+.months.pick .month .grid .d.air:hover { background: color-mix(in srgb, var(--accent) 82%, var(--ink)); }
+.month .grid .d.go:hover { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3.5px var(--axis); }
+.month .grid [role='row'] { display: contents; }
+.preview .empty { color: var(--ink-2); line-height: var(--lh-body); }
+.preview .dropped { font-size: var(--fs-13); color: var(--ink-2); }
+.grp li .why { grid-column: 2 / -1; font-size: var(--fs-12); color: var(--ink-2); }
+.grp .flag { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 1px 4px; line-height: 1.25; white-space: nowrap; margin-right: var(--s-1); }
+.grp .flag svg { width: 11px; height: 11px; color: var(--status-warning); }
+/* the right panel: when it airs in the show editor, and the Schedule tab's own toast */
+.schedule .field .confirm { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-13); color: var(--ink-2); }
+.schedule .editor .unsched { margin-bottom: var(--s-3); }
+.schedule .editor .unsched .nm { appearance: none; border: 0; background: none; padding: 0; font: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--axis); text-underline-offset: 3px; }
+.schedule .editor .unsched .nm:hover { text-decoration-color: var(--ink-2); }
+.schedule .toast2 { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--surface-2); font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-body); }
+.schedule .toast2 b { color: var(--ink); }
+.schedule .toast2 .btn { margin-left: auto; }
+/* a change made in another window: said beside the tab's own line, never in its place */
+.schedule .toast2 .heard { display: inline-flex; gap: var(--s-2); align-items: center; }
+.schedule .toast2 .heard svg { width: 12px; height: 12px; flex: none; color: var(--ink-2); }
+.schedule .toast2 > span + .heard { padding-left: var(--s-3); border-left: 1px solid var(--axis); }
+dialog.wz .choices label.off { opacity: 0.5; cursor: not-allowed; }
+.nd li.mv label { font-weight: 400; }
+.nd li.mv .err { flex-basis: 100%; }
+dialog.wz .foot2 { display: grid; gap: var(--s-2); }
+dialog.wz.wide .keep { display: contents; }
+dialog.wz .keep[hidden] { display: none; }
+.schedule:has(> .toast2) { grid-template-rows: auto auto minmax(0, 1fr); }

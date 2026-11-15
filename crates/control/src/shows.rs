@@ -11,6 +11,7 @@
 //! | `GET /api/v1/shows` | every show, with its current cards |
 //! | `PUT /api/v1/shows/{show}` | make or change a show; its cards are drawn first, and a name that cannot fit refuses the save (422) |
 //! | `GET /api/v1/shows/{show}` | the show, resolved, and its series |
+//! | `DELETE /api/v1/shows/{show}` | delete a show none of whose episodes has aired (ADR-0279), with its series, episodes, cart banks, cards and logs; an admin or a producer |
 //! | `PUT /api/v1/shows/{show}/series/{n}` | make or change a series; a field left out inherits the show's |
 //! | `GET /api/v1/shows/{show}/series/{n}` | the series and its episodes, resolved, with what each inherits |
 //! | `POST /api/v1/shows/{show}/series/{n}/episodes` | draft the next episode, or `count` of them, filled in from the rule |
@@ -48,6 +49,9 @@ use weavesignal_cards::{
 };
 use weavesignal_feeds::tags::{self, EpisodeTags};
 use weavesignal_model::Station;
+use weavesignal_model::planner::{self, Clash, Clashes, NextOn};
+use weavesignal_model::rule::{Rule, RuleWords};
+use weavesignal_model::ruleplan;
 use weavesignal_model::shows::{
     self, CorrectionInput, Episode, EpisodePatch, Level, NewEpisodes, Resolved, Series,
     SeriesInput, Show, ShowError, ShowInput,
@@ -69,6 +73,12 @@ pub struct ShowsState {
     /// The station's name in force (ADR-0237), shared with the rest of the control plane;
     /// `None` (tests) leaves `station.name`.
     pub live: Option<Arc<crate::setup::Live>>,
+    /// The studio's hub, for what deleting a show must tell the cart wall (ADR-0279); `None`
+    /// (tests) leaves the wall alone.
+    pub hub: Option<Arc<crate::hub::Hub>>,
+    /// Where the slate's stills are kept, to take a deleted show's away (ADR-0200); `None`
+    /// (tests) removes none.
+    pub video: Option<crate::config::VideoConfig>,
 }
 
 impl ShowsState {
@@ -80,7 +90,7 @@ impl ShowsState {
             .map_or_else(|| self.station.name.clone(), |l| l.name())
     }
 
-    fn zone(&self) -> TimeZone {
+    pub(crate) fn zone(&self) -> TimeZone {
         self.zone.get()
     }
 
@@ -102,7 +112,10 @@ pub fn router(state: Arc<ShowsState>) -> Router {
     let media = ServeDir::new(&state.publishing.episodes_dir);
     Router::new()
         .route("/api/v1/shows", get(list))
-        .route("/api/v1/shows/{show}", put(put_show).get(get_show))
+        .route(
+            "/api/v1/shows/{show}",
+            put(put_show).get(get_show).delete(delete_show),
+        )
         .route("/api/v1/shows/{show}/cards", post(show_cards))
         .route(
             "/api/v1/shows/{show}/series/{series}",
@@ -144,6 +157,8 @@ pub fn router(state: Arc<ShowsState>) -> Router {
         .route("/feeds/{file}", get(feed))
         // The open read-only routes for station websites (ADR-0195).
         .merge(crate::open::show_routes())
+        // A show's rule: changing it, previewing it (release 1.0.4).
+        .merge(crate::rules::routes())
         .nest_service("/cards", cards)
         .nest_service("/media/episodes", media)
         .layer(TraceLayer::new_for_http())
@@ -152,7 +167,7 @@ pub fn router(state: Arc<ShowsState>) -> Router {
 
 /// `None` when the request comes from a member of staff or the station key (as
 /// `app::refusal`, for this state).
-fn refusal(state: &ShowsState, headers: &HeaderMap) -> Option<Response> {
+pub(crate) fn refusal(state: &ShowsState, headers: &HeaderMap) -> Option<Response> {
     crate::staff::check(
         state.admin_token.as_deref(),
         &state.staff,
@@ -163,7 +178,7 @@ fn refusal(state: &ShowsState, headers: &HeaderMap) -> Option<Response> {
 }
 
 /// As [`refusal`], for personal data and erasure: an admin only.
-fn admin_refusal(state: &ShowsState, headers: &HeaderMap) -> Option<Response> {
+pub(crate) fn admin_refusal(state: &ShowsState, headers: &HeaderMap) -> Option<Response> {
     crate::staff::check(
         state.admin_token.as_deref(),
         &state.staff,
@@ -174,14 +189,22 @@ fn admin_refusal(state: &ShowsState, headers: &HeaderMap) -> Option<Response> {
 }
 
 /// A failure as a response: the field named where a person can fix it.
-enum Fail {
+pub(crate) enum Fail {
     Status(StatusCode, String),
+    /// A draft over another show's time, refused: 409 with the clashes (design section 9).
+    Clash(Box<planner::ClashRefusal>),
 }
 
 impl IntoResponse for Fail {
     fn into_response(self) -> Response {
-        let Fail::Status(code, msg) = self;
-        problem(code, msg)
+        match self {
+            Fail::Status(code, msg) => problem(code, msg),
+            Fail::Clash(c) => (
+                StatusCode::CONFLICT,
+                Json(json!({ "error": c.message, "field": "rule", "clashes": c.clashes })),
+            )
+                .into_response(),
+        }
     }
 }
 
@@ -189,7 +212,11 @@ impl From<ShowError> for Fail {
     fn from(e: ShowError) -> Self {
         let code = match &e {
             ShowError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
-            ShowError::Frozen(_) | ShowError::NotAired(_) => StatusCode::CONFLICT,
+            ShowError::Frozen(_)
+            | ShowError::NotAired(_)
+            | ShowError::Nothing(_)
+            | ShowError::Kept(_) => StatusCode::CONFLICT,
+            ShowError::Clash(c) => return Fail::Clash(c.clone()),
             ShowError::Missing(_) => StatusCode::NOT_FOUND,
             ShowError::Db(err) => {
                 tracing::error!(error = %err, "shows: database");
@@ -223,14 +250,14 @@ impl From<CardError> for Fail {
     }
 }
 
-fn missing(what: impl Into<String>) -> Fail {
+pub(crate) fn missing(what: impl Into<String>) -> Fail {
     Fail::Status(
         StatusCode::NOT_FOUND,
         format!("{} does not exist", what.into()),
     )
 }
 
-fn db(state: &ShowsState) -> Result<&sqlx::PgPool, Fail> {
+pub(crate) fn db(state: &ShowsState) -> Result<&sqlx::PgPool, Fail> {
     state.db.as_ref().ok_or_else(|| {
         Fail::Status(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -251,7 +278,7 @@ fn public(state: &ShowsState) -> Result<&str, Fail> {
     })
 }
 
-type Answer = Result<Response, Fail>;
+pub(crate) type Answer = Result<Response, Fail>;
 
 // Cards.
 
@@ -352,7 +379,7 @@ async fn keep(state: &ShowsState, renders: &[weavesignal_cards::Rendered]) -> Re
     Ok(Value::Object(out))
 }
 
-async fn draw_and_keep(
+pub(crate) async fn draw_and_keep(
     state: &ShowsState,
     level: Level,
     id: uuid::Uuid,
@@ -517,7 +544,7 @@ struct WeekEpisode {
     operation_id = "shows_episodes_between",
     tag = "schedule",
     summary = "Episodes in a range",
-    description = "Every episode airing in the range with its show, series and resolved fields: the calendar's week.",
+    description = "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule.",
     params(("from_ms" = i64, Query, description = "From, in milliseconds since the Unix epoch"), ("to_ms" = i64, Query, description = "To (exclusive)")),
     responses(
         (status = 200, description = "The episodes.", body = WeekBody),
@@ -573,19 +600,132 @@ async fn episodes_between(
             resolved,
         });
     }
-    Ok(Json(json!({ "zone": state.zone.name(), "episodes": out })).into_response())
+    let dates = crate::rules::open_dates(&state, q.from_ms, q.to_ms).await?;
+    Ok(Json(json!({ "zone": state.zone.name(), "episodes": out, "dates": dates })).into_response())
 }
 
 // Shows.
 
+/// A show, with its rule said in words and its next date (release 1.0.4). The rule itself is
+/// `rule`; `slot` is the weekly slot while the rule is exactly that, else `null`.
 #[derive(Serialize, utoipa::ToSchema)]
-struct ShowView {
-    show: Show,
-    resolved: Resolved,
-    series: Vec<Series>,
+pub(crate) struct ShowOut {
+    #[serde(flatten)]
+    pub show: Show,
+    /// The show's own rule in words; `null` without one.
+    pub rule_words: Option<RuleWords>,
+    /// The next date of the show's current series.
+    pub next_on: NextOn,
 }
 
-async fn find_show(state: &ShowsState, slug: &str) -> Result<Show, Fail> {
+/// A series, with the words and next date of the rule that governs it (its own, else its
+/// show's).
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct SeriesOut {
+    #[serde(flatten)]
+    pub series: Series,
+    pub rule_words: Option<RuleWords>,
+    pub next_on: NextOn,
+}
+
+pub(crate) fn show_out(
+    state: &ShowsState,
+    show: Show,
+    scheduled: Option<&planner::Scheduled>,
+) -> ShowOut {
+    let zone = state.zone();
+    let now = Timestamp::now();
+    let today = now.to_zoned(zone.clone()).date();
+    let effective = match scheduled {
+        Some(s) => s.rule.clone(),
+        None => show.rule.clone(),
+    };
+    ShowOut {
+        rule_words: show.rule.as_ref().map(|r| r.words(&zone, today)),
+        next_on: planner::next_on(effective.as_ref(), &zone, now),
+        show,
+    }
+}
+
+pub(crate) fn series_out(
+    state: &ShowsState,
+    show: &Show,
+    series: Series,
+    episodes: &[Episode],
+) -> SeriesOut {
+    let zone = state.zone();
+    let now = Timestamp::now();
+    let today = now.to_zoned(zone.clone()).date();
+    let effective = shows::series_rule(show, Some(&series), episodes);
+    let words = shows::series_rule_planned(show, Some(&series), episodes).map(|planned| {
+        let mut w = planned.words(&zone, today);
+        if let Some(e) = &effective {
+            let adjusted = e.words(&zone, today);
+            w.last = adjusted.last;
+            w.last_on = adjusted.last_on;
+        }
+        w
+    });
+    SeriesOut {
+        rule_words: words,
+        next_on: planner::next_on(effective.as_ref(), &zone, now),
+        series,
+    }
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct ShowView {
+    pub show: ShowOut,
+    pub resolved: Resolved,
+    pub series: Vec<SeriesOut>,
+    /// The episode `draft_first` drafted, if the save asked for one and a date was there.
+    pub drafted: Option<EpisodeView>,
+    /// Another show's time the save went on over (an admin's, a producer's or the key's).
+    pub warnings: Vec<Clash>,
+}
+
+/// A show with its series, each with the episodes its rule's words and next date need.
+pub(crate) async fn show_view(
+    state: &ShowsState,
+    show: Show,
+    drafted: Option<EpisodeView>,
+    warnings: Vec<Clash>,
+) -> Result<ShowView, Fail> {
+    let pool = db(state)?;
+    let people = shows::people(pool, state.station.id).await?;
+    let series = shows::list_series(pool, show.id).await?;
+    let ids: Vec<uuid::Uuid> = series.iter().map(|s| s.id).collect();
+    let episodes = shows::episodes_of(pool, &ids).await?;
+    let current = series.last().map(|s| s.id);
+    let mut out = Vec::new();
+    let mut current_episodes = Vec::new();
+    for s in series {
+        let eps: Vec<Episode> = episodes
+            .iter()
+            .filter(|e| e.series_id == s.id)
+            .cloned()
+            .collect();
+        if Some(s.id) == current {
+            current_episodes = eps.clone();
+        }
+        out.push(series_out(state, &show, s, &eps));
+    }
+    let scheduled = planner::Scheduled {
+        rule: shows::series_rule(&show, out.last().map(|s| &s.series), &current_episodes),
+        series: out.last().map(|s| s.series.clone()),
+        episodes: current_episodes,
+        show: show.clone(),
+    };
+    Ok(ShowView {
+        resolved: shows::resolve_show(&show, &people),
+        show: show_out(state, show, Some(&scheduled)),
+        series: out,
+        drafted,
+        warnings,
+    })
+}
+
+pub(crate) async fn find_show(state: &ShowsState, slug: &str) -> Result<Show, Fail> {
     shows::get_show(db(state)?, state.station.id, slug)
         .await?
         .ok_or_else(|| missing(format!("show `{slug}`")))
@@ -598,7 +738,7 @@ async fn find_show(state: &ShowsState, slug: &str) -> Result<Show, Fail> {
     tag = "shows",
     summary = "Every show",
     responses(
-        (status = 200, description = "The shows.", body = Vec<weavesignal_model::shows::Show>),
+        (status = 200, description = "The shows.", body = Vec<ShowOut>),
         (status = 401, response = crate::openapi::Unauthorized),
         (status = 503, response = crate::openapi::Unavailable),
         (status = 500, description = "The database or the card renderer failed.", body = crate::openapi::Problem),
@@ -609,8 +749,13 @@ async fn list(State(state): State<Arc<ShowsState>>, headers: HeaderMap) -> Answe
     if let Some(r) = refusal(&state, &headers) {
         return Ok(r);
     }
-    let all = shows::list_shows(db(&state)?, state.station.id).await?;
-    Ok(Json(all).into_response())
+    let pool = db(&state)?;
+    let all = planner::scheduled(pool, state.station.id).await?;
+    let out: Vec<ShowOut> = all
+        .iter()
+        .map(|s| show_out(&state, s.show.clone(), Some(s)))
+        .collect();
+    Ok(Json(out).into_response())
 }
 
 #[utoipa::path(
@@ -639,14 +784,7 @@ async fn get_show(
         return Ok(r);
     }
     let show = find_show(&state, &slug).await?;
-    let people = shows::people(db(&state)?, state.station.id).await?;
-    let series = shows::list_series(db(&state)?, show.id).await?;
-    Ok(Json(ShowView {
-        resolved: shows::resolve_show(&show, &people),
-        show,
-        series,
-    })
-    .into_response())
+    Ok(Json(show_view(&state, show, None, Vec::new()).await?).into_response())
 }
 
 #[utoipa::path(
@@ -655,7 +793,7 @@ async fn get_show(
     operation_id = "shows_put_show",
     tag = "shows",
     summary = "Make or change a show",
-    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air.",
+    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.",
     params(("show" = String, Path, description = "The show's slug")),
     request_body = weavesignal_model::shows::ShowInput,
     responses(
@@ -759,7 +897,13 @@ async fn put_show(
         description: input.description.clone(),
         colour_slot: input.colour_slot,
         layout: input.layout.clone(),
-        slot: input.slot,
+        // The card prints a weekly slot: the rule's when it is exactly one, else an older
+        // studio's.
+        slot: match &input.rule {
+            Some(rule) => rule.as_ref().and_then(Rule::as_slot),
+            None => input.slot,
+        },
+        rule: input.rule.clone().flatten(),
         hosts: input.hosts.iter().map(|h| h.trim().to_owned()).collect(),
         guests: Vec::new(),
         tags: input.tags.clone(),
@@ -776,7 +920,26 @@ async fn put_show(
         .into());
     }
     let renders = draw(card_data(&state, &provisional)?).await?;
-    let show = shows::put_show(pool, state.station.id, &slug, &input).await?;
+    // The show, and with `draft_first` series 1 and its first episode, in one transaction: a
+    // refusal (a presenter's clash among them) saves nothing.
+    let made = ruleplan::put_show_drafting(
+        pool,
+        state.station.id,
+        &slug,
+        &input,
+        &state.zone(),
+        Timestamp::now(),
+        shows::Maker {
+            label: &actor.label(),
+            account: match &actor {
+                crate::staff::Actor::Staff(a) => Some(a.id),
+                _ => None,
+            },
+        },
+        clash_policy(&actor),
+    )
+    .await?;
+    let show = made.show;
     if let Some((from, to)) = step_change {
         let by = shows::StepBy {
             label: actor.label(),
@@ -797,17 +960,213 @@ async fn put_show(
             live.wake_steps();
         }
     }
+    if let Some(old) = &stored
+        && old.rule != show.rule
+    {
+        announce_rule_change(
+            &state,
+            &actor,
+            &show,
+            None,
+            old.rule.as_ref(),
+            show.rule.as_ref(),
+        )
+        .await;
+    }
     let cards = keep(&state, &renders).await?;
     shows::set_cards(pool, Level::Show, show.id, &cards).await?;
     let show = find_show(&state, &slug).await?;
-    let people = shows::people(pool, state.station.id).await?;
-    let series = shows::list_series(pool, show.id).await?;
-    Ok(Json(ShowView {
-        resolved: shows::resolve_show(&show, &people),
-        show,
-        series,
+    let drafted = match made.drafted {
+        Some((series, episode)) => {
+            let view = series_view(&state, &show, series.clone()).await?;
+            draw_and_keep(&state, Level::Series, series.id, &view.resolved).await?;
+            let r = resolve(&state, &show, &series, &episode).await?;
+            draw_and_keep(&state, Level::Episode, episode.id, &r).await?;
+            let episode = find_episode(&state, &series, episode.number).await?;
+            Some(EpisodeView {
+                episode,
+                resolved: r,
+            })
+        }
+        None => None,
+    };
+    Ok(Json(show_view(&state, show, drafted, made.warnings).await?).into_response())
+}
+
+/// Who may delete a show (ADR-0279): the station key, an admin or a producer. Not a presenter,
+/// the show's own included, a screener or an API token.
+fn may_delete(actor: &crate::staff::Actor) -> bool {
+    use weavesignal_model::staff::Role;
+    match actor {
+        crate::staff::Actor::Station => true,
+        crate::staff::Actor::Staff(a) => a.role.is_admin() || a.role == Role::Producer,
+        crate::staff::Actor::Token(_) => false,
+    }
+}
+
+/// What a delete answers: what went with the show, and how many files.
+#[derive(Serialize, utoipa::ToSchema)]
+struct ShowDeleted {
+    #[serde(flatten)]
+    gone: shows::DeletedShow,
+    /// Card pictures, the slate's still, published audio files and carts' files deleted from
+    /// the disk with it.
+    files_deleted: usize,
+}
+
+/// Delete a show that has never aired (ADR-0279).
+#[utoipa::path(
+    delete,
+    path = "/api/v1/shows/{show}",
+    operation_id = "shows_delete_show",
+    tag = "shows",
+    summary = "Delete a show that has never aired",
+    description = "An admin or a producer (and the station key) may; a presenter, even of their own show, a screener and an API token may not (403). Refused (409, with one sentence naming how many episodes aired) when any of its episodes has aired or is on air now: an aired show stays as the station's record. Otherwise, in one transaction, the show goes with its series, drafted episodes, own cart banks and carts, and the logs of its step and rule changes; then its card pictures, its slate still, its carts' files and any published audio files only it named are deleted from the disk, and the open cart wall is read again. A call's consent keeps the show's name in words and loses only the link to it. It cannot be undone. Past plays, the generated log and the chat name no show by its id, so they are left as they are (a clock or a log item that named one of the show's own carts is left naming a cart that is gone, as when a show's bank is removed). Release 1.0.4 (ADR-0279).",
+    params(("show" = String, Path, description = "The show's slug")),
+    responses(
+        (status = 200, description = "What was deleted.", body = ShowDeleted),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
+        (status = 404, response = crate::openapi::NotFound),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 503, response = crate::openapi::Unavailable),
+        (status = 500, description = "The database failed.", body = crate::openapi::Problem),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn delete_show(
+    State(state): State<Arc<ShowsState>>,
+    headers: HeaderMap,
+    UrlPath(slug): UrlPath<String>,
+) -> Answer {
+    let actor = match crate::staff::check(
+        state.admin_token.as_deref(),
+        &state.staff,
+        &headers,
+        crate::staff::Need::Staff,
+    ) {
+        Ok(a) => a,
+        Err(r) => return Ok(r),
+    };
+    if !may_delete(&actor) {
+        return Ok(problem(
+            StatusCode::FORBIDDEN,
+            "Only an admin or a producer deletes a show.",
+        ));
+    }
+    let pool = db(&state)?;
+    let gone =
+        shows::delete_show(pool, state.station.id, &slug, Timestamp::now().as_second()).await?;
+    tracing::info!(show = %gone.slug, by = %actor.label(), "a show was deleted");
+    // The show is gone and cannot come back, so what follows never fails the request: the open
+    // cart wall is read again and the step reconciler woken first (a studio may still list the
+    // banks, or wait on the schedule), then the files go as far as they can, and a file that
+    // cannot be deleted is logged.
+    let mut files_deleted = 0;
+    if let Some(hub) = &state.hub {
+        files_deleted += gone
+            .cart_files
+            .iter()
+            .filter(|(_, f)| {
+                f.as_deref()
+                    .is_some_and(weavesignal_model::carts::is_cart_file)
+            })
+            .count();
+        hub.forget_show_carts(&gone.cart_files).await;
+    }
+    if let Some(live) = &state.live {
+        live.wake_steps();
+    }
+    match remove_unused_cards(&state, pool, gone.card_files.clone()).await {
+        Ok(n) => files_deleted += n,
+        Err(_) => {
+            tracing::warn!(show = %gone.slug, "cannot tell which card files a deleted show left")
+        }
+    }
+    match shows::episode_files_in_use(pool).await {
+        Ok(in_use) => {
+            for f in gone
+                .media_files
+                .iter()
+                .filter(|f| file_name(f) && !in_use.contains(*f))
+            {
+                match tokio::fs::remove_file(state.publishing.episodes_dir.join(f)).await {
+                    Ok(()) => files_deleted += 1,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        tracing::warn!(file = %f, error = %e, "cannot delete a deleted show's audio file")
+                    }
+                }
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "cannot tell which audio files a deleted show left"),
+    }
+    if let Some(cfg) = &state.video {
+        match tokio::fs::remove_file(crate::video::show_still(cfg, gone.id)).await {
+            Ok(()) => files_deleted += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::warn!(error = %e, "cannot delete a deleted show's slate still"),
+        }
+    }
+    Ok(Json(ShowDeleted {
+        gone,
+        files_deleted,
     })
     .into_response())
+}
+
+/// How a draft over another show's time is treated for this actor (design section 9): an admin,
+/// a producer, the station key and an API token are warned and may go on; a presenter, or a
+/// screener (who runs no schedule), is refused.
+pub(crate) fn clash_policy(actor: &crate::staff::Actor) -> Clashes {
+    use weavesignal_model::staff::Role;
+    match actor {
+        crate::staff::Actor::Staff(a) if matches!(a.role, Role::Presenter | Role::Screener) => {
+            Clashes::Refuse
+        }
+        _ => Clashes::Warn,
+    }
+}
+
+/// Log a rule changed by a save, and tell every window.
+pub(crate) async fn announce_rule_change(
+    state: &ShowsState,
+    actor: &crate::staff::Actor,
+    show: &Show,
+    series: Option<&Series>,
+    from: Option<&Rule>,
+    to: Option<&Rule>,
+) {
+    let Some(pool) = &state.db else { return };
+    let by = shows::StepBy {
+        label: actor.label(),
+        account: match actor {
+            crate::staff::Actor::Staff(a) => Some(a.id),
+            _ => None,
+        },
+    };
+    if let Err(e) = ruleplan::log_rule_change(
+        pool,
+        state.station.id,
+        show.id,
+        series.map(|s| s.id),
+        from,
+        to,
+        &by,
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "cannot log a changed rule");
+    }
+    tell_windows(state, actor, show);
+}
+
+/// *Moira changed when The Folk Club airs.*
+pub(crate) fn tell_windows(state: &ShowsState, actor: &crate::staff::Actor, show: &Show) {
+    tracing::info!(show = %show.slug, by = %actor.label(), "a show's rule changed");
+    if let Some(live) = &state.live {
+        live.rule_changed(&crate::steps::mover_name(actor), &show.name);
+    }
 }
 
 #[utoipa::path(
@@ -907,6 +1266,34 @@ struct Erased {
     mentions: Vec<EpisodeRef>,
     /// Published audio files whose tags may still name them: to be published again.
     files: Vec<EpisodeRef>,
+}
+
+/// Delete the card files in `files` that no show, series or episode names now. Card files are
+/// named by their content and shared across stations, so a file another row names stays.
+/// Returns how many went. Erasing a person (ADR-0122) and deleting a show (ADR-0279) both end
+/// here.
+async fn remove_unused_cards(
+    state: &ShowsState,
+    pool: &sqlx::PgPool,
+    mut files: Vec<String>,
+) -> Result<usize, Fail> {
+    let in_use = shows::card_files_in_use(pool).await?;
+    let mut deleted = 0;
+    files.sort();
+    files.dedup();
+    for f in files.iter().filter(|f| !in_use.contains(*f)) {
+        if f.contains('/') || f.starts_with('.') {
+            continue;
+        }
+        match tokio::fs::remove_file(state.publishing.cards_dir.join(f)).await {
+            Ok(()) => deleted += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                tracing::warn!(file = %f, error = %e, "cannot delete a card file nothing names")
+            }
+        }
+    }
+    Ok(deleted)
 }
 
 /// Erase a person at their request (ADR-0122): the record, the name in every list and in what
@@ -1012,22 +1399,7 @@ async fn erase_person(
     }
     // Card files are named by their content and never replaced: the old ones that named the
     // person go once nothing names them.
-    let in_use = shows::card_files_in_use(pool).await?;
-    let mut deleted = 0;
-    old_files.sort();
-    old_files.dedup();
-    for f in old_files.iter().filter(|f| !in_use.contains(*f)) {
-        if f.contains('/') || f.starts_with('.') {
-            continue;
-        }
-        match tokio::fs::remove_file(state.publishing.cards_dir.join(f)).await {
-            Ok(()) => deleted += 1,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                tracing::warn!(file = %f, error = %e, "cannot delete an erased person's old card")
-            }
-        }
-    }
+    let deleted = remove_unused_cards(&state, pool, old_files).await?;
     Ok(Json(Erased {
         name: gone.name,
         shows: gone.shows.len(),
@@ -1046,25 +1418,29 @@ async fn erase_person(
 // Series.
 
 #[derive(Serialize, utoipa::ToSchema)]
-struct SeriesView {
-    series: Series,
+pub(crate) struct SeriesView {
+    series: SeriesOut,
     resolved: Resolved,
     episodes: Vec<EpisodeView>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
-struct EpisodeView {
+pub(crate) struct EpisodeView {
     episode: Episode,
     resolved: Resolved,
 }
 
-async fn find_series(state: &ShowsState, show: &Show, n: u32) -> Result<Series, Fail> {
+pub(crate) async fn find_series(state: &ShowsState, show: &Show, n: u32) -> Result<Series, Fail> {
     shows::get_series(db(state)?, show.id, n)
         .await?
         .ok_or_else(|| missing(format!("series {n} of `{}`", show.slug)))
 }
 
-async fn series_view(state: &ShowsState, show: &Show, series: Series) -> Result<SeriesView, Fail> {
+pub(crate) async fn series_view(
+    state: &ShowsState,
+    show: &Show,
+    series: Series,
+) -> Result<SeriesView, Fail> {
     let pool = db(state)?;
     let people = shows::people(pool, state.station.id).await?;
     let zone = state.zone();
@@ -1078,7 +1454,7 @@ async fn series_view(state: &ShowsState, show: &Show, series: Series) -> Result<
         })
         .collect();
     Ok(SeriesView {
-        series,
+        series: series_out(state, show, series, &episodes),
         resolved,
         episodes: views,
     })
@@ -1120,7 +1496,7 @@ async fn get_series(
     operation_id = "shows_put_series",
     tag = "shows",
     summary = "Make or change a series",
-    description = "A field left out inherits the show's.",
+    description = "A field left out inherits the show's. `rule` is the series' own rule (release 1.0.4): a value sets it, `null` makes the series follow its show again, and left out leaves it to `slot` as a show's `PUT` does. `starts_on` and `planned_episodes` win over the rule's own start and count for this series.",
     params(("show" = String, Path, description = "The show's slug"), ("series" = u32, Path, description = "The series' number in the show")),
     request_body = weavesignal_model::shows::SeriesInput,
     responses(
@@ -1140,9 +1516,15 @@ async fn put_series(
     UrlPath((slug, n)): UrlPath<(String, u32)>,
     Json(input): Json<SeriesInput>,
 ) -> Answer {
-    if let Some(r) = refusal(&state, &headers) {
-        return Ok(r);
-    }
+    let actor = match crate::staff::check(
+        state.admin_token.as_deref(),
+        &state.staff,
+        &headers,
+        crate::staff::Need::Staff,
+    ) {
+        Ok(a) => a,
+        Err(r) => return Ok(r),
+    };
     let show = find_show(&state, &slug).await?;
     // Checked against the card fonts before anything is kept (ADR-0176).
     let mut fields: Vec<(&'static str, &str)> = Vec::new();
@@ -1153,9 +1535,23 @@ async fn put_series(
         fields.extend(h.iter().map(|n| ("host name", n.as_str())));
     }
     weavesignal_cards::check_text(&fields)?;
+    let before = shows::get_series(db(&state)?, show.id, n).await?;
     let series = shows::put_series(db(&state)?, state.station.id, &show, n, &input).await?;
+    if before.as_ref().map(|b| &b.rule) != Some(&series.rule)
+        && (before.is_some() || series.rule.is_some())
+    {
+        announce_rule_change(
+            &state,
+            &actor,
+            &show,
+            Some(&series),
+            before.as_ref().and_then(|b| b.rule.as_ref()),
+            series.rule.as_ref(),
+        )
+        .await;
+    }
     let view = series_view(&state, &show, series).await?;
-    draw_and_keep(&state, Level::Series, view.series.id, &view.resolved).await?;
+    draw_and_keep(&state, Level::Series, view.series.series.id, &view.resolved).await?;
     let series = find_series(&state, &show, n).await?;
     Ok(Json(series_view(&state, &show, series).await?).into_response())
 }
@@ -1189,20 +1585,24 @@ async fn series_cards(
     let series = find_series(&state, &show, n).await?;
     let view = series_view(&state, &show, series).await?;
     Ok(
-        Json(draw_and_keep(&state, Level::Series, view.series.id, &view.resolved).await?)
+        Json(draw_and_keep(&state, Level::Series, view.series.series.id, &view.resolved).await?)
             .into_response(),
     )
 }
 
 // Episodes.
 
-async fn find_episode(state: &ShowsState, series: &Series, n: u32) -> Result<Episode, Fail> {
+pub(crate) async fn find_episode(
+    state: &ShowsState,
+    series: &Series,
+    n: u32,
+) -> Result<Episode, Fail> {
     shows::get_episode(db(state)?, series.id, n)
         .await?
         .ok_or_else(|| missing(format!("episode {n}")))
 }
 
-async fn resolve(
+pub(crate) async fn resolve(
     state: &ShowsState,
     show: &Show,
     series: &Series,
@@ -1221,7 +1621,12 @@ async fn resolve(
     ))
 }
 
-async fn episode_answer(state: &ShowsState, show: &Show, series: &Series, n: u32) -> Answer {
+pub(crate) async fn episode_answer(
+    state: &ShowsState,
+    show: &Show,
+    series: &Series,
+    n: u32,
+) -> Answer {
     let e = find_episode(state, series, n).await?;
     let resolved = resolve(state, show, series, &e).await?;
     Ok(Json(EpisodeView {
@@ -1237,7 +1642,7 @@ async fn episode_answer(state: &ShowsState, show: &Show, series: &Series, n: u32
     operation_id = "shows_create_episodes",
     tag = "shows",
     summary = "Draft episodes",
-    description = "The next episode, or `count` of them, filled in from the series' rule. The first episode of a series with none follows its start date, or else is the slot under way now (its length, or an hour), or else the next.",
+    description = "The next episode, or `count` of them, filled in from the series' rule: the next dates it gives that no episode fills and it does not skip, each recorded as the date it fills (`occurrence`). With nothing drafted the first is the date under way now (its length, or an hour), else the next on or after the rule's start: never a date in the past. A rule with no more dates answers 409, and fewer than `count` are drafted when it has fewer left. A series with no rule drafts numbered episodes with no time. An episode that would overlap another show's by a minute or more is refused for a presenter (409, with `field` `rule`, the other show named and `clashes`); an admin, a producer, the station key and a token go on.",
     params(("show" = String, Path, description = "The show's slug"), ("series" = u32, Path, description = "The series' number in the show")),
     request_body = weavesignal_model::shows::NewEpisodes,
     responses(
@@ -1288,10 +1693,11 @@ async fn create_episodes(
                 crate::staff::Actor::Station | crate::staff::Actor::Token(_) => None,
             },
         },
+        clash_policy(&actor),
     )
     .await?;
     let mut out = Vec::new();
-    for e in made {
+    for e in made.episodes {
         let r = resolve(&state, &show, &series, &e).await?;
         draw_and_keep(&state, Level::Episode, e.id, &r).await?;
         let e = find_episode(&state, &series, e.number).await?;
@@ -1329,12 +1735,53 @@ async fn patch_episode(
     UrlPath((slug, n, e)): UrlPath<(String, u32, u32)>,
     Json(patch): Json<EpisodePatch>,
 ) -> Answer {
-    if let Some(r) = refusal(&state, &headers) {
-        return Ok(r);
-    }
+    let actor = match crate::staff::check(
+        state.admin_token.as_deref(),
+        &state.staff,
+        &headers,
+        crate::staff::Need::Staff,
+    ) {
+        Ok(a) => a,
+        Err(r) => return Ok(r),
+    };
     let show = find_show(&state, &slug).await?;
     let series = find_series(&state, &show, n).await?;
     let ep = find_episode(&state, &series, e).await?;
+    // A presenter may not move an episode onto another show's time (design section 9).
+    if clash_policy(&actor) == Clashes::Refuse
+        && let Some(Some(at)) = &patch.air_at
+    {
+        let start = at.timestamp().as_second();
+        let minutes = match patch.minutes {
+            Some(Some(m)) => m,
+            Some(None) => 60,
+            None => ep.minutes.unwrap_or(60),
+        };
+        let minutes = if patch.minutes.is_none() && ep.minutes.is_none() {
+            shows::series_rule(&show, Some(&series), &[]).map_or(60, |r| r.length())
+        } else {
+            minutes
+        };
+        let found = planner::clashes_for(
+            db(&state)?,
+            state.station.id,
+            &state.zone(),
+            Some(show.id),
+            &[(start, start + i64::from(minutes) * 60)],
+            Timestamp::now(),
+        )
+        .await?;
+        let mut clashes: Vec<Clash> = found.into_iter().flatten().collect();
+        if !clashes.is_empty() {
+            for c in &mut clashes {
+                c.refused = true;
+            }
+            return Err(Fail::Clash(Box::new(planner::ClashRefusal {
+                message: clashes[0].words(),
+                clashes,
+            })));
+        }
+    }
     // The words are checked against the card fonts before anything is kept (ADR-0176), so a
     // refused save leaves the episode, and the people it would have added, as they were.
     check_card_words(&patch)?;
@@ -1552,6 +1999,7 @@ async fn correct(
                     Err(err) => problem = Some(format!("the files record: {err}")),
                 },
                 Err(Fail::Status(_, m)) => problem = Some(m),
+                Err(Fail::Clash(c)) => problem = Some(c.message),
             }
             if let Some(m) = &problem {
                 tracing::warn!(episode = %ep.id, problem = %m, "corrected episode's files not tagged again");
@@ -2033,6 +2481,9 @@ struct WeekBody {
     /// The zone the station's air times are read in.
     zone: String,
     episodes: Vec<WeekEpisode>,
+    /// Every date of every show's rule in the range that no episode fills, is not skipped and is
+    /// not over: what the week draws as dotted blocks, so the studio expands no rule itself.
+    dates: Vec<crate::rules::OpenDateOut>,
 }
 
 /// A card's fields, as `weavesignal-cards`' `CardData` has them (inheritance already resolved).
@@ -2060,6 +2511,7 @@ struct CardFields {
     list,
     get_show,
     put_show,
+    delete_show,
     show_cards,
     put_series,
     get_series,
@@ -2100,6 +2552,8 @@ mod tests {
             },
             zone: Arc::new(crate::zone::StationZone::new("Europe/London")),
             live: None,
+            hub: None,
+            video: None,
         })
     }
 

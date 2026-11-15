@@ -5,7 +5,7 @@
   // tonight, the level switch (Episode, Series n, Show), and every field with its marker.
   // Inherited fields follow the level above by reference until Set here; Reset to series puts
   // one back (the control plane's `null`); an aired episode is frozen and read-only. The foot
-  // saves, discards, drafts the next episode or the rest of the season from the weekly rule.
+  // saves, discards, drafts the next episode or the rest of the season from the rule.
   import Field from './Field.svelte';
   import SeriesEditor from './SeriesEditor.svelte';
   import ShowEditor from './ShowEditor.svelte';
@@ -17,14 +17,16 @@
     initials,
     localInputValue,
     marker,
-    nextInstance,
-    slotWords,
+    instant,
+    movedWords,
     splitList,
     whenWords,
     dayWords,
     hm,
     zonedString,
   } from './model.ts';
+  import { shortOfSlot } from './rule/form.ts';
+  import { sched } from '../lib/schedule.svelte.ts';
 
   let {
     item,
@@ -32,6 +34,7 @@
     now,
     us,
     onChanged,
+    onDeleted,
     onCard,
   }: {
     item: WeekEpisode;
@@ -39,6 +42,8 @@
     now: number;
     us: boolean | null;
     onChanged: () => Promise<void>;
+    /** The episode's show was deleted from its show level (ADR-0279): the tab clears this editor. */
+    onDeleted?: (name: string) => Promise<void> | void;
     onCard: () => void;
   } = $props();
 
@@ -49,7 +54,7 @@
   const r = $derived(item.resolved);
   const frozen = $derived(ep.aired_at !== null);
   const start = $derived((ep.air_at ?? 0) * 1000);
-  const minutes = $derived(r.episode?.minutes ?? ep.minutes ?? r.slot?.minutes ?? 60);
+  const minutes = $derived(r.episode?.minutes ?? ep.minutes ?? r.rule?.minutes ?? r.slot?.minutes ?? 60);
   const end = $derived(start + minutes * 60_000);
   const tonight = $derived(dayWords(start, zone) === dayWords(now, zone));
   const seriesWord = $derived(`Series ${item.series.number}`);
@@ -89,15 +94,24 @@
     const { kind: _gone, ...rest } = draft;
     draft = k === (ep.kind ?? 'live') ? rest : { ...rest, kind: k };
   }
-  const onRule = $derived(r.slot !== null && !moved());
-
-  function moved(): boolean {
-    if (!r.slot) return false;
-    const rule = nextInstance(r.slot, start - 7 * 24 * 3_600_000, zone);
-    // The rule's instance in the same week as the episode.
-    const sameWeek = Math.abs(rule - start) < 7 * 24 * 3_600_000;
-    return !(sameWeek && rule === start);
-  }
+  /** The rule in force for the episode: the series' own, else the show's (ADR-0278). */
+  const hasRule = $derived(!!(r.rule ?? r.slot));
+  /** On its rule's date and time: the episode fills a rule date and has not been moved off it.
+   *  The station says which date it fills (`occurrence`); nothing is worked out here. */
+  const onRule = $derived(hasRule && ep.occurrence !== null && movedWords(item, start, zone) === null);
+  /** The rule's own time on the date the episode fills, for Back to the rule; null when the
+   *  station has not said which date that is (an older station, or an episode made by hand). */
+  const ruleTime = $derived.by(() => {
+    const o = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ep.occurrence ?? '');
+    const usual = r.rule?.start ?? r.slot?.start ?? null;
+    if (!o || usual === null) return null;
+    return instant({ y: Number(o[1]), m: Number(o[2]), d: Number(o[3]), hh: Math.floor(usual / 60), mm: usual % 60 }, zone);
+  });
+  // The series carries the words of the rule in force for it (its own, else its show's). The
+  // week's episodes carry no words for a rule, so a show's own are taken from the list of
+  // shows; without them every show said it had no dates (the 1.0.4 test run).
+  const listed = $derived(sched.shows.find((s) => s.slug === item.show.slug));
+  const ruleShort = $derived(item.series.rule_words?.short ?? r.rule_words?.short ?? (item.series.rule ? '' : (item.show.rule_words?.short ?? listed?.rule_words?.short)) ?? (r.slot ? shortOfSlot(r.slot) : ''));
 
   function setHere(field: 'hosts' | 'tags') {
     draft = { ...draft, [field]: field === 'hosts' ? [...r.hosts] : [...r.tags] };
@@ -121,9 +135,8 @@
     moving = false;
   }
   function backToRule() {
-    if (!r.slot) return;
-    const rule = nextInstance(r.slot, start - 7 * 24 * 3_600_000, zone);
-    draft = { ...draft, air_at: zonedString(rule, zone), minutes: null };
+    if (ruleTime === null) return;
+    draft = { ...draft, air_at: zonedString(ruleTime, zone), minutes: null };
     moving = false;
   }
 
@@ -148,7 +161,6 @@
     problem = '';
   }
 
-  const nextAt = $derived(r.slot ? nextInstance(r.slot, Math.max(start, now), zone) : null);
   const planned = $derived(item.series.planned_episodes);
   /** How many the season still lacks: the plan less the last number, when a plan exists. */
   let lastNumber = $state<number | null>(null);
@@ -273,7 +285,7 @@
 {#if level === 'series'}
   <SeriesEditor slug={item.show.slug} number={item.series.number} {zone} {onChanged} />
 {:else if level === 'show'}
-  <ShowEditor slug={item.show.slug} show={item.show} onSaved={onChanged} {onCard} embedded />
+  <ShowEditor slug={item.show.slug} show={item.show} onSaved={onChanged} onRule={onChanged} {onDeleted} {onCard} embedded />
 {:else}
   <div class="fields">
     {#if frozen}
@@ -300,11 +312,11 @@
       label="Date and time"
       marker={frozen ? 'frozen' : draft.air_at !== undefined || !onRule ? 'set' : 'inherited'}
       from={seriesFrom}
-      hint={r.slot ? `${slotWords(r.slot)}, ${zone}` : 'The series has no weekly rule; the time is this episode’s own.'}
+      hint={ruleShort ? `${ruleShort}, ${zone}` : 'The show has no dates of its own; the time is this episode’s own.'}
     >
       {#snippet actions()}
         {#if !moving}<button type="button" class="act" onclick={beginMove}>Move…</button>{/if}
-        {#if r.slot && (!onRule || draft.air_at !== undefined)}<button type="button" class="act" onclick={backToRule}>Back to the rule</button>{/if}
+        {#if ruleTime !== null && (!onRule || draft.air_at !== undefined)}<button type="button" class="act" onclick={backToRule}>Back to the rule</button>{/if}
       {/snippet}
       {#if moving}
         <div class="row">
@@ -435,7 +447,7 @@
         <button type="button" class="btn quiet" onclick={air} title="Freeze the episode as broadcast and draw its cards once more">On air now</button>
       </div>
       <div class="r">
-        <button type="button" class="btn" onclick={() => draft1(1)} disabled={!r.slot}>Create next episode {#if nextAt}<small>· Ep {(lastNumber ?? ep.number) + 1}, {dayWords(nextAt, zone)} {hm(nextAt, zone)}</small>{/if}</button>
+        <button type="button" class="btn" onclick={() => draft1(1)} disabled={!hasRule}>Create next episode {#if hasRule}<small>· Ep {(lastNumber ?? ep.number) + 1}, the rule’s next date</small>{/if}</button>
         <button type="button" class="btn" onclick={() => remaining && draft1(remaining)} disabled={!remaining}>Draft the season {#if remaining}<small>· {remaining} more, to Ep {planned}</small>{:else}<small>· {planned === null ? 'no plan on the series' : 'all drafted'}</small>{/if}</button>
       </div>
       <p class="caption">Inherited until set, frozen when aired (ADR-0055).</p>

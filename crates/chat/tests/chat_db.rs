@@ -908,8 +908,9 @@ async fn under_no_retention_messages_go_when_the_scheduled_show_ends() {
     let series = uuid::Uuid::new_v4();
     let long = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO show (id, station_id, slug, name, colour_slot, slot_weekday, slot_start, slot_minutes)
-         VALUES ($1, $2, 'the-long-night', 'The Long Night', 1, 1, 0, 120)",
+        "INSERT INTO show (id, station_id, slug, name, colour_slot, slot_weekday, slot_start, slot_minutes, rule)
+         VALUES ($1, $2, 'the-long-night', 'The Long Night', 1, 1, 0, 120,
+                 '{\"start\": 0, \"minutes\": 120, \"repeat\": {\"kind\": \"weekly\", \"every\": 1, \"weekdays\": [1]}}')",
     )
     .bind(show)
     .bind(s.station)

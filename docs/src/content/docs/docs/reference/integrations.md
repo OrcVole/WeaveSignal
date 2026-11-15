@@ -3,7 +3,7 @@ title: "Integrations: tokens, open routes and events"
 description: "How other programs use a station's API: scoped API tokens and the scope each route needs, the open read-only routes for a station's website, signed webhooks and the event stream, the limits on each, and the settings."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-13
 sidebar:
   order: 9
 ---
@@ -68,8 +68,8 @@ A refused field is named in the answer: `{"error": "…", "field": "scopes"}`.
 | `playout:read` | `GET /playout`, `/playout/zone`, `/logger`, `/library/tracks` |
 | `library:write` | `PUT /library/tracks` (an upload); `DELETE /library/tracks/{id}` |
 | `reports:read` | `GET /reports/plays`, `/reports/audience` |
-| `shows:read` | `GET /shows`, a show, a series, an episode's corrections |
-| `shows:write` | changing shows, series and episodes; putting an episode on air; corrections; publishing files; drawing cards; `POST /cards/preview` and `/cards/words` |
+| `shows:read` | `GET /shows`, a show, a series, an episode's corrections; `POST /schedule/rule/preview` (it writes nothing) |
+| `shows:write` | changing shows, series and episodes, and when they air (`PUT /shows/{show}/rule`, `PUT /shows/{show}/series/{series}/rule`); putting an episode on air; corrections; publishing files; drawing cards; `POST /cards/preview` and `/cards/words` |
 | `video:read` | `GET /video/still`, `/video/still/image`, `/video/thumbs`; `GET /shows/{show}/still`, `/shows/{show}/still/image` |
 | `video:write` | `PUT` and `DELETE /video/still`; `PUT` and `DELETE /shows/{show}/still` |
 
@@ -97,7 +97,7 @@ They follow the station's listing setting ([The public pages](/docs/reference/pu
 | `GET /api/v1/public/schedule?days=7` | the episodes airing from now for `days` (1 to 14), in air order: `show` (`slug`, `name`), `series`, `number`, `aired`, `title`, `description`, `kind`, `air_at` (with the station's offset), `air_at_ms`, `minutes`, `hosts`, `guests`, `tags`, `explicit`, `image`. Under `zone`, with `from_ms` and `to_ms` |
 | `GET /api/v1/public/episodes?limit=20&before_ms=` | episodes that have aired and have published files, newest first (`limit` 1 to 50; `before_ms` pages back): the schedule's fields and `audio` and `audio_opus` (`url`, `mime`, `length`, `duration_ms`), `link`, `feed` |
 
-An episode with an air time is in the schedule, but until it airs only as its slot: `title` and `description` are `null`, and `guests` and `tags` are empty, and `image` is the show's card. The station has no step that publishes an episode before it airs, so a season drafted from the rule, or a guest pencilled in, is not announced here; once it has aired, the schedule and the episode list show its words as they went out.
+An episode with an air time is in the schedule, but until it airs only as its place in it: `title` and `description` are `null`, and `guests` and `tags` are empty, and `image` is the show's card. The station has no step that publishes an episode before it airs, so a season drafted from the rule, or a guest pencilled in, is not announced here; once it has aired, the schedule and the episode list show its words as they went out.
 `image`, `audio`, `link` and `feed` are set when `publishing.public_url` is.
 Caching: `public/station` says `max-age=5`, `public/schedule` and `public/episodes` `max-age=30`.
 
@@ -113,7 +113,7 @@ An event is a JSON object: `id` (unique; the same on every retry), `type`, `at_m
 | `episode.ended` | its length has run out | as `episode.started` |
 | `caller.queued` | a caller joins the screener's queue | `identity` (the call's, not the person's), `ordinal`, `queue` (callers waiting). Never their name, topic or consent: a caller agrees to be live and kept, not to have what they typed sent elsewhere; an integration that needs the name reads `GET /api/v1/studio` with a `studio:read` token |
 
-`episode.started` and `episode.ended` follow the schedule: the air time, and the length the episode has, or its slot's, or an hour.
+`episode.started` and `episode.ended` follow the schedule: the air time, and the length the episode has, or its rule's, or an hour.
 They fire for automation and for the desk alike, and are looked for every 15 s.
 What was already airing when the control plane started is not announced again.
 

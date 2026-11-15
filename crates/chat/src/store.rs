@@ -1433,8 +1433,8 @@ pub async fn sweep(
                      CASE WHEN $3 THEN
                        (SELECT max(x.ends_at) FROM (
                           SELECT e.air_at + make_interval(mins => COALESCE(e.minutes,
-                                   CASE WHEN se.slot_weekday IS NOT NULL THEN se.slot_minutes
-                                        ELSE sh.slot_minutes END)::int) AS ends_at
+                                   CASE WHEN se.rule IS NOT NULL THEN (se.rule->>'minutes')::int
+                                        ELSE (sh.rule->>'minutes')::int END)::int) AS ends_at
                             FROM episode e
                             JOIN series se ON se.id = e.series_id
                             JOIN show sh ON sh.id = se.show_id

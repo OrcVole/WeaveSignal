@@ -6,7 +6,8 @@
 // of each local hour (ADR-0045), conflicts, a moved instance, and the editor's field markers
 // (inherited, set here, as aired; ADR-0055). Pure, so it is tested on its own.
 
-import type { CardFields, Clock, Resolved, Slot, WeekEpisode, WeekHour } from '../lib/schedule.ts';
+import type { ScheduleDate } from '../lib/api.ts';
+import type { CardFields, Clock, Resolved, Show, WeekEpisode, WeekHour } from '../lib/schedule.ts';
 
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
@@ -142,31 +143,7 @@ export function lengthWords(ms: number): string {
   return r ? `${h} h ${pad(r)}` : `${h} h`;
 }
 
-/** The weekday's name for a slot (1 Monday to 7 Sunday). */
-export function slotWords(s: Slot | null): string {
-  if (!s) return 'no weekly rule';
-  const start = `${pad(Math.floor(s.start / 60))}:${pad(s.start % 60)}`;
-  const end = s.minutes === null ? '' : `–${pad(Math.floor(((s.start + s.minutes) % 1440) / 60))}:${pad((s.start + s.minutes) % 60)}`;
-  return `Weekly on ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][s.weekday - 1]}, ${start}${end}`;
-}
-
-/** The slot's next instance strictly after `after`, in station time. */
-export function nextInstance(s: Slot, after: number, zone: string): number {
-  const p = parts(after, zone);
-  for (let i = 0; i < 15; i++) {
-    const d = new Date(Date.UTC(p.y, p.m - 1, p.d + i));
-    const wd = (d.getUTCDay() + 6) % 7;
-    if (wd !== s.weekday - 1) continue;
-    const at = instant(
-      { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), hh: Math.floor(s.start / 60), mm: s.start % 60 },
-      zone,
-    );
-    if (at > after) return at;
-  }
-  return after;
-}
-
-/** What the grid draws: an episode, a weekly rule's instance nobody has drafted yet, or
+/** What the grid draws: an episode, a date from a show's rule that nobody has drafted yet, or
  *  automation filling a gap by the clock of each local hour. */
 export interface Block {
   id: string;
@@ -182,8 +159,10 @@ export interface Block {
   number: number | null;
   title: string;
   hosts: string[];
-  /** An instance of a weekly rule (the show or series has a slot). */
+  /** A date from a rule (the show or series has one). */
   weekly: boolean;
+  /** A dotted block's rule date (`2027-01-05`), which Skip this date acts on. */
+  on?: string;
   aired: boolean;
   frozen: boolean;
   conflict: boolean;
@@ -197,14 +176,41 @@ export interface Block {
   prerecorded?: boolean;
 }
 
-/** The hour when a slot's instance would have started, for the MOVED chip. */
-function movedWords(slot: Slot | null, start: number, zone: string): string | null {
-  if (!slot) return null;
+/** `Tue 6 Apr` for a wall-clock date (`2027-04-06`, or a date and time), or null when it is not one. */
+export function isoDayWords(iso: string): string | null {
+  const o = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!o) return null;
+  const [y, m, d] = [Number(o[1]), Number(o[2]), Number(o[3])];
+  return `${WEEKDAYS[(new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7]} ${d} ${MONTHS[m - 1]}`;
+}
+
+/** What the MOVED chip says, or null when the episode is where its rule put it.
+ *
+ *  A station that stores rules says which rule date an episode fills (`occurrence`): an
+ *  episode aired on another day says `was Tue 6 Apr`, one at another time that day `was 07:00`,
+ *  and one made or left by hand (no `occurrence`) is not moved, it is its own. The rule is not
+ *  expanded here: the two are only compared. An older station sends no `occurrence`, and the
+ *  episode is read against its weekly slot in the same week, as it always was. */
+export function movedWords(w: Pick<WeekEpisode, 'episode' | 'resolved'>, start: number, zone: string): string | null {
   const p = parts(start, zone);
-  const minutes = p.hh * 60 + p.mm;
-  if (p.wd === slot.weekday - 1 && minutes === slot.start) return null;
-  const was = `${pad(Math.floor(slot.start / 60))}:${pad(slot.start % 60)}`;
-  return p.wd === slot.weekday - 1 ? `was ${was}` : `was ${WEEKDAYS[slot.weekday - 1]} ${was}`;
+  const at = p.hh * 60 + p.mm;
+  const clock = (n: number) => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`;
+  const occ = w.episode.occurrence;
+  if (occ !== undefined) {
+    const o = /^(\d{4})-(\d{2})-(\d{2})/.exec(occ ?? '');
+    if (!o) return null;
+    const [y, m, d] = [Number(o[1]), Number(o[2]), Number(o[3])];
+    if (y !== p.y || m !== p.m || d !== p.d) return `was ${isoDayWords(occ!)}`;
+    const usual = w.resolved.rule?.start ?? w.resolved.slot?.start ?? null;
+    if (usual === null || usual === at) return null;
+    // A start the clocks moved (01:30 on the night they go forward) is the rule's own time.
+    if (instant({ y, m, d, hh: Math.floor(usual / 60), mm: usual % 60 }, zone) === start) return null;
+    return `was ${clock(usual)}`;
+  }
+  const slot = w.resolved.slot;
+  if (!slot) return null;
+  if (p.wd === slot.weekday - 1 && at === slot.start) return null;
+  return p.wd === slot.weekday - 1 ? `was ${clock(slot.start)}` : `was ${WEEKDAYS[slot.weekday - 1]} ${clock(slot.start)}`;
 }
 
 /** The week's episodes as blocks; an episode with no air time or length draws nothing. */
@@ -214,7 +220,7 @@ export function episodeBlocks(eps: WeekEpisode[], zone: string, now: number): Bl
     const r = w.resolved;
     if (w.episode.air_at === null) continue;
     const start = w.episode.air_at * 1000;
-    const minutes = r.episode?.minutes ?? w.episode.minutes ?? r.slot?.minutes ?? 60;
+    const minutes = r.episode?.minutes ?? w.episode.minutes ?? r.rule?.minutes ?? r.slot?.minutes ?? 60;
     const end = start + minutes * 60_000;
     out.push({
       id: `ep:${w.episode.id}`,
@@ -228,11 +234,11 @@ export function episodeBlocks(eps: WeekEpisode[], zone: string, now: number): Bl
       number: w.episode.number,
       title: r.episode?.title ?? w.episode.title,
       hosts: r.hosts,
-      weekly: !!r.slot,
+      weekly: !!(r.rule ?? r.slot),
       aired: w.episode.aired_at !== null || end <= now,
       frozen: w.episode.aired_at !== null,
       conflict: false,
-      moved: movedWords(r.slot, start, zone),
+      moved: movedWords(w, start, zone),
       clock: null,
       studio: null,
       prerecorded: w.episode.kind === 'prerecorded',
@@ -253,46 +259,37 @@ export function markConflicts(blocks: Block[]): Block[] {
   return blocks;
 }
 
-/** A show's weekly rule drawn where no episode is drafted this week: a dotted instance that
- *  offers to draft it. `shows` gives each show's slot and colour. */
-export function ruleBlocks(
-  shows: { slug: string; name: string; colour_slot: number; slot: Slot | null }[],
-  blocks: Block[],
-  days: number[],
-  zone: string,
-  now: number,
-): Block[] {
+/** The dotted blocks: each date a show's rule gives in the window that no episode fills yet,
+ *  as the control plane sent it with the week (`dates`). The studio expands nothing (new-show.md
+ *  section 8); a station too old to send them (`null`) draws none. `shows` gives each show's
+ *  name and colour. */
+export function dateBlocks(dates: readonly ScheduleDate[] | null, shows: readonly Pick<Show, 'slug' | 'name' | 'colour_slot'>[]): Block[] {
   const out: Block[] = [];
-  for (const s of shows) {
-    if (!s.slot) continue;
-    let at = nextInstance(s.slot, days[0] - 1, zone);
-    while (at < days[7]) {
-      const end = at + (s.slot.minutes ?? 60) * 60_000;
-      const taken = blocks.some((b) => b.kind === 'episode' && b.slug === s.slug && b.start < end && at < b.end);
-      if (!taken && end > now) {
-        out.push({
-          id: `rule:${s.slug}:${at}`,
-          kind: 'rule',
-          start: at,
-          end,
-          show: s.name,
-          slug: s.slug,
-          colour: s.colour_slot,
-          series: null,
-          number: null,
-          title: '',
-          hosts: [],
-          weekly: true,
-          aired: false,
-          frozen: false,
-          conflict: false,
-          moved: null,
-          clock: null,
-          studio: null,
-        });
-      }
-      at = nextInstance(s.slot, at, zone);
-    }
+  for (const d of dates ?? []) {
+    const s = shows.find((x) => x.slug === d.show);
+    if (!s) continue;
+    const start = d.start * 1000;
+    out.push({
+      id: `rule:${s.slug}:${d.on || start}`,
+      kind: 'rule',
+      start,
+      end: start + d.minutes * 60_000,
+      show: s.name,
+      slug: s.slug,
+      colour: s.colour_slot,
+      series: d.series,
+      number: d.number,
+      title: '',
+      hosts: [],
+      weekly: true,
+      on: d.on,
+      aired: false,
+      frozen: false,
+      conflict: false,
+      moved: d.moved_from && isoDayWords(d.moved_from) ? `was ${isoDayWords(d.moved_from)}` : null,
+      clock: null,
+      studio: null,
+    });
   }
   return out;
 }

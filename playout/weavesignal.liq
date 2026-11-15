@@ -422,10 +422,15 @@ output.icecast(
 # sound is the desk's own programme while someone is live, and this while nobody is, so viewers
 # hear what listeners hear. The same PCM in WAV as the listener process gets, to the desk's feed
 # port on loopback; the desk listens, and this tries again every 3 s while the desk is away, so
-# either restarts without the other. Through a buffer, which puts this output on a clock of its
-# own: a desk that stops reading holds up this output alone, never the listener process's feed
-# above (a stand-in desk that stopped reading for 20 s, 2026-11-02: playout's clock went on).
-# The fallback to silence keeps the output connected when the buffer runs dry.
+# either restarts without the other.
+# On playout's own clock, as the listener process's feed is (2026-11-12). It used to go through
+# a buffer onto a clock of its own, so that a desk that stopped reading could hold up nothing
+# else; on the test station that clock fell behind real time on a busy server (its tick cost
+# climbing as playout ran, while playout's clock kept time), emptied its buffer and filled the
+# video's sound with silence about once a second. The desk reads as data arrives and never
+# pushes back; if it stops reading, the kernel's socket buffers hold some seconds, and then the
+# 1 s write timeout drops the connection and playout goes on (a write waits only once those
+# buffers are full; measured locally: listeners kept time through a 25 s stall).
 null.case(
   data.desk_feed,
   fun () -> (),
@@ -442,15 +447,9 @@ null.case(
         password=password,
         mount="feed",
         send_icy_metadata=false,
-        fallback(
-          id="to_desk_safe",
-          [
-            buffer(id="to_desk_buffer", buffer=0.2, max=2., programme).{
-              track_sensitive = {false}
-            },
-            blank().{track_sensitive = {false}}
-          ]
-        )
+        timeout=1.,
+        connection_timeout=1.,
+        programme
       )
     end
 )

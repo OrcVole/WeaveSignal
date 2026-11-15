@@ -80,6 +80,8 @@ liq-check:
     podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/r/tests/playout:ro -v {{root}}/playout:/r/playout:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /r/tests/playout/nan.liq
     # The processing chain that plays (playout/chain.liq) on tones: raised, lowered, left alone, not pumped, never over the limiter's ceiling
     podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/r/tests/playout:ro -v {{root}}/playout:/r/playout:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /r/tests/playout/chain.liq
+    # The video's sound from playout is on playout's own clock: on a clock of its own it fell behind on a busy server and filled with silence (2026-11-12)
+    ! grep -q 'to_desk_buffer' {{root}}/playout/weavesignal.liq
     # The outgoing Icecast source (ADR-0226) stays on a clock of its own, so a remote that stalls cannot hold up our listeners
     grep -q 'buffer(id="icecast_out_buffer"' {{root}}/playout/listeners.liq
     # The default loop plays three laps with no gap at the join (ADR-0130)

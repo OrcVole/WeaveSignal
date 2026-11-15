@@ -5,7 +5,7 @@ type: howto
 status: draft
 last_verified: 2026-11-11
 sidebar:
-  order: 10
+  order: 11
 ---
 
 These are the studio words you are most likely to meet, in the sense they carry here.

@@ -9,6 +9,7 @@ import './styles/carts.css';
 import './styles/schedule.css';
 import './styles/steps.css';
 import './styles/prepare.css';
+import './styles/rule.css';
 import './app.css';
 import App from './App.svelte';
 import { applyTheme, theme } from './lib/theme.svelte.ts';

@@ -37,7 +37,7 @@ export function blockClasses(b: Block, ctx: BlockContext): string[] {
 export function blockAria(b: Block, ctx: BlockContext): string {
   const when = `${hm(b.start, ctx.zone)} to ${hm(b.end, ctx.zone)}`;
   if (b.kind === 'automation') return `Automation, ${b.show}, ${when}`;
-  if (b.kind === 'rule') return `${b.show}, weekly rule, ${when}, not drafted yet: select it to draft the episode`;
+  if (b.kind === 'rule') return `${b.show}, a date from its rule, ${when}, not drafted yet: select it to draft the episode or skip the date`;
   const parts = [b.show, b.prerecorded ? 'pre-recorded' : 'live', when];
   const ep = episodeLine(b);
   if (ep) parts.push(ep);
@@ -61,7 +61,7 @@ function blockInner(b: Block, ctx: BlockContext): string {
   const long = b.end - b.start;
   let h = `<span class="t"><span class="num">${time}</span>`;
   if (b.kind === 'automation' && ctx.longNight) h += `<span class="rep">${lengthWords(long)}</span>`;
-  else if (b.weekly && b.kind !== 'automation') h += `<span class="rep" title="instance of a weekly rule">${glyph('g-repeat')}</span>`;
+  else if (b.weekly && b.kind !== 'automation') h += `<span class="rep" title="a date from the show’s rule">${glyph('g-repeat')}</span>`;
   h += '</span>';
   if (b.kind === 'automation') {
     h += `<b>${esc(b.show)}</b><div class="rest"><span class="kind">${glyph('g-auto')}Automation</span>`;
@@ -70,7 +70,8 @@ function blockInner(b: Block, ctx: BlockContext): string {
   }
   h += `<b>${esc(b.show)}</b><div class="rest">`;
   if (b.kind === 'rule') {
-    h += `<span class="kind">${glyph('g-repeat')}Not drafted</span><span class="ep">Select it to draft the episode</span>`;
+    if (b.moved) h += `<span class="flag moved">${glyph('g-moved')}Moved · ${esc(b.moved)}</span>`;
+    h += `<span class="kind">${glyph('g-repeat')}Not drafted</span><span class="ep">${b.number !== null ? `Ep ${b.number} · ` : ''}Select it to draft or skip</span>`;
     return h + '</div>';
   }
   if (b.conflict) h += `<span class="flag">${glyph('g-fault')}Conflict</span>`;

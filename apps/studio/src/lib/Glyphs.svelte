@@ -42,7 +42,7 @@
     <symbol id="g-loop" viewBox="0 0 14 14"><path d="M3 7a4 4 0 0 1 4-4h3.5M10.5 3 8.8 1.3M10.5 3 8.8 4.7M11 7a4 4 0 0 1-4 4H3.5M3.5 11l1.7 1.7M3.5 11l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="g-once" viewBox="0 0 14 14"><path d="M4 2.5v9l7-4.5z" fill="currentColor"/></symbol>
     <symbol id="g-sweep" viewBox="0 0 14 14"><path d="M1.5 10.5c2-1 3-5 5-5s3 4 6 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
-    <!-- the calendar (calendar.md §2): the kind of show, a weekly rule's instance, a moved one, inherited from above -->
+    <!-- the calendar (calendar.md §2): the kind of show, a date from a rule, a moved one, inherited from above -->
     <symbol id="g-tape" viewBox="0 0 14 14"><rect x="1" y="3" width="12" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="4.5" cy="7" r="1.4" fill="currentColor"/><circle cx="9.5" cy="7" r="1.4" fill="currentColor"/></symbol>
     <symbol id="g-auto" viewBox="0 0 14 14"><path d="M2 3.5h10M2 7h7M2 10.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10 8.5v4l3-2z" fill="currentColor"/></symbol>
     <symbol id="g-repeat" viewBox="0 0 14 14"><path d="M3 7a4 4 0 0 1 4-4h3.5M10.5 3 8.8 1.3M10.5 3 8.8 4.7M11 7a4 4 0 0 1-4 4H3.5M3.5 11l1.7 1.7M3.5 11l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>

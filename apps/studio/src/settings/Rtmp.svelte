@@ -450,8 +450,8 @@
     display: none;
   }
   dialog {
-    width: min(36rem, calc(100vw - 2 * var(--s-4)));
-    max-height: calc(100vh - 2 * var(--s-4));
+    width: min(36rem, calc(var(--win-w, 100vw) - 2 * var(--s-4)));
+    max-height: calc(var(--win-h, 100vh) - 2 * var(--s-4));
     overflow-y: auto;
     background: var(--surface);
     color: var(--ink);

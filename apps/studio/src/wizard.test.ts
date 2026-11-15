@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The DJ's show setup (ADR-0218, ADR-0219), tested without a page: whose show a show is and
-// when the wizard opens by itself, the answers checked and turned into a show, the usual
-// slot from a day and two times, and the wizard, the Settings panel and the show editor
-// rendered on the server. Sample people come from the Scottish names list (ADR-0071).
+// when the wizard opens by itself, the answers checked and turned into a show (with when it
+// is on carried by every save), and the wizard in its four parts, the Settings panel and the
+// show editor rendered on the server. When it is on has its own tests (rule.test.ts). Sample people come from the Scottish names list (ADR-0071).
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import { PANELS, SHOW_SETUP, panel } from '../../../packages/ui/panels.ts';
@@ -13,14 +13,10 @@ import {
   aboutProblems,
   freeSlug,
   fromShow,
-  minutesOf,
   myShow,
   needsSetup,
   nextColour,
   showProblems,
-  slotFrom,
-  overnight,
-  slotLine,
   splitLinks,
   toShowInput,
   type Answers,
@@ -29,6 +25,7 @@ import MyShow from './settings/MyShow.svelte';
 import ShowWizard from './settings/ShowWizard.svelte';
 import { STEP_HINT, STEP_QUESTION, startsAt } from './lib/wizard.ts';
 import ShowEditor from './schedule/ShowEditor.svelte';
+import { ruleOfSlot, whenFields } from './schedule/rule/form.ts';
 
 const shona: Me = {
   kind: 'staff',
@@ -68,9 +65,6 @@ const answers = (over: Partial<Answers> = {}): Answers => ({
   contact: 'shona@example.org',
   show: 'The Night Show',
   links: 'https://rumble.com/c/shona\nhttps://odysee.com/@shona',
-  weekday: 5,
-  from: '22:00',
-  until: '00:00',
   commercial_music: true,
   // The show fixture is from before steps: it has no step, which reads as Full.
   step: 'full',
@@ -101,7 +95,7 @@ describe('whose show, and when the wizard opens by itself', () => {
 describe('the answers', () => {
   it('start from the show when run again, else from the account', () => {
     expect(fromShow(show(), shona)).toEqual(answers());
-    expect(fromShow(null, shona)).toMatchObject({ presenter: 'Shona Campbell', contact: '', show: '', links: '', weekday: 6, from: '', until: '' });
+    expect(fromShow(null, shona)).toMatchObject({ presenter: 'Shona Campbell', contact: '', show: '', links: '' });
   });
 
   it('start a new show at Solo, and keep the step of a show that has one (ADR-0271)', () => {
@@ -109,7 +103,7 @@ describe('the answers', () => {
     expect(fromShow(show({ step: 'guests' }), shona).step).toBe('guests');
     // A show from before steps says none: everything, as it always ran.
     expect(fromShow(show(), shona).step).toBe('full');
-    expect(toShowInput(answers({ step: 'callers' }), shona, null, 1).step).toBe('callers');
+    expect(toShowInput(answers({ step: 'callers' }), shona, null, 1, { rule: null }).step).toBe('callers');
   });
 
   it('say where the studio starts, for each step', () => {
@@ -122,24 +116,6 @@ describe('the answers', () => {
     expect(startsAt('full')).toEqual({ lead: 'The studio starts at Full:', rest: 'the whole studio, with a screener on the phones, the picture and the next DJ. Nothing is switched off.' });
   });
 
-  it('read a time, and make a slot that may run past midnight', () => {
-    expect(minutesOf('20:00')).toBe(1200);
-    expect(minutesOf('9:05')).toBe(545);
-    expect(minutesOf('24:00')).toBeNull();
-    expect(minutesOf('tea time')).toBeNull();
-    expect(slotFrom({ weekday: 6, from: '20:00', until: '23:00' })).toEqual({ weekday: 6, start: 1200, minutes: 180 });
-    // An end before the start is a past-midnight slot the wizard asks to confirm (ADR-0244).
-    expect(overnight({ from: '20:00', until: '19:00' })).toBe(true);
-    expect(overnight({ from: '22:00', until: '01:00' })).toBe(true);
-    expect(overnight({ from: '20:00', until: '23:00' })).toBe(false);
-    expect(overnight({ from: '20:00', until: '' })).toBe(false);
-    expect(slotFrom({ weekday: 5, from: '22:00', until: '00:00' })).toEqual({ weekday: 5, start: 1320, minutes: 120 });
-    expect(slotFrom({ weekday: 5, from: '22:00', until: '' })).toEqual({ weekday: 5, start: 1320, minutes: null });
-    expect(slotFrom({ weekday: 5, from: '', until: '' })).toBeNull();
-    expect(slotLine({ weekday: 6, from: '20:00', until: '23:00' })).toBe('Saturdays, 20:00 to 23:00');
-    expect(slotLine({ weekday: 1, from: '', until: '' })).toBe('No usual time yet');
-  });
-
   it('are checked step by step, with the field named', () => {
     expect(aboutProblems(answers())).toEqual({});
     expect(aboutProblems(answers({ presenter: '  ' })).presenter).toMatch(/name you go by/);
@@ -150,8 +126,6 @@ describe('the answers', () => {
     expect(showProblems(answers({ show: '' })).show).toMatch(/show's name/);
     expect(showProblems(answers({ links: 'not a link' })).links).toMatch(/no spaces/);
     expect(showProblems(answers({ links: Array.from({ length: 11 }, (_, i) => `https://x.example/${i}`).join('\n') })).links).toMatch(/10 links/);
-    expect(showProblems(answers({ from: '', until: '23:00' })).time).toMatch(/start as well/);
-    expect(showProblems(answers({ from: '25:00' })).time).toMatch(/such as 20:00/);
   });
 
   it('split links on lines and commas, and keep trimming', () => {
@@ -159,13 +133,16 @@ describe('the answers', () => {
   });
 
   it('become the PUT body: a new show tied to the account, an old one keeping what it had', () => {
-    const fresh = toShowInput(answers(), shona, null, nextColour(3));
+    const rule = ruleOfSlot({ weekday: 5, start: 1320, minutes: 120 });
+    // A station that stores rules is sent the rule, and asked to draft the first episode.
+    const fresh = toShowInput(answers(), shona, null, nextColour(3), whenFields({ ...rule, starts_on: '2026-11-13' }, { rules: true, draftFirst: true }));
     expect(fresh).toEqual({
       name: 'The Night Show',
       description: '',
       colour_slot: 4,
       layout: 'poster',
-      slot: { weekday: 5, start: 1320, minutes: 120 },
+      rule: { ...rule, starts_on: '2026-11-13' },
+      draft_first: true,
       hosts: [],
       tags: [],
       explicit: false,
@@ -181,7 +158,17 @@ describe('the answers', () => {
       resolved: { hosts: ['Catriona MacKenzie-Buchanan'] } as ShowView['resolved'],
       series: [],
     };
-    const again = toShowInput(answers({ show: 'The Later Show' }), shona, existing, 1);
+    // An older station refuses a field it does not know: it is sent the weekly slot alone.
+    const old = toShowInput(answers(), shona, null, 1, whenFields(rule, { rules: false, draftFirst: true }));
+    expect(old.slot).toEqual({ weekday: 5, start: 1320, minutes: 120 });
+    expect('rule' in old || 'draft_first' in old).toBe(false);
+    // No dates yet: the show is made with no rule, and nothing is drafted.
+    expect(toShowInput(answers(), shona, null, 1, whenFields(null, { rules: true, draftFirst: true }))).toMatchObject({ rule: null });
+    expect('draft_first' in toShowInput(answers(), shona, null, 1, whenFields(null, { rules: true, draftFirst: true }))).toBe(false);
+    // Run again: a change of name carries the rule as stored, so the station cannot lose it.
+    const again = toShowInput(answers({ show: 'The Later Show' }), shona, existing, 1, { rule, slot: existing.show.slot });
+    expect(again.rule).toEqual(rule);
+    expect(again.slot).toEqual({ weekday: 5, start: 1320, minutes: 120 });
     expect(again).toMatchObject({ name: 'The Later Show', description: 'Late calls.', colour_slot: 9, layout: 'slate', tags: ['calls'], explicit: true, hosts: ['Catriona MacKenzie-Buchanan'] });
     expect(nextColour(0)).toBe(1);
     expect(nextColour(12)).toBe(1);
@@ -198,13 +185,15 @@ describe('the answers', () => {
 describe('the wizard rendered', () => {
   const props = { me: shona, shows: [] as Show[], onDone: () => {}, onSkip: () => {}, onClose: () => {} };
 
-  it('is a named panel with its three parts, the first asking only the on-air name and the contact', () => {
+  it('is a named panel with its four parts, the first asking only the on-air name and the contact', () => {
     const { body } = render(ShowWizard, { props });
     expect(body).toContain('data-panel="studio.show-setup"');
     expect(SHOW_SETUP.map((p) => p.name)).toContain('studio.show-setup');
     expect(PANELS['studio.show-setup']).toBeTruthy();
     expect(body).toContain('Set up your show');
-    expect(body).toContain('Part 1 of 3: About you');
+    expect(body).toContain('Part 1 of 4: About you');
+    expect(body).toContain('3 When it is on');
+    expect(body).toContain('4 Done');
     expect(body).toContain('Your on-air name');
     expect(body).toContain('Takedown contact');
     expect(body).toContain('then\n          the station’s own as the host');
@@ -215,18 +204,18 @@ describe('the wizard rendered', () => {
     // No email form anywhere (ADR-0218): the contact may be an address, but nothing is sent.
     expect(body).not.toContain('type="email"');
     // "Step" means the show's step and nothing else: the wizard's pages are parts.
-    expect(body).not.toMatch(/Step \d of 3/);
+    expect(body).not.toMatch(/Step \d of \d/);
   });
 
-  it('asks on its second part for the name, the links, the usual day and time, and the music reminder', () => {
+  it('asks on its second part for the name, the links and the music reminder; the time has a part of its own', () => {
     const { body } = render(ShowWizard, { props: { ...props, part: 2 } });
-    expect(body).toContain('Part 2 of 3: Your show');
+    expect(body).toContain('Part 2 of 4: Your show');
     expect(body).toContain('Show name');
     expect(body).toContain('Links to your channels');
-    expect(body).toContain('Usual day and time');
-    expect(body).toContain('>Saturday<');
+    expect(body).not.toContain('Usual day and time');
     expect(body).toContain('The show plays commercial music');
-    expect(body).toContain('Save my show');
+    expect(body).toContain('Next: when it is on');
+    expect(body).not.toContain('Save my show');
     expect(body).not.toContain('PPL'); // the reminder only once the box is ticked
   });
 
@@ -241,14 +230,10 @@ describe('the wizard rendered', () => {
     expect(list).not.toMatch(/<input[^>]*value="(guests|callers|full)"[^>]*checked/);
     expect(list).toContain('Just you');
     expect(list).toContain('A screener on the phones, the picture, the next DJ');
-    // The wizard keeps three pages.
-    expect(body).toContain('1 About you');
-    expect(body).toContain('3 Done');
-    expect(body).not.toContain('4 ');
   });
 
   it('says on its last part where the studio starts and where to move up', () => {
-    const { body } = render(ShowWizard, { props: { ...props, part: 3 } });
+    const { body } = render(ShowWizard, { props: { ...props, part: 4 } });
     expect(body).toContain('The studio starts at Solo:');
     expect(body).toContain('until you move up a step, at the top of the studio.');
   });
@@ -257,9 +242,8 @@ describe('the wizard rendered', () => {
     const { body } = render(ShowWizard, { props: { ...props, initial: show(), part: 2 } });
     expect(body).toContain('value="The Night Show"');
     expect(body).toContain('https://rumble.com/c/shona');
-    expect(body).toContain('Fridays, 22:00 to 00:00');
     expect(body).toContain('PPL and PRS for Music');
-    expect(body).toContain('Save changes');
+    expect(body).toContain('Next: when it is on');
     expect(body).not.toContain('Skip for now');
   });
 });
@@ -274,7 +258,11 @@ describe('Settings › Your show', () => {
     expect(body).toContain('shona@example.org');
     expect(body).toContain('then the station’s as the host');
     expect(body).toContain('https://odysee.com/@shona');
-    expect(body).toContain('Fridays, 22:00 to 00:00');
+    // An older station keeps a weekly time only, and the studio writes no sentence for it.
+    expect(body).toContain('When it is on');
+    expect(body).toContain('Fri, 22:00–00:00');
+    const said = show({ rule: ruleOfSlot({ weekday: 5, start: 1320, minutes: 120 }), rule_words: { sentence: 'Every week on Friday, 22:00 to 00:00 the next day.', short: 'Fri, 22:00–00:00', last: null, last_on: null, notes: [] } });
+    expect(render(MyShow, { props: { me: shona, initial: [said] } }).body).toContain('Every week on Friday, 22:00 to 00:00 the next day.');
     expect(body).toContain('PPL and PRS for Music');
     expect(body).toContain('Change…');
   });
@@ -289,7 +277,7 @@ describe('Settings › Your show', () => {
 
 describe('the show editor', () => {
   it("carries the presenter's fields as a named panel (ADR-0214, ADR-0219)", () => {
-    const { body } = render(ShowEditor, { props: { slug: null, show: null, onSaved: () => {}, onCard: () => {} } });
+    const { body } = render(ShowEditor, { props: { slug: 'the-night-show', show: show(), onSaved: () => {}, onCard: () => {} } });
     expect(body).toContain('data-panel="calendar.show-presenter"');
     expect(panel('calendar.show-presenter').what).toMatch(/takedown contact/);
     expect(body).toContain('On-air name');

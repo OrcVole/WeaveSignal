@@ -6,6 +6,7 @@
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
+use weavesignal_model::planner::Clashes;
 use weavesignal_model::shows::{
     self, CorrectionInput, EpisodeKind, EpisodePatch, NewEpisodes, SeriesInput, ShowError,
     ShowInput, Slot,
@@ -23,6 +24,14 @@ async fn pool() -> (sqlx::PgPool, StationId) {
     (pool, id)
 }
 
+/// Before the series' start date, so drafting follows it and not the clock.
+fn fixed_now() -> Timestamp {
+    "2026-08-01T12:00:00+01:00[Europe/London]"
+        .parse::<jiff::Zoned>()
+        .unwrap()
+        .timestamp()
+}
+
 fn show_input() -> ShowInput {
     ShowInput {
         name: "Saturday Night Kettle".into(),
@@ -34,6 +43,8 @@ fn show_input() -> ShowInput {
             start: 20 * 60,
             minutes: Some(180),
         }),
+        rule: None,
+        draft_first: false,
         hosts: vec![
             "Shona Campbell".into(),
             "Catriona MacKenzie-Buchanan".into(),
@@ -83,14 +94,16 @@ async fn a_season_drafts_itself_inherits_and_freezes_at_air() {
             title: "Back for the autumn".into(),
             guests: vec!["Firth Lights".into()],
         },
-        Timestamp::now(),
+        fixed_now(),
         shows::Maker {
             label: "station key",
             account: None,
         },
+        Clashes::Ignore,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .episodes;
     assert_eq!(drafted.len(), 10);
     assert_eq!(
         drafted.iter().map(|e| e.number).collect::<Vec<_>>(),
@@ -106,6 +119,43 @@ async fn a_season_drafts_itself_inherits_and_freezes_at_air() {
     );
     assert!(drafted[0].guests.len() == 1 && drafted[1].guests.is_empty());
 
+    // The plan is ten: a series is complete when it has its episodes, so an eleventh is refused
+    // until the plan is raised.
+    let refused = shows::create_episodes(
+        &pool,
+        station,
+        &show,
+        &series,
+        &zone,
+        &NewEpisodes {
+            count: 1,
+            ..NewEpisodes::default()
+        },
+        fixed_now(),
+        shows::Maker {
+            label: "station key",
+            account: None,
+        },
+        Clashes::Ignore,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(shows::ShowError::Nothing(_))),
+        "{refused:?}"
+    );
+    let series = shows::put_series(
+        &pool,
+        station,
+        &show,
+        3,
+        &SeriesInput {
+            starts_on: Some("2026-09-05".parse().unwrap()),
+            planned_episodes: Some(12),
+            ..SeriesInput::default()
+        },
+    )
+    .await
+    .unwrap();
     // One more: number 11, the Saturday after the tenth.
     let next = shows::create_episodes(
         &pool,
@@ -117,14 +167,16 @@ async fn a_season_drafts_itself_inherits_and_freezes_at_air() {
             count: 1,
             ..NewEpisodes::default()
         },
-        Timestamp::now(),
+        fixed_now(),
         shows::Maker {
             label: "station key",
             account: None,
         },
+        Clashes::Ignore,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .episodes;
     assert_eq!(next[0].number, 11);
     assert_eq!(
         next[0].air_at.unwrap() - drafted[9].air_at.unwrap(),
@@ -301,14 +353,16 @@ async fn an_erased_guest_leaves_every_list_and_what_aired() {
             title: "Kettle talk".into(),
             guests: vec!["Morag Ross".into(), "Gregor Stewart".into()],
         },
-        Timestamp::now(),
+        fixed_now(),
         shows::Maker {
             label: "station key",
             account: None,
         },
+        Clashes::Ignore,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .episodes;
     // Drafting puts the guests on the first; the second has her too, and names her in its
     // description.
     let patch: EpisodePatch = serde_json::from_str(
@@ -412,14 +466,16 @@ async fn one_episode(
             title: "The ferrys".into(),
             guests: vec!["Morag Ross".into(), "Gregor Stuart".into()],
         },
-        Timestamp::now(),
+        fixed_now(),
         shows::Maker {
             label: "station key",
             account: None,
         },
+        Clashes::Ignore,
     )
     .await
     .unwrap()
+    .episodes
     .remove(0);
     (show, series, ep, zone)
 }
@@ -658,14 +714,16 @@ async fn episode_at(pool: &sqlx::PgPool, station: StationId, slug: &str, air_at:
             count: 1,
             ..NewEpisodes::default()
         },
-        Timestamp::now(),
+        fixed_now(),
         shows::Maker {
             label: "station key",
             account: None,
         },
+        Clashes::Ignore,
     )
     .await
-    .unwrap();
+    .unwrap()
+    .episodes;
     sqlx::query("UPDATE episode SET air_at = to_timestamp($1) WHERE id = $2")
         .bind(air_at as f64)
         .bind(made[0].id)

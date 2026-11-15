@@ -120,7 +120,7 @@
     font-weight: 400;
   }
   dialog {
-    width: min(30rem, calc(100vw - 2 * var(--s-4)));
+    width: min(30rem, calc(var(--win-w, 100vw) - 2 * var(--s-4)));
     background: var(--surface);
     color: var(--ink);
     border: 1px solid var(--axis);

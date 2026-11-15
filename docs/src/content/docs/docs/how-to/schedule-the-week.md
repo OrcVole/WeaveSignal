@@ -3,7 +3,7 @@ title: "Schedule the week"
 description: "Make a show with its weekly rule, draft its episodes from the rule, move one, set a field on the episode or let it inherit, check a card, and read the generated hours between shows."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-15
 sidebar:
   order: 22
 ---
@@ -23,29 +23,39 @@ Automation's clock hours use the same zone. The grid shows it in the toolbar, an
 
 ![Settings, Station time zone: before anyone chooses a zone the station says so and offers its configured one.](../../../../assets/screens/how-to-schedule-the-week-time-zone.png)
 
-Change the zone later only if you must. Shows and clock hours are stored as a weekday and an hour with no zone, so after a change each airs at the same hour in the new zone, which is a different moment. Settings warns you before you select **Change time zone**.
+Change the zone later only if you must. Shows' rules and clock hours are stored on the wall clock with no zone, so after a change each airs at the same hour in the new zone, which is a different moment. Settings warns you before you select **Change time zone**.
 
 ## Make a show
 
-![The new show form on the right of the week.](../../../../assets/screens/how-to-schedule-the-week-new-show.png)
+![New show, part 2, When it airs: the questions on the left, and on the right the sentence, the small months and the next dates.](../../../../assets/screens/how-to-schedule-the-week-new-show.png)
 
-1. Select **New show** in the toolbar.
-2. Give it a **Name**. Its **Path** follows the name until you change it.
-3. Pick its **Colour**, a bank slot: the same colour on the cart wall and the cards (ADR-0066).
-4. Pick its **Card layout**, Poster or Slate (ADR-0067).
-5. Under **Weekly rule**, select **Set**, then give a weekday, a start and a length in minutes, and **Set**.
-6. Hosts, a description, tags and **Explicit** (for the podcast feed) are optional; a series and its episodes inherit them until set lower down (ADR-0055).
-7. Select **Make the show**. The control plane draws the show's three cards first. A name that does not fit the card even at its smallest size, or that holds characters the card fonts cannot draw, is refused, with the field named.
+1. Select **New show** in the toolbar. If a block was selected, the date and time start from it; change them if that is not what you want.
+2. **The show**: give it a **Name**, pick its **Colour** (a bank slot: the same colour on the cart wall and the cards, ADR-0066) and its step, then **Next: when it airs**.
+3. **When it airs**: give **First on** and the times **from** and **until**, in the station's zone. A show that runs past midnight is asked about once.
+4. Under **Repeats**, pick the sentence that fits: *Once only*, *Every week on Tuesday*, *Every month on the third Tuesday*, *Every year on 17 November*, or **On dates I choose…** (click the dates in the small months; **Remove** takes one out). **More choices…** gives every other week, several weekdays, the last Friday of the month, a day of the month, and the rest.
+5. Under **Ends**, pick **Never**, **On** a date, or **After** a number of episodes.
+6. Read the right-hand side: the rule in words with its last date, and the next dates with their episode numbers. **Skip** a date the show does not air (a skipped date does not count towards the episodes), or **Move…** one to another day or time.
+7. If a date clashes with another show, its row says CONFLICT with the other show and the overlap. When every date clashes, the station offers the nearest clear time, such as **Try 21:00 to 22:00**.
+8. Select **Make the show** (**Make the show anyway** while something clashes). The station draws the show's cards first; a name that does not fit the card, or holds characters its fonts cannot draw, is refused with the field named.
+9. **Done** says which episode is drafted. **Draft all 10** drafts the rest of a rule with an end; **Open episode 1** selects it.
 
-The rule's instances appear on the grid as dotted *Not drafted* blocks from now on.
+The other dates appear on the grid as dashed *Not drafted* blocks. **No dates yet** in step 7 makes the show without a rule, to give it dates later.
+
+Hosts, a description, the card layout and the presenter's details are in the show editor; a series and its episodes inherit them until set lower down (ADR-0055).
+
+A show made by mistake, or a test show, can be removed again while none of its episodes has aired: [Delete a show](/docs/how-to/delete-a-show/).
+
+## Change when a show airs
+
+Select one of its blocks, then **Show**, and at **When it airs** select **Change…**. The same questions open with the show's rule. **Save…** lists the drafted episodes with their old and new dates: **Move them to the new dates** (the default) or **Leave them where they are**. Aired episodes never move. Every window is told who changed it.
 
 ## Draft the episodes
 
-- Select a dotted block and **Draft this episode**: the episode takes its number (the last plus one) and the time from the rule.
+- Select a dashed block and **Draft this episode**: the episode takes its number (the last plus one) and the time from the rule. **Skip this date** takes that date out instead (**Undo** puts it back).
 - Or open any episode of the show, switch to **Series n**, set **Starts on** and **Planned episodes**, **Save series**, and **Draft the season**: every planned episode not yet drafted, each on its instance of the rule, across the clock change.
 - **Create next episode** on either level drafts one more.
 
-![A dotted weekly-rule block selected: Kettle Breakfast, not drafted, with Draft this episode.](../../../../assets/screens/how-to-schedule-the-week-draft-from-rule.png)
+![A dashed rule date selected: Kettle Breakfast, not drafted, with Draft this episode.](../../../../assets/screens/how-to-schedule-the-week-draft-from-rule.png)
 
 Drafting never touches an aired episode.
 

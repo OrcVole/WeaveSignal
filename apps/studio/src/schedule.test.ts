@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The Schedule tab's rules, tested without a page: the station's wall clock in its zone (a
 // clocks-back Sunday has 25 hours), the week's blocks (episodes, a moved instance, a conflict,
-// a weekly rule not yet drafted, automation named by the clock of each local hour), the
+// a date from a show's rule not yet drafted, as the station sent it, automation named by the
+// clock of each local hour), the
 // editor's markers (inherited, set here, as aired), the block markup, the keymap's schedule
 // keys, and the editors rendered on the server from a seeded week.
 import { render } from 'svelte/server';
@@ -25,16 +26,16 @@ import {
   hm,
   instant,
   marker,
-  nextInstance,
+  dateBlocks,
+  movedWords,
   parts,
   rangeWords,
-  ruleBlocks,
-  slotWords,
   slugOf,
   weekOf,
   zonedString,
   type Block,
 } from './schedule/model.ts';
+import type { ScheduleDate } from './lib/api.ts';
 import type { Clock, Show, WeekEpisode, WeekHour } from './lib/schedule.ts';
 import { sched } from './lib/schedule.svelte.ts';
 
@@ -67,17 +68,12 @@ describe('the station clock', () => {
     expect(dayLength(spring.days, 6)).toBe('23 h · clocks go forward');
   });
 
-  it('finds the next instance of a weekly rule across the clock change', () => {
-    const sat = { weekday: 6, start: 20 * 60, minutes: 180 };
-    const next = nextInstance(sat, NOW, ZONE);
-    expect(hm(next, ZONE)).toBe('20:00');
-    expect(parts(next, ZONE).d).toBe(24);
-    const after = nextInstance(sat, next, ZONE);
-    expect(parts(after, ZONE).d).toBe(31);
-    expect(after - next).toBe(7 * 24 * 3_600_000 + 3_600_000);
-    expect(slotWords(sat)).toBe('Weekly on Saturday, 20:00–23:00');
-    expect(zonedString(next, ZONE)).toBe('2026-10-24T20:00:00+01:00[Europe/London]');
-    expect(zonedString(after, ZONE)).toBe('2026-10-31T20:00:00+00:00[Europe/London]');
+  it('writes a moment as a zoned time for the control plane, either side of the clock change', () => {
+    const sat = instant({ y: 2026, m: 10, d: 24, hh: 20, mm: 0 }, ZONE);
+    const next = instant({ y: 2026, m: 10, d: 31, hh: 20, mm: 0 }, ZONE);
+    expect(next - sat).toBe(7 * 24 * 3_600_000 + 3_600_000);
+    expect(zonedString(sat, ZONE)).toBe('2026-10-24T20:00:00+01:00[Europe/London]');
+    expect(zonedString(next, ZONE)).toBe('2026-10-31T20:00:00+00:00[Europe/London]');
   });
 });
 
@@ -160,7 +156,13 @@ const CLOCKS: Clock[] = [
 const HOURS: WeekHour[] = [];
 for (let wd = 0; wd < 7; wd++) for (let h = 0; h < 24; h++) HOURS.push({ weekday: wd, hour: h, clock: h < 6 ? 'c1' : 'c2' });
 
-function week() {
+/** A date a rule gives, as the station sends it with the week. */
+const date = (s: Show, on: string, hh: number, o: Partial<ScheduleDate> = {}): ScheduleDate => {
+  const [y, m, d] = on.split('-').map(Number);
+  return { show: s.slug, series: 3, on, number: null, start: instant({ y, m, d, hh, mm: 0 }, ZONE) / 1000, minutes: 180, moved_from: null, clock: null, ...o };
+};
+
+function week(dates: ScheduleDate[] | null = []) {
   const eps = [
     episode(SNK, 7, at(24, 20), { title: 'Ghost Train night', guests: ['Firth Lights'] }),
     episode(SNK, 6, at(17, 20), { title: 'The harbour tapes', aired: true }),
@@ -170,7 +172,7 @@ function week() {
   ];
   const { days } = weekOf(NOW, ZONE);
   const blocks = episodeBlocks(eps, ZONE, NOW);
-  const rules = ruleBlocks([SNK, DRIVE, SPECIAL, BREAKFAST], blocks, days, ZONE, NOW);
+  const rules = dateBlocks(dates, [SNK, DRIVE, SPECIAL, BREAKFAST]);
   const auto = automationBlocks([...blocks, ...rules], days, ZONE, HOURS, CLOCKS, null);
   return { eps, days, blocks, rules, auto };
 }
@@ -189,18 +191,47 @@ describe('the week', () => {
     expect(blocks.find((b) => b.id === 'ep:saturday-night-6')!.frozen).toBe(true);
   });
 
-  it('draws a weekly rule where no episode is drafted, and never over a drafted one', () => {
-    const { rules } = week();
-    // Kettle Drive has its Thursday; Kettle Breakfast's Monday instance was moved, so Monday is free
-    // but in the past; Saturday Night Kettle has tonight. The special has no rule.
-    expect(rules.map((r) => r.slug)).toEqual([]);
-    const { days } = weekOf(NOW + 7 * 24 * 3_600_000, ZONE);
-    const next = ruleBlocks([SNK, DRIVE], [], days, ZONE, NOW);
-    expect(next.map((r) => [r.slug, hm(r.start, ZONE)])).toEqual([
-      ['saturday-night', '20:00'],
-      ['kettle-drive', '16:00'],
+  it('draws the dotted blocks the station sends, and works out none itself (ADR-0278)', () => {
+    // The station sent no dates for this week: every date has its episode.
+    expect(week().rules).toEqual([]);
+    // A station too old to send dates draws none; the list of shows offers the next episode instead.
+    expect(week(null).rules).toEqual([]);
+    const sent = [date(SNK, '2026-10-31', 20, { number: 8 }), date(DRIVE, '2026-10-29', 16), date(SNK, '2026-11-07', 21, { moved_from: '2026-11-06T20:00:00' })];
+    const next = dateBlocks(sent, [SNK, DRIVE]);
+    expect(next.map((r) => [r.slug, hm(r.start, ZONE), r.on])).toEqual([
+      ['saturday-night', '20:00', '2026-10-31'],
+      ['kettle-drive', '16:00', '2026-10-29'],
+      ['saturday-night', '21:00', '2026-11-07'],
     ]);
-    expect(next[0].kind).toBe('rule');
+    expect(next[0]).toMatchObject({ kind: 'rule', id: 'rule:saturday-night:2026-10-31', show: 'Saturday Night Kettle', colour: 3, series: 3, number: 8, weekly: true });
+    // The length is the station's, to the minute, on the night the clocks go back too.
+    expect(next[0].end - next[0].start).toBe(180 * 60_000);
+    expect(next[2].moved).toBe('was Fri 6 Nov');
+    // A date for a show this window does not know is not drawn.
+    expect(dateBlocks([date(SPECIAL, '2026-10-31', 20)], [SNK])).toEqual([]);
+    const ctx = { now: NOW, zone: ZONE, selected: null };
+    expect(blockClasses(next[0], ctx)).toEqual(['ev', 'rule']);
+    expect(blockHtml(next[0], ctx)).toContain('Not drafted');
+    expect(blockHtml(next[0], ctx)).toContain('Ep 8 · Select it to draft or skip');
+    expect(blockAria(next[0], ctx)).toBe('Saturday Night Kettle, a date from its rule, 20:00 to 23:00, not drafted yet: select it to draft the episode or skip the date');
+    expect(blockHtml(next[2], ctx)).toContain('Moved · was Fri 6 Nov');
+  });
+
+  it('says an episode is moved from the rule date the station says it fills', () => {
+    const ep = episode(SNK, 8, at(31, 20));
+    const filled = (occurrence: string | null, rule = true) => ({
+      episode: { ...ep.episode, occurrence },
+      resolved: { ...ep.resolved, ...(rule ? { rule: { starts_on: null, start: 1200, minutes: 180, repeat: { kind: 'weekly' as const, every: 1, weekdays: [6] }, end: { kind: 'never' as const }, skip: [], moves: [] } } : {}) },
+    });
+    // On its rule's date and time: not moved.
+    expect(movedWords(filled('2026-10-31'), at(31, 20), ZONE)).toBeNull();
+    // Aired on another day, or at another time that day.
+    expect(movedWords(filled('2026-10-30'), at(31, 20), ZONE)).toBe('was Fri 30 Oct');
+    expect(movedWords(filled('2026-10-31'), at(31, 21), ZONE)).toBe('was 20:00');
+    // Made or left by hand: it is its own, not moved.
+    expect(movedWords(filled(null), at(31, 21), ZONE)).toBeNull();
+    // An older station says no date: the weekly slot is read as before.
+    expect(movedWords(ep, at(30, 20), ZONE)).toBe('was Sat 20:00');
   });
 
   it('fills every gap with automation named by the clock of each local hour, 25 hours on Sunday', () => {
@@ -292,7 +323,8 @@ describe('the editor', () => {
     expect(body).toContain('Firth Lights');
     expect(body).toContain('>Create next episode');
     expect(body).toContain('>Draft the season');
-    expect(body).toContain('Weekly on Saturday, 20:00–23:00, Europe/London');
+    // A station that stores no rules writes no words for one: the weekly time, in short.
+    expect(body).toContain('Sat, 20:00–23:00, Europe/London');
     expect(body).not.toContain('as aired');
   });
 
@@ -345,14 +377,18 @@ describe('the editor', () => {
     expect(body).toContain('Open the recording');
   });
 
-  it('renders the show editor for a new show with the twelve colours and both layouts', () => {
-    const { body } = render(ShowEditor, { props: { slug: null, show: null, onSaved: () => {}, onCard: () => {} } });
-    expect(body).toContain('Make the show');
+  it('renders the show editor with the twelve colours, both layouts and when it airs', () => {
+    const { body } = render(ShowEditor, { props: { slug: SNK.slug, show: SNK, onSaved: () => {}, onCard: () => {} } });
+    expect(body).toContain('Save show');
     expect((body.match(/aria-label="Bank \d+"/g) ?? []).length).toBe(12);
     expect(body).toContain('>Poster<');
     expect(body).toContain('>Slate<');
     expect(body).toContain('refused with the field named');
-    expect(body).not.toContain('calendar.show-still');
+    // A show is made in the New show dialog, so the editor asks for no path.
+    expect(body).not.toContain('aria-label="Path"');
+    expect(body).not.toContain('Weekly rule');
+    expect(body).toContain('data-panel="calendar.show-rule"');
+    expect(body).toContain('When it airs');
   });
 
   it("renders an existing show's slate picture as its own panel (ADR-0200), and only then", () => {

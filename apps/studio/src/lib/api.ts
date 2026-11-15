@@ -11,6 +11,8 @@
 
 import type { CartsView, Catalogue } from '../../../../packages/ui/carts.ts';
 import type { StationMode } from '../../../../packages/ui/states.ts';
+import type { EpisodeView, ShowInput, ShowView } from './schedule.ts';
+import { markOwn, unmarkOwn } from './ruleNotice.ts';
 
 export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'producer' | 'listener';
 
@@ -407,6 +409,8 @@ export class FieldError extends Error {
     readonly status: number,
     message: string,
     readonly field: string | null,
+    /** The refusal's whole body, for a reply that says more than a sentence (a clash's 409). */
+    readonly data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -421,14 +425,14 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   if (res.status === 204) return undefined as T;
   // A refusal from the framework (a body it could not read) is plain text: keep its words.
   const text = await res.text().catch(() => '');
-  let data: { error?: string; field?: string } = {};
+  let data: { error?: string; field?: string } & Record<string, unknown> = {};
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
     data = {};
   }
   const plain = data.error === undefined && !text.trimStart().startsWith('{') ? text.trim().slice(0, 200) : '';
-  if (!res.ok) throw new FieldError(res.status, data.error ?? (plain || `${res.status} ${res.statusText}`), data.field ?? null);
+  if (!res.ok) throw new FieldError(res.status, data.error ?? (plain || `${res.status} ${res.statusText}`), data.field ?? null, data);
   return data as T;
 }
 
@@ -907,3 +911,444 @@ export const changeRtmp = (id: string, d: Partial<{ name: string; platform: stri
 export const turnRtmp = (id: string, enabled: boolean) =>
   call<RtmpDestinationInfo>('PUT', `/api/v1/rtmp/destinations/${encodeURIComponent(id)}/enabled`, { enabled });
 export const removeRtmp = (id: string) => call<void>('DELETE', `/api/v1/rtmp/destinations/${encodeURIComponent(id)}`);
+
+// ---- When a show airs: the recurrence rule (ADR-0278; new-show.md section 9) ------------------
+//
+// The control plane stores the rule, works out its dates, says it as a sentence and finds its
+// clashes; the studio sends a rule and draws what comes back. The shapes below are the design's
+// where it gives them and this build's choice where it leaves them open; the API reference
+// (docs/…/reference/show-rules.md and api.md) is the contract. Each reply goes through one `as…` function
+// here, so a difference found when the two halves meet is put right in one place. Those
+// functions read the control plane's shapes as branch `newshow-api` built them (instants as
+// `start_ms` and `end_ms`, a clash's `short` and `hosts`, the preview's `words`, `notes`,
+// `more` and `change`), and the shapes this half first chose as well.
+
+/** A date on the station's wall clock, `2026-12-01`. */
+export type IsoDate = string;
+
+/** How a show comes back. Weekdays are 1 (Monday) to 7; `nth` is 1 to 4, or -1 for the last;
+ *  `day` is 1 to 31, or -1 for the last day; `month` is 1 to 12. */
+export type Repeat =
+  | { kind: 'once' }
+  | { kind: 'weekly'; every: number; weekdays: number[] }
+  | { kind: 'monthly_nth'; every: number; nth: number; weekday: number }
+  | { kind: 'monthly_day'; every: number; day: number }
+  | { kind: 'yearly'; month: number; day: number }
+  | { kind: 'dates'; dates: IsoDate[] };
+
+export type RuleEnd = { kind: 'never' } | { kind: 'until'; until: IsoDate } | { kind: 'count'; count: number };
+
+/** One date aired at another time: `from` is the rule's date, `to` a wall-clock date and time
+ *  (`2027-04-13T20:00:00`). */
+export interface RuleMove {
+  from: IsoDate;
+  to: string;
+  minutes: number | null;
+}
+
+/** When a show airs. All dates and times are the station's wall clock. */
+export interface Rule {
+  /** The first date the rule may give; null only for an old weekly slot. */
+  starts_on: IsoDate | null;
+  /** Minutes after midnight. */
+  start: number;
+  /** The length in minutes; null is the studio's 60. */
+  minutes: number | null;
+  repeat: Repeat;
+  end: RuleEnd;
+  skip: IsoDate[];
+  moves: RuleMove[];
+}
+
+/** The rule said by the control plane: the sentence, the short form for a field or a list, and
+ *  the second line when the rule ends (`The last is Tuesday 5 October 2027.`). */
+export interface RuleWords {
+  sentence: string;
+  short: string;
+  last: string | null;
+  /** The last date, when the rule ends. */
+  last_on: IsoDate | null;
+  /** What the calendar cannot give, said rather than hidden: `Months without a 31st are skipped.` */
+  notes: string[];
+}
+
+/** Why a show has nothing coming up. */
+export type NoDateReason = 'none' | 'once_passed' | 'ended' | 'complete';
+
+/** A show's next date: the next its rule gives or the next drafted episode still to air,
+ *  whichever is sooner; or none, with the reason and the last date there was. */
+export interface NextOn {
+  on: IsoDate | null;
+  /** Epoch seconds. */
+  start: number | null;
+  minutes: number | null;
+  reason: NoDateReason | null;
+  /** The last date the show had, for `was once, on 30 November` and `ended 29 January`. */
+  last_on: IsoDate | null;
+}
+
+/** Another show in a date's way. */
+export interface Clash {
+  /** The other show's name and path. */
+  show: string;
+  slug: string;
+  /** Its start, epoch seconds, and length on that date. */
+  start: number;
+  minutes: number;
+  overlap_minutes: number;
+  /** When the other show airs, in the control plane's words: `Tuesdays, 21:00 to 22:00`. */
+  when: string | null;
+  /** Who presents it, for the refusal's `with Shona Campbell and …`. */
+  with: string[];
+  /** This session may not draft over it (a presenter's). */
+  refused: boolean;
+}
+
+/** One of a rule's next dates, as the preview draws it. */
+export interface PreviewDate {
+  /** The rule's own date: an episode's `occurrence`. */
+  on: IsoDate;
+  /** The episode number it would take, or has. */
+  number: number | null;
+  /** The real start, epoch seconds, and the real length. */
+  start: number;
+  minutes: number;
+  /** It airs, it is skipped, or an episode already fills it. */
+  state: 'airs' | 'skipped' | 'filled';
+  /** It is under way now. */
+  now: boolean;
+  /** The rule's own wall-clock time, when the date was moved. */
+  moved_from: string | null;
+  /** The clocks change over its start. */
+  clock: 'forward' | 'back' | null;
+  /** The episode that fills it. */
+  episode: { series: number; number: number; aired: boolean } | null;
+  clashes: Clash[];
+}
+
+/** A line under a field: a problem stops the save, a hint does not. */
+export interface FieldNote {
+  field: string;
+  message: string;
+}
+
+/** What a changed rule does to a show's episodes (`calendar.rule.change`). Times are epoch seconds. */
+export interface RuleChangePlan {
+  /** How many have aired, and the date of the first. */
+  aired: number;
+  since: IsoDate | null;
+  /** Drafted, still on the old rule's dates: where each is and where it would go. `to` null:
+   *  the new rule has no date for it, so it stays. */
+  drafted: { series: number; number: number; from: number; to: number | null; clash: Clash | null }[];
+  /** Drafted, moved or made by hand: each stays. */
+  by_hand: { series: number; number: number; at: number }[];
+}
+
+/** What `POST /api/v1/schedule/rule/preview` takes. It writes nothing. */
+export interface RulePreviewRequest {
+  rule: Rule;
+  /** The show and series, when they exist: their own episodes are not clashes. */
+  show?: string;
+  series?: number;
+  /** How many dates that air to give: 10, then ten more at a time, 60 at most. */
+  limit?: number;
+}
+
+export interface RulePreview {
+  sentence: string;
+  short: string;
+  /** The second line, when the rule ends. */
+  last: string | null;
+  dates: PreviewDate[];
+  /** The rule gives more dates than these; null when the station did not say. */
+  more: boolean | null;
+  /** How many dates the rule still gives in all, when that is known: the station's own
+   *  count, or the dates given when there are no more. */
+  total: number | null;
+  /** A start within three hours that is clear on every date shown, minutes after midnight. */
+  clear: { start: number; minutes: number } | null;
+  problems: FieldNote[];
+  hints: FieldNote[];
+  /** Skipped and moved dates the pattern no longer gives; the studio drops them and says so once. */
+  dropped: { skip: IsoDate[]; moves: IsoDate[] };
+  /** With a show: what saving would do to its episodes. */
+  change: RuleChangePlan | null;
+}
+
+/** A date a rule gives that no episode fills yet: a dotted block in the week. */
+export interface ScheduleDate {
+  /** The show's path, and the series the episode would join. */
+  show: string;
+  series: number | null;
+  on: IsoDate;
+  number: number | null;
+  /** Epoch seconds. */
+  start: number;
+  minutes: number;
+  moved_from: string | null;
+  clock: 'forward' | 'back' | null;
+}
+
+/** What a saved rule did: the rule as stored, and the drafted episodes that moved. */
+export interface RuleChanged {
+  rule: Rule | null;
+  rule_words: RuleWords | null;
+  moved: { series: number; number: number; from: number; to: number }[];
+}
+
+type Raw = Record<string, unknown>;
+const obj = (v: unknown): Raw => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Raw) : {});
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** Epoch seconds from a field in seconds, or from its `_ms` twin. */
+const secs = (o: Raw, key: string): number | null => {
+  const ms = num(o[`${key}_ms`]);
+  return ms !== null ? Math.round(ms / 1000) : num(o[key]);
+};
+const strings = (v: unknown): string[] => list(v).filter((x): x is string => typeof x === 'string' && x !== '');
+const ISO = /\d{4}-\d{2}-\d{2}/;
+
+function asClash(v: unknown, refused = false): Clash {
+  const c = obj(v);
+  const start = secs(c, 'start') ?? 0;
+  const end = secs(c, 'end');
+  const hosts = strings(c.with).length ? strings(c.with) : strings(c.hosts);
+  return {
+    show: str(c.show) ?? str(c.name) ?? 'Another show',
+    slug: str(c.slug) ?? '',
+    start,
+    minutes: num(c.minutes) ?? (end !== null ? Math.max(1, Math.round((end - start) / 60)) : 60),
+    overlap_minutes: num(c.overlap_minutes) ?? num(c.overlap) ?? 0,
+    when: str(c.when) ?? str(c.short),
+    with: hosts.length ? hosts : str(c.presenter) ? [str(c.presenter)!] : [],
+    refused: refused || c.refused === true,
+  };
+}
+
+/** Problems and hints by field. A field's path is cut to its first part (`repeat.every` is
+ *  Repeats'), and a bare sentence takes the field given. */
+const notes = (v: unknown, field = ''): FieldNote[] =>
+  list(v).flatMap((x) => {
+    if (typeof x === 'string') return x ? [{ field, message: x }] : [];
+    const n = obj(x);
+    const message = str(n.message) ?? str(n.error);
+    return message ? [{ field: (str(n.field) ?? field).split('.')[0], message }] : [];
+  });
+
+/** The second line as words: the control plane's own, or its date left for the studio to say. */
+function lastWords(v: unknown): string | null {
+  if (typeof v === 'string') return v || null;
+  const o = obj(v);
+  return str(o.words) ?? str(o.on);
+}
+
+/** What saving would do to the episodes, from the control plane's lists (`moved`, `no_date`,
+ *  `left`, `by_hand`) or from this half's first shape (`drafted`, `by_hand`). */
+function asChange(raw: unknown): RuleChangePlan | null {
+  if (!raw) return null;
+  const c = obj(raw);
+  const ep = (x: unknown) => {
+    const e = obj(x);
+    return { series: num(e.series) ?? 1, number: num(e.number) ?? 0, e };
+  };
+  const drafted = [
+    ...list(c.drafted).map((x) => ({ ...ep(x), from: secs(obj(x), 'from') ?? 0, to: secs(obj(x), 'to'), clash: obj(x).clash ? asClash(obj(x).clash) : null })),
+    ...list(c.moved).map((x) => ({ ...ep(x), from: secs(obj(x), 'from') ?? 0, to: secs(obj(x), 'to'), clash: null })),
+    // Left on their old dates, by choice or because the new rule has no date for them: they stay.
+    ...[...list(c.no_date), ...list(c.left)].map((x) => ({ ...ep(x), from: secs(obj(x), 'start') ?? 0, to: null, clash: null })),
+  ]
+    .map(({ e: _e, ...rest }) => rest)
+    .sort((a, b) => a.series - b.series || a.number - b.number);
+  return {
+    aired: num(c.aired) ?? 0,
+    since: str(c.since),
+    drafted,
+    by_hand: list(c.by_hand).map((x) => ({ series: ep(x).series, number: ep(x).number, at: secs(obj(x), 'at') ?? secs(obj(x), 'start') ?? 0 })),
+  };
+}
+
+/** The preview's reply, made whole: a field the control plane left out is empty, never undefined. */
+export function asPreview(raw: unknown): RulePreview {
+  const r = obj(raw);
+  const words = obj(r.words);
+  const clear = obj(r.clear ?? r.offered);
+  const given = obj(r.dropped);
+  const dates = list(r.dates).map((x) => {
+    const d = obj(x);
+    const ep = typeof d.episode === 'number' ? { series: 1, number: d.episode } : d.episode ? obj(d.episode) : null;
+    const state = d.state === 'skipped' || d.state === 'filled' ? d.state : 'airs';
+    const start = secs(d, 'start') ?? 0;
+    const end = secs(d, 'end');
+    return {
+      on: str(d.on) ?? '',
+      number: num(d.number),
+      start,
+      minutes: num(d.minutes) ?? (end !== null ? Math.max(1, Math.round((end - start) / 60)) : 60),
+      state,
+      now: d.now === true || d.under_way === true,
+      moved_from: str(d.moved_from),
+      clock: d.clock === 'forward' || d.clock === 'back' ? d.clock : null,
+      episode: ep ? { series: num(ep.series) ?? 1, number: num(ep.number) ?? num(d.number) ?? 0, aired: ep.aired === true } : null,
+      // A date the station refuses this session marks its clashes refused.
+      clashes: list(d.clashes).map((c) => asClash(c, d.refused === true)),
+    } satisfies PreviewDate;
+  });
+  // A skipped or moved date the pattern no longer gives comes back as a refusal that names
+  // the date (`the rule gives no date on 2027-01-05`); the studio drops it and asks again.
+  const all = notes(r.problems);
+  const gone = (field: string) => all.filter((p) => p.field === field && /gives no date/.test(p.message)).flatMap((p) => ISO.exec(p.message)?.[0] ?? []);
+  const dropped = { skip: [...strings(given.skip), ...gone('skip')], moves: [...strings(given.moves), ...gone('moves')] };
+  const problems = all.filter((p) => !((p.field === 'skip' || p.field === 'moves') && /gives no date/.test(p.message) && ISO.test(p.message)));
+  const more = typeof r.more === 'boolean' ? r.more : null;
+  const airing = dates.filter((d) => d.state !== 'skipped').length;
+  return {
+    sentence: str(r.sentence) ?? str(words.sentence) ?? '',
+    short: str(r.short) ?? str(words.short) ?? '',
+    last: lastWords(r.last) ?? lastWords(words.last),
+    dates,
+    more,
+    total: num(r.total) ?? (more === false ? airing : null),
+    clear: num(clear.start) !== null ? { start: num(clear.start)!, minutes: num(clear.minutes) ?? 60 } : null,
+    problems,
+    // The station's notes on the dates sit under First on; what the calendar cannot give, under Repeats.
+    hints: [...notes(r.hints), ...notes(r.notes, 'starts_on'), ...notes(words.notes, 'repeat')],
+    dropped,
+    change: asChange(r.change),
+  };
+}
+
+/** A show's `next_on`, whichever way the control plane sent it: an object with the date and
+ *  `start_ms`, a bare date, or null with `next_on_reason` beside it. `hasRule` settles the
+ *  reason when none is given; `lastOn` is the last date the show had, when the caller knows it. */
+export function asNextOn(raw: unknown, reason: unknown, hasRule: boolean, lastOn: IsoDate | null = null): NextOn {
+  const why = (v: unknown): NoDateReason | null => (v === 'none' || v === 'once_passed' || v === 'ended' || v === 'complete' ? v : null);
+  if (typeof raw === 'string' && raw) return { on: raw, start: null, minutes: null, reason: null, last_on: null };
+  const o = obj(raw);
+  const on = str(o.on);
+  return {
+    on,
+    start: secs(o, 'start'),
+    minutes: num(o.minutes),
+    reason: on ? null : (why(o.reason) ?? why(reason) ?? (hasRule ? 'ended' : 'none')),
+    last_on: str(o.last_on) ?? lastOn,
+  };
+}
+
+/** The rule's words, or null from a station that sent none. */
+export function asRuleWords(raw: unknown): RuleWords | null {
+  const w = obj(raw);
+  const sentence = str(w.sentence);
+  const short = str(w.short);
+  if (!sentence && !short) return null;
+  return { sentence: sentence ?? short ?? '', short: short ?? sentence ?? '', last: lastWords(w.last), last_on: str(w.last_on), notes: strings(w.notes) };
+}
+
+/** The week's dotted blocks, from `dates` in the week's reply; `null` from a station too old to send them. */
+export function asScheduleDates(raw: unknown): ScheduleDate[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw.flatMap((x) => {
+    const d = obj(x);
+    const show = str(d.show) ?? str(d.slug) ?? str(obj(d.show).slug);
+    const start = secs(d, 'start');
+    const end = secs(d, 'end');
+    if (!show || start === null) return [];
+    return [
+      {
+        show,
+        series: num(d.series),
+        on: str(d.on) ?? '',
+        number: num(d.number),
+        start,
+        minutes: num(d.minutes) ?? (end !== null ? Math.max(1, Math.round((end - start) / 60)) : 60),
+        moved_from: str(d.moved_from),
+        clock: d.clock === 'forward' || d.clock === 'back' ? d.clock : null,
+      } satisfies ScheduleDate,
+    ];
+  });
+}
+
+/** The first release whose control plane stores a rule (ADR-0278). */
+export const RULES_SINCE = '1.0.4';
+
+/** Whether a station of this version takes `rule` and `draft_first`: an older control plane
+ *  refuses a field it does not know. Only the numbers count, so `1.0.4-test.2` is 1.0.4. */
+export function speaksRules(version: string | null | undefined): boolean {
+  const core = (v: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(v.trim()) ?? []).slice(1).map(Number);
+  const [a, b] = [core(version ?? ''), core(RULES_SINCE)];
+  if (a.length < 3) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return true;
+}
+
+/** The station's version, from `/health`; null when it cannot be read. */
+export async function stationVersion(): Promise<string | null> {
+  try {
+    const res = await netFetch(`${base()}/health`, { headers: headers(false) });
+    const data = (await res.json().catch(() => ({}))) as { version?: unknown };
+    return typeof data.version === 'string' ? data.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The next dates a rule makes, its sentence and its clashes. It writes nothing. */
+export const previewRule = async (req: RulePreviewRequest) => asPreview(await call<unknown>('POST', '/api/v1/schedule/rule/preview', req));
+
+/** A show saved, with the first episode drafted when `draft_first` was asked. */
+export interface ShowSaved extends ShowView {
+  drafted: EpisodeView | null;
+}
+
+/** Save a show (`PUT /api/v1/shows/{show}`). With `draft_first` the station makes series 1 and
+ *  drafts the first episode in the same transaction, and a refusal saves nothing. A refusal
+ *  names its field (`name`, `rule`), and a clash's 409 carries the clash in `data.clash`. */
+export async function saveShow(slug: string, input: ShowInput): Promise<ShowSaved> {
+  const v = await call<ShowView & { drafted?: unknown }>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}`, input);
+  const d = Array.isArray(v.drafted) ? v.drafted[0] : v.drafted;
+  return { ...v, drafted: d && typeof d === 'object' && 'episode' in d ? (d as EpisodeView) : null };
+}
+
+function asRuleChanged(raw: unknown): RuleChanged {
+  const r = obj(raw);
+  const show = obj(obj(r.show).show ?? r.show);
+  return {
+    rule: (r.rule ?? show.rule ?? null) as Rule | null,
+    rule_words: asRuleWords(r.rule_words ?? show.rule_words),
+    moved: list(r.moved).map((x) => {
+      const e = obj(x);
+      return { series: num(e.series) ?? 1, number: num(e.number) ?? 0, from: secs(e, 'from') ?? 0, to: secs(e, 'to') ?? 0 };
+    }),
+  };
+}
+
+/** What happens to the episodes drafted on the old rule's dates. */
+export type DraftedChoice = 'move' | 'leave';
+
+/** Save a show's rule alone; `null` leaves it with no dates. */
+export const putShowRule = (slug: string, rule: Rule | null, drafted: DraftedChoice) =>
+  ownRuleChange(slug, async () => asRuleChanged(await call<unknown>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/rule`, { rule, drafted })));
+
+/** Save a series' rule alone; `null` follows the show again. */
+export const putSeriesRule = (slug: string, series: number, rule: Rule | null, drafted: DraftedChoice) =>
+  ownRuleChange(slug, async () => asRuleChanged(await call<unknown>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/series/${series}/rule`, { rule, drafted })));
+
+/** The station tells every window of a changed rule, this one too: the save is marked as this
+ *  window's own, so the Schedule tab does not say it back to the person who made it. */
+async function ownRuleChange<T>(slug: string, save: () => Promise<T>): Promise<T> {
+  markOwn(slug);
+  try {
+    return await save();
+  } catch (e) {
+    unmarkOwn(slug);
+    throw e;
+  }
+}
+
+/** The clash a 409 carries (`clashes`, the first of them), when a presenter's date is another show's. */
+export function refusedClash(e: unknown): Clash | null {
+  if (!(e instanceof FieldError) || e.status !== 409) return null;
+  const c = list(e.data.clashes)[0] ?? e.data.clash;
+  return c ? asClash(c, true) : null;
+}

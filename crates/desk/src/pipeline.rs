@@ -162,6 +162,14 @@ pub struct HlsSoundStatus {
     pub feed_connected: bool,
     /// Connections from playout since the desk started.
     pub feed_connections: u64,
+    /// Pieces of the feed placed afresh since the desk started: each a pause or a burst
+    /// longer than `video.playout_feed.cushion_ms`, heard as a gap or a skip.
+    pub feed_replaced: u64,
+    /// The feed's ring: blocks it ran out within, audio that came after its place was read
+    /// (dropped), and what it holds ahead of the read now.
+    pub feed_underruns: u64,
+    pub feed_late_ms: u64,
+    pub feed_ring_ms: u32,
 }
 
 /// How the mixing pass is keeping time.
@@ -527,7 +535,10 @@ const REMAKE_EVERY: Duration = Duration::from_secs(5);
 
 /// Blocks an output may have waiting for its encoder before the oldest are dropped. A
 /// worker of the pool that is encoding a block is busy until the encoder has passed it on, so
-/// what keeps a stuck publisher from holding the worker is [`RETURN_QUEUE_MS`].
+/// what keeps a stuck publisher from holding the worker is [`RETURN_QUEUE_MS`]. A second's queue
+/// for the programme to playout was tried on the test station (2026-11-13): the drops stopped,
+/// but in the one window measured playout's output came out shorter and burstier, so it stays
+/// at eight until a local test shows why.
 const OUTPUT_BACKLOG: usize = 8;
 
 /// The overflow buffer between each return's encoder and its publisher (ADR-0168): leaky, so
@@ -920,12 +931,22 @@ impl Desk {
 
     /// The video stream's sound now: where it comes from, and the feed from playout.
     pub fn hls_sound(&self) -> HlsSoundStatus {
+        let ring = self
+            .inner
+            .feed
+            .as_ref()
+            .map(|f| f.ring().stats())
+            .unwrap_or_default();
         let st = self.lock();
         HlsSoundStatus {
             source: st.hls_sound.source(),
             live: st.hls_sound.live(),
             feed_connected: self.inner.feed.as_ref().is_some_and(Feed::connected),
             feed_connections: self.inner.feed.as_ref().map_or(0, Feed::connections),
+            feed_replaced: self.inner.feed.as_ref().map_or(0, Feed::replaced),
+            feed_underruns: ring.underruns,
+            feed_late_ms: ring.late_frames * 1000 / u64::from(RATE),
+            feed_ring_ms: (ring.frames as u64 * 1000 / u64::from(RATE)) as u32,
         }
     }
 

@@ -3,7 +3,7 @@ title: "Show cards"
 description: "The show-card layouts by name: Poster and Slate at each level, and the stress cases."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-13
 sidebar:
   order: 7
 ---
@@ -28,7 +28,7 @@ Show cards for link previews, posts and podcast art, in two layouts, Poster and 
 ## Seasons that fill in their own episodes
 
 A series' fields left empty follow the show, and an episode's follow its series, until someone sets them (ADR-0055).
-Drafting the next episode, or a whole season at once, fills in each number and air time from the series' weekly rule; putting an episode on air freezes it, and its cards are drawn once more from what was broadcast.
+Drafting the next episode, or a whole season at once, fills in each number and air time from the series' rule ([when a show airs](/docs/reference/show-rules/)); putting an episode on air freezes it, and its cards are drawn once more from what was broadcast.
 
 ## The podcast feed
 

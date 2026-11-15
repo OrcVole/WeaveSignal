@@ -67,17 +67,28 @@ export const CARTS: readonly PanelInfo[] = [
 /** The Schedule tab (calendar.md; ADR-0021, ADR-0045). The design's `calendar.frame` is the
  *  app's own `studio.frame`, so it is not drawn twice; `calendar.log-editor` and
  *  `calendar.card-editor` are new with the build (the design drew neither screen), and
- *  `calendar.show-still` with ADR-0200 (2026-11-03), a field of the show editor. */
+ *  `calendar.show-still` with ADR-0200 (2026-11-03), a field of the show editor. The guided
+ *  New show and the recurrence rule (ADR-0278, new-show.md section 5) add `calendar.new-show`,
+ *  the four `calendar.rule` names, `calendar.show-rule` and `calendar.unscheduled`; Delete show
+ *  (ADR-0279) adds `calendar.show-delete`. */
 export const CALENDAR: readonly PanelInfo[] = [
   { name: 'calendar.toolbar', what: 'Week navigation (← → T), the view, the time zone and its clock change, New show, the legend.' },
   { name: 'calendar.week', what: 'The time-grid week: the axis, seven days, blocks placed by start and length, the now line.' },
   { name: 'calendar.episode-editor', what: "The selected episode: inherited fields marked against fields set here, and the foot's save, next and season actions." },
-  { name: 'calendar.series-editor', what: 'The series level: the schedule rule, the hosts, the planned episodes, Draft the season.' },
+  { name: 'calendar.series-editor', what: 'The series level: when it airs, the hosts, the planned episodes, Draft the season.' },
   { name: 'calendar.aired-episode', what: 'An aired episode, frozen: its values as broadcast and the music-usage line.' },
   { name: 'calendar.log-editor', what: "An automation block's generated hours, item by item with the rule each breaks, another track or none, generate." },
   { name: 'calendar.card-editor', what: 'The card: Poster or Slate, the live preview drawn by the control plane, the alt text, a refused field named.' },
   { name: 'calendar.show-still', what: "The show's own slate picture (ADR-0200): the preview, choose or replace a PNG or JPEG, remove; the slate shows it while the show is on air, else the station's." },
   { name: 'calendar.show-step', what: 'The show’s step, with what each one adds: Solo, Guests, Callers or Full. Whatever a step leaves out is switched off while the show is on air (ADR-0271).' },
+  { name: 'calendar.new-show', what: 'New show in three parts: the show, when it airs, done (ADR-0278). A dialog over the Schedule tab.' },
+  { name: 'calendar.rule', what: 'When a show airs: the first date and times, how it repeats, when it ends. Part 2 of New show, part 3 of the DJ’s setup, and a dialog of its own.' },
+  { name: 'calendar.rule.summary', what: 'The rule said back as one sentence, and the last date when it ends. In the preview.' },
+  { name: 'calendar.rule.preview', what: 'The next dates in small months and as rows, with clashes, and a date skipped or moved: ↑ ↓ move along the rows, S skips or puts back, M moves.' },
+  { name: 'calendar.rule.change', what: 'What a changed rule does to episodes, before the save: aired, drafted, moved by hand.' },
+  { name: 'calendar.show-rule', what: 'When it airs, in the show editor: the rule in short, the next date, Change….' },
+  { name: 'calendar.show-delete', what: 'Delete show…, from the show editor (ADR-0279): what goes with the show, with its counts, and the two buttons; Keep it is the default. The station refuses a show that has aired.' },
+  { name: 'calendar.unscheduled', what: 'In the right panel, with nothing selected. Shows with nothing coming up: no dates yet, or finished.' },
   { name: 'calendar.show-presenter', what: "The show's presenter (ADR-0214, ADR-0219): the on-air name and takedown contact the consent words name while it is on air, links to the presenter's channels, and whether it plays commercial music." },
 ];
 
@@ -127,8 +138,8 @@ export const ACCOUNT: readonly PanelInfo[] = [
 /** The DJ's show setup (ADR-0218, ADR-0219): the wizard over the surface, and its panel in
  *  Settings for a member of staff signed in as themselves (so not in SETTINGS). */
 export const SHOW_SETUP: readonly PanelInfo[] = [
-  { name: 'studio.show-setup', what: 'Set up your show, in three parts: your on-air name and takedown contact; your show, its links, usual time, whether it plays commercial music and how much of the studio to start with; done. The answers are the defaults for you and your show (ADR-0218).' },
-  { name: 'settings.my-show', what: 'Your show: the show tied to your account as the setup wizard left it (name, on-air name, takedown contact, links, usual time, commercial music), with Change… to run the wizard again; or Set up your show… (ADR-0218).' },
+  { name: 'studio.show-setup', what: 'Set up your show, in four parts: your on-air name and takedown contact; your show, its links, whether it plays commercial music and how much of the studio to start with; when it is on, with the next dates; done. The answers are the defaults for you and your show (ADR-0218).' },
+  { name: 'settings.my-show', what: 'Your show: the show tied to your account as the setup wizard left it (name, on-air name, takedown contact, links, when it is on, commercial music), with Change… to run the wizard again; or Set up your show… (ADR-0218).' },
 ];
 
 /** The studio app's own updates (ADR-0015, ADR-0140): a panel of Settings drawn in the packaged

@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, and **1.0.3** on 2026-11-13, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, and **1.0.4** on 2026-11-15, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -86,6 +86,14 @@ Released in 1.0.3 (2026-11-13), a patch:
 |---|---|
 | **RTMP presets that save** | a YouTube, Owncast or X destination is saved (1.0.2's database refused them; migration 0035); YouTube and X went live from the test station on 2026-11-12; Gab leaves the forms until its live streaming opens ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
 | **A first episode through the API** | drafting a series' first episode with nothing drafted and no start date takes the slot under way, as the studio app already did |
+
+Released in 1.0.4 (2026-11-15):
+
+| Part | What it brings |
+|---|---|
+| **New show, guided** (ADR-0278) | once, weekly, monthly, yearly or chosen dates, with skips, moves and an end; the station says each rule back, shows its dates and clashes, offers a clear time, and drafts the first episode; a changed rule moves the drafted episodes. Tried by the operator on the test station (2026-11-13 and 2026-11-15) |
+| **Delete show** (ADR-0279) | for a show none of whose episodes has aired |
+| **The studio grows with its window** (ADR-0277) | the interface scales above 1920 by 1080, and dialogs fit any window and text size |
 
 ## Decisions that changed release one
 

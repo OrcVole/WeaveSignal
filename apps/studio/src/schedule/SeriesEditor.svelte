@@ -1,14 +1,20 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The series level (calendar.md §4, the sheet's `calendar.series-editor`): the schedule rule,
-  // the hosts, the planned count, the tags, each inherited from the show until set, and Draft
-  // the season. Saved with PUT, which the control plane answers by drawing the series' cards.
+  // The series level (calendar.md §4, the sheet's `calendar.series-editor`): when it airs, the
+  // hosts, the planned count, the tags, each inherited from the show until set, and Draft the
+  // season. Saved with PUT, which the control plane answers by drawing the series' cards. When
+  // it airs is the show's rule until the series sets its own (ADR-0278): Set here and Change…
+  // open the rule dialog, and Reset to show opens its Before you save; the rule is saved
+  // there, on its own route, and every save here sends it back as stored.
   import { onMount } from 'svelte';
   import Field from './Field.svelte';
   import * as api from '../lib/schedule.ts';
-  import type { SeriesInput, SeriesView, Slot } from '../lib/schedule.ts';
-  import { initials, slotWords, splitList } from './model.ts';
+  import type { SeriesInput, SeriesView } from '../lib/schedule.ts';
+  import { initials, splitList } from './model.ts';
+  import { sched } from '../lib/schedule.svelte.ts';
+  import { openRuleDialog } from './rule/dialog.svelte.ts';
+  import { dateWords, ruleOfSlot, shortOfSlot } from './rule/form.ts';
 
   let { slug, number, zone, onChanged }: { slug: string; number: number; zone: string; onChanged: () => Promise<void> } = $props();
 
@@ -16,10 +22,7 @@
   let draft = $state<SeriesInput>({});
   let problem = $state('');
   let saving = $state(false);
-  let ruleOpen = $state(false);
-  let ruleWeekday = $state(6);
-  let ruleStart = $state('20:00');
-  let ruleMinutes = $state(180);
+  const rulesOn = $derived(sched.rules === true);
 
   async function load() {
     try {
@@ -37,7 +40,12 @@
   const dirty = $derived(Object.keys(draft).length > 0);
   const hosts = $derived(draft.hosts !== undefined ? draft.hosts : (s?.hosts ?? null));
   const tags = $derived(draft.tags !== undefined ? draft.tags : (s?.tags ?? null));
-  const slot = $derived<Slot | null>(draft.slot !== undefined ? draft.slot : (s?.slot ?? null));
+  /** The series' own rule, or null while it follows the show's. */
+  const own = $derived(rulesOn ? (s?.rule ?? null) : s?.slot ? ruleOfSlot(s.slot) : null);
+  /** The rule in force: the series' own, else the show's, in the station's words. */
+  const inForce = $derived(r?.rule ?? (r?.slot ? ruleOfSlot(r.slot) : null));
+  const short = $derived(s?.rule_words?.short ?? r?.rule_words?.short ?? (r?.slot ? shortOfSlot(r.slot) : ''));
+  const showColour = $derived(r?.colour_slot ?? null);
   const title = $derived(draft.title !== undefined ? draft.title : (s?.title ?? null));
   const description = $derived(draft.description !== undefined ? draft.description : (s?.description ?? null));
   const startsOn = $derived(draft.starts_on !== undefined ? draft.starts_on : (s?.starts_on ?? null));
@@ -53,7 +61,9 @@
       title,
       description,
       hosts,
-      slot,
+      // When it airs goes back as stored: it is changed in the rule dialog, not here.
+      slot: s?.slot ?? null,
+      ...(rulesOn ? { rule: s?.rule ?? null } : {}),
       starts_on: startsOn,
       planned_episodes: planned,
       tags,
@@ -86,17 +96,14 @@
     }
   }
 
-  function openRule() {
-    const base = slot ?? r?.slot ?? null;
-    ruleWeekday = base?.weekday ?? 6;
-    ruleStart = base ? `${String(Math.floor(base.start / 60)).padStart(2, '0')}:${String(base.start % 60).padStart(2, '0')}` : '20:00';
-    ruleMinutes = base?.minutes ?? 180;
-    ruleOpen = true;
+  /** Set here or Change…, or Reset to show: the rule dialog, which the Schedule tab draws. */
+  function changeRule(reset: boolean) {
+    openRuleDialog({ slug, name: r?.show ?? slug, series: number, rule: own, follow: inForce, reset, colour: showColour, onSaved: ruleSaved });
   }
-  function setRule() {
-    const [h, m] = ruleStart.split(':').map(Number);
-    draft = { ...draft, slot: { weekday: ruleWeekday, start: h * 60 + m, minutes: ruleMinutes } };
-    ruleOpen = false;
+
+  async function ruleSaved() {
+    await load();
+    await onChanged();
   }
 </script>
 
@@ -112,28 +119,16 @@
       <input type="text" value={title ?? ''} placeholder="autumn 2026" aria-label="Series title" onchange={(e) => (draft = { ...draft, title: (e.currentTarget as HTMLInputElement).value.trim() || null })} />
     </Field>
 
-    <Field label="Schedule rule" marker={slot ? 'set' : 'inherited'} from="from the show" hint="Expanded on the server into instances; a move is per episode. Drafting fills each air time from it, across the clock change.">
+    <Field label="When it airs" marker={own ? 'set' : 'inherited'} from="from the show" hint="The station works out its dates; a move is per episode. Drafting fills each air time from it, across the clock change.">
       {#snippet actions()}
-        <button type="button" class="act" onclick={openRule}>{slot ? 'Change…' : 'Set here'}</button>
-        {#if slot}<button type="button" class="act" onclick={() => (draft = { ...draft, slot: null })}>Reset to show</button>{/if}
+        <button type="button" class="act" onclick={() => changeRule(false)}>{own ? 'Change…' : 'Set here'}</button>
+        {#if own}<button type="button" class="act" onclick={() => changeRule(true)}>Reset to show</button>{/if}
       {/snippet}
-      {#if ruleOpen}
-        <div class="row">
-          <select bind:value={ruleWeekday} aria-label="Weekday">
-            {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as d, i (d)}<option value={i + 1}>{d}</option>{/each}
-          </select>
-          <input type="time" bind:value={ruleStart} aria-label="Start, station time" />
-          <input type="number" min="1" max="1440" bind:value={ruleMinutes} aria-label="Length in minutes" /> min
-          <button type="button" class="btn sm" onclick={setRule}>Set</button>
-          <button type="button" class="btn sm quiet" onclick={() => (ruleOpen = false)}>Cancel</button>
-        </div>
-      {:else}
-        <span class="num">{slotWords(slot ?? r?.slot ?? null)}{startsOn ? `, from ${startsOn}` : ''}</span>
-        {#if planned}<span class="hint">· {planned} episodes planned</span>{/if}
-      {/if}
+      <span class="num">{short || 'No dates yet'}{startsOn ? `, from ${dateWords(startsOn)}` : ''}</span>
+      {#if planned}<span class="hint">· {planned} episodes planned</span>{/if}
     </Field>
 
-    <Field label="Starts on" marker={startsOn ? 'set' : 'own'} plain hint="The first instance of the rule on or after this date is episode 1.">
+    <Field label="Starts on" marker={startsOn ? 'set' : 'own'} plain hint="The first date the rule gives on or after this is episode 1.">
       <input type="date" value={startsOn ?? ''} aria-label="Starts on" onchange={(e) => (draft = { ...draft, starts_on: (e.currentTarget as HTMLInputElement).value || null })} />
     </Field>
 
@@ -192,7 +187,8 @@
   </div>
   <div class="r">
     <button type="button" class="btn" disabled={!remaining} onclick={() => remaining && draftMore(remaining)}>Draft the season {#if remaining}<small>· episodes {last + 1}{remaining > 1 ? ` to ${last + remaining}` : ''}</small>{/if}</button>
-    <button type="button" class="btn" disabled={!(slot ?? r?.slot)} onclick={() => draftMore(1)}>Create next episode</button>
+    <button type="button" class="btn" disabled={!inForce} onclick={() => draftMore(1)}>Create next episode</button>
   </div>
   <p class="caption">Each drafted episode inherits everything above and waits for a title and guests. Drafting never touches an aired episode.</p>
 </div>
+

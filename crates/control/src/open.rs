@@ -234,7 +234,7 @@ fn episode_out(
     let minutes = e
         .and_then(|e| e.minutes)
         .or(ep.minutes)
-        .or(r.slot.and_then(|s| s.minutes));
+        .or(r.rule.as_ref().and_then(|rule| rule.minutes));
     let show_card = card(public, show.cards.as_ref(), "square");
     PublicEpisode {
         id: ep.id,

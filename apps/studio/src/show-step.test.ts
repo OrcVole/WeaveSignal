@@ -2,10 +2,14 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The show's step in the show editor (ADR-0271, `calendar.show-step`): the field under the
 // name, with the longer lines that say what each step adds and the hint that says what "off"
-// means; a new show starts at Solo, and a show from before steps reads as Full.
+// means; a new show starts at Solo (in the New show dialog, where shows are made since
+// ADR-0278), and a show from before steps reads as Full.
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import ShowEditor from './schedule/ShowEditor.svelte';
+import NewShow from './schedule/rule/NewShow.svelte';
+
+const SHOW = { id: 'i', slug: 'steeped', name: 'Steeped', description: '', colour_slot: 2, layout: 'poster' as const, slot: null, hosts: [], tags: [], explicit: false, feed_guid: null, cards: null, presenter: '', contact: '', links: [], commercial_music: false, presenter_account: null };
 
 /** One panel's markup, from its name to the next panel's. */
 function part(body: string, name: string): string {
@@ -17,7 +21,7 @@ function part(body: string, name: string): string {
 
 describe('the show editor', () => {
   it('has the Step field under the name, with the longer lines and what "off" means', () => {
-    const { body } = render(ShowEditor, { props: { slug: null, show: null, onSaved: () => {}, onCard: () => {} } });
+    const { body } = render(ShowEditor, { props: { slug: 'steeped', show: { ...SHOW, step: 'solo' } as never, onSaved: () => {}, onCard: () => {} } });
     const field = part(body, 'calendar.show-step');
     expect(body.indexOf('data-field="name"')).toBeLessThan(body.indexOf('data-panel="calendar.show-step"'));
     expect(field).toMatch(/<span data-panel-title[^>]*>Step<\/span>/);
@@ -26,12 +30,18 @@ describe('the show editor', () => {
     expect(field).toContain('Adds a screener on the phones, the picture, moderating the chat, handing over to the next DJ');
     expect(field).toContain('How much of the studio this show uses. Whatever a step leaves out is switched off while the show is on air, so nothing can wait unseen');
     expect(field).toContain('under <b>Solo</b> and <b>Guests</b> the call-in page says the lines are closed');
-    // A new show starts at Solo.
     expect(field).toMatch(/<input[^>]*value="solo"[^>]*checked/);
   });
 
+  it('starts a new show at Solo, in the New show dialog', () => {
+    const { body } = render(NewShow, { props: { shows: [], zone: 'Europe/London', today: '2026-11-13', live: false, onMade: () => {}, onOpen: () => {}, onClose: () => {} } });
+    const list = body.slice(body.indexOf('class="steplist'), body.indexOf('</fieldset>', body.indexOf('class="steplist')));
+    expect(list).toMatch(/<input[^>]*value="solo"[^>]*checked/);
+    expect(list).not.toMatch(/<input[^>]*value="(guests|callers|full)"[^>]*checked/);
+  });
+
   it('shows a show’s own step, and Full for a show from before steps', () => {
-    const show = { id: 'i', slug: 'steeped', name: 'Steeped', description: '', colour_slot: 2, layout: 'poster' as const, slot: null, hosts: [], tags: [], explicit: false, feed_guid: null, cards: null, presenter: '', contact: '', links: [], commercial_music: false, presenter_account: null };
+    const show = SHOW;
     const picked = (s: object) => part(render(ShowEditor, { props: { slug: 'steeped', show: s as never, onSaved: () => {}, onCard: () => {}, embedded: true } }).body, 'calendar.show-step').match(/<input[^>]*value="(\w+)"[^>]*checked/)?.[1];
     expect(picked({ ...show, step: 'guests' })).toBe('guests');
     expect(picked(show)).toBe('full');

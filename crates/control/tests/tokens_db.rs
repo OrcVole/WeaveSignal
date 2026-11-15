@@ -104,6 +104,8 @@ async fn plane(
         publishing,
         zone: Arc::new(StationZone::new("Europe/London")),
         live: None,
+        hub: None,
+        video: None,
     })));
     Plane {
         app: layer(app, staff.clone()),
@@ -775,6 +777,64 @@ async fn a_webhook_must_be_https_to_a_public_address_unless_the_station_allows_o
 }
 
 // ---- the open routes' data ----
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_token_with_every_shows_scope_still_cannot_delete_a_show() {
+    let (pool, station) = setup("Tokens FM").await;
+    let dir =
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("delete-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(dir.join("episodes")).unwrap();
+    let p = plane(&pool, &station, Some(TOKEN_KEY), config(), Some(&dir)).await;
+    let (code, made) = send(
+        &p.app,
+        "POST",
+        "/api/v1/tokens",
+        Some(KEY),
+        json!({"name": "Shows bot", "scopes": ["shows:read", "shows:write"]}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{made}");
+    let secret = made["secret"].as_str().unwrap().to_owned();
+    let (code, body) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/shows/kettle-talk",
+        Some(&secret),
+        json!({"name": "Kettle Talk", "colour_slot": 2}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    // No scope opens the delete (ADR-0279): 403, and the show is still there.
+    let (code, body) = send(
+        &p.app,
+        "DELETE",
+        "/api/v1/shows/kettle-talk",
+        Some(&secret),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::FORBIDDEN, "{body}");
+    let (code, _) = send(
+        &p.app,
+        "GET",
+        "/api/v1/shows/kettle-talk",
+        Some(&secret),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    // The station key may.
+    let (code, body) = send(
+        &p.app,
+        "DELETE",
+        "/api/v1/shows/kettle-talk",
+        Some(KEY),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+}
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

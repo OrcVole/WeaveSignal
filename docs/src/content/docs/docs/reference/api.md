@@ -782,7 +782,7 @@ Needs: staff: any staff session, or the station key; or an API token with `shows
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The shows. | array of [Show](#schema-show) |
+| 200 | The shows. | array of [ShowOut](#schema-showout) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
@@ -817,7 +817,7 @@ The show, resolved, and its series.
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air.
+Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -828,6 +828,54 @@ Request body: [ShowInput](#schema-showinput).
 | Status | Meaning | Body |
 |---|---|---|
 | 200 | The show. | [ShowView](#schema-showview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The database or the card renderer failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/shows/{show}
+
+**Delete a show that has never aired**
+
+Needs: staff: any staff session, or the station key.
+
+An admin or a producer (and the station key) may; a presenter, even of their own show, a screener and an API token may not (403). Refused (409, with one sentence naming how many episodes aired) when any of its episodes has aired or is on air now: an aired show stays as the station's record. Otherwise, in one transaction, the show goes with its series, drafted episodes, own cart banks and carts, and the logs of its step and rule changes; then its card pictures, its slate still, its carts' files and any published audio files only it named are deleted from the disk, and the open cart wall is read again. A call's consent keeps the show's name in words and loses only the link to it. It cannot be undone. Past plays, the generated log and the chat name no show by its id, so they are left as they are (a clock or a log item that named one of the show's own carts is left naming a cart that is gone, as when a show's bank is removed). Release 1.0.4 (ADR-0279).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | What was deleted. | [ShowDeleted](#schema-showdeleted) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 500 | The database failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/shows/{show}/rule
+
+**Change when a show airs**
+
+Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
+
+Sets the show's rule alone (`null` clears it) and says what to do with the episodes already drafted for dates to come (`drafted`): `move` (the default) moves those still on their old rule dates to the new rule's dates, in order, keeping their numbers, titles and guests; `leave` leaves them. Aired episodes are never touched, and neither is an episode a person moved or made by hand. Every series that follows the show's rule is moved; one with a rule of its own is not. All in one transaction; the change is logged with who made it and every window is told. A presenter whose moved episodes would sit over another show's time is refused (409, `field` `rule`, `clashes`); others go on and the reply warns. The reply says what moved, what stayed and why.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+
+Request body: [RuleInput](#schema-ruleinput).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rule is set; what moved and what stayed. | [RuleChangedOut](#schema-rulechangedout) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 404 | There is no such thing. | [Problem](#schema-problem) |
@@ -866,7 +914,7 @@ The series and its episodes, resolved, with what each inherits.
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-A field left out inherits the show's.
+A field left out inherits the show's. `rule` is the series' own rule (release 1.0.4): a value sets it, `null` makes the series follow its show again, and left out leaves it to `slot` as a show's `PUT` does. `starts_on` and `planned_episodes` win over the rule's own start and count for this series.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -893,7 +941,7 @@ Request body: [SeriesInput](#schema-seriesinput).
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-The next episode, or `count` of them, filled in from the series' rule. The first episode of a series with none follows its start date, or else is the slot under way now (its length, or an hour), or else the next.
+The next episode, or `count` of them, filled in from the series' rule: the next dates it gives that no episode fills and it does not skip, each recorded as the date it fills (`occurrence`). With nothing drafted the first is the date under way now (its length, or an hour), else the next on or after the rule's start: never a date in the past. A rule with no more dates answers 409, and fewer than `count` are drafted when it has fewer left. A series with no rule drafts numbered episodes with no time. An episode that would overlap another show's by a minute or more is refused for a presenter (409, with `field` `rule`, the other show named and `clashes`); an admin, a producer, the station key and a token go on.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -1037,6 +1085,33 @@ Request body: [FilesInput](#schema-filesinput).
 | Status | Meaning | Body |
 |---|---|---|
 | 200 | The episode. | [EpisodeView](#schema-episodeview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The database or the card renderer failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/shows/{show}/series/{series}/rule
+
+**Change when a series airs**
+
+Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
+
+As the show's rule route, for one series: its own rule, which wins over the show's until `null` makes it follow the show again. Only this series' drafted episodes move.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `series` | path | integer (int32) | yes | The series' number in the show |
+
+Request body: [RuleInput](#schema-ruleinput).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rule is set; what moved and what stayed. | [RuleChangedOut](#schema-rulechangedout) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 404 | There is no such thing. | [Problem](#schema-problem) |
@@ -1293,7 +1368,7 @@ Needs: staff: any staff session, or the station key; or an API token with `sched
 
 Needs: staff: any staff session, or the station key; or an API token with `schedule:read`.
 
-Every episode airing in the range with its show, series and resolved fields: the calendar's week.
+Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -1395,6 +1470,27 @@ Needs: staff: any staff session, or the station key; or an API token with `sched
 | 404 | There is no such thing. | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
 | 500 | The database refused. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/schedule/rule/preview
+
+**Preview a rule**
+
+Needs: staff: any staff session, or the station key; or an API token with `shows:read`.
+
+A rule's sentence and short form (British English), its next dates with their state (airs, skipped, or filled by an episode), times on the station's clock, the clocks changing over them, and the other shows' times they overlap; the last date when it ends; any problem by field; and, with `show`, what saving it would do to the episodes already made (`change`). The studio asks about 250 ms after the last change and works out nothing itself. Writes nothing. A skipped date stays in the list, marked, so it can be put back; it does not count towards `limit` or towards a count of episodes. `refused` is true on the one date drafting would take next, for a presenter (or screener) session whose draft would sit over another show's time.
+
+Request body: [PreviewRequest](#schema-previewrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The preview. | [PreviewReply](#schema-previewreply) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The database failed. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ### GET /api/v1/schedule/week
@@ -1918,7 +2014,7 @@ Admin only.
 |---|---|---|---|---|
 | `id` | path | integer (int64) | yes | The recording |
 
-Request body: [End](#schema-end).
+Request body: [RecordingEnd](#schema-recordingend).
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -2333,7 +2429,7 @@ Every token the station has made, live, expired and revoked, never its secret; a
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The tokens and the scopes. | [Listed](#schema-listed) |
+| 200 | The tokens and the scopes. | [TokenList](#schema-tokenlist) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
@@ -2346,11 +2442,11 @@ Needs: an admin: a staff session with the `admin` role, or the station key.
 
 `name` (up to 80 characters), `scopes` (at least one, from the list), and `expires_in_days` (1 to 3650; left out, it does not expire). The answer carries the secret (`rsa_` and 64 hex digits) this once; the station keeps only a keyed hash of it. At most 100 live tokens (409).
 
-Request body: [NewBody](#schema-newbody).
+Request body: [NewToken](#schema-newtoken).
 
 | Status | Meaning | Body |
 |---|---|---|
-| 201 | The token, and its secret, shown once. | [Made](#schema-made) |
+| 201 | The token, and its secret, shown once. | [TokenMade](#schema-tokenmade) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
@@ -2391,7 +2487,7 @@ Every webhook with the record of its last delivery (never its secret), and every
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The webhooks and the events. | [Listed](#schema-listed) |
+| 200 | The webhooks and the events. | [WebhookList](#schema-webhooklist) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
@@ -2404,11 +2500,11 @@ Needs: an admin: a staff session with the `admin` role, or the station key.
 
 `name`, `url` and `events`. The address must be `https` and reach only public addresses, unless `[api] webhooks_allow_private` is on. The answer carries the signing secret (`whsec_…`) this once. At most 20 webhooks (409).
 
-Request body: [NewBody](#schema-newbody).
+Request body: [NewWebhook](#schema-newwebhook).
 
 | Status | Meaning | Body |
 |---|---|---|
-| 201 | The webhook, and its signing secret, shown once. | [Made](#schema-made) |
+| 201 | The webhook, and its signing secret, shown once. | [WebhookMade](#schema-webhookmade) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
@@ -2472,7 +2568,7 @@ A new signing secret, shown this once; the old one stops signing at once.
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The webhook, and its new signing secret, shown once. | [Made](#schema-made) |
+| 200 | The webhook, and its new signing secret, shown once. | [WebhookMade](#schema-webhookmade) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 404 | There is no such thing. | [Problem](#schema-problem) |
@@ -2700,7 +2796,7 @@ Every destination (never its stream key) with the desk's view of it (`desk`: its
 
 | Status | Meaning | Body |
 |---|---|---|
-| 200 | The destinations. | [Listed](#schema-listed) |
+| 200 | The destinations. | [RtmpList](#schema-rtmplist) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
@@ -2820,15 +2916,6 @@ A staff account as the routes show it (never the hash).
 |---|---|---|---|
 | `accounts` | array of [Account](#schema-account) | yes |  |
 
-### Schema: Answer
-
-The page's answer, in the call-in request.
-
-| Field | Type | Needed | Meaning |
-|---|---|---|---|
-| `nonce` | string | yes |  |
-| `token` | string | yes |  |
-
 ### Schema: ApiToken
 
 A token as it is listed: everything but the hash.
@@ -2932,7 +3019,7 @@ The station's look on its public pages; every part is `null` until it is set.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `challenge` | [Answer](#schema-answer), or null | no |  |
+| `challenge` | [ChallengeAnswer](#schema-challengeanswer), or null | no |  |
 | `consent` | [ConsentGiven](#schema-consentgiven), or null | no |  |
 | `name` | string | yes |  |
 | `topic` | string | yes |  |
@@ -3137,6 +3224,15 @@ A challenge as the page receives it.
 | `salt` | string | yes | What the page hashes: `salt ":" nonce`. |
 | `token` | string | yes | The signed challenge, sent back as it is. |
 
+### Schema: ChallengeAnswer
+
+The page's answer, in the call-in request.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `nonce` | string | yes |  |
+| `token` | string | yes |  |
+
 ### Schema: ChangeBody
 
 | Field | Type | Needed | Meaning |
@@ -3145,6 +3241,18 @@ A challenge as the page receives it.
 | `events` | array of string, or null | no |  |
 | `name` | string, or null | no |  |
 | `url` | string, or null | no |  |
+
+### Schema: ChangePlan
+
+What a changed rule does to the episodes, before and after it is saved.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `aired` | integer (int32) | yes | Episodes that have aired, or are on air: frozen, counted and not touched. |
+| `by_hand` | array of [EpisodeAt](#schema-episodeat) | yes | Drafted by hand or moved by hand (or already past): they stay. |
+| `left` | array of [EpisodeAt](#schema-episodeat) | yes | `leave`: the drafted episodes left on their old dates. |
+| `moved` | array of [Moved](#schema-moved) | yes |  |
+| `no_date` | array of [EpisodeAt](#schema-episodeat) | yes | Drafted on a date the new rule does not give: they stay. |
 
 ### Schema: ChangeReq
 
@@ -3211,12 +3319,51 @@ A setting as the screen sends it.
 | `preset` | string | yes |  |
 | `us_statutory_licence` | boolean, or null | no |  |
 
+### Schema: Clash
+
+An overlap between a date a show would take and another show's time.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `end_ms` | integer (int64) | yes |  |
+| `episode` | integer (int32), or null | no |  |
+| `hosts` | array of string | yes |  |
+| `kind` | [ClashKind](#schema-clashkind) | yes | `episode`: it has an episode drafted there; `rule`: its rule gives that date. |
+| `on` | string (date) | yes | The other show's date. |
+| `overlap_minutes` | integer (int32) | yes |  |
+| `presenter` | string | yes |  |
+| `refused` | boolean | yes | This session may not go on (a presenter drafting over it). |
+| `series` | integer (int32), or null | no |  |
+| `short` | string | yes | The other show's rule in short (*Sat, 20:00–23:00*), else its times. |
+| `show` | string | yes | The other show's name and path. |
+| `slug` | string | yes |  |
+| `start_ms` | integer (int64) | yes |  |
+
+### Schema: ClashKind
+
+one of `episode`, `rule`
+
+### Schema: ClearTime
+
+A start the studio offers in place of the rule's own, clear of the other shows.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `minutes` | integer (int32) | yes | The length in minutes, the rule's. |
+| `start` | integer (int32) | yes | Minutes after midnight. |
+
 ### Schema: ClockBody
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `name` | string | yes |  |
 | `slots` | array of [ClockSlot](#schema-clockslot) | yes |  |
+
+### Schema: ClockChange
+
+What the clocks changing does to one start.
+
+one of `forward`, `back`
 
 ### Schema: ClockSlot
 
@@ -3387,6 +3534,19 @@ The profanity delay as the desk's delay panel shows it.
 | `dumps` | integer (int64) | yes |  |
 | `rebuilding` | boolean | yes |  |
 | `target_ms` | integer (int32) | yes |  |
+
+### Schema: DeletedShow
+
+What deleting a show removed (ADR-0279), and the files that went with its rows: the caller deletes them once the transaction has committed.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `cart_banks` | integer | yes | Its own cart banks and the carts in them. |
+| `carts` | integer | yes |  |
+| `episodes` | integer | yes |  |
+| `name` | string | yes |  |
+| `series` | integer | yes | Its series, and the drafted episodes in them. |
+| `slug` | string | yes |  |
 
 ### Schema: DeskCommand
 
@@ -3559,6 +3719,12 @@ The video path as the desk reports it (M5, ADR-0009): absent with video off.
 | `playout` | [PlayoutLink](#schema-playoutlink) | yes |  |
 | `reachable` | boolean | yes | The desk answers on its control socket. |
 
+### Schema: Drafted
+
+What to do with the episodes drafted for dates to come when a rule changes.
+
+one of `move`, `leave`
+
 ### Schema: EdgeHealth
 
 What the control plane knows of one edge's health.
@@ -3613,9 +3779,26 @@ What the control plane knows of one edge's health.
 
 ### Schema: End
 
+When a rule stops.
+
+One of:
+
+- **`kind` is `never`**
+
+- **`kind` is `until`**. Up to and including this date (the station's local date of the start).
+
+
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `ended_at_ms` | integer (int64), or null | no | When it ended; now when left out. |
+| `until` | string (date) | yes |  |
+
+- **`kind` is `count`**. After this many episodes: a skipped date does not count.
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `count` | integer (int32) | yes |  |
+
 
 ### Schema: EndPassRequest
 
@@ -3649,9 +3832,21 @@ What End show did, and the view after it.
 | `kind` | [EpisodeKind](#schema-episodekind) | yes | Live unless marked pre-recorded (ADR-0188). |
 | `minutes` | integer (int32), or null | no | `None` inherits the slot's length. |
 | `number` | integer (int32) | yes |  |
+| `occurrence` | string (date), or null | no | The rule date this episode fills, as the station's local date of the nominal start. Drafting sets it and dragging the episode keeps it (that makes the block MOVED); an episode made or left by hand has none. |
 | `series_id` | string (uuid) | yes |  |
 | `tags` | array of string, or null | no |  |
 | `title` | string | yes |  |
+
+### Schema: EpisodeAt
+
+An episode that stays where it is, and the date it holds.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `number` | integer (int32) | yes |  |
+| `on` | string (date), or null | no | The rule date it fills, if it fills one. |
+| `series` | integer (int32) | yes |  |
+| `start_ms` | integer (int64), or null | no |  |
 
 ### Schema: EpisodeKind
 
@@ -3932,13 +4127,6 @@ one of `warning`, `serious`
 |---|---|---|---|
 | `recording_id` | integer (int64) | yes |  |
 
-### Schema: Listed
-
-| Field | Type | Needed | Meaning |
-|---|---|---|---|
-| `scopes` | array of [Scope](#schema-scope) | yes |  |
-| `tokens` | array of [ApiToken](#schema-apitoken) | yes |  |
-
 ### Schema: ListenerDelay
 
 The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read live, and the rest as the station's setting. What is read live is the profanity delay (the desk reports it) and what the listener process holds of playout's feed (its own `feed.buffer_length`). What is not: the listener process's mount holds back a fixed stretch before it serves listeners, and each listener's player buffers on top. No marker travels in the stream (a metadata change would chain the Ogg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a listener's ear; `measured` says whether there is one.
@@ -4024,13 +4212,6 @@ An item of the generated log.
 | `dir` | string | no |  |
 | `on` | boolean | yes |  |
 
-### Schema: Made
-
-| Field | Type | Needed | Meaning |
-|---|---|---|---|
-| `secret` | string | yes | The secret, shown this once. |
-| `token` | [ApiToken](#schema-apitoken) | yes |  |
-
 ### Schema: Me
 
 | Field | Type | Needed | Meaning |
@@ -4064,6 +4245,30 @@ How many listeners one mount of the listener process has now.
 | `listeners` | integer (int32) | yes |  |
 | `mount` | string | yes | The mount's path as the listener process names it, such as `/programme.opus`. |
 
+### Schema: Move
+
+A date that airs at another time.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `from` | string (date) | yes | The rule's date that is moved. |
+| `minutes` | integer (int32), or null | no | A length of its own for this date. |
+| `to` | string | yes | When it airs instead, on the station's wall clock (`2027-04-13T20:00:00`). |
+
+### Schema: Moved
+
+An episode that moves to another date.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `clashes` | array of [Clash](#schema-clash) | yes | Where the new time overlaps another show's. |
+| `from_ms` | integer (int64) | yes |  |
+| `from_on` | string (date) | yes |  |
+| `number` | integer (int32) | yes |  |
+| `series` | integer (int32) | yes |  |
+| `to_ms` | integer (int64) | yes |  |
+| `to_on` | string (date) | yes |  |
+
 ### Schema: NewAccount
 
 | Field | Type | Needed | Meaning |
@@ -4072,14 +4277,6 @@ How many listeners one mount of the listener process has now.
 | `password` | string | yes |  |
 | `role` | [StaffRole](#schema-staffrole) | yes |  |
 | `username` | string | yes |  |
-
-### Schema: NewBody
-
-| Field | Type | Needed | Meaning |
-|---|---|---|---|
-| `expires_in_days` | integer (int32), or null | no | Days from now; left out, the token does not expire. |
-| `name` | string | yes |  |
-| `scopes` | array of string | yes |  |
 
 ### Schema: NewEpisodes
 
@@ -4111,12 +4308,44 @@ The new episodes' own fields; the rest is filled in or inherited.
 | `label` | string | no |  |
 | `started_at_ms` | integer (int64) | yes |  |
 
+### Schema: NewToken
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `expires_in_days` | integer (int32), or null | no | Days from now; left out, the token does not expire. |
+| `name` | string | yes |  |
+| `scopes` | array of string | yes |  |
+
+### Schema: NewWebhook
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `events` | array of string | yes |  |
+| `name` | string | yes |  |
+| `url` | string | yes |  |
+
+### Schema: NextOn
+
+A show's next date, or why it has none.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `on` | string (date), or null | no |  |
+| `reason` | [NoNext](#schema-nonext), or null | no |  |
+| `start_ms` | integer (int64), or null | no |  |
+
 ### Schema: NextUp
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `artist` | string | yes |  |
 | `title` | string | yes |  |
+
+### Schema: NoNext
+
+Why a show has no next date.
+
+one of `none`, `once_passed`, `ended`, `complete`
 
 ### Schema: Notice
 
@@ -4141,6 +4370,25 @@ What listeners are told is playing.
 | `now` | [Current](#schema-current), or null | no |  |
 | `on_air` | string | yes | `desk` (a live show), `automation`, `fallback`, `silence`, or `unknown` while playout is not answering. The default loop WeaveSignal ships (ADR-0130) is told as `fallback`: to a listener it is the station's fallback, and only the studio is told it is the default. |
 | `up_next_shown` | boolean | yes |  |
+
+### Schema: OpenDateOut
+
+A date to draft, for the week's dotted blocks.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `clock` | [ClockChange](#schema-clockchange), or null | no |  |
+| `colour_slot` | integer (int32) | yes |  |
+| `end_ms` | integer (int64) | yes |  |
+| `minutes` | integer (int32) | yes |  |
+| `moved_from` | string, or null | no |  |
+| `name` | string | yes |  |
+| `number` | integer (int32), or null | no | The number the episode would take when drafting reaches this date. |
+| `on` | string (date) | yes |  |
+| `series` | integer (int32) | yes | The show's current series (the next one to be made is 1). |
+| `short` | string | yes | The rule in short, for a tooltip. |
+| `show` | string | yes | The show's path. |
+| `start_ms` | integer (int64) | yes |  |
 
 ### Schema: OwnEmail
 
@@ -4356,6 +4604,60 @@ A proposed setting's warnings, and what the next sweep would delete under it.
 | `sweep` | [SweepReport](#schema-sweepreport) | yes |  |
 | `warnings` | array of [Warning](#schema-warning) | yes |  |
 
+### Schema: PreviewDate
+
+One date of a rule, as the preview shows it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `clashes` | array of [Clash](#schema-clash) | yes |  |
+| `clock` | [ClockChange](#schema-clockchange), or null | no |  |
+| `end` | string | yes |  |
+| `end_ms` | integer (int64) | yes |  |
+| `end_next_day` | boolean | yes | The end is on the day after. |
+| `episode` | integer (int32), or null | no | The episode that fills it. |
+| `first` | boolean | yes | The date that drafting would take next: the first episode of a new show. |
+| `minutes` | integer (int32) | yes |  |
+| `moved_from` | string, or null | no | The date's own nominal start, when it was moved. |
+| `number` | integer (int32), or null | no | The number the episode would take when drafting reaches this date. |
+| `on` | string (date) | yes | The rule date: what an episode's `occurrence` holds. |
+| `refused` | boolean | yes | This session may not go on over the clashes (a presenter, on `first` only). |
+| `start` | string | yes | The start on the station's clock, `20:00`. |
+| `start_ms` | integer (int64) | yes |  |
+| `state` | [PreviewState](#schema-previewstate) | yes | `airs`, `skipped` (struck through, with Put back) or `filled` (an episode has it). |
+| `under_way` | boolean | yes | This date is under way now. |
+
+### Schema: PreviewReply
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `change` | [ChangePlan](#schema-changeplan), or null | no |  |
+| `clash_count` | integer | yes | How many of `dates` clash. |
+| `clear` | [ClearTime](#schema-cleartime), or null | no |  |
+| `dates` | array of [PreviewDate](#schema-previewdate) | yes |  |
+| `more` | boolean | yes | There are more dates than `limit`. |
+| `notes` | array of string | yes | Things to say that are not mistakes. |
+| `ok` | boolean | yes | No problem was found: the rule can be saved. |
+| `problems` | array of [RuleProblem](#schema-ruleproblem) | yes | What is wrong, by field: `start`, `minutes`, `repeat.every`, `repeat.weekdays`, `repeat.nth`, `repeat.day`, `repeat.dates`, `end`, `end.count`, `skip`, `moves`, `starts_on`. |
+| `words` | [RuleWords](#schema-rulewords), or null | no |  |
+| `zone` | string | yes |  |
+
+### Schema: PreviewRequest
+
+A rule to look at: nothing is written.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `drafted` | [Drafted](#schema-drafted), or null | no |  |
+| `limit` | integer, or null | no | How many dates that air to return: 1 to 60, ten by default. |
+| `rule` | [Rule](#schema-rule) | yes | The rule as it stands in the form. |
+| `series` | integer (int32), or null | no | A series of that show: the rule is that series' own. Left out, it is the show's rule. |
+| `show` | string, or null | no | The show it is for, when it exists: dates an episode fills are marked, a count counts the episodes already made, the show is left out of its own clashes, and `change` says what saving would do to the episodes. |
+
+### Schema: PreviewState
+
+one of `airs`, `skipped`, `filled`
+
 ### Schema: Problem
 
 A refusal or a failure: one plain sentence, and for a refused field its name.
@@ -4490,6 +4792,12 @@ A recording of the legal logger: the hour (UTC) it starts, its path and size.
 | `name` | string | yes |  |
 | `start_ms` | integer (int64) | yes |  |
 
+### Schema: RecordingEnd
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `ended_at_ms` | integer (int64), or null | no | When it ended; now when left out. |
+
 ### Schema: RecordingKind
 
 What kind of recording: the programme (logger, archive) or the screener's off-air audio.
@@ -4509,6 +4817,55 @@ one of `programme`, `call`
 | `by` | string | yes |  |
 | `reason` | string | yes |  |
 
+### Schema: Repeat
+
+How a rule repeats. Weekdays are 1 (Monday) to 7 (Sunday).
+
+One of:
+
+- **`kind` is `once`**. The start date alone.
+
+- **`kind` is `weekly`**. Every `every` weeks on these weekdays (weeks start on Monday).
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `every` | integer (int32) | yes |  |
+| `weekdays` | array of integer (int32) | yes |  |
+
+- **`kind` is `monthly_nth`**. Every `every` months on the `nth` weekday: 1 to 4, or -1 for the last.
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `every` | integer (int32) | yes |  |
+| `nth` | integer (int32) | yes |  |
+| `weekday` | integer (int32) | yes |  |
+
+- **`kind` is `monthly_day`**. Every `every` months on a day of the month: 1 to 31, or -1 for the last day. A month without the day is passed over.
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `day` | integer (int32) | yes |  |
+| `every` | integer (int32) | yes |  |
+
+- **`kind` is `yearly`**. Every year on a date; 29 February gives leap years only.
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `day` | integer (int32) | yes |  |
+| `month` | integer (int32) | yes |  |
+
+- **`kind` is `dates`**. Chosen dates.
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `dates` | array of string (date) | yes |  |
+
+
 ### Schema: Resolved
 
 An episode, series or show with everything it inherits filled in: what its card, its feed item and its archive file say. An aired episode's is the frozen copy.
@@ -4524,6 +4881,7 @@ An episode, series or show with everything it inherits filled in: what its card,
 | `hosts` | array of string | yes |  |
 | `inherited` | array of string | yes | The fields that came from the level above, for the editor's "inherited" mark. |
 | `layout` | string | yes |  |
+| `rule` | [Rule](#schema-rule), or null | no |  |
 | `series` | [ResolvedSeries](#schema-resolvedseries), or null | no |  |
 | `show` | string | yes |  |
 | `slot` | [Slot](#schema-slot), or null | no |  |
@@ -4621,6 +4979,15 @@ A destination as it is kept.
 | `updated_ms` | integer (int64) | yes |  |
 | `url` | string | yes | The server URL, without the key. |
 
+### Schema: RtmpList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `destinations` | array of [Shown](#schema-shown) | yes |  |
+| `encoders` | array of [DeskRtmpEncoder](#schema-deskrtmpencoder) | yes | The encoders running at the desk. |
+| `platforms` | array of [Platform](#schema-platform) | yes |  |
+| `video` | boolean | yes | The desk runs video, which RTMP out needs. |
+
 ### Schema: RtmpNewBody
 
 | Field | Type | Needed | Meaning |
@@ -4637,6 +5004,69 @@ A destination as it is kept.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `enabled` | boolean | yes |  |
+
+### Schema: Rule
+
+When a show airs. All dates and times are the station's wall clock.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `end` | [End](#schema-end) | no |  |
+| `minutes` | integer (int32), or null | no | The length in minutes; `None` is the studio's 60. |
+| `moves` | array of [Move](#schema-move) | no | A date aired at another time (an override with RECURRENCE-ID). |
+| `repeat` | [Repeat](#schema-repeat) | yes |  |
+| `skip` | array of string (date) | no | Dates the rule gives that do not air (EXDATE). |
+| `start` | integer (int32) | yes | Minutes after midnight. |
+| `starts_on` | string (date), or null | no | The first date the rule may give (DTSTART's date). `None` only for a weekly rule of every week, which is what an old `Slot` was. |
+
+### Schema: RuleChangedOut
+
+What a saved rule did.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `aired` | integer (int32) | yes | Episodes that have aired, or are on air: not touched. |
+| `by_hand` | array of [EpisodeAt](#schema-episodeat) | yes | Episodes a person placed (or already past): they stay. |
+| `drafted` | [Drafted](#schema-drafted) | yes |  |
+| `left` | array of [EpisodeAt](#schema-episodeat) | yes | `leave`: the drafted episodes left on their old dates. |
+| `moved` | array of [Moved](#schema-moved) | yes | Episodes moved to the new rule's dates. |
+| `next_on` | [NextOn](#schema-nexton) | yes |  |
+| `no_date` | array of [EpisodeAt](#schema-episodeat) | yes | Drafted episodes the new rule has no date for: they stay. |
+| `rule` | [Rule](#schema-rule), or null | no |  |
+| `rule_words` | [RuleWords](#schema-rulewords), or null | no |  |
+| `series` | [SeriesOut](#schema-seriesout), or null | no |  |
+| `show` | [ShowOut](#schema-showout) | yes |  |
+| `warnings` | array of [Clash](#schema-clash) | yes | Moved episodes that now overlap another show's time (an admin's, a producer's or the key's warning). |
+
+### Schema: RuleInput
+
+A rule to set, and what to do with the episodes already drafted for dates to come.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `drafted` | [Drafted](#schema-drafted) | no | `move` (the default): the drafted episodes still on their old rule dates move to the new rule's dates, in order, keeping their numbers, titles and guests; `leave`: they stay. Aired episodes, and episodes a person moved or made by hand, never move. |
+| `rule` | [Rule](#schema-rule), or null | yes |  |
+
+### Schema: RuleProblem
+
+A refused field: its path in the rule and a sentence for a person.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `field` | string | yes |  |
+| `message` | string | yes |  |
+
+### Schema: RuleWords
+
+A rule said back in words, by the control plane, in British English (design section 2).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `last` | string, or null | no | *The last is Tuesday 5 October 2027.* when the rule ends. |
+| `last_on` | string (date), or null | no |  |
+| `notes` | array of string | yes | Dates the calendar cannot give, said rather than hidden. |
+| `sentence` | string | yes | *Every month on the first Tuesday, 20:00 to 21:00, from 1 December, for 10 episodes.* |
+| `short` | string | yes | *First Tue monthly, 20:00–21:00*, for lists and tooltips. |
 
 ### Schema: RundownItem
 
@@ -4738,6 +5168,7 @@ Who sits where: the identities the studio app acts as on each surface, until acc
 | `id` | string (uuid) | yes |  |
 | `number` | integer (int32) | yes |  |
 | `planned_episodes` | integer (int32), or null | no |  |
+| `rule` | [Rule](#schema-rule), or null | no |  |
 | `show_id` | string (uuid) | yes |  |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `starts_on` | string (date), or null | no |  |
@@ -4753,10 +5184,32 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 | `description` | string, or null | no |  |
 | `hosts` | array of string, or null | no |  |
 | `planned_episodes` | integer (int32), or null | no |  |
+| `rule` | [Rule](#schema-rule), or null | no |  |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `starts_on` | string (date), or null | no |  |
 | `tags` | array of string, or null | no |  |
 | `title` | string, or null | no |  |
+
+### Schema: SeriesOut
+
+A series, with the words and next date of the rule that governs it (its own, else its show's).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `cards` | any | no |  |
+| `description` | string, or null | no |  |
+| `hosts` | array of string (uuid), or null | no | `None` inherits the show's. |
+| `id` | string (uuid) | yes |  |
+| `number` | integer (int32) | yes |  |
+| `planned_episodes` | integer (int32), or null | no |  |
+| `rule` | [Rule](#schema-rule), or null | no |  |
+| `show_id` | string (uuid) | yes |  |
+| `slot` | [Slot](#schema-slot), or null | no |  |
+| `starts_on` | string (date), or null | no |  |
+| `tags` | array of string, or null | no |  |
+| `title` | string, or null | no |  |
+| `next_on` | [NextOn](#schema-nexton) | yes |  |
+| `rule_words` | [RuleWords](#schema-rulewords), or null | no |  |
 
 ### Schema: SeriesView
 
@@ -4764,7 +5217,7 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 |---|---|---|---|
 | `episodes` | array of [EpisodeView](#schema-episodeview) | yes |  |
 | `resolved` | [Resolved](#schema-resolved) | yes |  |
-| `series` | [Series](#schema-series) | yes |  |
+| `series` | [SeriesOut](#schema-seriesout) | yes |  |
 
 ### Schema: SetEmail
 
@@ -4795,6 +5248,16 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 | `updated_by` | string, or null | no |  |
 | `us_statutory_licence` | boolean, or null | no |  |
 
+### Schema: SetupAnswer
+
+One answer that the settings file starts and the page may override.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `settings_value` | string | yes | The settings file's value, which comes back if the page's is cleared. |
+| `source` | string | yes | `page`: set on the setup page. `settings`: the settings file's. |
+| `value` | string | yes | The value in force. |
+
 ### Schema: SetupChange
 
 | Field | Type | Needed | Meaning |
@@ -4808,11 +5271,11 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 |---|---|---|---|
 | `branding` | [BrandingView](#schema-brandingview) | yes |  |
 | `completed_at_ms` | integer (int64), or null | no |  |
-| `contact` | [Answer](#schema-answer) | yes |  |
+| `contact` | [SetupAnswer](#schema-setupanswer) | yes |  |
 | `done_by` | string, or null | no | `page`: an admin finished the setup page. `settings`: the settings file gave a name and a contact. `null` while pending. |
 | `install` | [InstallFacts](#schema-installfacts) | yes |  |
 | `missing` | array of string | yes | What is still missing, in words, while pending. |
-| `name` | [Answer](#schema-answer) | yes |  |
+| `name` | [SetupAnswer](#schema-setupanswer) | yes |  |
 | `status` | string | yes | `pending`: setup is offered. `done`: it is not. |
 | `stream_password` | [StreamPassword](#schema-streampassword) | yes |  |
 | `updated_at_ms` | integer (int64), or null | no |  |
@@ -4836,10 +5299,25 @@ A series as the studio app sends it: a field left out or `null` inherits the sho
 | `name` | string | yes |  |
 | `presenter` | string | no | The presenter's on-air name (ADR-0214); empty when the show has none of its own. |
 | `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218): the wizard's answers are its defaults. Cleared when the account goes. |
+| `rule` | [Rule](#schema-rule), or null | no |  |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `slug` | string | yes |  |
 | `step` | [Step](#schema-step) | no | How much of the studio the show uses (ADR-0271). Shows that existed before steps are `full`; a new show starts at `solo`. |
 | `tags` | array of string | yes |  |
+
+### Schema: ShowDeleted
+
+What a delete answers: what went with the show, and how many files.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `cart_banks` | integer | yes | Its own cart banks and the carts in them. |
+| `carts` | integer | yes |  |
+| `episodes` | integer | yes |  |
+| `name` | string | yes |  |
+| `series` | integer | yes | Its series, and the drafted episodes in them. |
+| `slug` | string | yes |  |
+| `files_deleted` | integer | yes | Card pictures, the slate's still, published audio files and carts' files deleted from the disk with it. |
 
 ### Schema: ShowInput
 
@@ -4851,6 +5329,7 @@ A show as the studio app sends it; hosts by name.
 | `commercial_music` | boolean, or null | no | Whether the show plays commercial music (ADR-0219). Absent keeps what is stored. |
 | `contact` | string, or null | no | The show's takedown contact (ADR-0214). Absent keeps what is stored; empty clears it. |
 | `description` | string | no |  |
+| `draft_first` | boolean | no | Make series 1 if the show has none and draft its first episode, in the same transaction (a refusal, such as a presenter's clash, saves nothing). |
 | `explicit` | boolean | no |  |
 | `hosts` | array of string | no |  |
 | `layout` | string | no |  |
@@ -4858,17 +5337,48 @@ A show as the studio app sends it; hosts by name.
 | `name` | string | yes |  |
 | `presenter` | string, or null | no | The presenter's on-air name (ADR-0214). Absent keeps what is stored; empty clears it. |
 | `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218). Absent keeps what is stored; `null` clears it. A member of staff who is not an admin may name only themselves. |
+| `rule` | [Rule](#schema-rule), or null | no |  |
 | `slot` | [Slot](#schema-slot), or null | no |  |
 | `step` | [Step](#schema-step), or null | no |  |
 | `tags` | array of string | no |  |
+
+### Schema: ShowOut
+
+A show, with its rule said in words and its next date (release 1.0.4). The rule itself is `rule`; `slot` is the weekly slot while the rule is exactly that, else `null`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `cards` | any | no |  |
+| `colour_slot` | integer (int32) | yes |  |
+| `commercial_music` | boolean | no | Whether the show plays commercial music (ADR-0219): the station's own reminder that a UK webcast of it needs PPL and PRS licences. It blocks nothing. |
+| `contact` | string | no | The show's own takedown contact (ADR-0214): an email address or a link; empty when the station's is the only one. |
+| `description` | string | yes |  |
+| `explicit` | boolean | yes |  |
+| `feed_guid` | string (uuid), or null | no |  |
+| `hosts` | array of string (uuid) | yes |  |
+| `id` | string (uuid) | yes |  |
+| `layout` | string | yes | `poster` or `slate`. |
+| `links` | array of string | no | Links to the presenter's channels (ADR-0219: Rumble, Odysee, AzuraCast…). |
+| `name` | string | yes |  |
+| `presenter` | string | no | The presenter's on-air name (ADR-0214); empty when the show has none of its own. |
+| `presenter_account` | string (uuid), or null | no | The staff account that presents the show (ADR-0218): the wizard's answers are its defaults. Cleared when the account goes. |
+| `rule` | [Rule](#schema-rule), or null | no |  |
+| `slot` | [Slot](#schema-slot), or null | no |  |
+| `slug` | string | yes |  |
+| `step` | [Step](#schema-step) | no | How much of the studio the show uses (ADR-0271). Shows that existed before steps are `full`; a new show starts at `solo`. |
+| `tags` | array of string | yes |  |
+| `next_on` | [NextOn](#schema-nexton) | yes | The next date of the show's current series. |
+| `rule_words` | [RuleWords](#schema-rulewords), or null | no |  |
 
 ### Schema: ShowView
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `drafted` | [EpisodeView](#schema-episodeview), or null | no |  |
 | `resolved` | [Resolved](#schema-resolved) | yes |  |
-| `series` | array of [Series](#schema-series) | yes |  |
-| `show` | [Show](#schema-show) | yes |  |
+| `series` | array of [SeriesOut](#schema-seriesout) | yes |  |
+| `show` | [ShowOut](#schema-showout) | yes |  |
+| `warnings` | array of [Clash](#schema-clash) | yes | Another show's time the save went on over (an admin's, a producer's or the key's). |
 
 ### Schema: Shown
 
@@ -5140,6 +5650,20 @@ What one sweep did, or (dry run) would do.
 |---|---|---|---|
 | `thumbs` | map of string | yes | Each camera's identity and its picture: a JPEG in base64. |
 
+### Schema: TokenList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `scopes` | array of [Scope](#schema-scope) | yes |  |
+| `tokens` | array of [ApiToken](#schema-apitoken) | yes |  |
+
+### Schema: TokenMade
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `secret` | string | yes | The secret, shown this once. |
+| `token` | [ApiToken](#schema-apitoken) | yes |  |
+
 ### Schema: TokenRequest
 
 | Field | Type | Needed | Meaning |
@@ -5252,6 +5776,20 @@ A webhook as it is kept.
 | `name` | string | yes |  |
 | `url` | string | yes |  |
 
+### Schema: WebhookList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `events` | array of [EventInfo](#schema-eventinfo) | yes |  |
+| `webhooks` | array of [Webhook](#schema-webhook) | yes |  |
+
+### Schema: WebhookMade
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `secret` | string | yes | The signing secret, shown this once (and again only by making a new one). |
+| `webhook` | [Webhook](#schema-webhook) | yes |  |
+
 ### Schema: WeekBody
 
 | Field | Type | Needed | Meaning |
@@ -5271,6 +5809,7 @@ A webhook as it is kept.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `dates` | array of [OpenDateOut](#schema-opendateout) | yes | Every date of every show's rule in the range that no episode fills, is not skipped and is not over: what the week draws as dotted blocks, so the studio expands no rule itself. |
 | `episodes` | array of [WeekEpisode](#schema-weekepisode) | yes |  |
 | `zone` | string | yes | The zone the station's air times are read in. |
 

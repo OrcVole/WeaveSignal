@@ -119,7 +119,8 @@ pub struct Platform {
     pub where_to_find: &'static str,
 }
 
-// What each platform takes was checked on 2026-11-11 (research recce 30 and the 1.0.1 test run);
+// What each platform takes was checked on 2026-11-11 (research recce 30 and the 1.0.1 test run)
+// and again on 2026-11-12 (YouTube's sound, X's 24-hour cut);
 // re-check before each release. "compatible" is H.264 and AAC, which every platform here takes;
 // "open" is AV1 and Opus over Enhanced RTMP, which only some take, and the hint says so.
 /// Gab is not offered: its live streaming is not open to streamers yet (the test station,
@@ -131,7 +132,7 @@ pub const PLATFORMS: [Platform; 7] = [
         name: "YouTube",
         url: "rtmps://a.rtmps.youtube.com:443/live2",
         profile: "compatible",
-        where_to_find: "YouTube Studio: Create, Go live, Stream: the Stream URL and the Stream key. YouTube takes AV1 video over Enhanced RTMP, but its RTMP ingest is reported to take AAC sound only, not Opus, so Open (AV1 and Opus) is likely refused: keep Compatible until there is an AV1-and-AAC profile. YouTube re-encodes every stream; 1440p gets viewers its better VP9 or AV1 copies.",
+        where_to_find: "YouTube Studio: Create, Go live, Stream: the Stream URL and the Stream key. YouTube takes AV1 video, but its sound must be AAC or MP3, not Opus, so it refuses Open (AV1 and Opus): keep Compatible. YouTube re-encodes every stream; 1440p gets viewers its better VP9 or AV1 copies.",
     },
     Platform {
         platform: "owncast",
@@ -145,7 +146,7 @@ pub const PLATFORMS: [Platform; 7] = [
         name: "X",
         url: "",
         profile: "compatible",
-        where_to_find: "X (Premium needed): Creator Studio, Live Studio (once Media Studio Producer), New Livestream, an RTMP source in your region: its RTMPS URL and stream key. Then start the broadcast on X. X takes H.264 and AAC: keep Compatible.",
+        where_to_find: "X (Premium needed): Creator Studio, Live Studio (once Media Studio Producer), New Livestream, an RTMP source in your region (chosen once): its RTMPS URL and stream key; leave Use authentication off. Then start the broadcast on X. X ends a stream after 24 hours, so a station on all day needs a new broadcast each day. X takes H.264 and AAC: keep Compatible.",
     },
     Platform {
         platform: "rumble",
@@ -302,6 +303,7 @@ struct Shown {
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
+#[schema(as = RtmpList)]
 struct Listed {
     destinations: Vec<Shown>,
     /// The desk runs video, which RTMP out needs.

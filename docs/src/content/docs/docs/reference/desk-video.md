@@ -33,7 +33,11 @@ Viewers, and anyone using the player's audio-only toggle, hear what listeners he
 
 - **In auto mode** (the station's mode, which the control plane tells the desk: [The station's mode](/docs/reference/desk-control/#the-stations-mode)) automation holds the air and playout never takes the desk, so the sound is playout's whoever is live at the desk. Playout switches the moment the mode changes, so the desk's sound does too, through the same crossfade, with no wait for the delay and no hold. Back in live mode a strip already open (as heard after the delay) is the desk's sound at once.
 
-Playout sends the feed from a buffer on a clock of its own, so a desk that stops reading holds up only that output, never what listeners hear. The desk's status (`{"op": "status"}`) carries `sound`: `source` (`desk` or `playout`), `live`, `feed_connected` and `feed_connections`.
+Playout sends the feed on its own clock, as it sends the listener process's, with a 1 s write timeout: a desk that stops reading holds listeners up for at most a second, and is then dropped until it reads again.
+
+The desk places what arrives 200 ms ahead of the mixing pass (`cushion_ms`), so a pause in the feed up to that long is not heard. A longer pause is heard twice, as a gap as long as the pause and then a skip of about the cushion, because the backlog that follows is placed afresh; `feed_replaced` counts these. On a busy host this happens often: see the counters below.
+
+The desk's status (`{"op": "status"}`) carries `sound`: `source` (`desk` or `playout`), `live`, `feed_connected`, `feed_connections`, `feed_replaced` (pieces of the feed placed afresh after a pause or a burst longer than the cushion), and the feed's buffer as for a person's voice: `feed_underruns`, `feed_late_ms` and `feed_ring_ms`.
 
 ## The picture's controls
 

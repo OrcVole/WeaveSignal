@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
-  // The show level, and New show: the name (its path follows it), the colour as a bank slot
-  // (ADR-0066), the card layout (ADR-0067), the weekly rule, the hosts, the tags, the explicit
-  // flag. Saved with PUT; the control plane draws the show's cards first and refuses a name
+  // The show level: the name, the colour as a bank slot (ADR-0066), the card layout
+  // (ADR-0067), when it airs (`calendar.show-rule`, ADR-0278: the rule in short, the next date
+  // and Change…, which opens the rule dialog; the rule is saved there, on its own route, and
+  // every save here sends it back as stored so that a change of name cannot lose it), the
+  // hosts, the tags, the explicit flag. A new show is made in the New show dialog, not here.
+  // Saved with PUT; the control plane draws the show's cards first and refuses a name
   // that does not fit them, with the field named (422), which is shown here. An existing
   // show also carries its own slate picture (ShowStill, ADR-0200), set by its own route, and
   // its presenter's fields (ADR-0214, ADR-0219): the on-air name and takedown contact the
@@ -12,15 +15,28 @@
   // and is left out here, which keeps it. Under the name is the show's step (ADR-0271,
   // `calendar.show-step`): the same field the frame's step dialog changes, so there is one
   // truth. A new show starts at Solo; the step goes with the save only when it was changed.
+  // Delete show… (`calendar.show-delete`, ADR-0279) is at the foot, left, for an admin or a
+  // producer on a station of 1.0.4 or later: a confirmation that says what goes with the show,
+  // with its real counts, and shows the station's own sentence when it refuses (409: an episode
+  // has aired or is on air now), keeping the show.
   import { untrack } from 'svelte';
   import Field from './Field.svelte';
   import ShowStill from './ShowStill.svelte';
   import * as api from '../lib/schedule.ts';
-  import type { Show, ShowInput, ShowView, Slot } from '../lib/schedule.ts';
-  import { slotWords, slugOf, splitList } from './model.ts';
+  import type { Show, ShowInput, ShowView } from '../lib/schedule.ts';
+  import * as rulesApi from '../lib/api.ts';
+  import { ApiError } from '../lib/api.ts';
+  import { account } from '../lib/account.svelte.ts';
+  import { mayDeleteShow } from '../lib/account.ts';
+  import { countsOf, goesWith, type GoesWith } from './showDelete.ts';
+  import { splitList } from './model.ts';
   import { MUSIC_REMINDER } from '../lib/wizard.ts';
   import StepList from '../lib/StepList.svelte';
   import { STEP_LONG, asStep } from '../lib/steps.ts';
+  import { sched } from '../lib/schedule.svelte.ts';
+  import { openRuleDialog } from './rule/dialog.svelte.ts';
+  import { dateWords, ruleOfSlot, shortOfSlot, whenFields } from './rule/form.ts';
+  import { unscheduled } from './rule/view.ts';
 
   let {
     slug,
@@ -28,13 +44,20 @@
     onSaved,
     onCancel,
     onCard,
+    onRule,
+    onDeleted,
     embedded = false,
   }: {
-    slug: string | null;
-    show: Show | null;
+    slug: string;
+    show: Show;
     onSaved: (v: ShowView) => Promise<void> | void;
     onCancel?: () => void;
     onCard: () => void;
+    /** When the show airs was changed in the rule dialog: the week is fetched again. */
+    onRule?: () => Promise<void> | void;
+    /** The show was deleted: the tab closes the editor, reads the week again and says so. Without
+     *  it the editor offers no Delete show…. */
+    onDeleted?: (name: string) => Promise<void> | void;
     embedded?: boolean;
   } = $props();
 
@@ -42,45 +65,88 @@
   const seed = untrack(() => ({ slug, show }));
   let view = $state<ShowView | null>(null);
   let draft = $state<ShowInput>({
-    name: seed.show?.name ?? '',
-    description: seed.show?.description ?? '',
-    colour_slot: seed.show?.colour_slot ?? 1,
-    layout: seed.show?.layout ?? 'poster',
-    slot: seed.show?.slot ?? null,
+    name: seed.show.name,
+    description: seed.show.description,
+    colour_slot: seed.show.colour_slot,
+    layout: seed.show.layout,
     hosts: [],
-    tags: seed.show?.tags ?? [],
-    explicit: seed.show?.explicit ?? false,
-    presenter: seed.show?.presenter ?? '',
-    contact: seed.show?.contact ?? '',
-    links: seed.show?.links ?? [],
-    commercial_music: seed.show?.commercial_music ?? false,
-    // A new show starts at Solo; one that exists says its own (Full before steps arrived).
-    step: seed.show ? asStep(seed.show.step) : 'solo',
+    tags: seed.show.tags,
+    explicit: seed.show.explicit,
+    presenter: seed.show.presenter ?? '',
+    contact: seed.show.contact ?? '',
+    links: seed.show.links ?? [],
+    commercial_music: seed.show.commercial_music ?? false,
+    // The step the show has (Full before steps arrived).
+    step: asStep(seed.show.step),
   });
-  let newSlug = $state(seed.slug ?? '');
-  let slugTouched = $state(false);
   let problem = $state('');
   let saving = $state(false);
-  // A show with no weekly rule shows the rule's fields at once (the operator's 1.0.2 run saved a
-  // show without one, behind a Set that was easy to miss); today's weekday is the start.
-  let ruleOpen = $state(!untrack(() => seed.show?.slot));
-  let ruleWeekday = $state(((new Date().getDay() + 6) % 7) + 1);
-  let ruleStart = $state('20:00');
-  let ruleMinutes = $state(180);
+  /** The ask before a show's dates are cleared. */
+  let clearing = $state(false);
 
-  // An existing show: its hosts come by name from the resolved view.
+  /** The show as the station last gave it: when it airs is read from here, never from the draft. */
+  const stored = $derived(view?.show ?? show);
+  const rulesOn = $derived(sched.rules === true);
+  const short = $derived(stored.rule_words?.short ?? (stored.slot ? shortOfSlot(stored.slot) : ''));
+  const sentence = $derived(stored.rule_words?.sentence ?? '');
+  const hasRule = $derived(rulesOn ? !!stored.rule : !!stored.slot);
+  /** A rule that gives nothing more: `Finished: its 10 episodes are made`. */
+  const finished = $derived(rulesOn && hasRule ? (unscheduled([stored], true).finished[0]?.why ?? '') : '');
+  const next = $derived(stored.next_on?.on ? dateWords(stored.next_on.on, { weekday: 'short' }) : '');
+
+  /** Delete show… is the station's for an admin or a producer, from 1.0.4 (the same release as
+   *  the rule); nobody is offered it before the station has said who this window is. */
+  const canDelete = $derived(!!onDeleted && rulesOn && account.loaded && mayDeleteShow(account.me));
+  /** The delete confirmation, while it is open. */
+  let removing = $state<{ counts: GoesWith; problem: string; refused: boolean; busy: boolean } | null>(null);
+  let removeEl = $state<HTMLDialogElement | null>(null);
   $effect(() => {
-    if (!slug) return;
-    void api
-      .show(slug)
+    const d = removeEl;
+    if (d && !d.open) d.showModal();
+  });
+
+  /** Delete show…: ask, with what goes with it counted from the series (a failed read leaves the
+   *  plain list, which is still true). */
+  async function askDelete() {
+    removing = { counts: { series: null, episodes: null }, problem: '', refused: false, busy: false };
+    try {
+      const v = view ?? (await load());
+      const counts = countsOf(await Promise.all(v.series.map((x) => api.series(slug, x.number))));
+      if (removing) removing = { ...removing, counts };
+    } catch {
+      // The counts are a courtesy: the station decides.
+    }
+  }
+
+  async function confirmDelete() {
+    if (!removing || removing.busy || removing.refused) return;
+    removing = { ...removing, busy: true, problem: '' };
+    const name = stored.name;
+    try {
+      await api.deleteShow(slug);
+      removing = null;
+      await onDeleted?.(name);
+    } catch (e) {
+      if (!removing) return;
+      removing = { ...removing, busy: false, refused: e instanceof ApiError && e.status === 409, problem: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async function load() {
+    const v = await api.show(slug);
+    view = v;
+    return v;
+  }
+
+  // Its hosts come by name from the resolved view.
+  $effect(() => {
+    void load()
       .then((v) => {
-        view = v;
         draft = {
           name: v.show.name,
           description: v.show.description,
           colour_slot: v.show.colour_slot,
           layout: v.show.layout,
-          slot: v.show.slot,
           hosts: v.resolved.hosts,
           tags: v.show.tags,
           explicit: v.show.explicit,
@@ -94,17 +160,30 @@
       .catch((e) => (problem = e instanceof Error ? e.message : String(e)));
   });
 
-  const path = $derived(slug ?? (slugTouched ? newSlug : slugOf(draft.name)));
-  const canSave = $derived(draft.name.trim().length > 0 && path.length > 0 && !saving);
+  // When it airs was changed elsewhere (another window, or a save the station made): the tab has
+  // read the shows again, and the editor reads its own again too, so a save here cannot send the
+  // old rule back over the new one. The draft is left as typed.
+  const ruleNow = $derived(JSON.stringify([show.rule ?? null, show.slot ?? null]));
+  $effect(() => {
+    const now = ruleNow;
+    const held = untrack(() => (view ? JSON.stringify([view.show.rule ?? null, view.show.slot ?? null]) : null));
+    if (held === null || held === now) return;
+    void load().catch(() => {});
+  });
+
+  const path = $derived(slug);
+  const canSave = $derived(draft.name.trim().length > 0 && !saving);
 
   async function save() {
     if (!canSave) return;
     saving = true;
     problem = '';
-    // The rule's fields still open count as set: a save never drops a rule typed but not Set.
-    if (ruleOpen) setRule();
     try {
-      const body: ShowInput = { ...draft, hosts: draft.hosts.map((h) => h.trim()).filter(Boolean) };
+      // When it airs goes back as the station holds it: a station that stores rules clears a
+      // weekly rule from a save that names neither `rule` nor `slot` (new-show.md section 9),
+      // so a change of name must carry both. An older station is sent its slot alone.
+      const when = rulesOn ? { ...whenFields(stored.rule ?? null, { rules: true }), slot: stored.slot } : { slot: stored.slot };
+      const body: ShowInput = { ...draft, hosts: draft.hosts.map((h) => h.trim()).filter(Boolean), ...when };
       // An unchanged step is left out, which keeps it: changing it is for an admin, a producer or
       // the show's presenter, and anyone else may still save the rest.
       if (view && body.step === asStep(view.show.step)) delete body.step;
@@ -118,25 +197,47 @@
     }
   }
 
-  function openRule() {
-    const base = draft.slot;
-    ruleWeekday = base?.weekday ?? 6;
-    ruleStart = base ? `${String(Math.floor(base.start / 60)).padStart(2, '0')}:${String(base.start % 60).padStart(2, '0')}` : '20:00';
-    ruleMinutes = base?.minutes ?? 180;
-    ruleOpen = true;
+  /** Change…, or Give it dates…: the rule dialog, which the Schedule tab draws. */
+  function changeRule() {
+    openRuleDialog({
+      slug,
+      name: stored.name,
+      rule: rulesOn ? (stored.rule ?? null) : null,
+      follow: !rulesOn && stored.slot ? ruleOfSlot(stored.slot) : null,
+      nextOn: stored.next_on?.on ?? null,
+      colour: stored.colour_slot,
+      onSaved: ruleSaved,
+    });
   }
-  function setRule() {
-    const [h, m] = ruleStart.split(':').map(Number);
-    const s: Slot = { weekday: ruleWeekday, start: h * 60 + m, minutes: ruleMinutes };
-    draft = { ...draft, slot: s };
-    ruleOpen = false;
+
+  /** The rule dialog saved: the show is read again, and the week with it. */
+  async function ruleSaved() {
+    try {
+      await load();
+    } catch (e) {
+      problem = e instanceof Error ? e.message : String(e);
+    }
+    await onRule?.();
+  }
+
+  /** Clear: the show keeps its episodes and has no dates to come. */
+  async function clearRule() {
+    clearing = false;
+    problem = '';
+    try {
+      if (rulesOn) await rulesApi.putShowRule(slug, null, 'leave');
+      else if (view) await api.putShow(slug, { ...api.inputOf(view), slot: null });
+      await ruleSaved();
+    } catch (e) {
+      problem = e instanceof Error ? e.message : String(e);
+    }
   }
 </script>
 
 {#if !embedded}
   <div class="head">
-    <div class="crumbs">{slug ? 'Show' : 'New show'}</div>
-    <h2 data-panel-title>{draft.name || 'New show'}</h2>
+    <div class="crumbs">Show</div>
+    <h2 data-panel-title>{draft.name || stored.name}</h2>
     {#if path}<div class="when"><span class="num">/{path}</span></div>{/if}
   </div>
 {/if}
@@ -153,11 +254,6 @@
   >
     <StepList value={draft.step ?? 'solo'} name="ed-step" what={STEP_LONG} onpick={(s) => (draft = { ...draft, step: s })} />
   </Field>
-  {#if !slug}
-    <Field label="Path" marker="own" plain hint="Lower-case letters and digits joined by hyphens; it follows the name until you change it.">
-      <input type="text" value={path} aria-label="Path" oninput={(e) => { slugTouched = true; newSlug = (e.currentTarget as HTMLInputElement).value; }} />
-    </Field>
-  {/if}
   <Field label="Colour" marker="set" hint="The show's bank slot in the twelve-colour palette, kept on every surface (ADR-0066).">
     <div class="swatches" role="group" aria-label="Colour, as a bank slot">
       {#each Array.from({ length: 12 }, (_, i) => i + 1) as n (n)}
@@ -167,30 +263,35 @@
   </Field>
   <Field label="Card layout" marker="set" hint="Both ship; the station chooses per show (ADR-0067).">
     {#snippet actions()}
-      {#if slug}<button type="button" class="act" onclick={onCard}>Card…</button>{/if}
+      <button type="button" class="act" onclick={onCard}>Card…</button>
     {/snippet}
     <span class="seg" role="group" aria-label="Layout">
       <button type="button" aria-pressed={draft.layout === 'poster'} onclick={() => (draft = { ...draft, layout: 'poster' })}>Poster</button>
       <button type="button" aria-pressed={draft.layout === 'slate'} onclick={() => (draft = { ...draft, layout: 'slate' })}>Slate</button>
     </span>
   </Field>
-  <Field label="Weekly rule" marker={draft.slot ? 'set' : 'own'} hint="Series and episodes inherit it until set on their own level.">
+  <Field
+    label="When it airs"
+    marker={hasRule ? 'set' : 'own'}
+    panel="calendar.show-rule"
+    hint="{sentence ? `${sentence} ` : ''}Series and episodes follow it until set on their own level."
+  >
     {#snippet actions()}
-      <button type="button" class="act" onclick={openRule}>{draft.slot ? 'Change…' : 'Set'}</button>
-      {#if draft.slot}<button type="button" class="act" onclick={() => (draft = { ...draft, slot: null })}>Clear</button>{/if}
+      <button type="button" class="act" onclick={changeRule}>{hasRule ? 'Change…' : 'Give it dates…'}</button>
+      {#if hasRule && !clearing}<button type="button" class="act" onclick={() => (clearing = true)}>Clear</button>{/if}
     {/snippet}
-    {#if ruleOpen}
-      <div class="row">
-        <select bind:value={ruleWeekday} aria-label="Weekday">
-          {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as d, i (d)}<option value={i + 1}>{d}</option>{/each}
-        </select>
-        <input type="time" bind:value={ruleStart} aria-label="Start, station time" />
-        <input type="number" min="1" max="1440" bind:value={ruleMinutes} aria-label="Length in minutes" /> min
-        <button type="button" class="btn sm" onclick={setRule}>Set</button>
-        <button type="button" class="btn sm quiet" onclick={() => (ruleOpen = false)}>Cancel</button>
-      </div>
+    {#if clearing}
+      <span class="confirm" role="group" aria-label="Clear the show's dates">
+        <span>Take its dates away? Its episodes stay where they are.</span>
+        <button type="button" class="btn sm danger-hollow" onclick={clearRule}>Clear its dates</button>
+        <button type="button" class="btn sm quiet" onclick={() => (clearing = false)}>Keep them</button>
+      </span>
+    {:else if !hasRule}
+      <span class="num">No dates yet</span>
+    {:else if finished}
+      <span class="num">Finished: {finished}</span>
     {:else}
-      <span class="num">{slotWords(draft.slot)}</span>
+      <span class="num">{short}</span>{#if next}<span class="next">· next {next}</span>{/if}
     {/if}
   </Field>
   <Field label="Hosts" marker={draft.hosts.length ? 'set' : 'own'} plain>
@@ -225,13 +326,28 @@
       <span class="hint">{view.show.cards.alt}</span>
     </Field>
   {/if}
-  {#if slug}{#key slug}<ShowStill {slug} />{/key}{/if}
+  {#key slug}<ShowStill {slug} />{/key}
   {#if problem}<div class="problem" role="alert"><svg aria-hidden="true"><use href="#g-fault" /></svg><span>{problem}</span></div>{/if}
 </div>
 <div class="foot">
   <div class="r">
-    <button type="button" class="btn primary" disabled={!canSave} onclick={save}>{slug ? 'Save show' : 'Make the show'}</button>
+    {#if canDelete}<button type="button" class="btn danger-hollow del" onclick={askDelete}>Delete show…</button>{/if}
+    <button type="button" class="btn primary" disabled={!canSave} onclick={save}>Save show</button>
     {#if onCancel}<button type="button" class="btn quiet" onclick={onCancel}>Cancel</button>{/if}
   </div>
   <p class="caption">Saving draws the show's three cards (link, post, square); a name that does not fit even at its floor is refused with the field named.</p>
 </div>
+{#if removing}
+  <dialog bind:this={removeEl} class="wz confirm" data-panel="calendar.show-delete" role="alertdialog" aria-labelledby="sd-h" aria-describedby="sd-p" oncancel={(e) => { e.preventDefault(); removing = null; }}>
+    <div class="head">
+      <h2 id="sd-h" data-panel-title>Delete {stored.name}?</h2>
+      <p id="sd-p" class="small">{goesWith(removing.counts)} This cannot be undone.</p>
+    </div>
+    {#if removing.problem}<p class="err" role="alert">{removing.problem}</p>{/if}
+    <div class="acts">
+      <button type="button" class="btn danger-hollow" disabled={removing.busy || removing.refused} aria-busy={removing.busy || undefined} onclick={confirmDelete}>Delete show</button>
+      <!-- svelte-ignore a11y_autofocus -->
+      <button type="button" class="btn primary" autofocus onclick={() => (removing = null)}>Keep it</button>
+    </div>
+  </dialog>
+{/if}

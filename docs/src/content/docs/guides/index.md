@@ -26,7 +26,8 @@ When you want every detail, each guide links to the full page.
 
 ## I look after the station
 
-- [Change the station's settings](/guides/change-the-settings/): where each setting lives.
+- [Configure the station and the studio app](/guides/change-the-settings/): where each setting lives.
+- [Reach the back end](/guides/reach-the-back-end/): the logs, the files, a terminal and the API.
 
 ## Everyone
 

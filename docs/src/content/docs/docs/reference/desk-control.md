@@ -68,7 +68,7 @@ Each entry in `people` carries:
 `playout.connected` says whether Liquidsoap is connected to the desk's programme output; `for_ms` is how long it has been in that state, or `null` before playout has ever connected.
 The studio app's lamp reads it: see [States](/docs/reference/states/).
 
-With video on, the status also carries `video` and `sound`, the video stream's sound: `source` (`desk` or `playout`), `live`, `feed_connected` and `feed_connections` ([Video in the desk](/docs/reference/desk-video/#the-sound)).
+With video on, the status also carries `video` and `sound`, the video stream's sound: `source` (`desk` or `playout`), `live`, `feed_connected`, `feed_connections`, `feed_replaced`, `feed_underruns`, `feed_late_ms` and `feed_ring_ms` ([Video in the desk](/docs/reference/desk-video/#the-sound)).
 
 ## The station's mode
 

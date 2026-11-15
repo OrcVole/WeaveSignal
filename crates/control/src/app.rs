@@ -163,7 +163,7 @@ pub fn router(state: Arc<AppState>) -> Router {
 
 /// A problem, as JSON with a plain sentence.
 pub(crate) fn problem(code: StatusCode, detail: impl Into<String>) -> Response {
-    #[derive(Serialize, utoipa::ToSchema)]
+    #[derive(Serialize)]
     struct Problem {
         error: String,
     }

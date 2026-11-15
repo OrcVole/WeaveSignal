@@ -51,6 +51,7 @@ pub struct Challenge {
 
 /// The page's answer, in the call-in request.
 #[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[schema(as = ChallengeAnswer)]
 #[serde(deny_unknown_fields)]
 pub struct Answer {
     pub token: String,

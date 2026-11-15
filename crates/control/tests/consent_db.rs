@@ -125,6 +125,8 @@ async fn plane() -> Plane {
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
         live: None,
+        hub: None,
+        video: None,
     })));
     Plane {
         app,

@@ -8,7 +8,13 @@
   // `calendar.week`, `calendar.episode-editor`, `calendar.series-editor`,
   // `calendar.aired-episode`, `calendar.log-editor`, `calendar.card-editor` (ADR-0070); the
   // design's `calendar.frame` is the app's own `studio.frame`, so it is not drawn twice.
-  import { onMount } from 'svelte';
+  //
+  // New show opens the guided dialog (`calendar.new-show`, ADR-0278). The week's dotted blocks
+  // are the dates each show's rule gives, sent by the control plane with the episodes: the
+  // studio expands no rule. A dotted block offers Draft this episode and Skip this date; with
+  // nothing selected the right panel lists the shows with nothing coming up
+  // (`calendar.unscheduled`).
+  import { onDestroy, onMount, untrack } from 'svelte';
   import EventCalendarGrid from './calendar/EventCalendarGrid.svelte';
   import EpisodeEditor from './EpisodeEditor.svelte';
   import LogEditor from './LogEditor.svelte';
@@ -18,13 +24,24 @@
   import { loadWeek, moveWeek, sched, select, today, weekBlocks } from '../lib/schedule.svelte.ts';
   import { say, stationNow, studio } from '../lib/studio.svelte.ts';
   import { load as loadRetention } from '../lib/retention.ts';
-  import { dayLength, rangeWords, zonedString } from './model.ts';
+  import { dayLength, hm, rangeWords, whenWords, zonedString } from './model.ts';
   import type { Block } from './model.ts';
+  import * as rulesApi from '../lib/api.ts';
+  import type { IsoDate, Rule, ShowSaved } from '../lib/api.ts';
+  import type { Show } from '../lib/schedule.ts';
+  import NewShow from './rule/NewShow.svelte';
+  import RuleDialog from './rule/RuleDialog.svelte';
+  import Unscheduled from './rule/Unscheduled.svelte';
+  import { closeRuleDialog, openRuleDialog, ruleDialog } from './rule/dialog.svelte.ts';
+  import { dateWords, ruleOfSlot } from './rule/form.ts';
+  import { dateIn } from './rule/view.ts';
+  import { deletedWords } from './showDelete.ts';
+  import { Heard, takeOwn } from '../lib/ruleNotice.ts';
 
   import { account } from '../lib/account.svelte.ts';
   import { isAdmin } from '../lib/account.ts';
 
-  let { live = true }: { live?: boolean } = $props();
+  let { live = true, dialog: firstDialog = null }: { live?: boolean; /** The dialog open (a test's). */ dialog?: 'new-show' | null } = $props();
 
   /** Only an admin (or the station key) can choose the zone; for anyone else the button would lead nowhere. */
   const canChooseZone = $derived(!account.loaded || account.me === null || isAdmin(account.me));
@@ -42,8 +59,9 @@
   const selectedEpisode = $derived(
     selectedBlock?.kind === 'episode' ? sched.episodes.find((e) => `ep:${e.episode.id}` === selectedBlock.id) ?? null : null,
   );
-  /** Shows with no weekly rule: nothing of them is drawn in the week, so the pane lists them. */
-  const unruled = $derived(sched.shows.filter((s) => !s.slot));
+  const rulesOn = $derived(sched.rules === true);
+  const todayIso = $derived(dateIn(now, sched.zone));
+  const editShow = $derived(sched.shows.find((s) => s.slug === sched.editShow) ?? null);
   const ruleShow = $derived(selectedBlock?.kind === 'rule' ? sched.shows.find((s) => s.slug === selectedBlock.slug) ?? null : null);
 
   onMount(() => {
@@ -86,8 +104,146 @@
       return null;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
-      say('warning', 'Not moved', why);
+      tell('Not moved', why);
       return why;
+    }
+  }
+
+  // ---- the guided dialogs ----
+  // svelte-ignore state_referenced_locally
+  let newShow = $state<{ at: { date: IsoDate; from: string } | null } | null>(firstDialog === 'new-show' ? { at: null } : null);
+  /** Give it dates…: the rule dialog for a show with nothing coming up. */
+  function giveDates(s: Show) {
+    openRuleDialog({
+      slug: s.slug,
+      name: s.name,
+      rule: rulesOn ? (s.rule ?? null) : null,
+      follow: !rulesOn && s.slot ? ruleOfSlot(s.slot) : null,
+      nextOn: s.next_on?.on ?? null,
+      colour: s.colour_slot,
+      onSaved: async () => {
+        await changed();
+        tell('Saved.', `${s.name} has its dates; they are in the week as dotted blocks.`);
+      },
+    });
+  }
+  /** The tab's own line: something done here, with the way back when there is one. */
+  let toast = $state<{ title: string; message: string; undo: (() => Promise<void>) | null } | null>(null);
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  function tell(title: string, message: string, undo: (() => Promise<void>) | null = null) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toast = { title, message, undo };
+    toastTimer = setTimeout(() => (toast = null), undo ? 12_000 : 6000);
+  }
+
+  // ---- another window changed when a show airs ----
+  // The station tells every window (`rule.changed`, new-show.md section 3). The tab says it in
+  // its own line and reads the week and the shows again; the change this window made itself it
+  // has already said and drawn, so that notice is passed over. The line is its own, beside the
+  // toast and not in its place: a Skipped with its Undo is not lost to somebody else's change.
+  let heard = $state<string | null>(null);
+  let heardTimer: ReturnType<typeof setTimeout> | null = null;
+  const notices = new Heard();
+  $effect(() => {
+    const v = studio.view;
+    if (!live || !v) return;
+    const news = notices.fresh(v.notices, v.now_ms);
+    if (!news.length) return;
+    untrack(() => {
+      const others = news.filter((n) => !takeOwn(n.title, sched.shows));
+      const last = others.at(-1);
+      if (!last) return;
+      if (heardTimer) clearTimeout(heardTimer);
+      heard = last.title;
+      heardTimer = setTimeout(() => (heard = null), 10_000);
+      void reread();
+    });
+  });
+  onDestroy(() => {
+    if (heardTimer) clearTimeout(heardTimer);
+    if (toastTimer) clearTimeout(toastTimer);
+  });
+
+  /** Read the week and the shows again after a change made elsewhere. A read already on its way
+   *  may have left before the change, so it is let finish and the week is read once more. */
+  async function reread() {
+    if (sched.loading) await loadWeek();
+    await changed();
+  }
+
+  /** A show was deleted from its editor (ADR-0279): the editor closes, whatever was selected of it
+   *  goes with it, the week and the shows without dates are read again, and the tab says so. It
+   *  cannot be put back, so there is no Undo. */
+  async function showDeleted(name: string) {
+    sched.pane = 'episode';
+    sched.editShow = null;
+    select(null);
+    await changed();
+    tell(deletedWords(name), '');
+  }
+
+  /** New show; with a block selected in the week, its day and hour start First on and from. */
+  function openNewShow() {
+    const b = selectedBlock;
+    newShow = { at: b ? { date: dateIn(b.start, sched.zone), from: hm(b.start, sched.zone) } : null };
+  }
+
+  /** Open episode 1: the week moves to the episode and selects it. */
+  function openEpisode(saved: ShowSaved) {
+    const ep = saved.drafted?.episode;
+    if (!ep) return;
+    if (ep.air_at !== null) {
+      sched.anchor = ep.air_at * 1000;
+      sched.version++;
+    }
+    sched.pane = 'episode';
+    select(`ep:${ep.id}`);
+  }
+
+  /** Skip this date: the rule is read first, then saved with the date added to its skipped
+   *  dates. Nothing moves; automation fills the hour; Undo takes the date out again. */
+  async function skipDate(b: Block) {
+    const s = sched.shows.find((x) => x.slug === b.slug);
+    if (!s || !b.on) return;
+    const on = b.on;
+    /** The rule the date comes from: the series' own when it has one, else the show's. */
+    const read = async (): Promise<{ rule: Rule; series: number | null } | null> => {
+      const view = await api.show(s.slug);
+      const own = b.series !== null ? (view.series.find((x) => x.number === b.series)?.rule ?? null) : null;
+      const rule = own ?? view.show.rule ?? null;
+      return rule ? { rule, series: own ? b.series : null } : null;
+    };
+    const put = (rule: Rule, series: number | null) => (series !== null ? rulesApi.putSeriesRule(s.slug, series, rule, 'leave') : rulesApi.putShowRule(s.slug, rule, 'leave'));
+    try {
+      const got = await read();
+      if (!got) return;
+      await put({ ...got.rule, skip: [...got.rule.skip.filter((d) => d !== on), on].sort(), moves: got.rule.moves.filter((m) => m.from !== on) }, got.series);
+      select(null);
+      await changed();
+      tell('Skipped.', `${s.name} will not air on ${dateWords(on, { weekday: 'long' })}.`, async () => {
+        const again = await read();
+        if (again) await put({ ...again.rule, skip: again.rule.skip.filter((d) => d !== on) }, again.series);
+        await changed();
+      });
+    } catch (e) {
+      tell('Not skipped', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** An older station sends no dates for the week, so a show's next episode is drafted from
+   *  the list of shows instead: the station takes the next slot after the series' last. */
+  async function draftNext(s: Show) {
+    try {
+      const view = await api.show(s.slug);
+      const n = view.series.at(-1)?.number ?? 1;
+      if (!view.series.length) await api.putSeries(s.slug, 1, {});
+      const made = await api.createEpisodes(s.slug, n, { count: 1 });
+      const ep = made[0]?.episode;
+      if (ep?.air_at) sched.anchor = ep.air_at * 1000;
+      await changed();
+      if (ep) select(`ep:${ep.id}`);
+    } catch (e) {
+      tell('Not drafted', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -95,25 +251,20 @@
     const s = sched.shows.find((x) => x.slug === b.slug);
     if (!s) return;
     try {
-      const view = await api.show(s.slug);
-      const last = view.series.at(-1);
-      const n = last?.number ?? 1;
-      // The control plane drafts the rule's next slot after the series' last episode, or after
-      // its start date, or after now. A block selected in the week is a slot of its own, perhaps
-      // one already under way (the operator's 1.0.2 run drafted next week's instead of today's), so
-      // the series starts on that block's day unless it starts earlier already.
-      const day = new Intl.DateTimeFormat('en-CA', { timeZone: sched.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(b.start);
-      if (!last) await api.putSeries(s.slug, 1, { starts_on: day });
-      else if (!last.starts_on || last.starts_on > day) {
-        const { title, description, hosts, slot, planned_episodes, tags } = last;
-        await api.putSeries(s.slug, n, { title, description, hosts, slot, planned_episodes, tags, starts_on: day });
+      // Drafting stays in date order: the station drafts the series' next date that no episode
+      // fills, never into the past, and says which rule date the episode fills.
+      let n = b.series;
+      if (n === null) {
+        const view = await api.show(s.slug);
+        n = view.series.at(-1)?.number ?? 1;
+        if (!view.series.length) await api.putSeries(s.slug, 1, {});
       }
       const made = await api.createEpisodes(s.slug, n, { count: 1 });
       await changed();
       const ep = made[0]?.episode;
       if (ep) select(`ep:${ep.id}`);
     } catch (e) {
-      say('warning', 'Not drafted', e instanceof Error ? e.message : String(e));
+      tell('Not drafted', e instanceof Error ? e.message : String(e));
     }
   }
 </script>
@@ -132,18 +283,25 @@
     {#if sched.zoneSet === false && canChooseZone}
       <button type="button" class="btn" title="Nobody has chosen the station's time zone yet" onclick={() => (studio.settings = true)}>Choose the time zone…</button>
     {/if}
-    <button type="button" class="btn primary" onclick={() => { sched.pane = 'new-show'; }}>New show</button>
+    <button type="button" class="btn primary" onclick={openNewShow}>New show</button>
     {#if sched.loading}<span class="load" role="status">Loading…</span>{/if}
     {#if sched.error}<span class="load g-warning" role="alert">{sched.error}</span>{/if}
     <div class="legend" aria-label="Legend">
       <span><svg aria-hidden="true"><use href="#g-mic" /></svg>Live</span>
       <span><svg aria-hidden="true"><use href="#g-auto" /></svg>Automation fills every gap by its clock</span>
-      <span><svg aria-hidden="true"><use href="#g-repeat" /></svg>Instance of a weekly rule</span>
+      <span><svg aria-hidden="true"><use href="#g-repeat" /></svg>A date from the show’s rule</span>
       <span><svg aria-hidden="true" style="color:var(--status-warning)"><use href="#g-fault" /></svg>Conflict</span>
       <span><i class="past"></i>Aired, frozen</span>
     </div>
   </div>
 
+  {#if toast || heard}
+    <div class="toast2" role="status" data-testid="schedule-toast">
+      {#if toast}<span><b>{toast.title}</b> {toast.message}</span>{/if}
+      {#if heard}<span class="heard" data-testid="schedule-heard"><svg aria-hidden="true"><use href="#g-repeat" /></svg><span><b>{heard}</b> The week is up to date.</span></span>{/if}
+      {#if toast?.undo}<button type="button" class="btn sm" onclick={async () => { const undo = toast?.undo; toast = null; try { await undo?.(); } catch (e) { tell('Not put back', e instanceof Error ? e.message : String(e)); } }}>Undo</button>{/if}
+    </div>
+  {/if}
   <div class="body">
     <section class="cal" data-panel="calendar.week" aria-label="Week of {rangeWords(week.days, sched.zone)}">
       <div class="corner" data-panel-title><span class="sr-only">Week grid</span></div>
@@ -164,14 +322,11 @@
       </div>
     </section>
 
-    {#if sched.pane === 'new-show'}
-      <aside class="editor" data-panel="calendar.episode-editor" aria-label="New show">
-        <ShowEditor slug={null} show={null} onSaved={async (v) => { await changed(); sched.pane = 'episode'; const s = v.show; sched.selected = null; say('good', 'Show saved', `${s.name} is a show now; draft its first episode from its weekly rule.`); }} onCancel={() => (sched.pane = 'episode')} onCard={() => {}} />
-      </aside>
-    {:else if sched.pane === 'edit-show' && unruled.find((s) => s.slug === sched.editShow)}
-      {@const s = unruled.find((x) => x.slug === sched.editShow)!}
+    {#if sched.pane === 'edit-show' && editShow}
       <aside class="editor" data-panel="calendar.episode-editor" aria-label="Show editor">
-        <ShowEditor slug={s.slug} show={s} onSaved={async (v) => { await changed(); sched.pane = 'episode'; sched.editShow = null; say('good', 'Show saved', v.show.slot ? `${v.show.name}'s weekly rule is in the week now: select its dotted block to draft an episode.` : `${v.show.name} still has no weekly rule.`); }} onCancel={() => { sched.pane = 'episode'; sched.editShow = null; }} onCard={() => {}} />
+        {#key editShow.slug}
+          <ShowEditor slug={editShow.slug} show={editShow} onSaved={async (v) => { await changed(); sched.pane = 'episode'; sched.editShow = null; tell('Show saved.', `${v.show.name} is up to date.`); }} onRule={changed} onDeleted={showDeleted} onCancel={() => { sched.pane = 'episode'; sched.editShow = null; }} onCard={() => {}} />
+        {/key}
       </aside>
     {:else if sched.pane === 'card' && (selectedEpisode || ruleShow)}
       <aside class="editor" data-panel="calendar.card-editor" aria-label="Card editor">
@@ -190,20 +345,26 @@
       </aside>
     {:else if selectedEpisode}
       <aside class="editor" data-panel={selectedEpisode.episode.aired_at !== null ? 'calendar.aired-episode' : 'calendar.episode-editor'} aria-label="Episode editor">
-        <EpisodeEditor item={selectedEpisode} zone={sched.zone} {now} us={sched.us} onChanged={changed} onCard={() => (sched.pane = 'card')} />
+        <EpisodeEditor item={selectedEpisode} zone={sched.zone} {now} us={sched.us} onChanged={changed} onDeleted={showDeleted} onCard={() => (sched.pane = 'card')} />
       </aside>
     {:else if selectedBlock?.kind === 'rule' && ruleShow}
-      <aside class="editor" data-panel="calendar.episode-editor" aria-label="Weekly rule">
+      <aside class="editor" data-panel="calendar.episode-editor" aria-label="A date from the show's rule">
         <div class="head">
-          <div class="crumbs"><b>{ruleShow.name}</b> › weekly rule</div>
+          <div class="crumbs"><b>{ruleShow.name}</b> › a date from its rule</div>
           <h2 data-panel-title>{ruleShow.name} · not drafted</h2>
+          <div class="when"><span class="num">{whenWords(selectedBlock.start, selectedBlock.end, sched.zone)}</span></div>
         </div>
         <div class="nothing">
-          <p>This is where the show's weekly rule puts its next episode. Nothing is drafted yet, so playout fills the hour with automation until someone drafts it.</p>
-          <p><b>Draft it</b> and the episode takes its number from the series (the last plus one) and this time from the rule; the title and guests are yours to add.</p>
+          <p>This is where the show’s rule puts {selectedBlock.number !== null ? `episode ${selectedBlock.number}` : 'its next episode'}{#if ruleShow.rule_words?.sentence}: <b>{ruleShow.rule_words.sentence}</b>{:else}.{/if} Nothing is drafted yet, so playout fills the hour with automation until someone drafts it.</p>
+          <p><b>Draft it</b> and the episode takes its number and this time from the rule; the title and guests are yours to add. <b>Skip it</b> and the show does not air that day; the rule carries on{#if ruleShow.rule?.end.kind === 'count'}, and since a skipped date does not count, its {ruleShow.rule.end.count} episodes end one date later{/if}.</p>
         </div>
         <div class="foot">
-          <div class="r"><button type="button" class="btn primary" onclick={() => draftFromRule(selectedBlock!)}>Draft this episode</button><button type="button" class="btn" onclick={() => (sched.pane = 'card')}>Card…</button></div>
+          <div class="r">
+            <button type="button" class="btn primary" onclick={() => draftFromRule(selectedBlock!)}>Draft this episode</button>
+            {#if selectedBlock.on && rulesOn}<button type="button" class="btn" onclick={() => skipDate(selectedBlock!)}>Skip this date</button>{/if}
+            <button type="button" class="btn" onclick={() => (sched.pane = 'card')}>Card…</button>
+          </div>
+          <p class="caption">A skipped date is put back from <b>When it airs</b> in the show editor, where it stays listed.</p>
         </div>
       </aside>
     {:else}
@@ -214,27 +375,18 @@
           <div class="nothing">
             <p>The week fills from shows. Make the first one:</p>
             <ol>
-              <li><button type="button" class="btn primary" onclick={() => { sched.pane = 'new-show'; }}>New show</button> and give it a name.</li>
-              <li>Give it a <b>weekly rule</b>: a day, a start time and a length.</li>
-              <li>Its weeks appear here as <b>dotted blocks</b>: select one and draft the episode.</li>
+              <li><button type="button" class="btn primary" onclick={openNewShow}>New show</button> and give it a name.</li>
+              <li>Say <b>when it airs</b>: one date and time, and whether it comes back.</li>
+              <li>Its first episode is drafted for you; the other dates wait here as <b>dotted blocks</b>.</li>
             </ol>
             <p>While an episode's time holds, its show is on air, and its step (a new show starts at Solo) shapes the studio.</p>
           </div>
         {:else}
           <div class="head"><h2 data-panel-title>Nothing selected</h2></div>
           <div class="nothing">
-            {#if unruled.length}
-              <!-- A show without a weekly rule draws nothing in the week (the operator's 1.0.2 run). -->
-              <div class="unruled" data-testid="unruled-shows">
-                <p><b>{unruled.length === 1 ? 'A show has' : 'Shows have'} no weekly rule yet</b>, so nothing of {unruled.length === 1 ? 'it' : 'them'} is in the week:</p>
-                <ul>
-                  {#each unruled as s (s.slug)}
-                    <li><span>{s.name}</span> <button type="button" class="btn primary sm" onclick={() => { sched.editShow = s.slug; sched.pane = 'edit-show'; }}>Set its weekly rule…</button></li>
-                  {/each}
-                </ul>
-              </div>
-            {/if}
-            <p>Select a block in the week: an <b>episode</b> opens its editor, with its series and show a level away; an <b>automation</b> block opens the generated hour with its rule checks; a dotted <b>weekly rule</b> offers to draft the episode.</p>
+            <!-- A show with nothing coming up draws nothing in the week (the operator's 1.0.2 run). -->
+            <Unscheduled shows={sched.shows} rules={rulesOn} ondates={giveDates} onedit={(s) => { sched.editShow = s.slug; sched.pane = 'edit-show'; }} ondraft={draftNext} />
+            <p>Select a block in the week: an <b>episode</b> opens its editor, with its series and show a level away; an <b>automation</b> block opens the generated hour with its rule checks; a dotted <b>date from a show’s rule</b> offers to draft the episode or skip the date.</p>
             <p>Keys on this tab: <kbd>←</kbd> <kbd>→</kbd> move a week, <kbd>T</kbd> is today. The grid's blocks take focus with <kbd>Tab</kbd> and open with <kbd>⏎</kbd>.</p>
           </div>
         {/if}
@@ -242,3 +394,34 @@
     {/if}
   </div>
 </div>
+
+{#if newShow}
+  <NewShow
+    shows={sched.shows}
+    zone={sched.zone}
+    today={todayIso}
+    zoneSet={sched.zoneSet !== false}
+    {canChooseZone}
+    onzone={() => (studio.settings = true)}
+    rules={rulesOn}
+    at={newShow.at}
+    {live}
+    onMade={changed}
+    onOpen={openEpisode}
+    onClose={() => (newShow = null)}
+  />
+{/if}
+{#if ruleDialog.open}
+  {#key ruleDialog.open}
+    <RuleDialog
+      {...ruleDialog.open}
+      zone={sched.zone}
+      today={todayIso}
+      zoneSet={sched.zoneSet !== false}
+      {canChooseZone}
+      onzone={() => (studio.settings = true)}
+      rules={rulesOn}
+      onClose={closeRuleDialog}
+    />
+  {/key}
+{/if}

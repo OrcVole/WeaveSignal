@@ -133,6 +133,8 @@
 .schedule .editor .foot { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--hairline); display: grid; gap: var(--s-2); }
 .schedule .editor .foot .r { display: flex; gap: var(--s-2); flex-wrap: wrap; }
 .schedule .editor .foot .btn { min-height: 2.25rem; }
+/* Delete show… (ADR-0279) sits away from Save, at the left of the foot */
+.schedule .editor .foot .r .del { margin-right: auto; }
 .schedule .editor .foot .btn small { font-weight: 400; color: inherit; opacity: 0.8; }
 .schedule .editor .caption { font-size: var(--fs-13); color: var(--muted); line-height: var(--lh-label); }
 .schedule .editor .caption b { color: var(--ink-2); }

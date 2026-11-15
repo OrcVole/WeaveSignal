@@ -399,7 +399,7 @@
   .setup {
     display: grid;
     place-items: center;
-    min-height: 100vh;
+    min-height: var(--win-h, 100vh);
     padding: var(--s-4);
     background: var(--plane);
     overflow: auto;

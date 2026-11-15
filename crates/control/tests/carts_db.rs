@@ -507,3 +507,126 @@ async fn a_shows_own_banks_are_kept_apart_and_changed_by_its_people() {
     assert_eq!(code, StatusCode::OK);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Deleting a show (ADR-0279) takes its own banks and carts with it: their files go from the
+/// disk, and the open wall is read again, so no window is left listing a bank that is gone. The
+/// station's banks and another show's stay.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn deleting_a_show_takes_its_cart_banks_files_and_the_walls_listing() {
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    let station = ensure_station(
+        &pool,
+        &Station::new(StationId::new_random(), "Kettle FM").unwrap(),
+    )
+    .await
+    .unwrap();
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("carts-del-{}", uuid::Uuid::new_v4()));
+    let config = CartsConfig {
+        media_dir: dir.clone(),
+        worker: Some(env!("CARGO_BIN_EXE_weavesignal-control").into()),
+        ..CartsConfig::default()
+    };
+    let hub = Hub::new(
+        &station.name,
+        Studio::default(),
+        DeskClient::new(None),
+        None,
+        Duration::from_millis(250),
+        CartsLink::new(config, Some((pool.clone(), station.id))),
+    );
+    hub.start_carts().await;
+    let staff = Arc::new(weavesignal_control::staff::Staff::new(Some(pool.clone())));
+    for slug in ["steeped", "morning-kettle"] {
+        let input: weavesignal_model::shows::ShowInput =
+            serde_json::from_value(serde_json::json!({"name": slug, "colour_slot": 2})).unwrap();
+        weavesignal_model::shows::put_show(&pool, station.id, slug, &input)
+            .await
+            .unwrap();
+    }
+    let app = router(Arc::new(AppState {
+        station: station.clone(),
+        db: Some(pool.clone()),
+        room: None,
+        admin_token: Some(ADMIN.into()),
+        staff: staff.clone(),
+        hub: hub.clone(),
+        join: weavesignal_control::config::JoinConfig::default(),
+        video: Default::default(),
+        joins: Default::default(),
+        turn_tls_port: 5349,
+        steering: Default::default(),
+    }))
+    .merge(weavesignal_control::shows::router(Arc::new(
+        weavesignal_control::shows::ShowsState {
+            station: station.clone(),
+            db: Some(pool.clone()),
+            admin_token: Some(ADMIN.into()),
+            staff,
+            publishing: weavesignal_control::config::PublishingConfig {
+                public_url: "https://kettle.example".into(),
+                place: "Dunfermline".into(),
+                cards_dir: dir.join("cards"),
+                episodes_dir: dir.join("episodes"),
+                ..Default::default()
+            },
+            zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
+            live: None,
+            hub: Some(hub.clone()),
+            video: None,
+        },
+    )));
+    let bank =
+        |name: &str| Body::from(serde_json::json!({"name": name, "colour_slot": 4}).to_string());
+    let wav = weavesignal_media::wav_sine(44_100, 2, 1.0, 330.0, 0.5);
+    let mut files = Vec::new();
+    for (slug, label) in [("steeped", "Woof"), ("morning-kettle", "Miaow")] {
+        let (code, _) = send(
+            &app,
+            req(
+                "PUT",
+                &format!("/api/v1/shows/{slug}/carts/banks/1"),
+                bank(label),
+            ),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        let (code, cart) = send(
+            &app,
+            req(
+                "PUT",
+                &format!("/api/v1/shows/{slug}/carts/banks/1/slots/1?label={label}&mode=one_shot"),
+                Body::from(wav.clone()),
+            ),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CREATED, "{cart}");
+        files.push(cart["file"].as_str().unwrap().to_owned());
+    }
+    let wall = |show: &str| serde_json::to_value(hub.catalogue(Some(show))).unwrap();
+    let banks_of = |v: &serde_json::Value| -> Vec<String> {
+        v["banks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["name"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(banks_of(&wall("steeped")), vec!["Woof"]);
+    assert!(dir.join(&files[0]).exists());
+
+    let (code, gone) = send(&app, req("DELETE", "/api/v1/shows/steeped", Body::empty())).await;
+    assert_eq!(code, StatusCode::OK, "{gone}");
+    assert_eq!(gone["cart_banks"], 1);
+    assert_eq!(gone["carts"], 1);
+    // The cart's file is gone, and the wall in memory no longer lists the bank.
+    assert!(!dir.join(&files[0]).exists());
+    assert!(banks_of(&wall("steeped")).is_empty(), "{}", wall("steeped"));
+    // The other show's bank, its cart and its file are as they were.
+    assert_eq!(banks_of(&wall("morning-kettle")), vec!["Miaow"]);
+    assert!(dir.join(&files[1]).exists());
+    let _ = std::fs::remove_dir_all(dir);
+}

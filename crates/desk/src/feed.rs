@@ -35,6 +35,8 @@ use crate::config::PlayoutFeed;
 
 const RATE: u32 = crate::pipeline::RATE;
 const CHANNELS: usize = 2;
+/// What the feed's ring holds ahead of the mixing pass at most.
+const RING_FRAMES: usize = RATE as usize;
 
 /// How long a connection may send nothing before it is dropped (playout gone without closing
 /// it); playout connects again by itself.
@@ -54,6 +56,8 @@ struct Shared {
     generation: AtomicU64,
     connected: AtomicBool,
     connections: AtomicU64,
+    /// Pieces placed afresh because the feed had drifted or paused by more than the cushion.
+    replaced: AtomicU64,
 }
 
 impl Feed {
@@ -65,12 +69,13 @@ impl Feed {
         password: Option<String>,
         pipeline: &gst::Pipeline,
     ) -> Result<Feed> {
-        let ring = Arc::new(InputRing::new(CHANNELS, RATE as usize));
+        let ring = Arc::new(InputRing::new(CHANNELS, RING_FRAMES));
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             connected: AtomicBool::new(false),
             connections: AtomicU64::new(0),
+            replaced: AtomicU64::new(0),
         });
         if password.is_none() {
             tracing::warn!(
@@ -105,6 +110,12 @@ impl Feed {
     /// Connections taken since the desk started.
     pub fn connections(&self) -> u64 {
         self.shared.connections.load(Ordering::Relaxed)
+    }
+
+    /// Pieces placed afresh since the desk started: each is a pause or a burst longer than
+    /// the cushion, heard as a gap or a skip in the video's sound.
+    pub fn replaced(&self) -> u64 {
+        self.shared.replaced.load(Ordering::Relaxed)
     }
 
     /// Stop listening, and drop the connection.
@@ -257,7 +268,10 @@ impl Conn {
                 continue;
             };
             let frames = (samples.len() / CHANNELS) as i64;
-            let pos = placer.place(now, frames);
+            let (pos, afresh) = placer.place(now, frames);
+            if afresh && placer.placed > 1 {
+                self.shared.replaced.fetch_add(1, Ordering::Relaxed);
+            }
             self.ring.push(pos, &samples, now);
         }
     }
@@ -276,6 +290,8 @@ pub(crate) fn running_frames(p: &gst::Pipeline) -> Option<i64> {
 struct Placer {
     next: Option<i64>,
     cushion: i64,
+    /// Pieces placed on this connection.
+    placed: u64,
 }
 
 impl Placer {
@@ -283,17 +299,20 @@ impl Placer {
         Placer {
             next: None,
             cushion,
+            placed: 0,
         }
     }
 
-    fn place(&mut self, now: i64, frames: i64) -> i64 {
+    /// Where the piece of `frames` arriving at `now` goes, and whether it was placed afresh.
+    fn place(&mut self, now: i64, frames: i64) -> (i64, bool) {
         let fresh = now + self.cushion - frames;
-        let pos = match self.next {
-            Some(p) if (p - fresh).abs() <= self.cushion => p,
-            _ => fresh,
+        let (pos, afresh) = match self.next {
+            Some(p) if (p - fresh).abs() <= self.cushion => (p, false),
+            _ => (fresh, true),
         };
         self.next = Some(pos + frames);
-        pos
+        self.placed += 1;
+        (pos, afresh)
     }
 }
 
@@ -596,11 +615,94 @@ mod tests {
     fn the_feed_is_placed_a_cushion_ahead_and_then_back_to_back() {
         let mut p = Placer::new(9_600);
         // The first piece ends a cushion after it arrived.
-        assert_eq!(p.place(100_000, 1_920), 100_000 + 9_600 - 1_920);
+        assert_eq!(p.place(100_000, 1_920), (100_000 + 9_600 - 1_920, true));
         // Jitter of a few ms in arrival: still back to back.
-        assert_eq!(p.place(101_800, 1_920), 100_000 + 9_600);
-        assert_eq!(p.place(104_200, 1_920), 100_000 + 9_600 + 1_920);
+        assert_eq!(p.place(101_800, 1_920), (100_000 + 9_600, false));
+        assert_eq!(p.place(104_200, 1_920), (100_000 + 9_600 + 1_920, false));
         // A pause of a second: placed afresh.
-        assert_eq!(p.place(200_000, 1_920), 200_000 + 9_600 - 1_920);
+        assert_eq!(p.place(200_000, 1_920), (200_000 + 9_600 - 1_920, true));
+    }
+}
+
+#[cfg(test)]
+mod placement {
+    use super::*;
+
+    /// Plays a feed through [`Placer`] and [`InputRing`] against a mixing pass that reads a
+    /// 20 ms block once its time has passed. Playout sends 1024-frame pieces at real time,
+    /// none while `pause` (frames from..to), then its backlog at once, as a stalled host
+    /// releases it. Returns the frames heard as silence, skipped and heard twice after the
+    /// feed began.
+    fn play(cushion_ms: i64, pause: (i64, i64), total: i64) -> (i64, i64, i64) {
+        let ring = InputRing::new(CHANNELS, RING_FRAMES);
+        let mut placer = Placer::new(cushion_ms * i64::from(RATE) / 1000);
+        let (piece, block) = (1024i64, 960i64);
+        let mut sent = 0i64;
+        let mut read: Option<i64> = None;
+        let (mut silent, mut skipped, mut twice) = (0, 0, 0);
+        let mut last: Option<i64> = None;
+        let mut buf = vec![0f32; block as usize * CHANNELS];
+        for now in 0..total {
+            let held = now >= pause.0 && now < pause.1;
+            while !held && sent + piece <= now {
+                // Each frame carries its own number, so a skip or a repeat shows.
+                let samples: Vec<f32> = (sent..sent + piece)
+                    .flat_map(|i| [(i + 1) as f32 / 1.0e7; 2])
+                    .collect();
+                let (pos, _) = placer.place(now, piece);
+                ring.push(pos, &samples, now);
+                sent += piece;
+            }
+            let at = *read.get_or_insert(now);
+            if now >= at + block {
+                ring.pull(at, &mut buf);
+                for frame in buf.chunks(CHANNELS) {
+                    if frame[0] == 0.0 {
+                        silent += i64::from(last.is_some());
+                        continue;
+                    }
+                    let i = (frame[0] * 1.0e7).round() as i64 - 1;
+                    match last {
+                        Some(l) if i > l + 1 => skipped += i - l - 1,
+                        Some(l) if i <= l => twice += l - i + 1,
+                        _ => {}
+                    }
+                    last = Some(i);
+                }
+                read = Some(at + block);
+            }
+        }
+        (silent, skipped, twice)
+    }
+
+    const MS: i64 = RATE as i64 / 1000;
+
+    #[test]
+    fn a_pause_within_the_cushion_is_not_heard() {
+        let cushion = i64::from(PlayoutFeed::default().cushion_ms);
+        for pause_ms in [50, 100, cushion - 50] {
+            let heard = play(
+                cushion,
+                (RATE as i64, RATE as i64 + pause_ms * MS),
+                5 * RATE as i64,
+            );
+            assert_eq!(
+                heard,
+                (0, 0, 0),
+                "a {pause_ms} ms pause with a {cushion} ms cushion"
+            );
+        }
+    }
+
+    /// The test station (2026-11-13): playout's copy came in bursts after pauses of a little
+    /// over 200 ms, and with the old 200 ms cushion each pause was heard twice, as its own
+    /// length of silence and then about the cushion's length skipped.
+    #[test]
+    fn a_pause_past_the_cushion_is_a_gap_then_a_skip() {
+        let (silent, skipped, twice) =
+            play(200, (RATE as i64, RATE as i64 + 250 * MS), 5 * RATE as i64);
+        assert!((240 * MS..=260 * MS).contains(&silent), "{silent}");
+        assert!((150 * MS..=260 * MS).contains(&skipped), "{skipped}");
+        assert_eq!(twice, 0);
     }
 }

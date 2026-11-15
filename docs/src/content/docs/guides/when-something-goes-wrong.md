@@ -5,7 +5,7 @@ type: howto
 status: draft
 last_verified: 2026-11-11
 sidebar:
-  order: 9
+  order: 10
 ---
 
 When you finish, you will know what the desk's words mean, and what to do when listeners stop hearing you or there is an echo.

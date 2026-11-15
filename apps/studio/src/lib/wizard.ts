@@ -4,11 +4,12 @@
 // whether a newly signed-in presenter is shown the wizard, the short list of answers and how
 // they become a show, and what each answer must look like. The answers are kept in the
 // station as the show's own fields, so the consent words name the DJ while the show is on
-// air (ADR-0214) and new episodes take the usual slot.
+// air (ADR-0214). When the show is on is the wizard's third part (ADR-0278): the same
+// questions and preview as New show, held in a rule form of its own (schedule/rule/form.ts).
 
 import type { Me, ShowStep } from './api.ts';
 import { STEP_WORD, asStep } from './steps.ts';
-import type { Show, ShowInput, ShowView, Slot } from './schedule.ts';
+import type { Show, ShowInput, ShowView } from './schedule.ts';
 import { slugOf } from '../schedule/model.ts';
 
 /** The wizard's answers: ADR-0219's list and nothing more. */
@@ -18,11 +19,6 @@ export interface Answers {
   show: string;
   /** One link per line as typed; split and trimmed when saved. */
   links: string;
-  weekday: number;
-  /** `HH:MM` in station time, or empty for no usual slot. */
-  from: string;
-  /** `HH:MM`; empty leaves the length open. */
-  until: string;
   commercial_music: boolean;
   /** How much of the studio to start with (ADR-0271): Solo for a new show. */
   step: ShowStep;
@@ -52,20 +48,13 @@ export function needsSetup(me: Me | null | undefined, shows: readonly Show[], sk
 /** The key under which this machine remembers that an account skipped the wizard. */
 export const skipKey = (accountId: string): string => `weavesignal.setup.skipped.${accountId}`;
 
-const pad = (n: number) => String(n).padStart(2, '0');
-export const hhmm = (minutes: number): string => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
-
 /** The answers a show already holds, for the wizard run again (ADR-0218). */
 export function fromShow(show: Show | null, me: Me | null | undefined): Answers {
-  const slot = show?.slot ?? null;
   return {
     presenter: show?.presenter || (show ? '' : (me?.account?.name ?? '')),
     contact: show?.contact ?? '',
     show: show?.name ?? '',
     links: (show?.links ?? []).join('\n'),
-    weekday: slot?.weekday ?? 6,
-    from: slot ? hhmm(slot.start) : '',
-    until: slot?.minutes ? hhmm(slot.start + slot.minutes) : '',
     commercial_music: show?.commercial_music ?? false,
     // A new show starts at Solo; the wizard run again shows the step the show has.
     step: show ? asStep(show.step) : 'solo',
@@ -93,37 +82,6 @@ export function startsAt(step: ShowStep): { lead: string; rest: string } {
   }
 }
 
-/** `HH:MM` as minutes after midnight, or null when it is not a time. */
-export function minutesOf(t: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(t.trim());
-  if (!m) return null;
-  const h = Number(m[1]);
-  const mm = Number(m[2]);
-  if (h > 23 || mm > 59) return null;
-  return h * 60 + mm;
-}
-
-/** An end before the start: the slot runs past midnight, which the wizard asks to confirm
- *  (ADR-0244), since 20:00 to 19:00 is more often a typo than a 23-hour show. */
-export function overnight(a: Pick<Answers, 'from' | 'until'>): boolean {
-  const start = minutesOf(a.from);
-  const end = minutesOf(a.until);
-  return start !== null && end !== null && end < start;
-}
-
-/** The usual slot from the day and times: `until` before `from` runs past midnight. */
-export function slotFrom(a: Pick<Answers, 'weekday' | 'from' | 'until'>): Slot | null {
-  const start = minutesOf(a.from);
-  if (start === null) return null;
-  const end = minutesOf(a.until);
-  let minutes: number | null = null;
-  if (end !== null) {
-    minutes = end > start ? end - start : end + 1440 - start;
-    if (minutes === 0) minutes = 1440;
-  }
-  return { weekday: a.weekday, start, minutes };
-}
-
 export function splitLinks(s: string): string[] {
   return s
     .split(/[\n,;]/)
@@ -145,8 +103,8 @@ export function aboutProblems(a: Answers): { presenter?: string; contact?: strin
 }
 
 /** Problems with the second step's answers, by field. */
-export function showProblems(a: Answers): { show?: string; links?: string; time?: string } {
-  const out: { show?: string; links?: string; time?: string } = {};
+export function showProblems(a: Answers): { show?: string; links?: string } {
+  const out: { show?: string; links?: string } = {};
   const n = a.show.trim();
   if (!n) out.show = "Add your show's name.";
   else if (n.length > SHOW_NAME_MAX) out.show = `At most ${SHOW_NAME_MAX} characters.`;
@@ -157,11 +115,6 @@ export function showProblems(a: Answers): { show?: string; links?: string; time?
     const bad = links.find((l) => l.length > LINK_MAX || /\s/.test(l));
     if (bad) out.links = `“${bad.slice(0, 40)}” is not a link: one address per line, with no spaces.`;
   }
-  const from = a.from.trim();
-  const until = a.until.trim();
-  if (from && minutesOf(from) === null) out.time = 'The start is a time, such as 20:00.';
-  else if (until && minutesOf(until) === null) out.time = 'The end is a time, such as 22:00.';
-  else if (!from && until) out.time = 'Give the start as well as the end.';
   return out;
 }
 
@@ -177,15 +130,18 @@ export function freeSlug(name: string, taken: readonly string[]): string {
 }
 
 /** The PUT body: the answers over what the show already has, tied to this account. An
- *  existing show keeps its description, colour, layout, hosts, tags and explicit flag. */
-export function toShowInput(a: Answers, me: Me, existing: ShowView | null, colour: number): ShowInput {
+ *  existing show keeps its description, colour, layout, hosts, tags and explicit flag. `when`
+ *  is when the show is on, as this station takes it (`whenFields` in schedule/rule/form.ts):
+ *  `rule`, with `draft_first` for a new show, or the weekly `slot` for an older station. A
+ *  save must always carry it, or a station that stores rules would clear a weekly rule. */
+export function toShowInput(a: Answers, me: Me, existing: ShowView | null, colour: number, when: Pick<ShowInput, 'rule' | 'slot' | 'draft_first'>): ShowInput {
   const s = existing?.show;
   return {
     name: a.show.trim(),
     description: s?.description ?? '',
     colour_slot: s?.colour_slot ?? colour,
     layout: s?.layout ?? 'poster',
-    slot: slotFrom(a),
+    ...when,
     hosts: existing?.resolved.hosts ?? [],
     tags: s?.tags ?? [],
     explicit: s?.explicit ?? false,
@@ -200,16 +156,6 @@ export function toShowInput(a: Answers, me: Me, existing: ShowView | null, colou
 
 /** The colour for a new show: the next bank slot round the twelve (ADR-0066). */
 export const nextColour = (count: number): number => (count % 12) + 1;
-
-export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
-
-/** The usual slot in words, for the summary. */
-export function slotLine(a: Pick<Answers, 'weekday' | 'from' | 'until'>): string {
-  const s = slotFrom(a);
-  if (!s) return 'No usual time yet';
-  const day = WEEKDAYS[s.weekday - 1] ?? 'Saturday';
-  return s.minutes ? `${day}s, ${hhmm(s.start)} to ${hhmm(s.start + s.minutes)}` : `${day}s from ${hhmm(s.start)}`;
-}
 
 /** The reminder behind the music question (ADR-0219). */
 export const MUSIC_REMINDER =

@@ -45,7 +45,8 @@
 //! `auto` follows the audio, `slate` holds the slate (desk B's F7), `person` holds one
 //! camera. `now_playing` sets the slate's text (ADR-0010). Both answer an error with video off.
 //! With video on the status also carries `sound`, the video stream's sound (ADR-0172):
-//! `{"source": "desk" | "playout", "live": …, "feed_connected": …, "feed_connections": …}`.
+//! `{"source": "desk" | "playout", "live": …, "feed_connected": …, "feed_connections": …,
+//! "feed_replaced": …, "feed_underruns": …, "feed_late_ms": …, "feed_ring_ms": …}`.
 //!
 //! `status` answers with everyone the desk knows, whether playout is connected, the station's
 //! mode, the profanity delay and how the mixing pass keeps time:

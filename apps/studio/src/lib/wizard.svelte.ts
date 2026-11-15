@@ -9,6 +9,7 @@ import { account } from './account.svelte.ts';
 import * as api from './schedule.ts';
 import type { Show } from './schedule.ts';
 import { myShow, needsSetup, skipKey } from './wizard.ts';
+import { loadStationFacts } from './schedule.svelte.ts';
 
 export const setup = $state({
   /** The wizard is open over the surface. */
@@ -51,7 +52,9 @@ export function rememberSkip(me: Me | null): void {
 export async function loadShows(): Promise<void> {
   if (sandboxed()) return;
   try {
-    setup.shows = await api.shows();
+    // The station's zone and version too: the third part asks it what a rule makes.
+    const [shows] = await Promise.all([api.shows(), loadStationFacts()]);
+    setup.shows = shows;
     setup.error = '';
   } catch (e) {
     setup.error = e instanceof Error ? e.message : String(e);

@@ -900,6 +900,7 @@ async fn add_recording(
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
+#[schema(as = RecordingEnd)]
 #[serde(deny_unknown_fields)]
 pub struct End {
     /// When it ended; now when left out.

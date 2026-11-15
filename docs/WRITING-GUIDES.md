@@ -46,6 +46,7 @@ human readers.
 | Take a phone caller | a presenter |
 | Hand over to the next DJ | a presenter or DJ |
 | Get your show ready while someone else is on air | the next DJ |
-| Change the station's settings | whoever looks after the station |
+| Configure the station and the studio app | whoever looks after the station |
+| Reach the back end | whoever looks after the station |
 | When something goes wrong | everyone |
 | Words you will meet | everyone |

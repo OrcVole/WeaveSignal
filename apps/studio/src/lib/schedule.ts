@@ -5,7 +5,21 @@
 // Rust structs field for field; times from the control plane are epoch seconds for episodes
 // (`air_at`, `aired_at`) and epoch milliseconds for the log (`planned_at_ms`).
 
-import { ApiError, base, headers, netFetch, type ShowStep } from './api.ts';
+import {
+  ApiError,
+  asNextOn,
+  asRuleWords,
+  asScheduleDates,
+  base,
+  headers,
+  netFetch,
+  type IsoDate,
+  type NextOn,
+  type Rule,
+  type RuleWords,
+  type ScheduleDate,
+  type ShowStep,
+} from './api.ts';
 import { dataUrl } from './video.ts';
 
 /** A weekly slot: weekday 1 (Monday) to 7, the start in minutes after midnight, the length. */
@@ -22,7 +36,14 @@ export interface Show {
   description: string;
   colour_slot: number;
   layout: 'poster' | 'slate' | string;
+  /** The weekly slot, when the rule is one an older studio can draw; else null. */
   slot: Slot | null;
+  /** When the show airs (ADR-0278); absent from a station older than 1.0.4. */
+  rule?: Rule | null;
+  /** The rule in the control plane's words; null with no rule. */
+  rule_words?: RuleWords | null;
+  /** The next date, or why there is none. */
+  next_on?: NextOn;
   hosts: string[];
   tags: string[];
   explicit: boolean;
@@ -58,6 +79,10 @@ export interface Series {
   description: string | null;
   hosts: string[] | null;
   slot: Slot | null;
+  /** The series' own rule; null follows the show's (ADR-0278). */
+  rule?: Rule | null;
+  /** The rule in force for the series (its own, else its show's), in the station's words. */
+  rule_words?: RuleWords | null;
   starts_on: string | null;
   planned_episodes: number | null;
   tags: string[] | null;
@@ -81,6 +106,9 @@ export interface Episode {
   guests: string[];
   tags: string[] | null;
   aired_at: number | null;
+  /** The rule date the episode fills (ADR-0278); null when made or left by hand, absent from
+   *  an older station. */
+  occurrence?: IsoDate | null;
   frozen: Resolved | null;
   files: unknown;
   cards: Cards | null;
@@ -93,6 +121,9 @@ export interface Resolved {
   colour_slot: number;
   layout: string;
   slot: Slot | null;
+  /** The rule in force at this level: the series' own, else the show's. */
+  rule?: Rule | null;
+  rule_words?: RuleWords | null;
   hosts: string[];
   guests: string[];
   tags: string[];
@@ -133,7 +164,14 @@ export interface ShowInput {
   description: string;
   colour_slot: number;
   layout: string;
-  slot: Slot | null;
+  /** The weekly slot: what a station older than 1.0.4 keeps. A newer one ignores it when
+   *  `rule` is sent. */
+  slot?: Slot | null;
+  /** When the show airs (ADR-0278): left out keeps, null clears. Never sent to a station
+   *  older than 1.0.4, which refuses a field it does not know. */
+  rule?: Rule | null;
+  /** Make series 1 if there is none and draft the first episode, in the same transaction. */
+  draft_first?: boolean;
   hosts: string[];
   tags: string[];
   explicit: boolean;
@@ -154,6 +192,8 @@ export interface SeriesInput {
   description?: string | null;
   hosts?: string[] | null;
   slot?: Slot | null;
+  /** The series' own rule; null follows the show again. Not sent to an older station. */
+  rule?: Rule | null;
   starts_on?: string | null;
   planned_episodes?: number | null;
   tags?: string[] | null;
@@ -297,13 +337,63 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 const get = <T>(path: string) => call<T>('GET', path);
 
-export const weekEpisodes = (fromMs: number, toMs: number) =>
-  get<{ zone: string; episodes: WeekEpisode[] }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
-export const shows = () => get<Show[]>('/api/v1/shows');
+/** A show as the station sent it, with its rule's words and next date made whole. A station
+ *  older than 1.0.4 sends neither, and the show is returned as it came. */
+export function asShow(s: Show): Show {
+  const raw = s as Show & { next_on_reason?: unknown };
+  if (raw.rule === undefined && raw.next_on === undefined && raw.rule_words === undefined) return s;
+  const words = asRuleWords(s.rule_words);
+  // The last date a finished show had: the station's, or a one-off's one date.
+  const last = words?.last_on ?? (s.rule?.repeat.kind === 'once' ? s.rule.starts_on : null);
+  return { ...s, rule: s.rule ?? null, rule_words: words, next_on: asNextOn(raw.next_on, raw.next_on_reason, !!s.rule, last) };
+}
+const asShowView = (v: ShowView): ShowView => ({ ...v, show: asShow(v.show) });
+
+/** A show as a save sends it back, less when it airs: every other field the station holds,
+ *  so a save that changes one thing keeps the rest. When it airs is added by the caller
+ *  (`whenFields`), because what is sent depends on the station's version. */
+export function inputOf(v: ShowView): ShowInput {
+  const s = v.show;
+  return {
+    name: s.name,
+    description: s.description,
+    colour_slot: s.colour_slot,
+    layout: s.layout,
+    hosts: v.resolved.hosts,
+    tags: s.tags,
+    explicit: s.explicit,
+    presenter: s.presenter ?? '',
+    contact: s.contact ?? '',
+    links: s.links ?? [],
+    commercial_music: s.commercial_music ?? false,
+  };
+}
+
+/** The week's episodes and, from a station that stores rules, every rule's unfilled dates in
+ *  the window (`dates`; null from an older station). */
+export const weekEpisodes = async (fromMs: number, toMs: number): Promise<{ zone: string; episodes: WeekEpisode[]; dates: ScheduleDate[] | null }> => {
+  const w = await get<{ zone: string; episodes: WeekEpisode[]; dates?: unknown }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
+  return { zone: w.zone, episodes: w.episodes.map((e) => ({ ...e, show: asShow(e.show) })), dates: asScheduleDates(w.dates) };
+};
+export const shows = async () => (await get<Show[]>('/api/v1/shows')).map(asShow);
 /** The station's setup (ADR-0237): admins only; `pending` while the setup page is still offered. */
 export const setupState = () => get<{ status: 'pending' | 'done'; missing: string[] }>('/api/v1/setup');
-export const show = (slug: string) => get<ShowView>(`/api/v1/shows/${slug}`);
-export const putShow = (slug: string, input: ShowInput) => call<ShowView>('PUT', `/api/v1/shows/${slug}`, input);
+export const show = async (slug: string) => asShowView(await get<ShowView>(`/api/v1/shows/${slug}`));
+export const putShow = async (slug: string, input: ShowInput) => asShowView(await call<ShowView>('PUT', `/api/v1/shows/${slug}`, input));
+/** What a delete answers (ADR-0279): what went with the show, and how many files. */
+export interface ShowDeleted {
+  slug: string;
+  name: string;
+  series: number;
+  episodes: number;
+  cart_banks: number;
+  carts: number;
+  files_deleted: number;
+}
+/** Delete a show none of whose episodes has aired (`DELETE /api/v1/shows/{show}`, 1.0.4). An admin
+ *  or a producer may. A refusal is an `ApiError` carrying the station's sentence: 409 for a show
+ *  that has aired or is on air, 403 for anyone else. */
+export const deleteShow = (slug: string) => call<ShowDeleted>('DELETE', `/api/v1/shows/${encodeURIComponent(slug)}`);
 export const series = (slug: string, n: number) => get<SeriesView>(`/api/v1/shows/${slug}/series/${n}`);
 export const putSeries = (slug: string, n: number, input: SeriesInput) =>
   call<SeriesView>('PUT', `/api/v1/shows/${slug}/series/${n}`, input);

@@ -172,6 +172,13 @@ pub const TABLE: &[(&str, &str, &str)] = &[
         "/api/v1/shows/{show}/series/{series}/episodes/{episode}/corrections",
         "shows:read",
     ),
+    ("PUT", "/api/v1/shows/{show}/rule", "shows:write"),
+    (
+        "PUT",
+        "/api/v1/shows/{show}/series/{series}/rule",
+        "shows:write",
+    ),
+    ("POST", "/api/v1/schedule/rule/preview", "shows:read"),
     ("POST", "/api/v1/cards/preview", "shows:write"),
     ("POST", "/api/v1/cards/words", "shows:write"),
 ];
@@ -261,6 +268,11 @@ pub const NEVER: &[&str] = &[
     "/api/v1/rtmp/destinations/{id}/enabled",
 ];
 
+/// A method on a route whose other methods a scope opens, which no scope opens: a token never
+/// reaches it (the gate answers 403). `DELETE /api/v1/shows/{show}` (ADR-0279) is a person's:
+/// the path is scoped for `GET` and `PUT`, and deleting a show takes an admin or a producer.
+pub const NEVER_METHOD: &[(&str, &str)] = &[("DELETE", "/api/v1/shows/{show}")];
+
 /// The scope a route needs, for a method and the route as registered (`MatchedPath`).
 pub fn scope_for(method: &Method, route: &str) -> Option<&'static str> {
     TABLE
@@ -302,6 +314,7 @@ mod tests {
             ("app.rs", include_str!("app.rs")),
             ("onair_api.rs", include_str!("onair_api.rs")),
             ("shows.rs", include_str!("shows.rs")),
+            ("rules.rs", include_str!("rules.rs")),
             ("steps.rs", include_str!("steps.rs")),
             ("video.rs", include_str!("video.rs")),
             ("retention.rs", include_str!("retention.rs")),
@@ -363,5 +376,12 @@ mod tests {
         assert_eq!(scope_for(&Method::GET, "/api/v1/staff"), None);
         assert_eq!(scope_for(&Method::GET, "/api/v1/tokens"), None);
         assert_eq!(scope_for(&Method::PUT, "/api/v1/playout/settings"), None);
+        // Deleting a show (ADR-0279) is a person's: the path is scoped for GET and PUT, and no
+        // scope opens the DELETE.
+        assert_eq!(
+            scope_for(&Method::PUT, "/api/v1/shows/{show}"),
+            Some("shows:write")
+        );
+        assert_eq!(scope_for(&Method::DELETE, "/api/v1/shows/{show}"), None);
     }
 }

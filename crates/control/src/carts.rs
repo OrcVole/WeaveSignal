@@ -812,6 +812,23 @@ impl Hub {
         self.reload_carts().await
     }
 
+    /// A show was deleted (ADR-0279) and its banks and carts went with its rows: stop any of
+    /// its carts that is sounding, delete their files, and read the wall again, so no window
+    /// is left listing a bank that is gone.
+    pub async fn forget_show_carts(&self, gone: &[(Uuid, Option<String>)]) {
+        for (cart, file) in gone {
+            let _ = self.desk.cart_stop(*cart).await;
+            if let Some(f) = file.as_deref().filter(|f| carts::is_cart_file(f)) {
+                let _ = tokio::fs::remove_file(self.carts.config.media_dir.join(f)).await;
+            }
+        }
+        if self.carts.db.is_some()
+            && let Err(e) = self.reload_carts().await
+        {
+            tracing::warn!(error = %e, "cannot read the carts again after a show was deleted");
+        }
+    }
+
     /// Run an upload through the media worker and put it in a slot of the owner's bank.
     pub async fn import_cart(
         &self,

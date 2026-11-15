@@ -1,15 +1,29 @@
 ---
-title: "Change the station's settings"
-description: "Where each of the station's settings lives: the studio app, the station's setup page, and, for the rest, the station's settings file."
+title: "Configure the station and the studio app"
+description: "Where each setting lives: the studio app's own, the studio's Settings tab, the station's setup page, and, for the rest, the station's settings file."
 type: howto
 status: draft
-last_verified: 2026-11-11
+last_verified: 2026-11-12
 sidebar:
   order: 8
 ---
 
-When you finish, you will know where to change any of the station's settings.
-There is no single "back end": settings live in three places, and you try them in this order.
+When you finish, you will know where to change any setting, the studio app's own included.
+There is no single "back end": the station's settings live in three places, and you try them in this order.
+To look underneath them (the logs, the files, the API), see [Reach the back end](/guides/reach-the-back-end/).
+
+## The studio app itself
+
+These belong to the app on your computer, not to the station:
+
+- **Which station it talks to.** The **Station address** is asked when you sign in. To change it, press your name at the top right, choose **Sign out**, and sign in with the new address.
+- **Who you are.** The same button shows your name and role; **Sign out** there lets someone else sign in, and **Change your password** is beside it.
+- **Text size.** On a window bigger than 1,920 × 1,080 everything grows with the window by itself. **A−** and **A+** at the top right, or `Ctrl` with `-`, `+` and `0`, make it larger or smaller on top of that.
+- **Theme.** **Dark**, **Light** or **Night** (warm, for late shows), beside the text size.
+- **Updates.** **Settings**, then **Updates**.
+
+The app keeps the station's address in a folder of its own (on Linux `~/.config/org.weavesignal.studio`, on Windows `%APPDATA%\org.weavesignal.studio`); your sign-in is kept in the computer's keychain.
+You never need to edit these files.
 
 ## 1. The studio app: Settings
 
@@ -64,4 +78,4 @@ After an edit, run `deploy/compose/weavesignal.sh` again: it changes only what y
 
 ## More detail
 
-[Set up the station](/docs/how-to/set-up-the-station/), [Settings](/docs/reference/settings/) and [Install on Cloudron](/docs/how-to/install-on-cloudron/).
+[Set up the station](/docs/how-to/set-up-the-station/), [Settings](/docs/reference/settings/), [Install on Cloudron](/docs/how-to/install-on-cloudron/) and [Reach the back end](/guides/reach-the-back-end/).

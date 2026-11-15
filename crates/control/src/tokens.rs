@@ -49,6 +49,7 @@ struct Scope {
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
+#[schema(as = TokenList)]
 struct Listed {
     tokens: Vec<ApiToken>,
     scopes: Vec<Scope>,
@@ -131,6 +132,7 @@ async fn list(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respons
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
+#[schema(as = NewToken)]
 #[serde(deny_unknown_fields)]
 struct NewBody {
     name: String,
@@ -141,6 +143,7 @@ struct NewBody {
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
+#[schema(as = TokenMade)]
 struct Made {
     token: ApiToken,
     /// The secret, shown this once.

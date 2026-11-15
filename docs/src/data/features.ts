@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.3:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.4:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -203,6 +203,13 @@ export const groups: Group[] = [
         href: '/docs/how-to/schedule-the-week/',
         link: 'Schedule the week',
         shot: 'week',
+      },
+      {
+        id: 'new-show',
+        name: 'New show, guided like calendar software',
+        what: 'Once, every week, every month on the third Tuesday or the last Friday, every year on a date, or on dates you choose, with an end. The station says it back in a sentence, shows the dates, marks the clocks changing and what clashes, offers a clear time, and drafts the first episode. Dates can be skipped or moved, and a changed rule moves the episodes already drafted.',
+        href: '/docs/reference/show-rules/',
+        link: 'When a show airs: the rule',
       },
       {
         id: 'library',

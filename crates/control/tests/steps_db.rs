@@ -135,6 +135,8 @@ async fn plane_for(pool: sqlx::PgPool, station: Station) -> Plane {
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
         live: Some(live),
+        hub: None,
+        video: None,
     })));
     Plane {
         app,

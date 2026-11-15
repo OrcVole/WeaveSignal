@@ -1,9 +1,9 @@
 ---
 title: "Schedule"
-description: "The Schedule tab's panels by name: the toolbar, the week, the episode, series and card editors, the show's slate picture, the aired episode, and the log editor."
+description: "The Schedule tab's panels by name: the toolbar, the week, New show and the rule dialog, the episode, series and card editors, the show's rule, step, slate picture and delete, the aired episode, and the log editor."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-15
 sidebar:
   order: 5
 ---
@@ -28,8 +28,8 @@ Not drawn on the tab: the app’s top bar, `studio.frame`, is above every tab.
 | **Week**, **Studios** | the view; **Studios** is **[planned](/docs/reference/release-one-status/)** and says it is not in this build: studios as columns wait for a studio on each show |
 | the zone | the station's time zone, and its clock change if one falls this week |
 | **Choose the time zone…** | shown to an admin until someone has chosen the station's zone; opens Settings |
-| **New show** | the new-show form in the editor column |
-| the legend | Live, automation, an instance of a weekly rule, conflict, aired |
+| **New show** | opens New show (`calendar.new-show`) |
+| the legend | Live, automation, a date from the show's rule, conflict, aired |
 
 ![The calendar's toolbar: previous and next week, Today, the week's dates, the station's time zone, Week and Studios, New show, and the legend.](../../../../../assets/screens/reference-calendar-toolbar.png)
 
@@ -42,23 +42,57 @@ A time axis and seven days; every block is placed by its start and length, in st
 | A block says | When |
 |---|---|
 | the show's name, its times, a left band in its colour (ADR-0066), LIVE, `Ep 212` or `S3 Ep 7 · its title`, the hosts | an episode |
-| the repeat glyph by the time | the show has a weekly rule and this is one of its instances |
+| the repeat glyph by the time | the date comes from the show's rule ([When a show airs: the rule](/docs/reference/show-rules/)) |
 | MOVED · was 07:00 (or · was Mon 07:00, moved to another day) | an instance moved off its rule's time this week |
 | CONFLICT, on both | two episodes overlap in time |
 | ON AIR | the block the station's clock is inside now |
 | LIVE · AIRED on a dimmed surface | it has gone out: aired episodes are frozen (ADR-0055) |
-| NOT DRAFTED and *Weekly rule · draft it*, dotted | a show's weekly rule where no episode is drafted yet; select it to draft the episode |
+| NOT DRAFTED and *Ep 4 · Select it to draft or skip*, dashed | a date the show's rule gives where no episode is drafted yet; select it to **Draft this episode** or **Skip this date** (the toast offers **Undo**) |
 | AUTOMATION, hatched, named by its clock | every gap, filled by the clock that runs each local hour (ADR-0045); it never conflicts, it yields |
 
 Every episode's block says LIVE, whatever its kind: the grid does not yet show a pre-recorded episode differently.
 A block takes focus with `Tab` and opens with `⏎`; a future episode can be dragged or resized with the pointer, and snaps back with the reason if the control plane refuses.
+
+## `calendar.new-show`
+
+**New show** opens a dialog in three parts (ADR-0278; [Schedule a new show](/docs/how-to/schedule-the-week/)):
+
+1. **The show**: its name, its colour and its step.
+2. **When it airs**: `calendar.rule`, below. With a block selected, the date and time start from that block.
+3. **Done**: the show is made and its first episode drafted; **Draft all 10** drafts the rest of a rule with an end, and **Open episode 1** selects it.
+
+**No dates yet** makes the show without a rule; it is then listed under *No dates yet* (`calendar.unscheduled`) with **Give it dates…**.
+
+## `calendar.rule`
+
+The questions on the left and, on the right, what they make, as the station says it back (`calendar.rule.preview`). The same panel is New show's second part, the rule dialog that **Change…** opens, and the presenter's *When it is on*.
+
+| Part | What it does |
+|---|---|
+| **First on**, **from**, **until** | the first date and the times, in the station's zone; a show that runs past midnight is asked about once |
+| **Repeats** | the sentences the date makes (*Every week on Tuesday*, *Every month on the third Tuesday*, *Every year on 17 November*, **On dates I choose…**); **More choices…** gives Once, Weekly (every n weeks, several weekdays), Monthly (the nth or last weekday, or a day of the month), Yearly and Chosen dates |
+| **Ends** | Never, **On** a date, or **After** n episodes; a skipped date does not count |
+| the sentence (`calendar.rule.summary`) | the rule in words and its last date |
+| the clash line | how many of the dates shown clash with another show; when every date does, the show is named and the station offers the nearest clear time within three hours, **Try 16:00 to 17:00** |
+| the small months | each date that airs, clashes or is skipped; for chosen dates, a click or `Space` adds or removes a date |
+| the rows | each date with its episode number and times, CONFLICT with the other show and the overlap, CLOCKS FORWARD or CLOCKS BACK where the clocks change; **Skip** (or **Put back**), **Move…** (or **Back to the rule**), and **Remove** for a chosen date |
+
+On a show that has episodes, **Save…** shows *Before you save* (`calendar.rule.change`): the drafted episodes with their old and new dates, **Move them to the new dates** or **Leave them where they are**, and any skipped or moved date the new rule no longer gives. Every window is told *Moira changed when The Folk Club airs.*
+
+## `calendar.show-rule`
+
+**When it airs** on the show level: the rule in words and **Change…**, which opens `calendar.rule`.
+
+## `calendar.unscheduled`
+
+In the editor column with nothing selected: the shows that draw nothing in the week. *No dates yet* lists the shows without a rule, each with **Give it dates…**; *Finished* lists those whose rule has ended.
 
 ## `calendar.episode-editor`
 
 ![The episode editor for Saturday Night Kettle: its path, date and time, and each field marked as inherited or set here.](../../../../../assets/screens/reference-calendar-episode-editor.png)
 
 The selected episode: its path (show › series › episode), its date and a TONIGHT, ON AIR or AIRED chip, and a level switch (Episode, Series n, Show).
-The same column, under the same name, holds the new-show form, a dotted weekly rule's **Draft this episode**, and *Nothing selected*.
+The same column, under the same name, holds a dashed rule date's **Draft this episode** and **Skip this date**, and *Nothing selected*.
 Every field carries one of three markers:
 
 - **inherited** (dotted; "from Series 3", "from the show", "from the series rule"): the field follows the level above by reference until **Set here**;
@@ -71,9 +105,9 @@ The foot: **Save episode** (only what changed) and **Discard changes**, **Create
 
 ## `calendar.series-editor`
 
-The series level: the title, the schedule rule (weekly on a day, a start, a length; **Reset to show** inherits the show's again), the start date, the planned count, the hosts, the description and the tags, each inherited from the show until set; which episodes have aired, are drafted, or wait; **Save series**, **Discard changes**, **Draft the season** and **Create next episode**.
+The series level: the title, the rule (the show's until the series has its own; **Change…** opens the rule dialog, **Reset to show** inherits the show's again), the start date, the planned count, the hosts, the description and the tags, each inherited from the show until set; which episodes have aired, are drafted, or wait; **Save series**, **Discard changes**, **Draft the season** and **Create next episode**.
 
-![The series editor: title, weekly rule, start date, planned episodes, and the buttons that draft the season.](../../../../../assets/screens/reference-calendar-series-editor.png)
+![The series editor: title, rule, start date, planned episodes, and the buttons that draft the season.](../../../../../assets/screens/reference-calendar-series-editor.png)
 
 ## `calendar.show-still`
 
@@ -90,10 +124,18 @@ Whatever a step leaves out is switched off while the show is on air; under Solo 
 It is the same value the top bar's step dialog changes; on air a change takes effect at once.
 A new show starts at Solo; an admin, a producer or the show's presenter may change it ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)).
 
+## `calendar.show-delete`
+
+**Delete show…**, at the foot of the show editor and left of **Save show**, offered only to an admin or a producer on a station of 1.0.4 or later (ADR-0279).
+It opens a dialog headed with the show's name, which says what goes with the show, with the counts of its series and drafted episodes, and that it cannot be undone.
+**Keep it** is the default; **Delete show** goes on.
+The station refuses a show that has aired or is on air, and the dialog shows its sentence and keeps the show.
+After a delete the editor closes, the week is read again, and the tab says *The Folk Club is deleted.* with no Undo ([Delete a show](/docs/how-to/delete-a-show/)).
+
 ## `calendar.show-presenter`
 
 The **Presenter** fields on the show level (ADR-0214, ADR-0219): the **on-air name** and **takedown contact** the consent words name while this show is on air (the contact first, then the station's own as the host; empty, the station's alone), the **channel links**, one per line, and whether the show plays **commercial music** (a reminder that a UK webcast of it needs PPL and PRS for Music licences; it blocks nothing).
-They are the same answers a presenter gives in their own setup ([Set up your show](/docs/how-to/set-up-your-show/)), and the show's weekly rule is the usual time that setup asks for.
+They are the same answers a presenter gives in their own setup ([Set up your show](/docs/how-to/set-up-your-show/)), and the show's rule is the *When it is on* that setup asks for.
 A save that leaves these fields out keeps them, so an older studio build or an integration never wipes a presenter's details.
 
 ## `calendar.aired-episode`

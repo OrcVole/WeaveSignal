@@ -94,6 +94,8 @@ async fn an_aired_show_appears_in_its_feed_with_both_enclosures_and_its_card() {
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
         live: None,
+        hub: None,
+        video: None,
     }));
 
     // A name that cannot fit refuses the save, with the field named, and nothing is kept.
@@ -156,17 +158,18 @@ async fn an_aired_show_appears_in_its_feed_with_both_enclosures_and_its_card() {
     assert_eq!(code, StatusCode::OK);
     assert!(png.starts_with(b"\x89PNG"));
 
-    // Series 3 from 5 September, ten planned; the season drafted at once.
+    // Series 3 from Saturday 6 September 2036 (a start in the future, since drafting never goes
+    // into the past), ten planned; the season drafted at once.
     let (code, body) = json(
         &app,
         "PUT",
         "/api/v1/shows/saturday-night/series/3",
-        serde_json::json!({"starts_on": "2026-09-05", "planned_episodes": 10}),
+        serde_json::json!({"starts_on": "2036-09-06", "planned_episodes": 10}),
     )
     .await;
     assert_eq!(code, StatusCode::OK, "{body}");
-    assert_eq!(body["resolved"]["series"]["first"], "2026-09-05");
-    assert_eq!(body["resolved"]["series"]["last"], "2026-11-07");
+    assert_eq!(body["resolved"]["series"]["first"], "2036-09-06");
+    assert_eq!(body["resolved"]["series"]["last"], "2036-11-08");
     assert!(
         body["resolved"]["inherited"]
             .as_array()
@@ -198,7 +201,7 @@ async fn an_aired_show_appears_in_its_feed_with_both_enclosures_and_its_card() {
     assert_eq!(code, StatusCode::OK, "{body}");
     assert_eq!(
         body["episode"]["cards"]["alt"],
-        "Saturday Night Kettle, Series 3 Episode 7, Ghost Train night, Saturday 17 October 2026 at 20:00 BST on Kettle FM, with Shona Campbell and Catriona MacKenzie-Buchanan, guests Firth Lights and Dr Una Robertson. kettle.example/saturday-night/s3/e7"
+        "Saturday Night Kettle, Series 3 Episode 7, Ghost Train night, Saturday 18 October 2036 at 20:00 BST on Kettle FM, with Shona Campbell and Catriona MacKenzie-Buchanan, guests Firth Lights and Dr Una Robertson. kettle.example/saturday-night/s3/e7"
     );
 
     // Not on air yet: not in the feed.
@@ -387,6 +390,8 @@ async fn an_erased_guest_leaves_the_aired_card_and_its_old_files_go() {
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
         live: None,
+        hub: None,
+        video: None,
     }));
     let ok = |(code, body): (StatusCode, serde_json::Value)| {
         assert!(code.is_success(), "{code} {body}");
@@ -580,6 +585,8 @@ async fn staff_correct_an_aired_episode_and_the_feed_keeps_its_id() {
         },
         zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
         live: None,
+        hub: None,
+        video: None,
     }));
     let ok = |(code, body): (StatusCode, serde_json::Value)| {
         assert!(code.is_success(), "{code} {body}");
@@ -922,5 +929,1346 @@ async fn staff_correct_an_aired_episode_and_the_feed_keeps_its_id() {
     assert_eq!(
         log[0]["old_values"]["title"], "The ferrys",
         "the rest of the original stays"
+    );
+}
+
+// ---- the guided New show: rules, previews, clashes (release 1.0.4, ADR-0278) ----
+//
+// Dates are in 2036, so that "never into the past" keeps the tests true as the clock moves.
+// 2036-09-02 is a Tuesday, 2036-12-02 the first Tuesday of December, 2036-03-30 the Sunday the
+// clocks go forward.
+
+use weavesignal_model::staff::Role;
+
+struct Rig {
+    app: axum::Router,
+    pool: sqlx::PgPool,
+    station: StationId,
+    /// The cards' and the published files' folders.
+    dir: PathBuf,
+    producer: String,
+    presenter: String,
+    admin: String,
+    screener: String,
+}
+
+async fn rig() -> Rig {
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    let station = ensure_station(
+        &pool,
+        &Station::new(StationId::new_random(), "Kettle FM").unwrap(),
+    )
+    .await
+    .unwrap();
+    let mut tokens = Vec::new();
+    for (name, role) in [
+        ("morag", Role::Producer),
+        ("shona", Role::Presenter),
+        ("alasdair", Role::Admin),
+        ("ishbel", Role::Screener),
+    ] {
+        let account = weavesignal_model::staff::create_account(
+            &pool,
+            station.id,
+            name,
+            name,
+            role,
+            &weavesignal_model::staff::hash_password("a long enough phrase").unwrap(),
+        )
+        .await
+        .unwrap();
+        let token = weavesignal_model::staff::new_token();
+        weavesignal_model::staff::create_session(
+            &pool,
+            station.id,
+            account.id,
+            &weavesignal_model::staff::token_hash(&token),
+            weavesignal_control::hub::now_ms() + 3_600_000,
+        )
+        .await
+        .unwrap();
+        tokens.push(token);
+    }
+    let staff = Arc::new(weavesignal_control::staff::Staff::new(Some(pool.clone())));
+    staff.restore(station.id).await;
+    let dir =
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("rules-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(dir.join("episodes")).unwrap();
+    let station_id = station.id;
+    let app = router(Arc::new(ShowsState {
+        station,
+        db: Some(pool.clone()),
+        admin_token: Some(ADMIN.into()),
+        staff,
+        publishing: PublishingConfig {
+            public_url: "https://kettle.example".into(),
+            place: "Dunfermline".into(),
+            cards_dir: dir.join("cards"),
+            episodes_dir: dir.join("episodes"),
+            ..PublishingConfig::default()
+        },
+        zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
+        live: None,
+        hub: None,
+        video: Some(weavesignal_control::config::VideoConfig {
+            still_file: dir.join("stills/slate.png"),
+            ..Default::default()
+        }),
+    }));
+    let screener = tokens.pop().unwrap();
+    let admin = tokens.pop().unwrap();
+    let presenter = tokens.pop().unwrap();
+    let producer = tokens.pop().unwrap();
+    Rig {
+        app,
+        pool,
+        station: station_id,
+        dir,
+        producer,
+        presenter,
+        admin,
+        screener,
+    }
+}
+
+fn ok_body((code, body): (StatusCode, serde_json::Value)) -> serde_json::Value {
+    assert!(code.is_success(), "{code} {body}");
+    body
+}
+
+fn show_body(name: &str, extra: serde_json::Value) -> serde_json::Value {
+    let mut v = serde_json::json!({"name": name, "colour_slot": 3, "layout": "poster"});
+    for (k, x) in extra.as_object().unwrap() {
+        v[k] = x.clone();
+    }
+    v
+}
+
+fn weekly(weekday: u8, start: u16, minutes: u16, starts_on: &str) -> serde_json::Value {
+    serde_json::json!({
+        "starts_on": starts_on, "start": start, "minutes": minutes,
+        "repeat": {"kind": "weekly", "every": 1, "weekdays": [weekday]}
+    })
+}
+
+fn first_tuesday() -> serde_json::Value {
+    serde_json::json!({
+        "starts_on": "2036-12-02", "start": 1200, "minutes": 60,
+        "repeat": {"kind": "monthly_nth", "every": 1, "nth": 1, "weekday": 2},
+        "end": {"kind": "count", "count": 3}
+    })
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_new_show_is_made_with_its_first_episode_in_one_save_and_a_count_counts_episodes() {
+    let r = rig().await;
+    let body = ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/folk-club",
+            show_body(
+                "The Folk Club",
+                serde_json::json!({"rule": first_tuesday(), "draft_first": true, "step": "solo"}),
+            ),
+        )
+        .await,
+    );
+    assert_eq!(body["show"]["rule"]["repeat"]["kind"], "monthly_nth");
+    assert!(
+        body["show"]["slot"].is_null(),
+        "not slot-shaped, so an older studio sees none"
+    );
+    assert_eq!(
+        body["show"]["rule_words"]["sentence"],
+        "Every month on the first Tuesday, 20:00 to 21:00, from 2 December 2036, for 3 episodes."
+    );
+    assert_eq!(body["show"]["rule_words"]["last_on"], "2037-02-03");
+    assert_eq!(body["show"]["next_on"]["on"], "2036-12-02");
+    assert_eq!(body["series"].as_array().unwrap().len(), 1);
+    assert_eq!(body["series"][0]["number"], 1);
+    assert!(
+        body["series"][0]["rule"].is_null(),
+        "series 1 follows the show"
+    );
+    let ep = &body["drafted"]["episode"];
+    assert_eq!(ep["number"], 1);
+    assert_eq!(ep["occurrence"], "2036-12-02");
+
+    // The same save sent again (a retry) drafts nothing more.
+    let again = ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/folk-club",
+            show_body(
+                "The Folk Club",
+                serde_json::json!({"rule": first_tuesday(), "draft_first": true, "step": "solo"}),
+            ),
+        )
+        .await,
+    );
+    assert!(again["drafted"].is_null());
+    assert_eq!(again["show"]["rule_words"]["last_on"], "2037-02-03");
+
+    // The rest of the run: two more, then it is complete.
+    let (code, made) = json(
+        &r.app,
+        "POST",
+        "/api/v1/shows/folk-club/series/1/episodes",
+        serde_json::json!({"count": 5}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{made}");
+    let dates: Vec<&str> = made
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["episode"]["occurrence"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2037-01-06", "2037-02-03"]);
+    let (code, body) = json(
+        &r.app,
+        "POST",
+        "/api/v1/shows/folk-club/series/1/episodes",
+        serde_json::json!({"count": 1}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    let shown = ok_body(
+        json(
+            &r.app,
+            "GET",
+            "/api/v1/shows/folk-club",
+            serde_json::Value::Null,
+        )
+        .await,
+    );
+    assert_eq!(shown["show"]["next_on"]["on"], "2036-12-02", "still to air");
+
+    // A skipped date does not use up an episode: the run is one date longer.
+    let skipped = ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/folk-club2",
+            show_body(
+                "The Folk Club Again",
+                serde_json::json!({"rule": {
+                    "starts_on": "2036-12-02", "start": 1200,
+                    "repeat": {"kind": "monthly_nth", "every": 1, "nth": 1, "weekday": 2},
+                    "end": {"kind": "count", "count": 3}, "skip": ["2037-01-06"]
+                }}),
+            ),
+        )
+        .await,
+    );
+    // 2037-01-06 is the first Tuesday of January 2037.
+    assert_eq!(skipped["show"]["rule_words"]["last_on"], "2037-03-03");
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/folk-club2/series/1",
+            serde_json::json!({}),
+        )
+        .await,
+    );
+    let (code, made) = json(
+        &r.app,
+        "POST",
+        "/api/v1/shows/folk-club2/series/1/episodes",
+        serde_json::json!({"count": 9}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{made}");
+    let dates: Vec<&str> = made
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["episode"]["occurrence"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2036-12-02", "2037-02-03", "2037-03-03"]);
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_presenter_is_refused_a_clash_and_nothing_is_saved_while_others_are_warned() {
+    let r = rig().await;
+    // Saturday Night Kettle: Saturdays 20:00 to 23:00, the first drafted.
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/saturday-night",
+            show_body(
+                "Saturday Night Kettle",
+                serde_json::json!({"rule": weekly(6, 1200, 180, "2036-09-06"), "draft_first": true,
+                                    "hosts": ["Shona Campbell"]}),
+            ),
+        )
+        .await,
+    );
+    // A show with a rule and no episode yet: Fridays 18:00 to 19:00.
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/friday-late",
+            show_body(
+                "Friday Late",
+                serde_json::json!({"rule": weekly(5, 1080, 60, "2036-09-05")}),
+            ),
+        )
+        .await,
+    );
+    let once = |date: &str, start: u16| serde_json::json!({"starts_on": date, "start": start, "minutes": 60, "repeat": {"kind": "once"}});
+    // Over a drafted episode: the presenter is refused, naming the other show.
+    let (code, body) = json_as(
+        &r.app,
+        &r.presenter,
+        "PUT",
+        "/api/v1/shows/newcomer",
+        show_body(
+            "The Newcomer",
+            serde_json::json!({"rule": once("2036-09-06", 1290), "draft_first": true}),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["field"], "rule");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Saturday Night Kettle has that time."),
+        "{body}"
+    );
+    assert_eq!(body["clashes"][0]["slug"], "saturday-night");
+    assert_eq!(body["clashes"][0]["kind"], "episode");
+    assert_eq!(body["clashes"][0]["overlap_minutes"], 60);
+    assert_eq!(body["clashes"][0]["hosts"][0], "Shona Campbell");
+    let (code, _) = json(
+        &r.app,
+        "GET",
+        "/api/v1/shows/newcomer",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND, "the show was not made either");
+    // Over a date another show's rule gives, with no episode yet.
+    let (code, body) = json_as(
+        &r.app,
+        &r.presenter,
+        "PUT",
+        "/api/v1/shows/newcomer",
+        show_body(
+            "The Newcomer",
+            serde_json::json!({"rule": once("2036-09-05", 1110), "draft_first": true}),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["clashes"][0]["kind"], "rule");
+    assert_eq!(body["clashes"][0]["slug"], "friday-late");
+    // The preview says beforehand what would be refused, on the first date only.
+    let (code, preview) = json_as(
+        &r.app,
+        &r.presenter,
+        "POST",
+        "/api/v1/schedule/rule/preview",
+        serde_json::json!({"rule": weekly(5, 1110, 60, "2036-09-05"), "limit": 3}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{preview}");
+    assert_eq!(preview["clash_count"], 3);
+    // Every date is in Friday Late's way (18:00 to 19:00): the nearest clear start, half an hour
+    // at a time and later first, is 19:00.
+    assert_eq!(preview["clear"]["start"], 1140, "{preview}");
+    assert_eq!(preview["clear"]["minutes"], 60);
+    // A one-off inside Saturday Night Kettle (20:00 to 23:00): 23:00 is nearer than 19:00.
+    let (_, one) = json(
+        &r.app,
+        "POST",
+        "/api/v1/schedule/rule/preview",
+        serde_json::json!({"rule": once("2036-09-06", 1290), "limit": 3}),
+    )
+    .await;
+    assert_eq!(one["clear"]["start"], 1380, "{one}");
+    // A date that clashes alone is put right on its row: nothing is offered.
+    let (_, clear) = json(
+        &r.app,
+        "POST",
+        "/api/v1/schedule/rule/preview",
+        serde_json::json!({"rule": once("2036-09-06", 900), "limit": 3}),
+    )
+    .await;
+    assert_eq!(clear["clash_count"], 0, "{clear}");
+    assert!(clear["clear"].is_null(), "{clear}");
+    assert_eq!(preview["dates"][0]["first"], true);
+    assert_eq!(preview["dates"][0]["refused"], true);
+    assert_eq!(preview["dates"][1]["refused"], false);
+    assert_eq!(preview["dates"][1]["clashes"][0]["slug"], "friday-late");
+    // A presenter who saves without drafting is not refused: later dates are looked at only
+    // when they come to be drafted.
+    ok_body(
+        json_as(
+            &r.app,
+            &r.presenter,
+            "PUT",
+            "/api/v1/shows/newcomer",
+            show_body(
+                "The Newcomer",
+                serde_json::json!({"rule": once("2036-09-05", 1110)}),
+            ),
+        )
+        .await,
+    );
+    let (code, body) = json_as(
+        &r.app,
+        &r.presenter,
+        "POST",
+        "/api/v1/shows/newcomer/series/1/episodes",
+        serde_json::json!({"count": 1}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND, "no series yet: {body}");
+    // A producer is warned and goes on.
+    let body = ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "PUT",
+            "/api/v1/shows/pre-empt",
+            show_body(
+                "Pre-empt",
+                serde_json::json!({"rule": once("2036-09-06", 1290), "draft_first": true}),
+            ),
+        )
+        .await,
+    );
+    assert_eq!(body["warnings"][0]["slug"], "saturday-night");
+    assert_eq!(body["drafted"]["episode"]["number"], 1);
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn previewing_a_rule_says_it_back_marks_skips_and_the_clocks_and_writes_nothing() {
+    let r = rig().await;
+    let preview = |body: serde_json::Value| async {
+        let (code, v) = json(&r.app, "POST", "/api/v1/schedule/rule/preview", body).await;
+        assert_eq!(code, StatusCode::OK, "{v}");
+        v
+    };
+    // 01:30 on Sundays across the clocks going forward (30 March 2036).
+    let v = preview(serde_json::json!({
+        "rule": {"starts_on": "2036-03-23", "start": 90, "minutes": 60,
+                 "repeat": {"kind": "weekly", "every": 1, "weekdays": [7]},
+                 "skip": ["2036-04-06"]},
+        "limit": 3
+    }))
+    .await;
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["zone"], "Europe/London");
+    let d = v["dates"].as_array().unwrap();
+    assert_eq!(
+        d.len(),
+        4,
+        "three that air and one struck through between them"
+    );
+    assert_eq!(d[0]["on"], "2036-03-23");
+    assert_eq!(d[1]["on"], "2036-03-30");
+    assert_eq!(d[1]["clock"], "forward");
+    assert_eq!(
+        d[1]["start"], "02:30",
+        "airs an hour late, as a slot always did"
+    );
+    assert_eq!(d[1]["end"], "03:30");
+    assert_eq!(d[2]["on"], "2036-04-06");
+    assert_eq!(d[2]["state"], "skipped");
+    assert_eq!(d[3]["on"], "2036-04-13");
+    assert_eq!(d[3]["state"], "airs");
+    assert_eq!(v["more"], true);
+    assert_eq!(d[0]["number"], 1);
+    assert_eq!(d[3]["number"], 3, "a skipped date takes no number");
+
+    // Nothing was written.
+    let all = ok_body(json(&r.app, "GET", "/api/v1/shows", serde_json::Value::Null).await);
+    assert!(all.as_array().unwrap().is_empty());
+
+    // A one-off whose time has passed, and a rule with a mistake in it, by field.
+    let v = preview(serde_json::json!({
+        "rule": {"starts_on": "2020-01-06", "start": 600, "repeat": {"kind": "once"}}
+    }))
+    .await;
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["problems"][0]["field"], "starts_on");
+    assert!(
+        v["problems"][0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("That time has passed.")
+    );
+    let v = preview(serde_json::json!({
+        "rule": {"starts_on": "2036-09-02", "start": 1500, "minutes": 60,
+                 "repeat": {"kind": "weekly", "every": 13, "weekdays": []}}
+    }))
+    .await;
+    assert_eq!(v["ok"], false);
+    let fields: Vec<&str> = v["problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["field"].as_str().unwrap())
+        .collect();
+    assert_eq!(fields, ["start", "repeat.every", "repeat.weekdays"]);
+    assert!(v["words"].is_null());
+    let v = preview(serde_json::json!({
+        "rule": {"starts_on": "2036-09-02", "start": 600, "repeat": {"kind": "weekly", "every": 1, "weekdays": [2]},
+                 "end": {"kind": "until", "until": "2036-08-01"}}
+    }))
+    .await;
+    assert_eq!(v["problems"][0]["field"], "end");
+    assert!(
+        v["problems"][0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("This makes no dates.")
+    );
+
+    // Refused as a request: an unknown field, and a limit out of range.
+    let (code, _) = json(
+        &r.app,
+        "POST",
+        "/api/v1/schedule/rule/preview",
+        serde_json::json!({"rule": {"start": 600, "repeat": {"kind": "once"}}, "colour": 1}),
+    )
+    .await;
+    assert!(code.is_client_error());
+    let (code, _) = json(
+        &r.app,
+        "POST",
+        "/api/v1/schedule/rule/preview",
+        serde_json::json!({"rule": weekly(2, 600, 60, "2036-09-02"), "limit": 61}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn changing_a_rule_moves_the_drafted_episodes_in_order_and_leaves_the_rest() {
+    let r = rig().await;
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/tuesdays",
+            show_body(
+                "Tuesdays",
+                serde_json::json!({"rule": weekly(2, 1200, 60, "2036-09-02"), "draft_first": true}),
+            ),
+        )
+        .await,
+    );
+    let base = "/api/v1/shows/tuesdays/series/1";
+    let (code, made) = json(
+        &r.app,
+        "POST",
+        &format!("{base}/episodes"),
+        serde_json::json!({"count": 4}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{made}");
+    // Titles that must survive the move; episode 3 is moved by hand to the Wednesday evening.
+    for (n, title) in [(2, "Second"), (4, "Fourth"), (5, "Fifth")] {
+        ok_body(
+            json(
+                &r.app,
+                "PATCH",
+                &format!("{base}/episodes/{n}"),
+                serde_json::json!({"title": title}),
+            )
+            .await,
+        );
+    }
+    ok_body(
+        json(
+            &r.app,
+            "PATCH",
+            &format!("{base}/episodes/3"),
+            serde_json::json!({"title": "By hand", "air_at": "2036-09-17T21:00:00+01:00[Europe/London]"}),
+        )
+        .await,
+    );
+    // Episode 1 airs: frozen.
+    ok_body(
+        json(
+            &r.app,
+            "POST",
+            &format!("{base}/episodes/1/air"),
+            serde_json::Value::Null,
+        )
+        .await,
+    );
+
+    // The preview says what saving would do, before it is saved.
+    let new_rule = weekly(3, 1200, 60, "2036-09-03");
+    let (code, v) = json(
+        &r.app,
+        "POST",
+        "/api/v1/schedule/rule/preview",
+        serde_json::json!({"rule": new_rule, "show": "tuesdays"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["change"]["aired"], 1);
+    let moved: Vec<(i64, &str)> = v["change"]["moved"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| (m["number"].as_i64().unwrap(), m["to_on"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        moved,
+        [(2, "2036-09-03"), (4, "2036-09-10"), (5, "2036-09-17")]
+    );
+    assert_eq!(v["change"]["by_hand"][0]["number"], 3);
+    let (_, shown) = json(&r.app, "GET", base, serde_json::Value::Null).await;
+    assert_eq!(
+        shown["episodes"][1]["episode"]["occurrence"], "2036-09-09",
+        "nothing saved yet"
+    );
+
+    // Saved: they move, keeping their numbers and titles.
+    let (code, v) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/tuesdays/rule",
+        serde_json::json!({"rule": new_rule, "drafted": "move"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["aired"], 1);
+    assert_eq!(v["moved"].as_array().unwrap().len(), 3);
+    assert_eq!(v["by_hand"][0]["number"], 3);
+    assert_eq!(v["rule_words"]["short"], "Wed, 20:00–21:00");
+    let (_, shown) = json(&r.app, "GET", base, serde_json::Value::Null).await;
+    let eps = shown["episodes"].as_array().unwrap();
+    let at = |i: usize| {
+        (
+            eps[i]["episode"]["number"].as_i64().unwrap(),
+            eps[i]["episode"]["title"].as_str().unwrap().to_owned(),
+            eps[i]["episode"]["occurrence"].as_str().unwrap().to_owned(),
+            eps[i]["resolved"]["episode"]["air_at"].as_i64().unwrap(),
+        )
+    };
+    // 2036-09-03 20:00 BST is 19:00 UTC.
+    let wed = |day: u32| {
+        format!("2036-09-{day:02}T19:00:00Z")
+            .parse::<jiff::Timestamp>()
+            .unwrap()
+            .as_second()
+    };
+    assert_eq!(
+        at(0).2,
+        "2036-09-02",
+        "the aired episode is frozen where it was"
+    );
+    assert_eq!(at(1), (2, "Second".into(), "2036-09-03".into(), wed(3)));
+    assert_eq!(at(2).2, "2036-09-16", "a person put it there, so it stays");
+    assert_eq!(at(3), (4, "Fourth".into(), "2036-09-10".into(), wed(10)));
+    assert_eq!(at(4), (5, "Fifth".into(), "2036-09-17".into(), wed(17)));
+
+    // Logged, with who; and a change that leaves them.
+    let (code, v) = json_as(
+        &r.app,
+        &r.producer,
+        "PUT",
+        "/api/v1/shows/tuesdays/rule",
+        serde_json::json!({"rule": weekly(4, 1200, 60, "2036-09-04"), "drafted": "leave"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["moved"].as_array().unwrap().len(), 0);
+    assert_eq!(v["left"].as_array().unwrap().len(), 3);
+    let log: Vec<(String, String, i32)> = sqlx::query_as(
+        "SELECT c.by_label, c.drafted, c.moved FROM show_rule_change c
+         JOIN show s ON s.id = c.show_id WHERE s.slug = 'tuesdays' ORDER BY c.id",
+    )
+    .fetch_all(&r.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        log.iter()
+            .map(|(_, d, m)| (d.as_str(), *m))
+            .collect::<Vec<_>>(),
+        // Making the show is not a change; the two changes after it are.
+        [("move", 3), ("leave", 0)]
+    );
+    assert_eq!(log[1].0, "morag");
+
+    // `rule` must be sent: leaving it out is a mistake, not a clear.
+    let (code, _) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/tuesdays/rule",
+        serde_json::json!({"drafted": "move"}),
+    )
+    .await;
+    assert!(code.is_client_error());
+    // A series' own rule, and following the show again.
+    let (code, v) = json(
+        &r.app,
+        "PUT",
+        &format!("{base}/rule"),
+        serde_json::json!({"rule": weekly(5, 1200, 60, "2036-09-05"), "drafted": "leave"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["series"]["rule"]["repeat"]["weekdays"][0], 5);
+    let (code, v) = json(
+        &r.app,
+        "PUT",
+        &format!("{base}/rule"),
+        serde_json::json!({"rule": null}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert!(v["series"]["rule"].is_null());
+    let (code, _) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/nobody/rule",
+        serde_json::json!({"rule": null}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn an_older_studio_keeps_a_rule_it_cannot_see_and_a_slot_still_means_a_weekly_rule() {
+    let r = rig().await;
+    let put = |extra: serde_json::Value| {
+        let app = r.app.clone();
+        async move {
+            ok_body(
+                json(
+                    &app,
+                    "PUT",
+                    "/api/v1/shows/wobble",
+                    show_body("Wobble", extra),
+                )
+                .await,
+            )
+        }
+    };
+    // A monthly rule; an older studio saves the show again without a slot (null) and without a
+    // rule: it could not see the rule, so it is kept.
+    let v = put(serde_json::json!({"rule": first_tuesday()})).await;
+    assert_eq!(v["show"]["rule"]["repeat"]["kind"], "monthly_nth");
+    let v = put(serde_json::json!({"slot": null})).await;
+    assert_eq!(v["show"]["rule"]["repeat"]["kind"], "monthly_nth", "kept");
+    // It sets a weekly slot there: the weekly rule the slot means replaces the rule.
+    let v = put(serde_json::json!({"slot": {"weekday": 3, "start": 600, "minutes": 60}})).await;
+    assert_eq!(v["show"]["rule"]["repeat"]["weekdays"][0], 3);
+    assert_eq!(v["show"]["slot"]["weekday"], 3);
+    assert!(v["show"]["rule"]["starts_on"].is_null());
+    // The same slot sent again with every save changes nothing.
+    put(serde_json::json!({"rule": {"start": 600, "minutes": 60,
+        "repeat": {"kind": "weekly", "every": 1, "weekdays": [3]}}}))
+    .await;
+    let v = put(serde_json::json!({"slot": {"weekday": 3, "start": 600, "minutes": 60}})).await;
+    assert_eq!(v["show"]["rule"]["repeat"]["weekdays"][0], 3);
+    assert_eq!(v["show"]["slot"]["start"], 600);
+    // A rule with a start date is not slot-shaped: an older studio sees `slot: null`, and a slot
+    // it then sets is an explicit act that replaces the rule.
+    let v = put(serde_json::json!({"rule": {
+        "starts_on": "2036-09-03", "start": 600, "minutes": 60,
+        "repeat": {"kind": "weekly", "every": 1, "weekdays": [3]}}}))
+    .await;
+    assert!(v["show"]["slot"].is_null());
+    let v = put(serde_json::json!({"slot": null})).await;
+    assert_eq!(v["show"]["rule"]["starts_on"], "2036-09-03", "kept");
+    let v = put(serde_json::json!({"slot": {"weekday": 3, "start": 600, "minutes": 60}})).await;
+    assert!(v["show"]["rule"]["starts_on"].is_null());
+    // Neither sent, on a slot-shaped rule: cleared, as Clear does today.
+    put(serde_json::json!({"rule": null})).await;
+    put(serde_json::json!({"slot": {"weekday": 3, "start": 600}})).await;
+    let v = put(serde_json::json!({})).await;
+    assert!(v["show"]["rule"].is_null());
+    assert!(v["show"]["slot"].is_null());
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn the_week_gets_the_dates_no_episode_fills() {
+    let r = rig().await;
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/dotted",
+            show_body(
+                "Dotted",
+                serde_json::json!({"rule": {
+                    "starts_on": "2036-09-02", "start": 1200, "minutes": 60,
+                    "repeat": {"kind": "weekly", "every": 1, "weekdays": [2]},
+                    "skip": ["2036-09-09"]}, "draft_first": true}),
+            ),
+        )
+        .await,
+    );
+    let from = "2036-09-01T00:00:00Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap()
+        .as_millisecond();
+    let to = "2036-09-30T00:00:00Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap()
+        .as_millisecond();
+    let v = ok_body(
+        json(
+            &r.app,
+            "GET",
+            &format!("/api/v1/schedule/episodes?from_ms={from}&to_ms={to}"),
+            serde_json::Value::Null,
+        )
+        .await,
+    );
+    assert_eq!(
+        v["episodes"].as_array().unwrap().len(),
+        1,
+        "the drafted one"
+    );
+    let on: Vec<&str> = v["dates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["on"].as_str().unwrap())
+        .collect();
+    // The first is drafted and the ninth skipped.
+    assert_eq!(on, ["2036-09-16", "2036-09-23"]);
+    assert_eq!(v["dates"][0]["show"], "dotted");
+    assert_eq!(v["dates"][0]["number"], 2);
+    assert_eq!(v["dates"][0]["minutes"], 60);
+    assert_eq!(v["dates"][0]["short"], "Tue, 20:00–21:00");
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn skipping_a_date_a_drafted_episode_holds_shifts_the_rest_along_in_order() {
+    // Episodes swap dates inside one transaction: 1 takes 2's date, 2 takes 3's, 3 the next
+    // (the deferred uniqueness of an episode's date).
+    let r = rig().await;
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/shift",
+            show_body(
+                "Shift",
+                serde_json::json!({"rule": weekly(2, 1200, 60, "2036-09-02"), "draft_first": true}),
+            ),
+        )
+        .await,
+    );
+    let base = "/api/v1/shows/shift/series/1";
+    ok_body(
+        json(
+            &r.app,
+            "POST",
+            &format!("{base}/episodes"),
+            serde_json::json!({"count": 2}),
+        )
+        .await,
+    );
+    let mut skipping = weekly(2, 1200, 60, "2036-09-02");
+    skipping["skip"] = serde_json::json!(["2036-09-02"]);
+    let (code, v) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/shift/rule",
+        serde_json::json!({"rule": skipping}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    let moved: Vec<(i64, &str, &str)> = v["moved"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["number"].as_i64().unwrap(),
+                m["from_on"].as_str().unwrap(),
+                m["to_on"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        moved,
+        [
+            (1, "2036-09-02", "2036-09-09"),
+            (2, "2036-09-09", "2036-09-16"),
+            (3, "2036-09-16", "2036-09-23")
+        ]
+    );
+    let (_, shown) = json(&r.app, "GET", base, serde_json::Value::Null).await;
+    let dates: Vec<&str> = shown["episodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["episode"]["occurrence"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2036-09-09", "2036-09-16", "2036-09-23"]);
+}
+
+// ---- Delete show (release 1.0.4, ADR-0279) ----
+
+async fn count(r: &Rig, sql: &'static str, id: uuid::Uuid) -> i64 {
+    sqlx::query_scalar(sql)
+        .bind(id)
+        .fetch_one(&r.pool)
+        .await
+        .unwrap()
+}
+
+async fn show_id(r: &Rig, slug: &str) -> uuid::Uuid {
+    sqlx::query_scalar("SELECT id FROM show WHERE station_id = $1 AND slug = $2")
+        .bind(r.station.as_uuid())
+        .bind(slug)
+        .fetch_one(&r.pool)
+        .await
+        .unwrap()
+}
+
+/// A show with its first episode drafted and one more, a step change and a rule change in its
+/// logs, and a cart bank of its own.
+async fn a_show_with_everything(r: &Rig, slug: &str, name: &str) -> uuid::Uuid {
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "PUT",
+            &format!("/api/v1/shows/{slug}"),
+            show_body(
+                name,
+                serde_json::json!({"rule": first_tuesday(), "draft_first": true, "step": "solo"}),
+            ),
+        )
+        .await,
+    );
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "POST",
+            &format!("/api/v1/shows/{slug}/series/1/episodes"),
+            serde_json::json!({"count": 1}),
+        )
+        .await,
+    );
+    // The step change is logged by the save; the rule change by the rule route.
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "PUT",
+            &format!("/api/v1/shows/{slug}"),
+            show_body(name, serde_json::json!({"step": "full"})),
+        )
+        .await,
+    );
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "PUT",
+            &format!("/api/v1/shows/{slug}/rule"),
+            serde_json::json!({"rule": weekly(3, 1200, 60, "2036-09-03"), "drafted": "leave"}),
+        )
+        .await,
+    );
+    let id = show_id(r, slug).await;
+    weavesignal_model::carts::put_bank(
+        &r.pool,
+        r.station,
+        Some(id),
+        &weavesignal_model::carts::Bank {
+            number: 1,
+            name: "Own effects".into(),
+            colour_slot: 3,
+            show: Some(slug.into()),
+        },
+    )
+    .await
+    .unwrap();
+    id
+}
+
+fn card_files_of(v: &serde_json::Value) -> Vec<String> {
+    ["link", "post", "square"]
+        .iter()
+        .filter_map(|k| v["show"]["cards"][k].as_str().map(str::to_owned))
+        .collect()
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn an_admin_or_a_producer_deletes_a_show_that_never_aired_with_everything_that_goes_with_it()
+{
+    let r = rig().await;
+    for (who, bearer, slug, name) in [
+        // Names no other test makes: card files are named by their content and shared by every
+        // station in the database, so a show of the same name elsewhere would keep them.
+        (
+            "a producer",
+            r.producer.clone(),
+            "bothy-hour",
+            "The Bothy Hour",
+        ),
+        ("an admin", r.admin.clone(), "peat-fire", "Peat Fire Radio"),
+        ("the key", ADMIN.to_owned(), "dram-time", "Dram Time"),
+    ] {
+        let id = a_show_with_everything(&r, slug, name).await;
+        let view = ok_body(
+            json_as(
+                &r.app,
+                &bearer,
+                "GET",
+                &format!("/api/v1/shows/{slug}"),
+                serde_json::Value::Null,
+            )
+            .await,
+        );
+        let files = card_files_of(&view);
+        assert_eq!(files.len(), 3, "{who}: the show's cards are drawn");
+        for f in &files {
+            assert!(r.dir.join("cards").join(f).exists(), "{who}: {f}");
+        }
+        // A slate still of its own sits beside the desk's file.
+        let still = r.dir.join("stills").join(format!("show-{id}.png"));
+        std::fs::create_dir_all(still.parent().unwrap()).unwrap();
+        std::fs::write(&still, b"png").unwrap();
+        assert!(count(&r, "SELECT count(*) FROM series WHERE show_id = $1", id).await >= 1);
+        assert!(
+            count(
+                &r,
+                "SELECT count(*) FROM show_step_change WHERE show_id = $1",
+                id
+            )
+            .await
+                >= 1
+        );
+        assert!(
+            count(
+                &r,
+                "SELECT count(*) FROM show_rule_change WHERE show_id = $1",
+                id
+            )
+            .await
+                >= 1
+        );
+        assert_eq!(
+            count(&r, "SELECT count(*) FROM cart_bank WHERE show_id = $1", id).await,
+            1
+        );
+
+        let (code, gone) = json_as(
+            &r.app,
+            &bearer,
+            "DELETE",
+            &format!("/api/v1/shows/{slug}"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{who}: {gone}");
+        assert_eq!(gone["name"], name);
+        assert_eq!(gone["series"], 1);
+        assert_eq!(gone["episodes"], 2);
+        assert_eq!(gone["cart_banks"], 1);
+        for (what, sql) in [
+            ("the show", "SELECT count(*) FROM show WHERE id = $1"),
+            (
+                "its series",
+                "SELECT count(*) FROM series WHERE show_id = $1",
+            ),
+            (
+                "its episodes",
+                "SELECT count(*) FROM episode e JOIN series s ON s.id = e.series_id WHERE s.show_id = $1",
+            ),
+            (
+                "its step log",
+                "SELECT count(*) FROM show_step_change WHERE show_id = $1",
+            ),
+            (
+                "its rule log",
+                "SELECT count(*) FROM show_rule_change WHERE show_id = $1",
+            ),
+            (
+                "its cart banks",
+                "SELECT count(*) FROM cart_bank WHERE show_id = $1",
+            ),
+        ] {
+            assert_eq!(count(&r, sql, id).await, 0, "{who}: {what} is gone");
+        }
+        for f in &files {
+            assert!(
+                !r.dir.join("cards").join(f).exists(),
+                "{who}: {f} is deleted"
+            );
+        }
+        assert!(!still.exists(), "{who}: its slate still is deleted");
+        assert!(gone["files_deleted"].as_u64().unwrap() >= 4, "{gone}");
+        // It is gone from the list and the week, and a second delete is a 404.
+        let (code, _) = json_as(
+            &r.app,
+            &bearer,
+            "GET",
+            &format!("/api/v1/shows/{slug}"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::NOT_FOUND);
+        let (code, _) = json_as(
+            &r.app,
+            &bearer,
+            "DELETE",
+            &format!("/api/v1/shows/{slug}"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, StatusCode::NOT_FOUND, "{who}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_presenter_a_screener_and_a_stranger_cannot_delete_and_nothing_goes() {
+    let r = rig().await;
+    let id = a_show_with_everything(&r, "ceilidh", "The Ceilidh").await;
+    for (who, bearer, want) in [
+        ("a presenter", r.presenter.as_str(), StatusCode::FORBIDDEN),
+        ("a screener", r.screener.as_str(), StatusCode::FORBIDDEN),
+        ("a stranger", "not-a-token", StatusCode::UNAUTHORIZED),
+    ] {
+        let (code, body) = json_as(
+            &r.app,
+            bearer,
+            "DELETE",
+            "/api/v1/shows/ceilidh",
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(code, want, "{who}: {body}");
+    }
+    let (code, _) = json_as(
+        &r.app,
+        &r.producer,
+        "DELETE",
+        "/api/v1/shows/no-such-show",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM show WHERE id = $1", id).await,
+        1
+    );
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM cart_bank WHERE show_id = $1", id).await,
+        1
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_presenter_of_the_show_is_refused_too() {
+    let r = rig().await;
+    let account: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM staff_account WHERE station_id = $1 AND username = 'shona'",
+    )
+    .bind(r.station.as_uuid())
+    .fetch_one(&r.pool)
+    .await
+    .unwrap();
+    ok_body(
+        json_as(
+            &r.app,
+            ADMIN,
+            "PUT",
+            "/api/v1/shows/own-show",
+            show_body(
+                "Own Show",
+                serde_json::json!({"presenter_account": account}),
+            ),
+        )
+        .await,
+    );
+    let (code, body) = json_as(
+        &r.app,
+        &r.presenter,
+        "DELETE",
+        "/api/v1/shows/own-show",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], "Only an admin or a producer deletes a show.");
+    let id = show_id(&r, "own-show").await;
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM show WHERE id = $1", id).await,
+        1
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_show_that_has_aired_or_is_on_air_stays_and_nothing_is_removed() {
+    use jiff::ToSpan;
+    let r = rig().await;
+    // One that has aired: put on air, which freezes it.
+    let id = a_show_with_everything(&r, "aired-show", "The Aired Show").await;
+    let at = |s: i64| {
+        (jiff::Timestamp::now() + s.seconds())
+            .to_zoned(jiff::tz::TimeZone::get("Europe/London").unwrap())
+            .to_string()
+    };
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "POST",
+            "/api/v1/shows/aired-show/series/1/episodes/1/air",
+            serde_json::json!({}),
+        )
+        .await,
+    );
+    let (code, body) = json_as(
+        &r.app,
+        &r.producer,
+        "DELETE",
+        "/api/v1/shows/aired-show",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert_eq!(
+        body["error"],
+        "The Aired Show has aired 1 episode, so it stays as the station's record: only a show that has never aired can be deleted."
+    );
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM show WHERE id = $1", id).await,
+        1
+    );
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM series WHERE show_id = $1", id).await,
+        1
+    );
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM cart_bank WHERE show_id = $1", id).await,
+        1
+    );
+    assert_eq!(
+        count(
+            &r,
+            "SELECT count(*) FROM episode e JOIN series s ON s.id = e.series_id WHERE s.show_id = $1",
+            id
+        )
+        .await,
+        2,
+        "both episodes stay"
+    );
+    // The admin gets the same answer, and a show on air now is refused in its own words.
+    let (code, _) = json_as(
+        &r.app,
+        &r.admin,
+        "DELETE",
+        "/api/v1/shows/aired-show",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT);
+    ok_body(
+        json_as(
+            &r.app,
+            ADMIN,
+            "PUT",
+            "/api/v1/shows/on-now",
+            show_body("On Now", serde_json::json!({})),
+        )
+        .await,
+    );
+    ok_body(
+        json_as(
+            &r.app,
+            ADMIN,
+            "PUT",
+            "/api/v1/shows/on-now/series/1",
+            serde_json::json!({}),
+        )
+        .await,
+    );
+    ok_body(
+        json_as(
+            &r.app,
+            ADMIN,
+            "POST",
+            "/api/v1/shows/on-now/series/1/episodes",
+            serde_json::json!({"count": 1}),
+        )
+        .await,
+    );
+    ok_body(
+        json_as(
+            &r.app,
+            ADMIN,
+            "PATCH",
+            "/api/v1/shows/on-now/series/1/episodes/1",
+            serde_json::json!({"air_at": at(-600), "minutes": 60}),
+        )
+        .await,
+    );
+    let (code, body) = json_as(
+        &r.app,
+        ADMIN,
+        "DELETE",
+        "/api/v1/shows/on-now",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert_eq!(
+        body["error"],
+        "On Now is on air now, so it cannot be deleted."
+    );
+    // A draft whose time has passed without anyone pressing On air now has aired all the same:
+    // nothing freezes an episode by itself, and its record stays (ADR-0279).
+    ok_body(
+        json_as(
+            &r.app,
+            ADMIN,
+            "PATCH",
+            "/api/v1/shows/on-now/series/1/episodes/1",
+            serde_json::json!({"air_at": at(-7200), "minutes": 30}),
+        )
+        .await,
+    );
+    let (code, body) = json_as(
+        &r.app,
+        ADMIN,
+        "DELETE",
+        "/api/v1/shows/on-now",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert_eq!(
+        body["error"],
+        "On Now has aired 1 episode, so it stays as the station's record: only a show that has never aired can be deleted."
     );
 }

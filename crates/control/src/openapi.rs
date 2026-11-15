@@ -187,6 +187,7 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::retention::Api::openapi(),
         crate::staff::Api::openapi(),
         crate::shows::Api::openapi(),
+        crate::rules::Api::openapi(),
         crate::steps::Api::openapi(),
         crate::video::Api::openapi(),
         crate::steering::Api::openapi(),
@@ -404,6 +405,70 @@ mod tests {
         );
     }
 
+    /// Two types with the same schema name overwrite each other in the document without a word:
+    /// a rule's `End` once came out as a recording's `{ended_at_ms}`. Every `ToSchema` type in the
+    /// crates the document draws on has a name of its own (`#[schema(as = …)]` where two would
+    /// share one).
+    #[test]
+    fn every_schema_name_is_unique() {
+        let mut seen: std::collections::BTreeMap<String, String> = Default::default();
+        let mut clashes = Vec::new();
+        for dir in ["crates/control/src", "crates/model/src"] {
+            let mut stack = vec![root().join(dir)];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap() {
+                    let p = e.unwrap().path();
+                    if p.is_dir() {
+                        stack.push(p);
+                        continue;
+                    }
+                    if p.extension().is_none_or(|e| e != "rs") {
+                        continue;
+                    }
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    let text = text.split("\n#[cfg(test)]").next().unwrap();
+                    let lines: Vec<&str> = text.lines().collect();
+                    for (i, l) in lines.iter().enumerate() {
+                        if !(l.contains("derive(") && l.contains("ToSchema")) {
+                            continue;
+                        }
+                        let mut alias = None;
+                        for l in lines.iter().skip(i).take(8) {
+                            if let Some(a) = l.split("schema(as = ").nth(1) {
+                                alias = a.split(')').next().map(str::to_owned);
+                            }
+                            let t = l.trim_start().trim_start_matches("pub(crate) ");
+                            let t = t.trim_start_matches("pub ");
+                            let Some(t) = t.strip_prefix("struct ").or(t.strip_prefix("enum "))
+                            else {
+                                continue;
+                            };
+                            let name: String = t
+                                .chars()
+                                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                                .collect();
+                            let name = alias.take().unwrap_or(name);
+                            let here = format!("{}:{}", p.display(), i + 1);
+                            if let Some(before) = seen.insert(name.clone(), here.clone()) {
+                                clashes.push(format!("{name}: {before} and {here}"));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            seen.len() > 100,
+            "the scan found only {} schemas",
+            seen.len()
+        );
+        assert!(
+            clashes.is_empty(),
+            "schema names used twice (give one `#[schema(as = …)]`): {clashes:?}"
+        );
+    }
+
     /// Every operation says who may call it, an admin-only one can answer 403, and each has a
     /// unique id and a summary.
     #[test]
@@ -456,6 +521,7 @@ mod tests {
                     .iter()
                     .any(|(tm, tp, _)| tm == m && tp == p)
                     && !crate::scopes::NEVER.contains(&p.as_str())
+                    && !crate::scopes::NEVER_METHOD.contains(&(m.as_str(), p.as_str()))
             })
             .collect();
         assert!(

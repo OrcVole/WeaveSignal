@@ -215,8 +215,8 @@ async fn look(
             let start = u64::try_from(ep.air_at?).ok()? * 1000;
             let minutes = ep
                 .minutes
-                .or(series.slot.and_then(|s| s.minutes))
-                .or(show.slot.and_then(|s| s.minutes))
+                .or(series.rule.as_ref().and_then(|r| r.minutes))
+                .or(show.rule.as_ref().and_then(|r| r.minutes))
                 .unwrap_or(60);
             Some(Aired {
                 id: ep.id,

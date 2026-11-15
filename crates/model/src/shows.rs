@@ -22,6 +22,8 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::StationId;
+use crate::planner::{Clash, Clashes};
+use crate::rule::{End, Occurrence, Repeat, Rule};
 
 /// A weekly slot: a weekday (1 Monday to 7 Sunday), a start in minutes after midnight in the
 /// station's zone, and a length in minutes.
@@ -80,6 +82,16 @@ pub enum ShowError {
     Frozen(String),
     #[error("{0} does not exist")]
     Missing(String),
+    /// A refusal that already says why in a whole sentence: a show that has aired is not
+    /// deleted (ADR-0279).
+    #[error("{0}")]
+    Kept(String),
+    /// There is nothing to do: a series whose rule has no more dates to draft.
+    #[error("{0}")]
+    Nothing(String),
+    /// The draft would sit over another show's time and the one drafting may not do that.
+    #[error("{}", .0.message)]
+    Clash(Box<crate::planner::ClashRefusal>),
     /// A correction is for an episode that has aired; before that, edit it (ADR-0177).
     #[error("{0} has not aired; edit it instead of correcting it")]
     NotAired(String),
@@ -187,7 +199,12 @@ pub struct Show {
     pub colour_slot: u8,
     /// `poster` or `slate`.
     pub layout: String,
+    /// The weekly slot, while the rule is exactly that (`rule.as_slot()`), else `null`: what an
+    /// older studio reads. Read `rule`.
     pub slot: Option<Slot>,
+    /// When the show airs (release 1.0.4, ADR-0278).
+    #[serde(default)]
+    pub rule: Option<Rule>,
     pub hosts: Vec<Uuid>,
     pub tags: Vec<String>,
     pub explicit: bool,
@@ -227,8 +244,17 @@ pub struct ShowInput {
     pub colour_slot: u8,
     #[serde(default = "poster")]
     pub layout: String,
+    /// The weekly slot an older studio sends with every save. With `rule` given it is ignored;
+    /// without, see [`rule_write`].
     #[serde(default)]
     pub slot: Option<Slot>,
+    /// When the show airs. Absent leaves it to `slot` (an older studio); `null` clears it.
+    #[serde(default, deserialize_with = "double")]
+    pub rule: Option<Option<Rule>>,
+    /// Make series 1 if the show has none and draft its first episode, in the same transaction
+    /// (a refusal, such as a presenter's clash, saves nothing).
+    #[serde(default)]
+    pub draft_first: bool,
     #[serde(default)]
     pub hosts: Vec<String>,
     #[serde(default)]
@@ -277,6 +303,9 @@ impl ShowInput {
         }
         if let Some(s) = &self.slot {
             s.check()?;
+        }
+        if let Some(Some(r)) = &self.rule {
+            r.check()?;
         }
         check_people(&self.hosts)?;
         check_tags(&self.tags)?;
@@ -336,7 +365,11 @@ pub struct Series {
     pub description: Option<String>,
     /// `None` inherits the show's.
     pub hosts: Option<Vec<Uuid>>,
+    /// The series' own weekly slot while its own rule is exactly that, else `null`.
     pub slot: Option<Slot>,
+    /// The series' own rule; `None` follows the show's.
+    #[serde(default)]
+    pub rule: Option<Rule>,
     pub starts_on: Option<Date>,
     pub planned_episodes: Option<u32>,
     pub tags: Option<Vec<String>>,
@@ -355,6 +388,9 @@ pub struct SeriesInput {
     pub hosts: Option<Vec<String>>,
     #[serde(default)]
     pub slot: Option<Slot>,
+    /// The series' own rule; `null` follows the show's again. Absent leaves it to `slot`.
+    #[serde(default, deserialize_with = "double")]
+    pub rule: Option<Option<Rule>>,
     #[serde(default)]
     pub starts_on: Option<Date>,
     #[serde(default)]
@@ -376,6 +412,9 @@ impl SeriesInput {
         }
         if let Some(s) = &self.slot {
             s.check()?;
+        }
+        if let Some(Some(r)) = &self.rule {
+            r.check()?;
         }
         if self.planned_episodes.is_some_and(|n| n == 0 || n > 520) {
             return Err(ShowError::Invalid(
@@ -436,6 +475,11 @@ pub struct Episode {
     pub frozen: Option<Resolved>,
     pub files: Option<serde_json::Value>,
     pub cards: Option<serde_json::Value>,
+    /// The rule date this episode fills, as the station's local date of the nominal start.
+    /// Drafting sets it and dragging the episode keeps it (that makes the block MOVED); an
+    /// episode made or left by hand has none.
+    #[serde(default)]
+    pub occurrence: Option<Date>,
 }
 
 /// `Some(None)` from JSON `null`: "reset to inherit"; a field left out is `None`.
@@ -507,7 +551,12 @@ pub struct Resolved {
     pub description: String,
     pub colour_slot: u8,
     pub layout: String,
+    /// The weekly slot while the rule is exactly that (frozen copies from before 1.0.4 have only
+    /// this).
     pub slot: Option<Slot>,
+    /// When it airs, the series' own rule or else the show's.
+    #[serde(default)]
+    pub rule: Option<Rule>,
     pub hosts: Vec<String>,
     pub guests: Vec<String>,
     pub tags: Vec<String>,
@@ -556,6 +605,7 @@ pub fn resolve_show(show: &Show, people: &HashMap<Uuid, String>) -> Resolved {
         colour_slot: show.colour_slot,
         layout: show.layout.clone(),
         slot: show.slot,
+        rule: show.rule.clone(),
         hosts: names(&show.hosts, people),
         guests: Vec::new(),
         tags: show.tags.clone(),
@@ -567,11 +617,63 @@ pub fn resolve_show(show: &Show, people: &HashMap<Uuid, String>) -> Resolved {
     }
 }
 
+/// The rule that governs a series, ready to expand: the series' own, else its show's; the
+/// series' start date and planned episodes win over the rule's own start and count (a start
+/// date only moves a rule that repeats, and a plan only gives one an end); and a count is what
+/// is left of it once the episodes the rule's dates do not account for are taken off (an
+/// episode made by hand, or aired before the rule's start, still counts towards the series'
+/// total). `None` when the series has no rule at all.
+pub fn series_rule(show: &Show, series: Option<&Series>, episodes: &[Episode]) -> Option<Rule> {
+    let mut rule = series_rule_planned(show, series, episodes)?;
+    if let End::Count { count } = rule.end {
+        let extra = episodes
+            .iter()
+            .filter(|e| e.occurrence.is_none_or(|o| !rule.gives(o)))
+            .count();
+        rule.end = End::Count {
+            count: count.saturating_sub(extra as u32),
+        };
+    }
+    Some(rule)
+}
+
+/// [`series_rule`] before the count is reduced by the episodes already made: the series' rule
+/// as it is planned, whose sentence says *for 10 episodes*.
+pub fn series_rule_planned(
+    show: &Show,
+    series: Option<&Series>,
+    episodes: &[Episode],
+) -> Option<Rule> {
+    let mut rule = series
+        .and_then(|s| s.rule.clone())
+        .or_else(|| show.rule.clone())?;
+    let repeats = !matches!(
+        rule.repeat,
+        Repeat::Once | Repeat::Dates { .. } | Repeat::Yearly { .. }
+    );
+    if let Some(series) = series {
+        if repeats && let Some(d) = series.starts_on {
+            rule.starts_on = Some(d);
+        }
+        if let Some(n) = series.planned_episodes
+            && !matches!(rule.repeat, Repeat::Once | Repeat::Dates { .. })
+            && !matches!(rule.end, End::Until { .. })
+        {
+            rule.end = End::Count { count: n };
+        }
+    }
+    if matches!(rule.end, End::Count { .. }) && rule.starts_on.is_none() {
+        // Counted from the first date it filled, else from wherever the caller starts.
+        rule.starts_on = episodes.iter().filter_map(|e| e.occurrence).min();
+    }
+    Some(rule)
+}
+
 /// The dates a series runs: from its first episode (or its start date) to its last planned
 /// one, counted on the rule when the plan is known, or to its latest episode.
 pub fn series_run(
+    show: &Show,
     series: &Series,
-    slot: Option<Slot>,
     zone: &TimeZone,
     episodes: &[Episode],
 ) -> (Option<Date>, Option<Date>) {
@@ -581,22 +683,17 @@ pub fn series_run(
             .map(|ts| ts.to_zoned(zone.clone()).date())
     };
     let aired: Vec<i64> = episodes.iter().filter_map(|e| e.air_at).collect();
+    let rule = series_rule(show, Some(series), episodes);
     let first = series
         .starts_on
-        .or_else(|| aired.iter().min().and_then(|t| date(*t)));
-    let planned_last = match (first, slot, series.planned_episodes) {
-        (Some(first), Some(slot), Some(n)) if n > 0 => {
-            let start = first
-                .at(0, 0, 0, 0)
-                .to_zoned(zone.clone())
-                .ok()
-                .map(|z| z.timestamp() - 1.second());
-            let mut t = start;
-            for _ in 0..n {
-                t = t.and_then(|after| slot.next_after(zone, after));
-            }
-            t.map(|ts| ts.to_zoned(zone.clone()).date())
-        }
+        .or_else(|| aired.iter().min().and_then(|t| date(*t)))
+        .or_else(|| rule.as_ref().and_then(|r| r.starts_on));
+    let planned_last = match (first, &rule) {
+        (Some(first), Some(rule)) if rule.end != End::Never => rule
+            .occurrences(zone, first)
+            .take(20_000)
+            .last()
+            .map(|o| o.on),
         _ => None,
     };
     let latest = aired.iter().max().and_then(|t| date(*t));
@@ -621,9 +718,15 @@ pub fn resolve_series(
         Some(h) => r.hosts = names(h, people),
         None => inherited.push("hosts".to_owned()),
     }
-    match series.slot {
-        Some(s) => r.slot = Some(s),
-        None => inherited.push("slot".to_owned()),
+    match &series.rule {
+        Some(rule) => {
+            r.slot = rule.as_slot();
+            r.rule = Some(rule.clone());
+        }
+        None => {
+            inherited.push("slot".to_owned());
+            inherited.push("rule".to_owned());
+        }
     }
     match &series.tags {
         Some(t) => r.tags = t.clone(),
@@ -633,7 +736,7 @@ pub fn resolve_series(
         Some(d) => r.description = d.clone(),
         None => inherited.push("description".to_owned()),
     }
-    let (first, last) = series_run(series, r.slot, zone, episodes);
+    let (first, last) = series_run(show, series, zone, episodes);
     r.series = Some(ResolvedSeries {
         number: series.number,
         title: series.title.clone(),
@@ -694,73 +797,121 @@ pub fn resolve_episode(
         description: episode.description.clone(),
         kind: episode.kind,
         air_at: episode.air_at,
-        minutes: episode.minutes.or_else(|| r.slot.and_then(|s| s.minutes)),
+        minutes: episode
+            .minutes
+            .or_else(|| r.rule.as_ref().and_then(|rule| rule.minutes)),
     });
     r.inherited = inherited;
     r
 }
 
+/// One episode `fill_next` drafts: its number, when it airs, the rule date it fills and the
+/// length of its own when the date was moved with one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Draft {
+    pub number: u32,
+    pub air_at: Option<i64>,
+    pub occurrence: Option<Date>,
+    pub minutes: Option<u16>,
+}
+
+/// The local date of an instant in epoch seconds.
+fn local_date(zone: &TimeZone, t: i64) -> Option<Date> {
+    Timestamp::from_second(t)
+        .ok()
+        .map(|ts| ts.to_zoned(zone.clone()).date())
+}
+
+/// The date drafting goes on from: the day after the latest date any episode fills (or, for an
+/// episode made by hand, the date it airs). `None` with nothing drafted.
+pub fn drafted_to(zone: &TimeZone, existing: &[Episode]) -> Option<Date> {
+    existing
+        .iter()
+        .filter_map(|e| {
+            e.occurrence
+                .or_else(|| e.air_at.and_then(|t| local_date(zone, t)))
+        })
+        .max()
+}
+
 /// The number and air time the next `n` episodes take: the last number plus one, and the next
-/// slots of the rule after the latest episode (or from the series' start date, or now).
+/// dates of the rule that no episode fills and the rule does not skip, after the latest date
+/// drafted. With nothing drafted the first is the date under way (its length, or the studio's
+/// 60 minutes), else the next on or after the rule's start; and with episodes drafted already,
+/// the next after the latest, or the date under way if that is later: never a date in the past. A rule
+/// that has no more dates gives fewer than `n`; no rule at all gives numbered episodes with no
+/// time. `rule` is [`series_rule`]'s.
 pub fn fill_next(
-    slot: Option<Slot>,
+    rule: Option<&Rule>,
     zone: &TimeZone,
-    starts_on: Option<Date>,
     existing: &[Episode],
     n: usize,
     now: Timestamp,
-) -> Vec<(u32, Option<i64>)> {
+) -> Vec<Draft> {
     let mut number = existing.iter().map(|e| e.number).max().unwrap_or(0);
-    let mut after = existing
-        .iter()
-        .filter_map(|e| e.air_at)
-        .max()
-        .and_then(|t| Timestamp::from_second(t).ok());
-    if after.is_none() {
-        // With nothing drafted and no start date, the first episode is the slot under way, if
-        // one is (its length, or the studio's 60 minutes), else the next: the studio app drafts
-        // the block under way, and the API now does the same.
-        let under_way = slot.map_or(0, |s| i64::from(s.minutes.unwrap_or(60)) * 60);
-        after = starts_on
-            .and_then(|d| d.at(0, 0, 0, 0).to_zoned(zone.clone()).ok())
-            .map(|z| z.timestamp() - 1.second())
-            .or_else(|| now.checked_sub(under_way.seconds()).ok());
-    }
-    let mut out = Vec::with_capacity(n);
-    for _ in 0..n {
-        number += 1;
-        let at = match (slot, after) {
-            (Some(s), Some(a)) => s.next_after(zone, a),
-            _ => None,
-        };
-        if at.is_some() {
-            after = at;
-        }
-        out.push((number, at.map(|t| t.as_second())));
-    }
-    out
+    let Some(rule) = rule else {
+        return (0..n)
+            .map(|_| {
+                number += 1;
+                Draft {
+                    number,
+                    air_at: None,
+                    occurrence: None,
+                    minutes: None,
+                }
+            })
+            .collect();
+    };
+    let filled: std::collections::HashSet<Date> =
+        existing.iter().filter_map(|e| e.occurrence).collect();
+    // Never into the past: the first date is the one under way (its length, or the studio's 60
+    // minutes), else the next. Drafting goes on after the latest date drafted, if that is later.
+    let under_way = now
+        .checked_sub(i64::from(rule.length()).minutes())
+        .unwrap_or(now);
+    let today = local_date(zone, under_way.as_second()).unwrap_or_default();
+    let from = match drafted_to(zone, existing) {
+        Some(d) => d.tomorrow().unwrap_or(d).max(today),
+        None => today,
+    };
+    rule.occurrences(zone, from)
+        .filter(|o| !filled.contains(&o.on))
+        .filter(|o| o.start > under_way)
+        .take(n)
+        .map(|o| {
+            number += 1;
+            Draft {
+                number,
+                air_at: Some(o.start.as_second()),
+                occurrence: Some(o.on),
+                minutes: (o.minutes != rule.length()).then_some(o.minutes),
+            }
+        })
+        .collect()
+}
+
+/// An occurrence's window as epoch seconds `[start, end)`.
+pub fn window_of(o: &Occurrence) -> (i64, i64) {
+    (o.start.as_second(), o.end().as_second())
 }
 
 // The database.
 
 macro_rules! show_columns {
     () => {
-        "id, slug, name, description, colour_slot, layout, slot_weekday, slot_start, slot_minutes, hosts, tags, explicit, feed_guid, cards::text AS cards, presenter, contact, links, commercial_music, presenter_account, step"
+        "id, slug, name, description, colour_slot, layout, rule::text AS rule, hosts, tags, explicit, feed_guid, cards::text AS cards, presenter, contact, links, commercial_music, presenter_account, step"
     };
 }
+pub(crate) use show_columns;
 
-fn slot_of(row: &sqlx::postgres::PgRow) -> Result<Option<Slot>, sqlx::Error> {
-    let weekday: Option<i16> = row.try_get("slot_weekday")?;
-    let start: Option<i16> = row.try_get("slot_start")?;
-    let minutes: Option<i16> = row.try_get("slot_minutes")?;
-    Ok(match (weekday, start) {
-        (Some(w), Some(s)) => Some(Slot {
-            weekday: w as u8,
-            start: s as u16,
-            minutes: minutes.map(|m| m as u16),
-        }),
-        _ => None,
+/// The rule a row holds; a stored rule that no longer parses is a decode error, not an absence.
+fn rule_of(row: &sqlx::postgres::PgRow) -> Result<Option<Rule>, sqlx::Error> {
+    let raw: Option<String> = row.try_get("rule")?;
+    raw.map(|r| {
+        serde_json::from_str::<Rule>(&r)
+            .map_err(|e| sqlx::Error::Decode(format!("a stored rule does not parse: {e}").into()))
     })
+    .transpose()
 }
 
 fn json_of(
@@ -771,7 +922,8 @@ fn json_of(
     Ok(raw.and_then(|s| serde_json::from_str(&s).ok()))
 }
 
-fn show_of(row: &sqlx::postgres::PgRow) -> Result<Show, sqlx::Error> {
+pub(crate) fn show_of(row: &sqlx::postgres::PgRow) -> Result<Show, sqlx::Error> {
+    let rule = rule_of(row)?;
     Ok(Show {
         id: row.try_get("id")?,
         slug: row.try_get("slug")?,
@@ -779,7 +931,8 @@ fn show_of(row: &sqlx::postgres::PgRow) -> Result<Show, sqlx::Error> {
         description: row.try_get("description")?,
         colour_slot: row.try_get::<i16, _>("colour_slot")? as u8,
         layout: row.try_get("layout")?,
-        slot: slot_of(row)?,
+        slot: rule.as_ref().and_then(Rule::as_slot),
+        rule,
         hosts: row.try_get("hosts")?,
         tags: row.try_get("tags")?,
         explicit: row.try_get("explicit")?,
@@ -832,6 +985,56 @@ pub async fn people(
     Ok(rows.into_iter().collect())
 }
 
+/// What a save does to a stored rule, from what the body carried (design section 9, *Old and
+/// new studio builds*): a `rule` (a value, or `null`) sets or clears it and `slot` is ignored;
+/// with no `rule` but a `slot`, the stored rule is kept if its slot form equals the slot, else the
+/// weekly rule the slot means is set; with neither (or a `null` slot), a slot-shaped stored rule
+/// is cleared (as **Clear** does in an older studio) and any other is kept, because the sender
+/// could not see it.
+pub fn rule_write(
+    rule: &Option<Option<Rule>>,
+    slot: Option<Slot>,
+    stored: Option<&Rule>,
+) -> Option<Rule> {
+    match (rule, slot) {
+        (Some(given), _) => given.clone(),
+        (None, Some(slot)) => match stored {
+            Some(r) if r.as_slot() == Some(slot) => Some(r.clone()),
+            _ => Some(Rule::from(slot)),
+        },
+        (None, None) => stored.filter(|r| r.as_slot().is_none()).cloned(),
+    }
+}
+
+/// The three columns an older build still reads, kept while the rule is slot-shaped.
+fn slot_columns(rule: Option<&Rule>) -> (Option<i16>, Option<i16>, Option<i16>) {
+    let slot = rule.and_then(Rule::as_slot);
+    (
+        slot.map(|s| i16::from(s.weekday)),
+        slot.map(|s| s.start as i16),
+        slot.and_then(|s| s.minutes).map(|m| m as i16),
+    )
+}
+
+fn rule_json(rule: Option<&Rule>) -> Result<Option<String>, ShowError> {
+    rule.map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| ShowError::Invalid(format!("the rule cannot be stored: {e}")))
+}
+
+/// One station's schedule is changed by one request at a time (the advisory lock lasts to the
+/// end of the transaction), so two drafts cannot both find a time free.
+pub async fn lock_schedule(
+    conn: &mut sqlx::PgConnection,
+    station: StationId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('schedule:' || $1::text, 0))")
+        .bind(station.as_uuid())
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
 /// Make or change a show by its path segment. The presenter's fields (ADR-0214, ADR-0219)
 /// are kept when the input leaves them out, so an older studio build or an integration that
 /// does not know them never wipes a DJ's details on save.
@@ -841,14 +1044,46 @@ pub async fn put_show(
     slug: &str,
     input: &ShowInput,
 ) -> Result<Show, ShowError> {
+    check_slug(slug)?;
+    input.check()?;
+    let hosts = people_ids(pool, station, &input.hosts).await?;
+    let mut tx = pool.begin().await?;
+    let show = put_show_in(&mut tx, station, slug, input, &hosts).await?;
+    tx.commit().await?;
+    Ok(show)
+}
+
+fn check_slug(slug: &str) -> Result<(), ShowError> {
     if !is_slug(slug) {
         return Err(ShowError::Invalid(format!(
             "`{slug}` is not a show path: lower-case letters and digits, joined by hyphens"
         )));
     }
-    input.check()?;
-    let hosts = people_ids(pool, station, &input.hosts).await?;
-    let slot = input.slot;
+    Ok(())
+}
+
+/// [`put_show`] inside a transaction the caller holds; the input is checked and the hosts made.
+pub async fn put_show_in(
+    conn: &mut sqlx::PgConnection,
+    station: StationId,
+    slug: &str,
+    input: &ShowInput,
+    hosts: &[Uuid],
+) -> Result<Show, ShowError> {
+    let stored: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT rule::text FROM show WHERE station_id = $1 AND slug = $2 FOR UPDATE",
+    )
+    .bind(station.as_uuid())
+    .bind(slug)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let stored: Option<Rule> = stored
+        .flatten()
+        .map(|r| serde_json::from_str(&r))
+        .transpose()
+        .map_err(|e| ShowError::Invalid(format!("the stored rule does not parse: {e}")))?;
+    let rule = rule_write(&input.rule, input.slot, stored.as_ref());
+    let (slot_weekday, slot_start, slot_minutes) = slot_columns(rule.as_ref());
     let links: Option<Vec<String>> = input.links.as_ref().map(|l| {
         l.iter()
             .map(|x| x.trim().to_owned())
@@ -863,15 +1098,17 @@ pub async fn put_show(
     let row = sqlx::query(concat!(
         "INSERT INTO show (id, station_id, slug, name, description, colour_slot, layout,
                            slot_weekday, slot_start, slot_minutes, hosts, tags, explicit,
-                           presenter, contact, links, commercial_music, presenter_account, step)
+                           presenter, contact, links, commercial_music, presenter_account, step,
+                           rule)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                  COALESCE($14, ''), COALESCE($15, ''), COALESCE($16, '{}'::text[]),
-                 COALESCE($17, false), $19, COALESCE($20, 'solo'))
+                 COALESCE($17, false), $19, COALESCE($20, 'solo'), $21::text::jsonb)
          ON CONFLICT (station_id, slug) DO UPDATE SET
            name = EXCLUDED.name, description = EXCLUDED.description,
            colour_slot = EXCLUDED.colour_slot, layout = EXCLUDED.layout,
            slot_weekday = EXCLUDED.slot_weekday, slot_start = EXCLUDED.slot_start,
-           slot_minutes = EXCLUDED.slot_minutes, hosts = EXCLUDED.hosts, tags = EXCLUDED.tags,
+           slot_minutes = EXCLUDED.slot_minutes, rule = EXCLUDED.rule,
+           hosts = EXCLUDED.hosts, tags = EXCLUDED.tags,
            explicit = EXCLUDED.explicit,
            presenter = COALESCE($14, show.presenter),
            contact = COALESCE($15, show.contact),
@@ -890,10 +1127,10 @@ pub async fn put_show(
     .bind(&input.description)
     .bind(i16::from(input.colour_slot))
     .bind(&input.layout)
-    .bind(slot.map(|s| i16::from(s.weekday)))
-    .bind(slot.map(|s| s.start as i16))
-    .bind(slot.and_then(|s| s.minutes).map(|m| m as i16))
-    .bind(&hosts)
+    .bind(slot_weekday)
+    .bind(slot_start)
+    .bind(slot_minutes)
+    .bind(hosts)
     .bind(&input.tags)
     .bind(input.explicit)
     .bind(input.presenter.as_ref().map(|p| p.trim().to_owned()))
@@ -903,7 +1140,8 @@ pub async fn put_show(
     .bind(account_given)
     .bind(account)
     .bind(input.step.map(Step::as_str))
-    .fetch_one(pool)
+    .bind(rule_json(rule.as_ref())?)
+    .fetch_one(&mut *conn)
     .await?;
     Ok(show_of(&row)?)
 }
@@ -1125,12 +1363,14 @@ pub async fn keep_feed_guid(
 
 macro_rules! series_columns {
     () => {
-        "id, show_id, number, title, description, hosts, slot_weekday, slot_start, slot_minutes, starts_on, planned_episodes, tags, cards::text AS cards"
+        "id, show_id, number, title, description, hosts, rule::text AS rule, starts_on, planned_episodes, tags, cards::text AS cards"
     };
 }
+pub(crate) use series_columns;
 
-fn series_of(row: &sqlx::postgres::PgRow) -> Result<Series, sqlx::Error> {
+pub(crate) fn series_of(row: &sqlx::postgres::PgRow) -> Result<Series, sqlx::Error> {
     let starts: Option<String> = row.try_get("starts_on")?;
+    let rule = rule_of(row)?;
     Ok(Series {
         id: row.try_get("id")?,
         show_id: row.try_get("show_id")?,
@@ -1138,7 +1378,8 @@ fn series_of(row: &sqlx::postgres::PgRow) -> Result<Series, sqlx::Error> {
         title: row.try_get("title")?,
         description: row.try_get("description")?,
         hosts: row.try_get("hosts")?,
-        slot: slot_of(row)?,
+        slot: rule.as_ref().and_then(Rule::as_slot),
+        rule,
         starts_on: starts.and_then(|s| s.parse().ok()),
         planned_episodes: row
             .try_get::<Option<i32>, _>("planned_episodes")?
@@ -1164,16 +1405,45 @@ pub async fn put_series(
         Some(h) => Some(people_ids(pool, station, h).await?),
         None => None,
     };
-    let slot = input.slot;
+    let mut tx = pool.begin().await?;
+    let series = put_series_in(&mut tx, station, show, number, input, hosts).await?;
+    tx.commit().await?;
+    Ok(series)
+}
+
+/// [`put_series`] inside a transaction the caller holds; the input is checked and the hosts made.
+pub async fn put_series_in(
+    conn: &mut sqlx::PgConnection,
+    station: StationId,
+    show: &Show,
+    number: u32,
+    input: &SeriesInput,
+    hosts: Option<Vec<Uuid>>,
+) -> Result<Series, ShowError> {
+    let stored: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT rule::text FROM series WHERE show_id = $1 AND number = $2 FOR UPDATE",
+    )
+    .bind(show.id)
+    .bind(number as i32)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let stored: Option<Rule> = stored
+        .flatten()
+        .map(|r| serde_json::from_str(&r))
+        .transpose()
+        .map_err(|e| ShowError::Invalid(format!("the stored rule does not parse: {e}")))?;
+    let rule = rule_write(&input.rule, input.slot, stored.as_ref());
+    let (slot_weekday, slot_start, slot_minutes) = slot_columns(rule.as_ref());
     let row = sqlx::query(concat!(
         "INSERT INTO series (id, station_id, show_id, number, title, description, hosts,
                              slot_weekday, slot_start, slot_minutes, starts_on,
-                             planned_episodes, tags)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                             planned_episodes, tags, rule)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::text::jsonb)
          ON CONFLICT (show_id, number) DO UPDATE SET
            title = EXCLUDED.title, description = EXCLUDED.description, hosts = EXCLUDED.hosts,
            slot_weekday = EXCLUDED.slot_weekday, slot_start = EXCLUDED.slot_start,
-           slot_minutes = EXCLUDED.slot_minutes, starts_on = EXCLUDED.starts_on,
+           slot_minutes = EXCLUDED.slot_minutes, rule = EXCLUDED.rule,
+           starts_on = EXCLUDED.starts_on,
            planned_episodes = EXCLUDED.planned_episodes, tags = EXCLUDED.tags,
            updated_at = now()
          RETURNING ",
@@ -1186,13 +1456,14 @@ pub async fn put_series(
     .bind(input.title.as_deref().map(str::trim))
     .bind(&input.description)
     .bind(&hosts)
-    .bind(slot.map(|s| i16::from(s.weekday)))
-    .bind(slot.map(|s| s.start as i16))
-    .bind(slot.and_then(|s| s.minutes).map(|m| m as i16))
+    .bind(slot_weekday)
+    .bind(slot_start)
+    .bind(slot_minutes)
     .bind(input.starts_on.map(|d| d.to_string()))
     .bind(input.planned_episodes.map(|n| n as i32))
     .bind(&input.tags)
-    .fetch_one(pool)
+    .bind(rule_json(rule.as_ref())?)
+    .fetch_one(&mut *conn)
     .await?;
     Ok(series_of(&row)?)
 }
@@ -1228,12 +1499,14 @@ pub async fn list_series(pool: &sqlx::PgPool, show: Uuid) -> Result<Vec<Series>,
 
 macro_rules! episode_columns {
     () => {
-        "id, series_id, number, title, description, kind, extract(epoch FROM air_at)::bigint AS air_at, minutes, hosts, guests, tags, extract(epoch FROM aired_at)::bigint AS aired_at, frozen::text AS frozen, files::text AS files, cards::text AS cards"
+        "id, series_id, number, title, description, kind, extract(epoch FROM air_at)::bigint AS air_at, minutes, hosts, guests, tags, extract(epoch FROM aired_at)::bigint AS aired_at, frozen::text AS frozen, files::text AS files, cards::text AS cards, occurrence::text AS occurrence"
     };
 }
+pub(crate) use episode_columns;
 
-fn episode_of(row: &sqlx::postgres::PgRow) -> Result<Episode, sqlx::Error> {
+pub(crate) fn episode_of(row: &sqlx::postgres::PgRow) -> Result<Episode, sqlx::Error> {
     let frozen: Option<String> = row.try_get("frozen")?;
+    let occurrence: Option<String> = row.try_get("occurrence")?;
     Ok(Episode {
         id: row.try_get("id")?,
         series_id: row.try_get("series_id")?,
@@ -1250,6 +1523,7 @@ fn episode_of(row: &sqlx::postgres::PgRow) -> Result<Episode, sqlx::Error> {
         frozen: frozen.and_then(|f| serde_json::from_str(&f).ok()),
         files: json_of(row, "files")?,
         cards: json_of(row, "cards")?,
+        occurrence: occurrence.and_then(|d| d.parse().ok()),
     })
 }
 
@@ -1258,6 +1532,38 @@ pub async fn list_episodes(pool: &sqlx::PgPool, series: Uuid) -> Result<Vec<Epis
         "SELECT ",
         episode_columns!(),
         " FROM episode WHERE series_id = $1 ORDER BY number"
+    ))
+    .bind(series)
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(episode_of).collect()
+}
+
+/// Every series of the station, in show and series order.
+pub async fn all_series(
+    pool: &sqlx::PgPool,
+    station: StationId,
+) -> Result<Vec<Series>, sqlx::Error> {
+    let rows = sqlx::query(concat!(
+        "SELECT ",
+        series_columns!(),
+        " FROM series WHERE station_id = $1 ORDER BY show_id, number"
+    ))
+    .bind(station.as_uuid())
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(series_of).collect()
+}
+
+/// The episodes of these series, by series and number.
+pub async fn episodes_of(
+    pool: &sqlx::PgPool,
+    series: &[Uuid],
+) -> Result<Vec<Episode>, sqlx::Error> {
+    let rows = sqlx::query(concat!(
+        "SELECT ",
+        episode_columns!(),
+        " FROM episode WHERE series_id = ANY($1) ORDER BY series_id, number"
     ))
     .bind(series)
     .fetch_all(pool)
@@ -1292,8 +1598,8 @@ pub fn air_window(show: &Show, series: &Series, ep: &Episode) -> Option<(i64, i6
     let start = ep.air_at?;
     let minutes = ep
         .minutes
-        .or(series.slot.and_then(|s| s.minutes))
-        .or(show.slot.and_then(|s| s.minutes))
+        .or(series.rule.as_ref().and_then(|r| r.minutes))
+        .or(show.rule.as_ref().and_then(|r| r.minutes))
         .map_or(DEFAULT_EPISODE_MINUTES, i64::from);
     Some((start, start + minutes * 60))
 }
@@ -1395,8 +1701,17 @@ pub async fn episode_maker(pool: &sqlx::PgPool, episode: Uuid) -> Result<Option<
     Ok(row.and_then(|(a,)| a))
 }
 
+/// What drafting made, and the clashes it was allowed to go on with.
+#[derive(Clone, Debug)]
+pub struct Created {
+    pub episodes: Vec<Episode>,
+    pub warnings: Vec<Clash>,
+}
+
 /// Draft the next episodes of a series, each filled in from the rule and inheriting the rest.
-/// `maker` is kept on each (ADR-0198).
+/// `maker` is kept on each (ADR-0198). A series whose rule has no more dates answers
+/// [`ShowError::Nothing`]. `clashes` says what to do with another show's time: refuse
+/// ([`Clashes::Refuse`], a presenter's), return it as a warning, or not look.
 #[allow(clippy::too_many_arguments)] // the station, the series' place and time, and who drafts
 pub async fn create_episodes(
     pool: &sqlx::PgPool,
@@ -1407,7 +1722,8 @@ pub async fn create_episodes(
     new: &NewEpisodes,
     now: Timestamp,
     maker: Maker<'_>,
-) -> Result<Vec<Episode>, ShowError> {
+    clashes: Clashes,
+) -> Result<Created, ShowError> {
     if new.count == 0 || new.count > 52 {
         return Err(ShowError::Invalid(
             "draft 1 to 52 episodes at a time".into(),
@@ -1417,7 +1733,41 @@ pub async fn create_episodes(
     check_people(&new.guests)?;
     let guests = people_ids(pool, station, &new.guests).await?;
     let mut tx = pool.begin().await?;
-    // One drafter at a time per series: the numbers and slots follow the last one.
+    lock_schedule(&mut tx, station).await?;
+    let made = create_episodes_in(
+        &mut tx, pool, station, show, series, zone, new, &guests, now, maker, clashes,
+    )
+    .await?;
+    tx.commit().await?;
+    let mut episodes = Vec::new();
+    for n in made.0 {
+        if let Some(e) = get_episode(pool, series.id, n).await? {
+            episodes.push(e);
+        }
+    }
+    Ok(Created {
+        episodes,
+        warnings: made.1,
+    })
+}
+
+/// [`create_episodes`] inside a transaction the caller holds (with the schedule locked): the
+/// numbers made and the clashes allowed. `pool` reads the other shows.
+#[allow(clippy::too_many_arguments)] // the transaction, the pool, and what create_episodes takes
+pub async fn create_episodes_in(
+    tx: &mut sqlx::PgConnection,
+    pool: &sqlx::PgPool,
+    station: StationId,
+    show: &Show,
+    series: &Series,
+    zone: &TimeZone,
+    new: &NewEpisodes,
+    guests: &[Uuid],
+    now: Timestamp,
+    maker: Maker<'_>,
+    clashes: Clashes,
+) -> Result<(Vec<u32>, Vec<Clash>), ShowError> {
+    // One drafter at a time per series: the numbers and dates follow the last one.
     sqlx::query("SELECT id FROM series WHERE id = $1 FOR UPDATE")
         .bind(series.id)
         .execute(&mut *tx)
@@ -1431,39 +1781,63 @@ pub async fn create_episodes(
     .fetch_all(&mut *tx)
     .await?;
     let existing: Vec<Episode> = rows.iter().map(episode_of).collect::<Result<_, _>>()?;
-    let slot = series.slot.or(show.slot);
+    let rule = series_rule(show, Some(series), &existing);
+    let drafts = fill_next(rule.as_ref(), zone, &existing, new.count, now);
+    if rule.is_some() && drafts.is_empty() {
+        return Err(ShowError::Nothing(match rule.as_ref().map(|r| &r.end) {
+            Some(End::Count { .. }) => "all the series' episodes are made".to_owned(),
+            _ => "the rule has no more dates to draft".to_owned(),
+        }));
+    }
+    let length = rule.as_ref().map_or(60, Rule::length);
+    let windows: Vec<(i64, i64)> = drafts
+        .iter()
+        .filter_map(|d| {
+            let start = d.air_at?;
+            Some((start, start + i64::from(d.minutes.unwrap_or(length)) * 60))
+        })
+        .collect();
+    let mut warnings = Vec::new();
+    if clashes != Clashes::Ignore {
+        let found =
+            crate::planner::clashes_for(pool, station, zone, Some(show.id), &windows, now).await?;
+        let mut all: Vec<Clash> = found.into_iter().flatten().collect();
+        if clashes == Clashes::Refuse && !all.is_empty() {
+            for c in &mut all {
+                c.refused = true;
+            }
+            return Err(ShowError::Clash(Box::new(crate::planner::ClashRefusal {
+                message: all[0].words(),
+                clashes: all,
+            })));
+        }
+        warnings.append(&mut all);
+    }
     let mut ids = Vec::new();
-    for (i, (number, air)) in fill_next(slot, zone, series.starts_on, &existing, new.count, now)
-        .into_iter()
-        .enumerate()
-    {
+    for (i, d) in drafts.iter().enumerate() {
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO episode (id, station_id, series_id, number, title, guests, air_at,
-                                  made_by, made_by_account)
-             VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7::double precision), $8, $9)",
+                                  made_by, made_by_account, occurrence, minutes)
+             VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7::double precision), $8, $9,
+                     $10::text::date, $11)",
         )
         .bind(id)
         .bind(station.as_uuid())
         .bind(series.id)
-        .bind(number as i32)
+        .bind(d.number as i32)
         .bind(if i == 0 { new.title.trim() } else { "" })
-        .bind(if i == 0 { guests.clone() } else { Vec::new() })
-        .bind(air.map(|t| t as f64))
+        .bind(if i == 0 { guests.to_vec() } else { Vec::new() })
+        .bind(d.air_at.map(|t| t as f64))
         .bind(maker.label)
         .bind(maker.account)
+        .bind(d.occurrence.map(|o| o.to_string()))
+        .bind(d.minutes.map(|m| m as i16))
         .execute(&mut *tx)
         .await?;
-        ids.push(number);
+        ids.push(d.number);
     }
-    tx.commit().await?;
-    let mut out = Vec::new();
-    for n in ids {
-        if let Some(e) = get_episode(pool, series.id, n).await? {
-            out.push(e);
-        }
-    }
-    Ok(out)
+    Ok((ids, warnings))
 }
 
 /// Change an episode that has not aired.
@@ -1997,102 +2371,239 @@ mod tests {
             frozen: None,
             files: None,
             cards: None,
+            occurrence: None,
         }
+    }
+
+    fn weekly(starts_on: Option<&str>) -> Option<Rule> {
+        Some(Rule {
+            starts_on: starts_on.map(|d| d.parse().unwrap()),
+            ..Rule::from(saturday_eight())
+        })
+    }
+
+    fn local(t: i64) -> String {
+        Timestamp::from_second(t)
+            .unwrap()
+            .to_zoned(london())
+            .strftime("%Y-%m-%d %H:%M %Z")
+            .to_string()
     }
 
     #[test]
     fn a_season_fills_in_from_its_start_date_across_the_clock_change() {
-        let starts = Some("2026-09-05".parse().unwrap());
         let got = fill_next(
-            Some(saturday_eight()),
+            weekly(Some("2026-09-05")).as_ref(),
             &london(),
-            starts,
             &[],
             10,
             ts("2026-08-01T12:00[Europe/London]"),
         );
         assert_eq!(got.len(), 10);
-        assert_eq!(got[0].0, 1);
-        assert_eq!(got[9].0, 10);
-        let local = |t: i64| {
-            Timestamp::from_second(t)
-                .unwrap()
-                .to_zoned(london())
-                .strftime("%Y-%m-%d %H:%M %Z")
-                .to_string()
-        };
-        assert_eq!(local(got[0].1.unwrap()), "2026-09-05 20:00 BST");
-        assert_eq!(local(got[6].1.unwrap()), "2026-10-17 20:00 BST");
-        assert_eq!(local(got[7].1.unwrap()), "2026-10-24 20:00 BST");
+        assert_eq!(got[0].number, 1);
+        assert_eq!(got[9].number, 10);
+        assert_eq!(local(got[0].air_at.unwrap()), "2026-09-05 20:00 BST");
+        assert_eq!(got[0].occurrence, Some("2026-09-05".parse().unwrap()));
+        assert_eq!(local(got[6].air_at.unwrap()), "2026-10-17 20:00 BST");
+        assert_eq!(local(got[7].air_at.unwrap()), "2026-10-24 20:00 BST");
         // The clocks go back on 25 October: still eight o'clock, now GMT.
-        assert_eq!(local(got[8].1.unwrap()), "2026-10-31 20:00 GMT");
-        assert_eq!(local(got[9].1.unwrap()), "2026-11-07 20:00 GMT");
+        assert_eq!(local(got[8].air_at.unwrap()), "2026-10-31 20:00 GMT");
+        assert_eq!(local(got[9].air_at.unwrap()), "2026-11-07 20:00 GMT");
+    }
+
+    #[test]
+    fn a_season_is_never_drafted_into_the_past() {
+        // The rule began in September; it is now the end of October and nothing is drafted.
+        let got = fill_next(
+            weekly(Some("2026-09-05")).as_ref(),
+            &london(),
+            &[],
+            2,
+            ts("2026-10-27T12:00[Europe/London]"),
+        );
+        assert_eq!(local(got[0].air_at.unwrap()), "2026-10-31 20:00 GMT");
+        assert_eq!(got[0].number, 1);
+        // A start date in the future wins over now.
+        let got = fill_next(
+            weekly(Some("2026-12-05")).as_ref(),
+            &london(),
+            &[],
+            1,
+            ts("2026-10-27T12:00[Europe/London]"),
+        );
+        assert_eq!(local(got[0].air_at.unwrap()), "2026-12-05 20:00 GMT");
     }
 
     #[test]
     fn the_next_episode_follows_the_last() {
-        let existing = vec![
-            episode(6, Some("2026-10-17T20:00[Europe/London]")),
-            episode(5, Some("2026-10-10T20:00[Europe/London]")),
-        ];
+        let mut sixth = episode(6, Some("2026-10-17T20:00[Europe/London]"));
+        sixth.occurrence = Some("2026-10-17".parse().unwrap());
+        let existing = vec![sixth, episode(5, Some("2026-10-10T20:00[Europe/London]"))];
         let got = fill_next(
-            Some(saturday_eight()),
+            weekly(None).as_ref(),
             &london(),
-            None,
             &existing,
             1,
             ts("2026-10-01T12:00[Europe/London]"),
         );
-        assert_eq!(got[0].0, 7);
+        assert_eq!(got[0].number, 7);
         assert_eq!(
-            got[0].1,
+            got[0].air_at,
             Some(ts("2026-10-24T20:00[Europe/London]").as_second())
         );
         // No rule: numbered, not scheduled.
         assert_eq!(
-            fill_next(None, &london(), None, &existing, 1, Timestamp::now())[0],
-            (7, None)
+            fill_next(None, &london(), &existing, 1, Timestamp::now())[0],
+            Draft {
+                number: 7,
+                air_at: None,
+                occurrence: None,
+                minutes: None
+            }
         );
+    }
+
+    #[test]
+    fn dates_that_are_filled_or_skipped_are_passed_over() {
+        let mut rule = weekly(Some("2026-10-03")).unwrap();
+        rule.skip = vec!["2026-10-10".parse().unwrap()];
+        let mut first = episode(1, Some("2026-10-03T20:00[Europe/London]"));
+        first.occurrence = Some("2026-10-03".parse().unwrap());
+        let got = fill_next(
+            Some(&rule),
+            &london(),
+            &[first],
+            2,
+            ts("2026-10-01T12:00[Europe/London]"),
+        );
+        assert_eq!(local(got[0].air_at.unwrap()), "2026-10-17 20:00 BST");
+        assert_eq!(local(got[1].air_at.unwrap()), "2026-10-24 20:00 BST");
+        assert_eq!((got[0].number, got[1].number), (2, 3));
+        // A rule that has no more dates gives fewer than asked.
+        let mut once = weekly(Some("2026-10-03")).unwrap();
+        once.repeat = Repeat::Once;
+        let got = fill_next(
+            Some(&once),
+            &london(),
+            &[],
+            3,
+            ts("2026-10-01T12:00[Europe/London]"),
+        );
+        assert_eq!(got.len(), 1);
+        let got = fill_next(
+            Some(&once),
+            &london(),
+            &[],
+            1,
+            ts("2026-10-04T12:00[Europe/London]"),
+        );
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn a_moved_date_is_drafted_at_its_moved_time_and_fills_the_date_it_was_moved_from() {
+        use crate::rule::Move;
+        let mut rule = weekly(Some("2026-10-03")).unwrap();
+        rule.moves = vec![Move {
+            from: "2026-10-10".parse().unwrap(),
+            to: "2026-10-11".parse::<Date>().unwrap().at(10, 0, 0, 0),
+            minutes: Some(30),
+        }];
+        let got = fill_next(
+            Some(&rule),
+            &london(),
+            &[],
+            2,
+            ts("2026-10-01T12:00[Europe/London]"),
+        );
+        assert_eq!(local(got[0].air_at.unwrap()), "2026-10-03 20:00 BST");
+        assert_eq!(got[0].minutes, None, "the rule's own length");
+        assert_eq!(got[1].occurrence, Some("2026-10-10".parse().unwrap()));
+        assert_eq!(local(got[1].air_at.unwrap()), "2026-10-11 10:00 BST");
+        assert_eq!(
+            got[1].minutes,
+            Some(30),
+            "a length of its own for this date"
+        );
+    }
+
+    #[test]
+    fn an_episode_frozen_before_rules_still_reads() {
+        // A frozen copy as 1.0.3 stored it: no `rule`, only `slot`.
+        let old = serde_json::json!({
+            "show": "Saturday Night Kettle", "slug": "saturday-night", "description": "",
+            "colour_slot": 3, "layout": "poster",
+            "slot": {"weekday": 6, "start": 1200, "minutes": 180},
+            "hosts": [], "guests": [], "tags": [], "explicit": false,
+            "series": null, "episode": null, "inherited": [], "frozen": true
+        });
+        let r: Resolved = serde_json::from_value(old).expect("an old frozen copy reads");
+        assert_eq!(r.rule, None);
+        assert_eq!(r.slot.unwrap().weekday, 6);
+        // And an episode row's JSON from before `occurrence`.
+        let e: Episode = serde_json::from_value(serde_json::json!({
+            "id": Uuid::nil(), "series_id": Uuid::nil(), "number": 1, "title": "", "description": "",
+            "kind": "live", "air_at": null, "minutes": null, "hosts": null, "guests": [],
+            "tags": null, "aired_at": null, "frozen": null, "files": null, "cards": null
+        }))
+        .unwrap();
+        assert_eq!(e.occurrence, None);
+    }
+
+    #[test]
+    fn a_series_left_alone_is_not_drafted_into_the_past_either() {
+        // The latest episode was five weeks ago; it is now Wednesday 21 October.
+        let mut old = episode(1, Some("2026-09-12T20:00[Europe/London]"));
+        old.occurrence = Some("2026-09-12".parse().unwrap());
+        let got = fill_next(
+            weekly(None).as_ref(),
+            &london(),
+            &[old],
+            2,
+            ts("2026-10-21T12:00[Europe/London]"),
+        );
+        assert_eq!(local(got[0].air_at.unwrap()), "2026-10-24 20:00 BST");
+        assert_eq!(got[0].number, 2);
+        assert_eq!(local(got[1].air_at.unwrap()), "2026-10-31 20:00 GMT");
     }
 
     #[test]
     fn the_first_episode_is_the_slot_under_way() {
         // Saturday 20:00 for three hours; it is 21:30 that Saturday and nothing is drafted.
+        let rule = weekly(None).unwrap();
         let got = fill_next(
-            Some(saturday_eight()),
+            Some(&rule),
             &london(),
-            None,
             &[],
             2,
             ts("2026-10-17T21:30[Europe/London]"),
         );
         assert_eq!(
-            got[0].1,
+            got[0].air_at,
             Some(ts("2026-10-17T20:00[Europe/London]").as_second())
         );
         assert_eq!(
-            got[1].1,
+            got[1].air_at,
             Some(ts("2026-10-24T20:00[Europe/London]").as_second())
         );
         // Once it has ended (23:00), the next one.
         let got = fill_next(
-            Some(saturday_eight()),
+            Some(&rule),
             &london(),
-            None,
             &[],
             1,
             ts("2026-10-17T23:00[Europe/London]"),
         );
         assert_eq!(
-            got[0].1,
+            got[0].air_at,
             Some(ts("2026-10-24T20:00[Europe/London]").as_second())
         );
         // A slot without a length counts as an hour, as the studio app draws it.
-        let short = Slot {
+        let short = Rule {
             minutes: None,
-            ..saturday_eight()
+            ..rule
         };
-        let at = |now| fill_next(Some(short), &london(), None, &[], 1, ts(now))[0].1;
+        let at = |now| fill_next(Some(&short), &london(), &[], 1, ts(now))[0].air_at;
         assert_eq!(
             at("2026-10-17T20:59[Europe/London]"),
             Some(ts("2026-10-17T20:00[Europe/London]").as_second())
@@ -2101,6 +2612,30 @@ mod tests {
             at("2026-10-17T21:00[Europe/London]"),
             Some(ts("2026-10-24T20:00[Europe/London]").as_second())
         );
+    }
+
+    #[test]
+    fn a_count_is_what_is_left_after_the_episodes_the_dates_do_not_account_for() {
+        let show = show();
+        let mut series = series(&show);
+        series.starts_on = Some("2026-10-03".parse().unwrap());
+        series.planned_episodes = Some(5);
+        // One episode was made by hand (no date) and one aired before the series' start.
+        let hand = episode(1, Some("2026-09-30T20:00[Europe/London]"));
+        let mut on_rule = episode(2, Some("2026-10-03T20:00[Europe/London]"));
+        on_rule.occurrence = Some("2026-10-03".parse().unwrap());
+        let eps = vec![hand, on_rule];
+        let rule = series_rule(&show, Some(&series), &eps).unwrap();
+        assert_eq!(rule.end, End::Count { count: 4 });
+        let got = fill_next(
+            Some(&rule),
+            &london(),
+            &eps,
+            10,
+            ts("2026-10-01T12:00[Europe/London]"),
+        );
+        assert_eq!(got.len(), 3, "five in all: two made, three to come");
+        assert_eq!(got[2].occurrence, Some("2026-10-24".parse().unwrap()));
     }
 
     fn show() -> Show {
@@ -2112,6 +2647,7 @@ mod tests {
             colour_slot: 3,
             layout: "poster".into(),
             slot: Some(saturday_eight()),
+            rule: Some(Rule::from(saturday_eight())),
             hosts: vec![Uuid::from_u128(1), Uuid::from_u128(2)],
             tags: vec!["music".into()],
             explicit: false,
@@ -2135,6 +2671,7 @@ mod tests {
             description: None,
             hosts: None,
             slot: None,
+            rule: None,
             starts_on: Some("2026-09-05".parse().unwrap()),
             planned_episodes: Some(10),
             tags: None,
@@ -2405,6 +2942,193 @@ pub async fn erase_person(
     }))
 }
 
+/// What deleting a show removed (ADR-0279), and the files that went with its rows: the caller
+/// deletes them once the transaction has committed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct DeletedShow {
+    pub slug: String,
+    pub name: String,
+    /// Its series, and the drafted episodes in them.
+    pub series: usize,
+    pub episodes: usize,
+    /// Its own cart banks and the carts in them.
+    pub cart_banks: usize,
+    pub carts: usize,
+    /// The show's own id, which names its slate still.
+    #[serde(skip)]
+    pub id: Uuid,
+    /// The card files the show, its series and its episodes named: some may still be named
+    /// by another row (card files are named by their content), so see [`card_files_in_use`].
+    #[serde(skip)]
+    pub card_files: Vec<String>,
+    /// The audio files its episodes named, as published in `episodes_dir`.
+    #[serde(skip)]
+    pub media_files: Vec<String>,
+    /// Its carts' files in the carts' directory, with the cart ids.
+    #[serde(skip)]
+    pub cart_files: Vec<(Uuid, Option<String>)>,
+}
+
+/// The sentence for a show that cannot be deleted because it has aired or is on air. `aired`
+/// is how many of its episodes have aired.
+pub fn kept_because_aired(name: &str, aired: usize, on_air: bool) -> String {
+    if aired > 0 {
+        let n = if aired == 1 {
+            "1 episode".to_owned()
+        } else {
+            format!("{aired} episodes")
+        };
+        format!(
+            "{name} has aired {n}, so it stays as the station's record: only a show that has never aired can be deleted."
+        )
+    } else if on_air {
+        format!("{name} is on air now, so it cannot be deleted.")
+    } else {
+        format!("{name} cannot be deleted.")
+    }
+}
+
+/// Delete a show that has never aired (ADR-0279), with its series, episodes, cart banks, and
+/// its step and rule logs, all in one transaction. Refused (`ShowError::Kept`) when any of its
+/// episodes has aired (`aired_at`, which is also `frozen`, or its time has ended by `now_s`) or
+/// is on air at `now_s` by the schedule; `Missing` for a show that does not exist. Past plays, the generated log and chat
+/// keep nothing of a show by its id (a clock or log item naming one of its own carts is left naming
+/// a cart that is gone, as when a show's bank is removed), and a call's consent keeps the show as words
+/// (`caller_consent.show_id` is `ON DELETE SET NULL`), so nothing else changes. The episodes
+/// are locked first, so a concurrent *Put on air* either finishes before the check or finds the
+/// episode gone.
+pub async fn delete_show(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    slug: &str,
+    now_s: i64,
+) -> Result<DeletedShow, ShowError> {
+    let mut tx = pool.begin().await?;
+    lock_schedule(&mut tx, station).await?;
+    let Some(row) = sqlx::query(concat!(
+        "SELECT ",
+        show_columns!(),
+        " FROM show WHERE station_id = $1 AND slug = $2 FOR UPDATE"
+    ))
+    .bind(station.as_uuid())
+    .bind(slug)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Err(ShowError::Missing(format!("show `{slug}`")));
+    };
+    let show = show_of(&row)?;
+    let series: Vec<Series> = sqlx::query(concat!(
+        "SELECT ",
+        series_columns!(),
+        " FROM series WHERE show_id = $1 ORDER BY number"
+    ))
+    .bind(show.id)
+    .fetch_all(&mut *tx)
+    .await?
+    .iter()
+    .map(series_of)
+    .collect::<Result<_, _>>()?;
+    let ids: Vec<Uuid> = series.iter().map(|s| s.id).collect();
+    let episodes: Vec<Episode> = sqlx::query(concat!(
+        "SELECT ",
+        episode_columns!(),
+        " FROM episode WHERE series_id = ANY($1) ORDER BY series_id, number FOR UPDATE"
+    ))
+    .bind(&ids)
+    .fetch_all(&mut *tx)
+    .await?
+    .iter()
+    .map(episode_of)
+    .collect::<Result<_, _>>()?;
+    // An episode has aired once *On air now* froze it, or once its time has come: nothing
+    // freezes an episode by itself, and a show that went out for weeks without the button
+    // still has a record to keep (ADR-0279).
+    let window = |e: &Episode| {
+        series
+            .iter()
+            .find(|s| s.id == e.series_id)
+            .and_then(|s| air_window(&show, s, e))
+    };
+    let on_air = episodes
+        .iter()
+        .any(|e| window(e).is_some_and(|(start, end)| start <= now_s && now_s < end));
+    let aired = episodes
+        .iter()
+        .filter(|e| e.aired_at.is_some() || window(e).is_some_and(|(_, end)| end <= now_s))
+        .count();
+    if aired > 0 || on_air {
+        return Err(ShowError::Kept(kept_because_aired(
+            &show.name, aired, on_air,
+        )));
+    }
+    let mut cards: Vec<String> = show.cards.iter().flat_map(card_files).collect();
+    cards.extend(
+        series
+            .iter()
+            .filter_map(|s| s.cards.as_ref())
+            .flat_map(card_files),
+    );
+    cards.extend(
+        episodes
+            .iter()
+            .filter_map(|e| e.cards.as_ref())
+            .flat_map(card_files),
+    );
+    cards.sort();
+    cards.dedup();
+    let mut media_files: Vec<String> = episodes
+        .iter()
+        .filter_map(|e| e.files.as_ref()?.as_object())
+        .flat_map(|o| o.values())
+        .filter_map(|f| f.get("file")?.as_str().map(str::to_owned))
+        .collect();
+    media_files.sort();
+    media_files.dedup();
+    let cart_files: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT c.id, c.file FROM cart c JOIN cart_bank b ON b.id = c.bank_id WHERE b.show_id = $1",
+    )
+    .bind(show.id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let (cart_banks,): (i64,) = sqlx::query_as("SELECT count(*) FROM cart_bank WHERE show_id = $1")
+        .bind(show.id)
+        .fetch_one(&mut *tx)
+        .await?;
+    // The series, episodes, cart banks and carts, and the two change logs, go with the show by
+    // their foreign keys.
+    sqlx::query("DELETE FROM show WHERE id = $1")
+        .bind(show.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(DeletedShow {
+        slug: show.slug,
+        name: show.name,
+        series: series.len(),
+        episodes: episodes.len(),
+        cart_banks: cart_banks as usize,
+        carts: cart_files.len(),
+        id: show.id,
+        card_files: cards,
+        media_files,
+        cart_files,
+    })
+}
+
+/// Every published audio file any episode names now (all stations share the directory).
+pub async fn episode_files_in_use(
+    pool: &sqlx::PgPool,
+) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT f.value ->> 'file' FROM episode e, jsonb_each(e.files) f
+         WHERE e.files IS NOT NULL AND f.value ->> 'file' IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(v,)| v).collect())
+}
+
 /// Every card file any show, series or episode names now (all stations: they share a
 /// directory), so files no longer named can be deleted.
 pub async fn card_files_in_use(
@@ -2433,4 +3157,25 @@ pub fn card_files(cards: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use super::kept_because_aired;
+
+    #[test]
+    fn the_refusal_names_how_many_aired_in_one_plain_sentence() {
+        assert_eq!(
+            kept_because_aired("The Folk Club", 1, false),
+            "The Folk Club has aired 1 episode, so it stays as the station's record: only a show that has never aired can be deleted."
+        );
+        assert_eq!(
+            kept_because_aired("The Folk Club", 12, true),
+            "The Folk Club has aired 12 episodes, so it stays as the station's record: only a show that has never aired can be deleted."
+        );
+        assert_eq!(
+            kept_because_aired("The Folk Club", 0, true),
+            "The Folk Club is on air now, so it cannot be deleted."
+        );
+    }
 }

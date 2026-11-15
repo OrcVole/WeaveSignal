@@ -2,6 +2,79 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.0.4 (2026-11-15)
+
+- **New show, guided like calendar software** (ADR-0278): **New show** asks for the name, then
+  *When it airs*: one date and time, and whether it comes back (once, every week, every month on
+  the third Tuesday or the last Friday, every year on a date, or on dates you choose), and when
+  it ends. On the right the station says it back in a sentence with its last date, shows the
+  dates in small months and as numbered rows, marks where the clocks change and what clashes,
+  and lets a date be skipped, moved or (a chosen date) removed. When every date clashes with
+  another show, it offers the nearest clear time within three hours (*Try 21:00 to 22:00*).
+  **Make the show** drafts the first episode; **Draft all 10** the rest. **Change…** in the
+  show editor reopens the questions and, before saving, lists the drafted episodes with their
+  old and new dates. The presenter's own setup asks the same in *When it is on*.
+- **The studio grows with its window** (ADR-0277): above 1920 by 1080 the whole interface is
+  scaled to the window, on top of the text size, and the top bar and tabs wrap instead of
+  clipping. Dialogs keep their buttons inside the window at any size and text size.
+- **Not-drafted dates in the week** are dashed blocks: select one to **Draft this episode** or
+  **Skip this date** (with **Undo**).
+- **Delete show** (ADR-0279): an admin or a producer may delete a show none of whose episodes
+  has aired or is on air, from the show editor (**Delete show…**, with a confirmation that
+  counts what goes with it) or with `DELETE /api/v1/shows/{show}`. In one transaction the show
+  goes with its series, drafted episodes, own cart banks and carts, and the logs of its step and
+  rule changes; then its card pictures, slate still, carts' files and the audio files only it
+  named are deleted, and the open cart wall is read again. A show that has aired is refused
+  (409, one sentence naming how many episodes aired) and stays as the station's record. A
+  presenter, a screener and an API token may not (403).
+- **A show airs by a rule, not a weekly slot** (ADR-0278, migration 0036): once, every N
+  weeks on some weekdays, monthly on the nth weekday or on a day, yearly, or on chosen dates,
+  with dates skipped, dates moved to another time, and an end (never, until a date, or after
+  N episodes). The control plane works the dates out, says the rule back in a sentence and a
+  short form (`rule_words`), finds the next date (`next_on`) and the clashes with other
+  shows; the studio does none of it. A weekly slot becomes the slot-shaped rule and airs at
+  exactly the same instants (a test checks every slot over two years across the clocks
+  changing, in four zones); `slot` is still sent while a rule is exactly that, and an older
+  studio's save keeps a rule it cannot see. The three slot columns stay for one release,
+  unread.
+- **New routes**: `PUT /api/v1/shows/{show}/rule` and `PUT …/series/{series}/rule` (the rule
+  alone, with `drafted`: `move` or `leave`, in one transaction, logged and told to every
+  window), `POST /api/v1/schedule/rule/preview` (the sentence, the next dates with the clocks
+  changing and the clashes, what saving would do to the episodes; it writes nothing), and
+  `dates` in `GET /api/v1/schedule/episodes` for the week's dotted blocks. `PUT` of a show
+  takes `rule` and `draft_first`, which makes series 1 and drafts the first episode in the
+  same transaction. [When a show airs: the rule](docs/src/content/docs/docs/reference/show-rules.md).
+- **The Schedule tab says when someone else changes a rule** (*Moira changed when The Folk Club
+  airs. The week is up to date.*) and reads the week and the shows again; an open show editor
+  reads its show again too, keeping what was typed, so its save cannot send the old rule back.
+  A window is not told of its own change, and a **Skipped** with its **Undo** stays beside the
+  line. Found in the 1.0.4 test run, where the tab neither showed the notice nor reloaded.
+- **New show says where a date it did not ask for came from**: opened with a block selected in
+  the week, part 2 says under **First on** *From the block selected in the week: Thursday 19
+  November, 15:00 to 16:00*, with **Use today instead**. In the test run that date and time went
+  unnoticed and shows were made on the wrong day.
+- **When it airs, from the keyboard**: the next dates are one stop for `Tab`, then the focused
+  row's own buttons (ten rows were twenty stops before **Make the show**); a row's button or a
+  chosen date's chip pressed from the keyboard leaves the focus on a row or a chip, not outside
+  the dialog; a column that scrolls on a short window fades at the edge where more waits.
+- **A changed rule moves the episodes drafted for dates to come**, in order, keeping their
+  numbers, titles and guests (or leaves them, if asked). Aired episodes are frozen and an
+  episode a person moved or made by hand stays. Each episode now records the rule date it fills
+  (`occurrence`); episodes made before are given theirs at the first start.
+- **A count counts episodes**: a skipped date does not use one up, so the run is one date
+  longer. A series is complete when it has its planned episodes: a further draft answers 409
+  (it used to be allowed without limit).
+- **Drafting never goes into the past**: the first episode is the date under way, else the next
+  on or after the series' start, however long ago that was; and a series left alone for weeks
+  goes on from the date under way, not from the day after its last episode.
+- **A presenter may not draft an episode over another show's time** (409, naming the other
+  show); an admin, a producer, the station key and a token are warned and may go on.
+- **Playout sends the desk its copy of the programme on its own clock**, as it sends listeners'
+  copy, with a 1 s write timeout; on a clock of its own that copy fell behind real time on the
+  test station. The video stream's sound while nobody is live still has gaps on a busy host.
+- **The desk's status reports the copy's buffer**: how often a piece was placed afresh after a
+  pause or a burst (`feed_replaced`), and `feed_underruns`, `feed_late_ms` and `feed_ring_ms`.
+
 ## 1.0.3 (2026-11-13)
 
 - **Saving a YouTube, Owncast or X destination no longer fails** ("the database refused

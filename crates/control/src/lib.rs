@@ -25,6 +25,7 @@ pub mod playout;
 pub mod ports;
 pub mod public;
 pub mod retention;
+pub mod rules;
 pub mod schedule;
 pub mod scopes;
 pub mod setup;
@@ -202,6 +203,13 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
             }
             Err(e) => tracing::error!(error = %e, "cannot read the station's time zone"),
         }
+        // Episodes made before rules (release 1.0.4) learn which rule date they fill: once, now
+        // that the zone is settled.
+        match weavesignal_model::ruleplan::backfill_occurrences(pool, &hub.zone.get()).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(episodes = n, "episodes given the rule date they fill"),
+            Err(e) => tracing::error!(error = %e, "cannot give episodes the rule date they fill"),
+        }
     }
     // The playout layer (M4): automation, the per-play log, audience, the logger, now playing.
     match (&db, config.playout.socket.as_deref()) {
@@ -301,6 +309,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         publishing: config.publishing.clone(),
         zone: hub.zone.clone(),
         live: Some(hub.live.clone()),
+        hub: Some(hub.clone()),
+        video: Some(config.video.clone()),
     });
     // The setup page and the station's look (ADR-0237): what an admin set on the running
     // station is read back now, so the name and the contact in force are right from the first
