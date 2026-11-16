@@ -67,6 +67,19 @@ pub(crate) struct RuleInput {
     /// Aired episodes, and episodes a person moved or made by hand, never move.
     #[serde(default)]
     drafted: Drafted,
+    /// A token the saving window makes for this save (1.0.5): the `rule.changed` notice every
+    /// window gets carries it back, so the window that saved knows the notice for its own. Up to
+    /// 64 letters, digits, `-` and `_`.
+    #[serde(default)]
+    #[schema(max_length = 64, pattern = "^[A-Za-z0-9_-]{1,64}$")]
+    change: Option<String>,
+}
+
+/// Whether a save's token is one the notice may carry back.
+fn change_token(t: &str) -> bool {
+    (1..=64).contains(&t.len())
+        && t.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// What a saved rule did.
@@ -111,6 +124,12 @@ async fn put_rule(
         Ok(a) => a,
         Err(r) => return Ok(r),
     };
+    if input.change.as_deref().is_some_and(|t| !change_token(t)) {
+        return Err(Fail::Status(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "`change` is up to 64 letters, digits, `-` and `_`".to_owned(),
+        ));
+    }
     let pool = db(state)?;
     let by = shows::StepBy {
         label: actor.label(),
@@ -138,7 +157,7 @@ async fn put_rule(
     if let Some(live) = &state.live {
         live.wake_steps();
     }
-    tell_windows(state, &actor, &show);
+    tell_windows(state, &actor, &show, input.change.as_deref());
     let people = shows::people(pool, state.station.id).await?;
     let zone = state.zone();
     for (series_number, episode_number) in &changed.moved {
@@ -357,7 +376,7 @@ pub(crate) struct PreviewReply {
     pub change: Option<ChangePlan>,
 }
 
-fn stub_show(rule: &Rule) -> Show {
+pub(crate) fn stub_show(rule: &Rule) -> Show {
     Show {
         id: uuid::Uuid::nil(),
         slug: "preview".into(),
@@ -787,3 +806,18 @@ pub(crate) async fn open_dates(
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(put_show_rule, put_series_rule, preview))]
 pub(crate) struct Api;
+
+#[cfg(test)]
+mod change_tests {
+    use super::change_token;
+
+    #[test]
+    fn a_save_token_is_short_and_plain() {
+        assert!(change_token("3f2a9c1e-7b4d-4e0a-9c2f-1a2b3c4d5e6f"));
+        assert!(change_token("a_b-C9"));
+        assert!(!change_token(""));
+        assert!(!change_token(&"x".repeat(65)));
+        assert!(!change_token("has space"));
+        assert!(!change_token("<script>"));
+    }
+}

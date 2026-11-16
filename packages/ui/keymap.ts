@@ -111,9 +111,13 @@ export type Action =
   | { type: 'avatar-remove'; account: string; name: string; picture: string; report?: string }
   /** A picture or document posted in the chat and shown, taken down with its message (ADR-0262). */
   | { type: 'attachment-remove'; attachment: string; kind: 'picture' | 'document'; account: string; name: string; report?: string }
-  // schedule tab: the calendar's toolbar (calendar.md §5): the arrows move a week, T is today
+  /** The Stations list (ADR-0287): `⌃⇧S`, packaged app only. */
+  | { type: 'stations' }
+  // schedule tab: the calendar's toolbar (calendar.md §5, week-clashes.md §5, ADR-0283): the
+  // arrows move a week in the Week view and a day in the Day view, T is today, D and W the views
   | { type: 'week'; delta: number }
   | { type: 'today' }
+  | { type: 'view'; view: 'week' | 'day' }
   // the statement of reasons dialog
   | { type: 'sor-then'; then: SorThen }
   | { type: 'sor-reason'; reason: SorReason }
@@ -272,6 +276,9 @@ export class KeyEngine {
         return handled({ type: 'post' });
       }
       if (k.code === 'KeyE' && k.shift) return handled({ type: 'end-show' });
+      // ⌃⇧S: the Stations list (ADR-0287), on every tab; never from a text field. It opens the
+      // list only: no chord switches by itself.
+      if (k.code === 'KeyS' && k.shift) return ctx.inTextField ? handled(null) : handled({ type: 'stations' });
       if (k.code === 'KeyT' && !k.shift) {
         return this.hold(k, { type: 'talk-seat', held: true }, { type: 'talk-seat', held: false });
       }
@@ -307,8 +314,11 @@ export class KeyEngine {
     return NONE;
   }
 
-  /** The schedule tab (calendar.md §5): `←` `→` the previous and next week, `T` today. Nothing
-   *  here is live, so no key is two-press; the global layer (F1–F6, Del Del, ⌃D ⌃D) still fires. */
+  /** The schedule tab (calendar.md §5, week-clashes.md §5, ADR-0283): `←` `→` the previous and
+   *  next week (a day in the Day view), `T` today, `D` the Day view, `W` the Week view. Nothing
+   *  here is live, so no key is two-press; the global layer (F1–F6, Del Del, ⌃D ⌃D) still fires.
+   *  `Esc` is the global layer's `escape`, as on every tab: here it closes what the editor column
+   *  holds and clears the selection (the studio's `run`), after it has left a text field. */
   private schedule(k: KeyInput): Outcome {
     if (k.shift) return NONE;
     switch (k.code) {
@@ -318,6 +328,10 @@ export class KeyEngine {
         return handled({ type: 'week', delta: 1 });
       case 'KeyT':
         return handled({ type: 'today' });
+      case 'KeyD':
+        return handled({ type: 'view', view: 'day' });
+      case 'KeyW':
+        return handled({ type: 'view', view: 'week' });
       default:
         return NONE;
     }

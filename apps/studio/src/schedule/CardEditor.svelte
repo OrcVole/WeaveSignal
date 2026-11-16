@@ -17,6 +17,7 @@
     item,
     zone,
     onBack,
+    onShows,
     onChanged,
   }: {
     slug: string;
@@ -24,6 +25,8 @@
     item: WeekEpisode | null;
     zone: string;
     onBack: () => void;
+    /** ‹ Shows: back to the list of shows. */
+    onShows?: () => void;
     onChanged: () => Promise<void>;
   } = $props();
 
@@ -114,6 +117,7 @@
 
 <div class="head">
   <div class="crumbs">
+    {#if onShows}<button type="button" class="back" title="Back to the list of shows (Esc)" aria-keyshortcuts="Escape" onclick={onShows}>‹ Shows</button> ›{/if}
     {#if item}<b>{item.resolved.show}</b> › <b>Series {item.series.number}</b> › Episode {item.episode.number} › card{:else}<b>{show?.name ?? slug}</b> › card{/if}
   </div>
   <h2 data-panel-title>Card · {layout === 'slate' ? 'Slate' : 'Poster'}</h2>

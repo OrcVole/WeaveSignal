@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as api from './lib/api.ts';
 import type { Notice } from './lib/api.ts';
-import { Heard, NEWS_MS, OWN_MS, forgetOwn, markOwn, takeOwn, unmarkOwn } from './lib/ruleNotice.ts';
+import { Heard, NEWS_MS, OWN_MS, forgetOwn, isAbout, markOwn, takeOwn, unmarkOwn } from './lib/ruleNotice.ts';
 
 const SHOWS = [
   { slug: 'folk-club', name: 'The Folk Club' },
@@ -17,6 +17,7 @@ const MOIRA = 'Moira changed when The Folk Club airs.';
 
 afterEach(() => {
   forgetOwn();
+  api.noteStationVersion('1.0.4');
   vi.unstubAllGlobals();
 });
 
@@ -106,5 +107,69 @@ describe('the rule’s routes mark their own saves', () => {
     answer(409, { error: 'Saturday Night Kettle has that time.', field: 'rule' });
     await expect(api.putShowRule('folk-club', null, 'leave')).rejects.toThrow('Saturday Night Kettle has that time.');
     expect(takeOwn(MOIRA, SHOWS)).toBe(false);
+  });
+});
+
+describe('since 1.0.5 the notice names its show and its save', () => {
+  const said = (title: string, subject: string | null, change: string | null) => ({ title, subject, change });
+
+  it('a save’s token makes the notice this window’s exactly, and only once', () => {
+    markOwn('folk-club', T, 'w1');
+    expect(takeOwn(said(MOIRA, 'folk-club', 'other-window'), SHOWS, T + 500)).toBe(false);
+    expect(takeOwn(said(MOIRA, 'folk-club', 'w1'), SHOWS, T + 600)).toBe(true);
+    expect(takeOwn(said(MOIRA, 'folk-club', 'w1'), SHOWS, T + 700)).toBe(false);
+  });
+
+  it('two windows of one account saving one show are told apart', () => {
+    markOwn('firth-sessions', T, 'mine');
+    expect(takeOwn(said('Shona changed when Firth Sessions airs.', 'firth-sessions', 'theirs'), SHOWS, T + 100)).toBe(false);
+    expect(takeOwn(said('Shona changed when Firth Sessions airs.', 'firth-sessions', 'mine'), SHOWS, T + 200)).toBe(true);
+  });
+
+  it('two shows of one name are told apart by their path', () => {
+    const twins = [...SHOWS, { slug: 'folk-club-2', name: 'The Folk Club' }];
+    markOwn('folk-club-2', T);
+    expect(takeOwn(said(MOIRA, 'folk-club', null), twins, T + 100)).toBe(false);
+    expect(takeOwn(said(MOIRA, 'folk-club-2', null), twins, T + 200)).toBe(true);
+  });
+
+  it('a save sent with a token is not taken by another window’s save sent without one', () => {
+    markOwn('folk-club', T, 'mine');
+    expect(takeOwn(said(MOIRA, 'folk-club', null), SHOWS, T + 100)).toBe(false);
+    expect(takeOwn({ title: MOIRA }, SHOWS, T + 150)).toBe(false);
+    expect(takeOwn(said(MOIRA, 'folk-club', 'mine'), SHOWS, T + 200)).toBe(true);
+  });
+
+  it('a refused save takes back its own mark, not another', () => {
+    markOwn('folk-club', T, 'a');
+    markOwn('folk-club', T + 10, 'b');
+    unmarkOwn('folk-club', 'a');
+    expect(takeOwn(said(MOIRA, 'folk-club', 'a'), SHOWS, T + 100)).toBe(false);
+    expect(takeOwn(said(MOIRA, 'folk-club', 'b'), SHOWS, T + 100)).toBe(true);
+  });
+
+  it('a notice is about a show by its path, or by its sentence from an older station', () => {
+    expect(isAbout(said(MOIRA, 'folk-club', null), 'folk-club', 'The Folk Club')).toBe(true);
+    expect(isAbout(said(MOIRA, 'folk-club-2', null), 'folk-club', 'The Folk Club')).toBe(false);
+    expect(isAbout({ title: MOIRA }, 'folk-club', 'The Folk Club')).toBe(true);
+    expect(isAbout({ title: MOIRA }, 'firth-sessions', 'Firth Sessions')).toBe(false);
+  });
+
+  it('a 1.0.5 station is sent the token; an older one is not, as it refuses a field it does not know', async () => {
+    const sent: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: unknown, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body ?? '{}')));
+      return new Response(JSON.stringify({ rule: null, rule_words: null, moved: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    api.noteStationVersion('1.0.4-test.2');
+    await api.putShowRule('folk-club', null, 'leave');
+    expect(sent[0]).not.toHaveProperty('change');
+    api.noteStationVersion('1.0.5');
+    await api.putShowRule('folk-club', null, 'leave');
+    const change = (sent[1] as { change?: string }).change;
+    expect(change).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(takeOwn(said(MOIRA, 'folk-club', change!), SHOWS)).toBe(true);
+    expect(api.speaksChange('1.0.5-test.1')).toBe(true);
+    expect(api.speaksChange('1.0.4')).toBe(false);
   });
 });

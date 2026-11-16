@@ -169,6 +169,9 @@ const AIR: Record<Action['type'], 'air' | 'free' | ((a: never) => boolean)> = {
   // the schedule
   week: 'free',
   today: 'free',
+  view: 'free',
+  // the station list (ADR-0287)
+  stations: 'free',
 };
 
 /** Whether an action changes what is on air, so a preparing window must not run it. */

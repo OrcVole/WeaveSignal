@@ -8,6 +8,8 @@ import type { Catalogue } from '../../../../packages/ui/carts.ts';
 import type { Tab, TwoPress } from '../../../../packages/ui/keymap.ts';
 import type { AirAsk } from './air.ts';
 import { lookOf, showTookAir, stationStep, tabShown } from './steps.ts';
+import { onStationChange } from './reset.ts';
+import { readScoped, writeScoped } from './scoped.ts';
 
 export interface LocalNote {
   id: number;
@@ -17,7 +19,12 @@ export interface LocalNote {
   until: number;
 }
 
-export const studio = $state({
+// Declared before the store, which reads the bank as it is made: where it sat after the store,
+// the read threw inside a `try` and every window opened on bank 1 whatever was kept.
+const BANK_KEY = 'weavesignal.cart-bank';
+
+/** What `studio` is when the page first loads: a change of station puts it back (ADR-0285). */
+const fresh = () => ({
   view: null as View | null,
   link: 'connecting' as LinkState,
   linkWhy: '' as string,
@@ -69,24 +76,17 @@ export const studio = $state({
   offTold: [] as string[],
 });
 
-const BANK_KEY = 'weavesignal.cart-bank';
+export const studio = $state(fresh());
 
 function readBank(): number {
-  try {
-    const n = Number(globalThis.localStorage?.getItem(BANK_KEY));
-    return n >= 1 && n <= 5 ? n : 1;
-  } catch {
-    return 1;
-  }
+  const n = Number(readScoped(BANK_KEY));
+  return n >= 1 && n <= 5 ? n : 1;
 }
 
 export function setBank(n: number): void {
   studio.bank = n;
-  try {
-    globalThis.localStorage?.setItem(BANK_KEY, String(n));
-  } catch {
-    // A private window: the bank is this session's only.
-  }
+  // In a private window the bank is this session's only.
+  writeScoped(BANK_KEY, String(n));
 }
 
 /** What this window draws: the station's step, or everything while Show everything is on. */
@@ -153,3 +153,16 @@ export function takeView(v: View): void {
   studio.skew = v.now_ms - Date.now();
   if (v.carts && (v.carts.version !== studio.catalogue?.version || (studio.catalogue.show ?? null) !== studio.cartShow)) void refreshCatalogue(v.carts.version);
 }
+
+/** The cart bank is kept for each station apart; read it again once the station is known
+ *  (the store is made before the packaged app has read which station it is on). */
+export function settleBank(): void {
+  studio.bank = readBank();
+}
+
+// A change of station (ADR-0285): nothing of the last one stays. The tab goes back to the Desk.
+onStationChange('studio', () => {
+  Object.assign(studio, fresh(), { bank: 1 });
+  fetching = '';
+  noteId = 0;
+});

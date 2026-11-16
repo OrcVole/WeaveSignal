@@ -222,6 +222,8 @@ const dlg = (page, panel = 'calendar.new-show') => page.locator(`dialog[data-pan
 
   // Changing the rule later: Tuesday to Wednesday, with the drafted episode listed first.
   await page.getByRole('tab', { name: 'Show' }).click();
+  // The show level opens at its Dates since 1.0.5 (week-clashes.md); the show editor is its Details.
+  await page.getByRole('tab', { name: 'Details' }).click();
   await page.locator('[data-panel="calendar.show-rule"]').getByRole('button', { name: 'Change…' }).click();
   const rd = page.locator('dialog[data-dialog="rule"]');
   await rd.waitFor();
@@ -279,6 +281,16 @@ const dlg = (page, panel = 'calendar.new-show') => page.locator(`dialog[data-pan
   await d.getByRole('button', { name: 'Try 22:00 to 23:00' }).click();
   await settled(page);
   check('the offered time clears it', (await d.locator('.warn').count()) === 0 && (await page.inputValue('#ns-from')) === '22:00' && (await d.getByRole('button', { name: 'Make the show', exact: true }).count()) === 1);
+
+  // The arrows beside a time (the 1.0.5 click-through): WebKitGTK draws a time field with none.
+  const fromField = d.locator('.timefield:has(#ns-from)');
+  const untilField = d.locator('.timefield:has(#ns-until)');
+  await fromField.getByRole('button', { name: '15 minutes later' }).click();
+  await settled(page);
+  const stepped = `${await page.inputValue('#ns-from')} ${(await d.locator('[data-testid="rule-length"]').innerText()).trim()}`;
+  await fromField.getByRole('button', { name: '15 minutes earlier' }).click();
+  await settled(page);
+  check('from and until each have two arrows, and a press steps the time a quarter-hour as typing would: the length follows', (await fromField.locator('.steps button').count()) === 2 && (await untilField.locator('.steps button').count()) === 2 && stepped === '22:15 45 min' && (await page.inputValue('#ns-from')) === '22:00' && (await d.locator('[data-testid="rule-length"]').innerText()).trim() === '1 hour' && (await page.inputValue('#ns-first')) === '2026-11-17' && (await page.evaluate(() => document.activeElement?.id)) === 'ns-from', `${stepped} | ${await page.inputValue('#ns-from')} ${await d.locator('[data-testid="rule-length"]').innerText()}`);
 
   await d.getByRole('button', { name: 'More choices…' }).click();
   await d.getByRole('button', { name: 'Friday' }).click();
@@ -552,6 +564,7 @@ for (const [name, o] of [['light', { theme: 'light' }], ['night', { theme: 'nigh
   // From the Unscheduled list: Northern Lights has no dates, no series and no episodes.
   await page.locator('[data-panel="calendar.unscheduled"] summary').click();
   await page.locator('[data-panel="calendar.unscheduled"]').getByRole('button', { name: 'Northern Lights' }).click();
+  await page.getByRole('tab', { name: 'Details' }).click();
   const open1 = page.getByRole('button', { name: 'Delete show…' });
   await open1.waitFor();
   await inView(page, open1, 'Delete show… in the show editor');
@@ -587,6 +600,7 @@ for (const [name, o] of [['light', { theme: 'light' }], ['night', { theme: 'nigh
   await sleep(500);
   await page.locator('.ec .ev:not(.auto):not(.rule)').filter({ hasText: 'Saturday Night Kettle' }).first().click();
   await page.getByRole('tab', { name: 'Show' }).click();
+  await page.getByRole('tab', { name: 'Details' }).click();
   const open2 = page.getByRole('button', { name: 'Delete show…' });
   await open2.waitFor();
   await open2.click();
@@ -600,6 +614,7 @@ for (const [name, o] of [['light', { theme: 'light' }], ['night', { theme: 'nigh
   // The station refuses a show that has aired, in its own sentence, and the show stays.
   await page.locator('.ec .ev:not(.auto):not(.rule)').filter({ hasText: 'Kettle Breakfast' }).first().click();
   await page.getByRole('tab', { name: 'Show' }).click();
+  await page.getByRole('tab', { name: 'Details' }).click();
   await page.getByRole('button', { name: 'Delete show…' }).click();
   await delDialog.waitFor();
   await delDialog.getByRole('button', { name: 'Delete show', exact: true }).click();
@@ -619,6 +634,7 @@ for (const [name, o] of [['light', { theme: 'light' }], ['night', { theme: 'nigh
     const { ctx, page } = await open(station);
     await page.locator('.ec .ev:not(.auto):not(.rule)').filter({ hasText: 'Saturday Night Kettle' }).first().click();
     await page.getByRole('tab', { name: 'Show' }).click();
+    await page.getByRole('tab', { name: 'Details' }).click();
     await page.getByRole('button', { name: 'Save show' }).waitFor();
     check(`${what} is not offered Delete show…`, (await page.getByRole('button', { name: 'Delete show…' }).count()) === 0);
     await ctx.close();
@@ -668,6 +684,7 @@ for (const [name, o] of [['light', { theme: 'light' }], ['night', { theme: 'nigh
 
   // The show editor open on a show whose rule changes elsewhere: a save must not send the old one back.
   await page.getByRole('tab', { name: 'Show' }).click();
+  await page.getByRole('tab', { name: 'Details' }).click();
   await page.locator('[data-panel="calendar.show-rule"]').waitFor();
   await sleep(400);
   station.changeElsewhere('Moira', 'saturday-night', weekly([7], 1200, 180));
@@ -702,6 +719,49 @@ for (const [name, o] of [['light', { theme: 'light' }], ['night', { theme: 'nigh
   await inView(page, toast.getByRole('button', { name: 'Undo' }), 'Undo beside another person’s change');
   await shot(page, '41-rule-changed-with-undo');
   await ctx.close();
+}
+
+// ---- 9. Since 1.0.5 the notice names its show and its save ----
+// A rule dialog open on a show that someone else changes says so above its buttons, before a
+// save replaces their change; and the window sends a token with its own save and knows its
+// notice by it.
+{
+  const weekly = (weekdays, start, minutes) => ({ starts_on: '2026-09-07', start, minutes, repeat: { kind: 'weekly', every: 1, weekdays }, end: { kind: 'never' }, skip: [], moves: [] });
+  for (const theme of ['dark', 'light', 'night']) {
+    const station = new Station({ version: '1.0.5' });
+    station.draft('saturday-night', '2026-11-21');
+    const { ctx, page } = await open(station, { events: true, theme });
+    const heard = page.locator('[data-testid="schedule-heard"]');
+    await page.keyboard.press('ArrowRight');
+    await sleep(900);
+    const firth = page.locator('.ec .ev.rule').filter({ hasText: 'Firth Sessions' });
+    await page.locator('.ec .ev:not(.auto):not(.rule)').filter({ hasText: 'Saturday Night Kettle' }).first().click();
+    await page.getByRole('tab', { name: 'Show' }).click();
+    await page.getByRole('tab', { name: 'Details' }).click();
+    await page.locator('[data-panel="calendar.show-rule"]').getByRole('button', { name: 'Change…' }).click();
+    const rd = page.locator('dialog[data-dialog="rule"]');
+    await rd.waitFor();
+    await sleep(500);
+    station.changeElsewhere('Moira', 'saturday-night', weekly([7], 1200, 180));
+    const warn = rd.locator('[data-elsewhere]');
+    await warn.waitFor({ timeout: 6000 }).catch(() => {});
+    check(`${theme}: a rule dialog open on a show changed elsewhere says so`, ((await warn.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').trim() === 'Moira changed when Saturday Night Kettle airs. Saving puts this rule in its place.', await warn.innerText().catch(() => 'no line'));
+    await shot(page, `42-rule-dialog-changed-elsewhere-${theme}`);
+    if (theme === 'dark') {
+      await rd.getByRole('button', { name: 'Cancel' }).click();
+      await rd.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+      await page.waitForFunction(() => !document.querySelector('[data-testid="schedule-heard"]'), null, { timeout: 15000 }).catch(() => {});
+      await firth.first().click();
+      await page.getByRole('button', { name: 'Skip this date' }).click();
+      await page.locator('[data-testid="schedule-toast"]').waitFor();
+      await sleep(2500);
+      const put = station.calls.filter((c) => c.method === 'PUT' && c.path.endsWith('/rule')).at(-1);
+      const n = station.notices.at(-1);
+      check('a 1.0.5 station is sent the save’s token, and gives it back on the notice', typeof put?.body.change === 'string' && n.change === put.body.change && n.subject === 'firth-sessions', JSON.stringify({ sent: put?.body.change, back: n.change, subject: n.subject }));
+      check('so this window’s own change is not said back to it', (await heard.count()) === 0);
+    }
+    await ctx.close();
+  }
 }
 
 await browser.close();

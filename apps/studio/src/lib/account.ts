@@ -32,6 +32,12 @@ export function mayDeleteShow(me: Me | null | undefined): boolean {
   return !!me && (me.kind === 'station' || me.role === 'admin' || me.role === 'producer');
 }
 
+/** An admin, a producer or the station key may import a calendar file into new shows
+ *  (ADR-0281); a presenter and a screener may not, and the station refuses them anyway. */
+export function mayImportCalendar(me: Me | null | undefined): boolean {
+  return !!me && (me.kind === 'station' || me.role === 'admin' || me.role === 'producer');
+}
+
 /** The signed-in person's line for the frame: a name and a role, or the station key. */
 export function whoLine(me: Me | null | undefined): { name: string; role: string } {
   if (!me || me.kind === 'station') return { name: 'Station key', role: 'admin' };

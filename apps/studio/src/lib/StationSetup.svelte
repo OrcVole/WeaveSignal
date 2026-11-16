@@ -8,9 +8,17 @@
   // username and that address, then type it (ADR-0127). The quieter route keeps the station
   // key, which is how the first admin gets in before any account exists.
   // Panel name `setup.sign-in` (ADR-0070).
+  //
+  // With a list of stations (ADR-0285) the same screen adds one: opened from the Stations
+  // dialog it lies over the studio with a way back, and a station that signs in joins the list;
+  // the window then switches to it by the path every switch takes (`afterSignIn`). When the
+  // window is signed out of its own station, the other stations kept on this computer are
+  // listed under the form, to open one instead (`setup.stations`).
   import { onMount, untrack } from 'svelte';
   import Mark from './Mark.svelte';
   import { askSignInCode, checkStation, finishSignInCode, lastStation, saveStation, signIn } from './api.ts';
+  import { afterSignIn, hereName, hereRow, loadStations, requestLeave, stations } from './stations.svelte.ts';
+  import { badges, hostOf, stationName, whoWords } from './stations.ts';
   import { cleanCode, codeProblem, emailProblem, placeError } from './account.ts';
   import { checkAddress, isTailscaleHttp, TAILSCALE_NOTE } from './address.ts';
 
@@ -35,6 +43,14 @@
   let errors = $state<{ url?: string; username?: string; password?: string; key?: string; email?: string; code?: string; form?: string }>({});
 
   let urlEl = $state<HTMLInputElement | null>(null);
+
+  /** Adding a station from the list, over the studio: the station underneath carries on. */
+  const adding = $derived(stations.adding);
+  /** The station the window is on but signed out of: this screen signs in to it. */
+  const signedOut = $derived(!adding && hereRow() && !hereRow()?.kept ? hereRow() : null);
+  /** The other stations kept on this computer, to open one instead. */
+  const others = $derived(adding ? [] : (stations.list?.stations ?? []).filter((r) => r.id !== stations.list?.current));
+  const marks = $derived(badges(stations.list?.stations ?? []));
 
   // ADR-0197: the Tailscale sentence shows for a plain http address in 100.64.0.0/10 until the
   // first sign-in to that station succeeds, then never again for it (kept on this computer).
@@ -64,8 +80,10 @@
   let keyEl = $state<HTMLInputElement | null>(null);
 
   onMount(async () => {
-    if (!url) url = (await lastStation()) ?? '';
+    // Adding: the address is another station's, so nothing is filled in.
+    if (!url && !adding) url = (await lastStation()) ?? '';
     (url ? userEl : urlEl)?.focus();
+    void loadStations();
   });
 
   /** The address as an origin, or the sentence for its field (ADR-0139: plain http only nearby). */
@@ -95,10 +113,10 @@
     if (!base || errors.username || errors.password) return focusFirst();
     busy = true;
     try {
-      await signIn(base, username.trim(), password);
+      const r = await signIn(base, username.trim(), password);
       markSeen(base);
       password = '';
-      location.reload();
+      await afterSignIn(r.station);
     } catch (err) {
       const p = placeError(err, ['username', 'password'] as const);
       errors = p.field ? { [p.field]: p.message } : { form: p.message };
@@ -132,8 +150,9 @@
       busy = false;
       return;
     }
+    let saved;
     try {
-      await saveStation(base, key.trim());
+      saved = await saveStation(base, key.trim());
       markSeen(base);
     } catch (err) {
       errors = { form: `The key could not be kept on this computer: ${err}` };
@@ -141,7 +160,7 @@
       return;
     }
     key = '';
-    location.reload();
+    await afterSignIn(saved);
   }
 
   async function onAsk(e?: SubmitEvent) {
@@ -180,10 +199,10 @@
     if (!base || errors.code) return focusFirst();
     busy = true;
     try {
-      await finishSignInCode(base, username.trim(), email.trim(), cleanCode(code));
+      const r = await finishSignInCode(base, username.trim(), email.trim(), cleanCode(code));
       markSeen(base);
       code = '';
-      location.reload();
+      await afterSignIn(r.station);
     } catch (err) {
       const p = placeError(err, ['code'] as const);
       errors = p.field ? { [p.field]: p.message } : { form: p.message };
@@ -212,11 +231,18 @@
 
 <main class="setup" data-panel="setup.sign-in" aria-labelledby="si-h">
   <div class="card">
+    {#if adding}
+      <button type="button" class="btn quiet sm setup-back" onclick={() => (stations.adding = false)}>‹ Back to {hereName()}</button>
+    {/if}
     <header class="head">
       <span class="brand" aria-hidden="true"><Mark /></span>
-      <h1 id="si-h" data-panel-title>{mode === 'key' ? 'Connect with the station key' : 'Sign in'}</h1>
+      <h1 id="si-h" data-panel-title>
+        {#if adding}{mode === 'key' ? 'Add a station with its key' : 'Add a station'}{:else if mode === 'key'}Connect with the station key{:else if signedOut}Sign in to {stationName(signedOut)}{:else}Sign in{/if}
+      </h1>
       <p class="lede">
-        {#if mode === 'key'}
+        {#if adding && mode === 'password'}
+          The other station’s address, then your username and password there. {hereName()} carries on underneath.
+        {:else if mode === 'key'}
           The key is set where the station runs. It is how the first admin gets in before any account exists.
         {:else if mode === 'code'}
           {#if asked}
@@ -262,7 +288,7 @@
           {#if errors.key}<p id="si-key-err" class="err">{errors.key}</p>{/if}
         </div>
         {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
-        <button type="submit" class="btn primary big" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Connecting…' : 'Connect'}</button>
+        <button type="submit" class="btn primary big" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Connecting…' : adding ? 'Connect and add' : 'Connect'}</button>
         <button type="button" class="btn quiet other" onclick={() => swap('password')}>Sign in with a username instead</button>
       </form>
     {:else if mode === 'code'}
@@ -336,7 +362,7 @@
             {#if errors.code}<p id="si-code-err" class="err">{errors.code}</p>{/if}
           </div>
           {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
-          <button type="submit" class="btn primary big" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Signing in…' : 'Sign in'}</button>
+          <button type="submit" class="btn primary big" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Signing in…' : adding ? 'Sign in and add' : 'Sign in'}</button>
           <button type="button" class="btn quiet other" disabled={busy} onclick={() => onAsk()}>Send another code</button>
           <button type="button" class="btn quiet other" onclick={again}>Use a different address</button>
         </form>
@@ -387,10 +413,33 @@
           {#if errors.password}<p id="si-password-err" class="err">{errors.password}</p>{/if}
         </div>
         {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
-        <button type="submit" class="btn primary big" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <button type="submit" class="btn primary big" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Signing in…' : adding ? 'Sign in and add' : 'Sign in'}</button>
         <button type="button" class="btn quiet other" onclick={() => swap('code')}>Email me a code instead</button>
         <button type="button" class="btn quiet other" onclick={() => swap('key')}>Use the station key instead</button>
       </form>
+    {/if}
+    {#if signedOut}
+      <!-- The one place a station the window is signed out of can be taken off this computer
+           without signing in somewhere first. Nothing is live from here, so nothing is asked. -->
+      <button type="button" class="btn quiet other" disabled={busy || stations.busy} onclick={() => requestLeave({ kind: 'remove', id: signedOut.id })}
+        >Remove {stationName(signedOut)} from this computer</button
+      >
+    {/if}
+    {#if others.length}
+      <section class="setup-others" data-panel="setup.stations" aria-labelledby="so-h">
+        <h2 id="so-h" data-panel-title>Or open another station</h2>
+        <ul class="stlist">
+          {#each others as row (row.id)}
+            <li class="strow">
+              <button type="button" class="go" disabled={busy || stations.busy} onclick={() => requestLeave({ kind: 'switch', id: row.id })}>
+                <span class="stbadge lg" class:out={!row.kept} aria-hidden="true">{marks[row.id]}</span>
+                <span class="nm"><span>{stationName(row)}</span></span>
+                <span class="sub">{hostOf(row.url)} · {whoWords(row)}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </section>
     {/if}
   </div>
 </main>

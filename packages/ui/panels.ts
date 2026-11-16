@@ -70,10 +70,18 @@ export const CARTS: readonly PanelInfo[] = [
  *  `calendar.show-still` with ADR-0200 (2026-11-03), a field of the show editor. The guided
  *  New show and the recurrence rule (ADR-0278, new-show.md section 5) add `calendar.new-show`,
  *  the four `calendar.rule` names, `calendar.show-rule` and `calendar.unscheduled`; Delete show
- *  (ADR-0279) adds `calendar.show-delete`. */
+ *  (ADR-0279) adds `calendar.show-delete`. Week clashes and a show's dates (week-clashes.md
+ *  section 6, release 1.0.5) add `calendar.day`, `calendar.day.strip`, `calendar.clash`,
+ *  `calendar.shows` and `calendar.show-dates`. Calendar files (ADR-0281, calendar-files.md,
+ *  release 1.0.5) add `calendar.subscribe` and `calendar.import`. */
 export const CALENDAR: readonly PanelInfo[] = [
-  { name: 'calendar.toolbar', what: 'Week navigation (← → T), the view, the time zone and its clock change, New show, the legend.' },
-  { name: 'calendar.week', what: 'The time-grid week: the axis, seven days, blocks placed by start and length, the now line.' },
+  { name: 'calendar.toolbar', what: 'Week navigation (← → T), Week, Day or Studios, the time zone and its clock change, New show, the calendar files (Import a calendar… and Subscribe…: two buttons in a wide window, one menu beside New show in a narrower one), the legend.' },
+  { name: 'calendar.week', what: 'The time-grid week: the axis, seven days, blocks placed by start and length, the now line; clashing blocks fold beside one open block; a day’s header opens the day.' },
+  { name: 'calendar.day', what: 'One day at the week’s scale: a lane for each clashing show, nothing folded.' },
+  { name: 'calendar.day.strip', what: 'Above the Day view’s grid, the week’s seven days as buttons: the open day, today, and each day’s clashes.' },
+  { name: 'calendar.clash', what: 'On a block in a clash: the shows it clashes with, Show it on each, who is on air by the schedule, Open the day.' },
+  { name: 'calendar.shows', what: 'The editor column with nothing open: every show with its rule in short and its next date; the shows with no dates yet, and the finished.' },
+  { name: 'calendar.show-dates', what: 'The show level’s Dates tab: the show’s dates as rows (drafted, not drafted, skipped, moved, clashing, aired), with Draft, Skip, Move… and a way to the week.' },
   { name: 'calendar.episode-editor', what: "The selected episode: inherited fields marked against fields set here, and the foot's save, next and season actions." },
   { name: 'calendar.series-editor', what: 'The series level: when it airs, the hosts, the planned episodes, Draft the season.' },
   { name: 'calendar.aired-episode', what: 'An aired episode, frozen: its values as broadcast and the music-usage line.' },
@@ -88,7 +96,9 @@ export const CALENDAR: readonly PanelInfo[] = [
   { name: 'calendar.rule.change', what: 'What a changed rule does to episodes, before the save: aired, drafted, moved by hand.' },
   { name: 'calendar.show-rule', what: 'When it airs, in the show editor: the rule in short, the next date, Change….' },
   { name: 'calendar.show-delete', what: 'Delete show…, from the show editor (ADR-0279): what goes with the show, with its counts, and the two buttons; Keep it is the default. The station refuses a show that has aired.' },
-  { name: 'calendar.unscheduled', what: 'In the right panel, with nothing selected. Shows with nothing coming up: no dates yet, or finished.' },
+  { name: 'calendar.subscribe', what: 'Subscribe… (ADR-0281): the link to the schedule’s calendar file, or one show’s, on the station’s public address, as webcal and https, with Copy, and Download .ics. A dialog over the Schedule tab.' },
+  { name: 'calendar.import', what: 'Import a calendar… in three parts (ADR-0281): choose an .ics file, tick and rename the shows it proposes (each with its sentence, next dates and clashes), done. For an admin or a producer.' },
+  { name: 'calendar.unscheduled', what: 'At the foot of the list of shows. Shows with nothing coming up: no dates yet, or finished.' },
   { name: 'calendar.show-presenter', what: "The show's presenter (ADR-0214, ADR-0219): the on-air name and takedown contact the consent words name while it is on air, links to the presenter's channels, and whether it plays commercial music." },
 ];
 
@@ -119,6 +129,10 @@ export const ACCOUNT: readonly PanelInfo[] = [
   { name: 'setup.sign-in', what: 'Sign in to a station: its address, a username and password (ADR-0127), or the station key instead.' },
   { name: 'studio.account', what: 'Who this window runs as: name and role, or the station key; sign out and change your password.' },
   { name: 'studio.session-ended', what: 'The sign-in has ended: one way back, Sign in again.' },
+  { name: 'studio.station', what: 'In the frame: the station this window is on, by its name; it opens the list of stations this computer keeps (ADR-0285).' },
+  { name: 'studio.stations', what: 'The stations this computer keeps, each with its own sign-in: switch to one, add one, give one a name here, sign out of one, remove one (ADR-0285).' },
+  { name: 'studio.stations.leave', what: 'Asked before this window leaves a station that is on air: what stays on there, then Stay or Switch (ADR-0285).' },
+  { name: 'setup.stations', what: 'On the sign-in screen: the other stations this computer keeps, to open one instead (ADR-0285).' },
   { name: 'settings.staff', what: 'Staff accounts: each person, their username, role and whether the account is on; add, change, turn off, set a password (ADR-0127).' },
   { name: 'settings.staff.add', what: "Adding a member of staff: their username, name, role and first password." },
   { name: 'settings.staff.off', what: "Turning an account off, confirmed: its sessions end at once." },

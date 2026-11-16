@@ -37,7 +37,9 @@ import {
 } from './schedule/model.ts';
 import type { ScheduleDate } from './lib/api.ts';
 import type { Clock, Show, WeekEpisode, WeekHour } from './lib/schedule.ts';
-import { sched } from './lib/schedule.svelte.ts';
+import { closeOpen, noteUnsaved, openDay, openShow, sched, select } from './lib/schedule.svelte.ts';
+import { run } from './lib/actions.ts';
+import { studio } from './lib/studio.svelte.ts';
 
 const ZONE = 'Europe/London';
 /** Saturday 24 October 2026, 13:57 in Edinburgh (BST). */
@@ -311,7 +313,7 @@ describe('the editor', () => {
 
   it('renders the episode editor with its markers, the path and the foot', () => {
     const w = episode(SNK, 7, at(24, 20), { title: 'Ghost Train night', guests: ['Firth Lights', 'Dr Una Robertson'] });
-    const { body } = render(EpisodeEditor, { props: { item: w, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onCard: () => {} } });
+    const { body } = render(EpisodeEditor, { props: { item: w, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onMove: async () => null, onCard: () => {} } });
     expect(body).toContain('Saturday Night Kettle');
     expect(body).toContain('Episode 7 · Ghost Train night');
     expect(body).toContain('Sat 24 Oct 2026 · 20:00–23:00');
@@ -325,18 +327,22 @@ describe('the editor', () => {
     expect(body).toContain('>Draft the season');
     // A station that stores no rules writes no words for one: the weekly time, in short.
     expect(body).toContain('Sat, 20:00–23:00, Europe/London');
+    // The date field is not drafted: its Move… is saved as it is pressed, and says so.
+    expect(body).toContain('Sat, 20:00–23:00, Europe/London. A move is saved as you make it.');
+    expect(body).toContain('>Move…</button>');
+    expect(body).not.toContain('(unsaved)');
     expect(body).not.toContain('as aired');
   });
 
   it('renders the Kind field as a real choice, and the draft keeps it only while it differs', () => {
     const live = episode(SNK, 7, at(24, 20), { title: 'Ghost Train night' });
-    let { body } = render(EpisodeEditor, { props: { item: live, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onCard: () => {} } });
+    let { body } = render(EpisodeEditor, { props: { item: live, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onMove: async () => null, onCard: () => {} } });
     expect(body).toContain('aria-label="Kind"');
     expect(body).toMatch(/aria-pressed="true"[^>]*>Live</);
     expect(body).toMatch(/aria-pressed="false"[^>]*>Pre-recorded</);
     expect(body).not.toContain('not in the model yet');
     const rec = episode(SNK, 8, at(31, 20), { kind: 'prerecorded' });
-    ({ body } = render(EpisodeEditor, { props: { item: rec, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onCard: () => {} } }));
+    ({ body } = render(EpisodeEditor, { props: { item: rec, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onMove: async () => null, onCard: () => {} } }));
     expect(body).toMatch(/aria-pressed="true"[^>]*>Pre-recorded</);
     expect(body).toMatch(/aria-pressed="false"[^>]*>Live</);
   });
@@ -357,23 +363,26 @@ describe('the editor', () => {
 
   it('offers a correction on an aired episode, and none on one yet to air', () => {
     const aired = episode(SNK, 6, at(17, 20), { title: 'The harbour tapes', aired: true });
-    let { body } = render(EpisodeEditor, { props: { item: aired, zone: ZONE, now: NOW, us: null, onChanged: async () => {}, onCard: () => {} } });
+    let { body } = render(EpisodeEditor, { props: { item: aired, zone: ZONE, now: NOW, us: null, onChanged: async () => {}, onMove: async () => null, onCard: () => {} } });
     expect(body).toContain('Correct the public text…');
     expect(body).toContain('data-field="corrections"');
     expect(body).not.toContain('Publish correction');
     const upcoming = episode(SNK, 7, at(24, 20), { title: 'Ghost Train night' });
-    ({ body } = render(EpisodeEditor, { props: { item: upcoming, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onCard: () => {} } }));
+    ({ body } = render(EpisodeEditor, { props: { item: upcoming, zone: ZONE, now: NOW, us: false, onChanged: async () => {}, onMove: async () => null, onCard: () => {} } }));
     expect(body).not.toContain('Correct the public text');
   });
 
   it('renders an aired episode frozen and read-only', () => {
     const w = episode(SNK, 6, at(17, 20), { title: 'The harbour tapes', aired: true });
-    const { body } = render(EpisodeEditor, { props: { item: w, zone: ZONE, now: NOW, us: null, onChanged: async () => {}, onCard: () => {} } });
+    const { body } = render(EpisodeEditor, { props: { item: w, zone: ZONE, now: NOW, us: null, onChanged: async () => {}, onMove: async () => null, onCard: () => {} } });
     expect(body).toContain('frozen');
     expect(body).toContain('as aired');
     expect(body).toContain('class="field frozen"');
     expect(body).not.toContain('Save episode');
     expect(body).not.toContain('<input');
+    // An aired episode is not moved: no Move…, and nothing said of one.
+    expect(body).not.toContain('Move…');
+    expect(body).not.toContain('A move is saved');
     expect(body).toContain('Open the recording');
   });
 
@@ -430,8 +439,18 @@ describe('the keymap on the schedule tab', () => {
     expect(k.down(key('ArrowLeft'), schedule, 0).action).toEqual({ type: 'week', delta: -1 });
     expect(k.down(key('ArrowRight'), schedule, 0).action).toEqual({ type: 'week', delta: 1 });
     expect(k.down(key('KeyT'), schedule, 0).action).toEqual({ type: 'today' });
+    expect(k.down(key('KeyD'), schedule, 0).action).toEqual({ type: 'view', view: 'day' });
+    expect(k.down(key('KeyW'), schedule, 0).action).toEqual({ type: 'view', view: 'week' });
+    expect(k.down(key('KeyD'), { tab: 'schedule', inTextField: true }, 0).action).toBeNull();
+    expect(k.down(key('KeyD', { shift: true }), schedule, 0).action).toBeNull();
     expect(k.down(key('KeyT'), { tab: 'desk', inTextField: false }, 0).action).toEqual({ type: 'cue', slot: 5 });
     expect(k.down(key('ArrowLeft'), { tab: 'desk', inTextField: false }, 0).action).toBeNull();
+  });
+
+  it('Esc is the global layer’s escape here too: it leaves a text field first, and a second press is the tab’s', () => {
+    const k = new KeyEngine();
+    expect(k.down(key('Escape'), { ...schedule, inTextField: true }, 0).action).toEqual({ type: 'leave-field' });
+    expect(k.down(key('Escape'), schedule, 0)).toEqual({ action: { type: 'escape' }, handled: true });
   });
 
   it('keeps the global layer and leaves text fields alone', () => {
@@ -442,5 +461,97 @@ describe('the keymap on the schedule tab', () => {
     expect(k.down(key('KeyT'), { ...schedule, inTextField: true }, 0).handled).toBe(false);
     expect(k.down(key('ArrowLeft'), { ...schedule, inTextField: true }, 0).handled).toBe(false);
     expect(k.down(key('KeyT', { shift: true }), schedule, 0).handled).toBe(false);
+  });
+});
+
+// Esc on the Schedule tab, and a press on the grid where no block is: both close what the editor
+// column holds and clear the selection, as ‹ Shows does (the operator's 1.0.5 run: once a block
+// or a show was open, the only ways out were another block, or D and W).
+describe('Esc on the schedule tab', () => {
+  const week = weekOf(NOW, ZONE).days;
+  /** With no episodes and no clocks, automation fills each day as one block. */
+  const monday = `auto:0:${week[0]}`;
+  const lunch = show('the-long-lunch', 'The Long Lunch', 2, null);
+  const reset = () => {
+    Object.assign(sched, { zone: ZONE, anchor: NOW, view: 'week', selected: null, pane: 'episode', editShow: null, showTab: 'dates', episodes: [], dates: null, hours: [], clocks: [], defaultClock: null, shows: [lunch], notClosed: null });
+    Object.assign(studio, { tab: 'schedule', now: NOW, skew: 0, note: null, offNote: null, view: null });
+  };
+
+  it('with nothing open it does nothing', () => {
+    reset();
+    expect(closeOpen(NOW)).toEqual({ did: 'nothing' });
+  });
+
+  it('clears a selected block, and the column is back on the list of shows', () => {
+    reset();
+    select(monday);
+    expect([sched.selected, sched.pane]).toEqual([monday, 'log']);
+    expect(closeOpen(NOW)).toEqual({ did: 'closed', block: monday, show: null });
+    expect([sched.selected, sched.pane, sched.editShow]).toEqual([null, 'episode', null]);
+    // The card editor of a selected block closes with it, and the next block opens as itself.
+    select(monday);
+    sched.pane = 'card';
+    expect(closeOpen(NOW).did).toBe('closed');
+    expect([sched.selected, sched.pane]).toEqual([null, 'episode']);
+  });
+
+  it('closes a show’s own pane, and says which show for the focus to go back to its row', () => {
+    reset();
+    openShow('the-long-lunch', 'details');
+    expect(closeOpen(NOW)).toEqual({ did: 'closed', block: null, show: 'the-long-lunch' });
+    expect([sched.pane, sched.editShow]).toEqual(['episode', null]);
+  });
+
+  it('leaves a selection the grid does not draw: another day in the Day view, another week', () => {
+    reset();
+    select(monday);
+    openDay(week[2] + 12 * 3_600_000);
+    expect(closeOpen(NOW)).toEqual({ did: 'nothing' });
+    expect(sched.selected).toBe(monday);
+    openDay(week[0] + 12 * 3_600_000);
+    expect(closeOpen(NOW).did).toBe('closed');
+    reset();
+    sched.selected = 'ep:in-another-week';
+    expect(closeOpen(NOW)).toEqual({ did: 'nothing' });
+  });
+
+  it('is never destructive: over changes that are not saved nothing closes, and the tab is told why', () => {
+    reset();
+    select(monday);
+    const editor = {};
+    noteUnsaved(editor, 'The episode');
+    expect(closeOpen(NOW)).toEqual({ did: 'unsaved', what: 'The episode' });
+    expect(sched.selected).toBe(monday);
+    expect(sched.notClosed?.what).toBe('The episode');
+    const first = sched.notClosed?.n;
+    closeOpen(NOW);
+    expect(sched.notClosed?.n).not.toBe(first);
+    // Saved or discarded, the editor says so, and Esc closes it.
+    noteUnsaved(editor, null);
+    expect(closeOpen(NOW).did).toBe('closed');
+    expect(sched.selected).toBeNull();
+  });
+
+  it('the key: a note in the toast slot goes first, then the selection, and on another tab the selection is left', async () => {
+    reset();
+    select(monday);
+    studio.note = { id: 1, tone: 'good', title: 'A note', message: 'of this window', until: NOW + 6000 };
+    await run({ type: 'escape' });
+    expect([studio.note, sched.selected]).toEqual([null, monday]);
+    await run({ type: 'escape' });
+    expect([sched.selected, sched.pane]).toEqual([null, 'episode']);
+    // With nothing open Esc goes on to what it does on every tab, and changes nothing here.
+    await run({ type: 'escape' });
+    expect(sched.selected).toBeNull();
+    select(monday);
+    studio.tab = 'desk';
+    await run({ type: 'escape' });
+    expect(sched.selected).toBe(monday);
+    studio.tab = 'schedule';
+    noteUnsaved(sched, 'The show');
+    await run({ type: 'escape' });
+    expect([sched.selected, sched.notClosed?.what]).toEqual([monday, 'The show']);
+    noteUnsaved(sched, null);
+    reset();
   });
 });

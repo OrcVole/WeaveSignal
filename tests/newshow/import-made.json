@@ -1,0 +1,1013 @@
+{
+ "made": [
+  {
+   "id": "27aec248-34dc-41b8-b077-1bd05dd3591b",
+   "slug": "folk-night",
+   "name": "Folk Night",
+   "description": "Two hours of folk from Fife and further, with a session in the second hour.",
+   "colour_slot": 3,
+   "layout": "poster",
+   "slot": null,
+   "rule": {
+    "starts_on": "2026-11-17",
+    "start": 1200,
+    "minutes": 120,
+    "repeat": {
+     "kind": "weekly",
+     "every": 1,
+     "weekdays": [
+      2
+     ]
+    },
+    "end": {
+     "kind": "never"
+    },
+    "skip": [
+     "2026-12-29"
+    ],
+    "moves": []
+   },
+   "hosts": [],
+   "tags": [],
+   "explicit": false,
+   "feed_guid": null,
+   "cards": {
+    "alt": "Folk Night, on Kettle FM. kettle.example/folk-night",
+    "link": "folk-night-show-link-a41f1c8756c1.png",
+    "post": "folk-night-show-post-e7aadca96742.png",
+    "square": "folk-night-show-square-828224c7fcf2.png"
+   },
+   "presenter": "",
+   "contact": "",
+   "links": [],
+   "commercial_music": false,
+   "presenter_account": null,
+   "step": "solo",
+   "rule_words": {
+    "sentence": "Every week on Tuesday, 20:00 to 22:00, from 17 November. Not on 29 December.",
+    "short": "Tue, 20:00–22:00",
+    "last": null,
+    "last_on": null,
+    "notes": []
+   },
+   "next_on": {
+    "on": "2026-11-17",
+    "start_ms": 1794945600000,
+    "reason": null
+   }
+  },
+  {
+   "id": "55408e04-7d3f-4095-bcdd-88b56d7add07",
+   "slug": "outside-broadcast",
+   "name": "Outside Broadcast",
+   "description": "",
+   "colour_slot": 4,
+   "layout": "poster",
+   "slot": null,
+   "rule": {
+    "starts_on": "2026-11-28",
+    "start": 840,
+    "minutes": 120,
+    "repeat": {
+     "kind": "dates",
+     "dates": [
+      "2026-11-28",
+      "2026-12-19",
+      "2027-01-30"
+     ]
+    },
+    "end": {
+     "kind": "never"
+    },
+    "skip": [],
+    "moves": [
+     {
+      "from": "2027-01-30",
+      "to": "2027-01-30T15:00:00",
+      "minutes": null
+     }
+    ]
+   },
+   "hosts": [],
+   "tags": [],
+   "explicit": false,
+   "feed_guid": null,
+   "cards": {
+    "alt": "Outside Broadcast, on Kettle FM. kettle.example/outside-broadcast",
+    "link": "outside-broadcast-show-link-781c0f73a04e.png",
+    "post": "outside-broadcast-show-post-38c09a32d08e.png",
+    "square": "outside-broadcast-show-square-7e685fcc04d4.png"
+   },
+   "presenter": "",
+   "contact": "",
+   "links": [],
+   "commercial_music": false,
+   "presenter_account": null,
+   "step": "solo",
+   "rule_words": {
+    "sentence": "On 3 dates you chose, 14:00 to 16:00, from Saturday 28 November. 30 January 2027 moves to 30 January 2027 at 15:00.",
+    "short": "3 chosen dates, 14:00–16:00",
+    "last": null,
+    "last_on": null,
+    "notes": []
+   },
+   "next_on": {
+    "on": "2026-11-28",
+    "start_ms": 1795874400000,
+    "reason": null
+   }
+  }
+ ],
+ "warnings": [
+  {
+   "show": "folk-night",
+   "name": "Folk Night",
+   "clashes": [
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "episode",
+     "series": 1,
+     "episode": 1,
+     "on": "2026-11-17",
+     "start_ms": 1794949200000,
+     "end_ms": 1794956400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2026-11-24",
+     "start_ms": 1795554000000,
+     "end_ms": 1795561200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2026-12-01",
+     "start_ms": 1796158800000,
+     "end_ms": 1796166000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2026-12-08",
+     "start_ms": 1796763600000,
+     "end_ms": 1796770800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2026-12-15",
+     "start_ms": 1797368400000,
+     "end_ms": 1797375600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2026-12-22",
+     "start_ms": 1797973200000,
+     "end_ms": 1797980400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-01-05",
+     "start_ms": 1799182800000,
+     "end_ms": 1799190000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-01-12",
+     "start_ms": 1799787600000,
+     "end_ms": 1799794800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-01-19",
+     "start_ms": 1800392400000,
+     "end_ms": 1800399600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-01-26",
+     "start_ms": 1800997200000,
+     "end_ms": 1801004400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-02-02",
+     "start_ms": 1801602000000,
+     "end_ms": 1801609200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-02-09",
+     "start_ms": 1802206800000,
+     "end_ms": 1802214000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-02-16",
+     "start_ms": 1802811600000,
+     "end_ms": 1802818800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-02-23",
+     "start_ms": 1803416400000,
+     "end_ms": 1803423600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-03-02",
+     "start_ms": 1804021200000,
+     "end_ms": 1804028400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-03-09",
+     "start_ms": 1804626000000,
+     "end_ms": 1804633200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-03-16",
+     "start_ms": 1805230800000,
+     "end_ms": 1805238000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-03-23",
+     "start_ms": 1805835600000,
+     "end_ms": 1805842800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-03-30",
+     "start_ms": 1806436800000,
+     "end_ms": 1806444000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-04-06",
+     "start_ms": 1807041600000,
+     "end_ms": 1807048800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-04-13",
+     "start_ms": 1807646400000,
+     "end_ms": 1807653600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-04-20",
+     "start_ms": 1808251200000,
+     "end_ms": 1808258400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-04-27",
+     "start_ms": 1808856000000,
+     "end_ms": 1808863200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-05-04",
+     "start_ms": 1809460800000,
+     "end_ms": 1809468000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-05-11",
+     "start_ms": 1810065600000,
+     "end_ms": 1810072800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-05-18",
+     "start_ms": 1810670400000,
+     "end_ms": 1810677600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-05-25",
+     "start_ms": 1811275200000,
+     "end_ms": 1811282400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-06-01",
+     "start_ms": 1811880000000,
+     "end_ms": 1811887200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-06-08",
+     "start_ms": 1812484800000,
+     "end_ms": 1812492000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-06-15",
+     "start_ms": 1813089600000,
+     "end_ms": 1813096800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-06-22",
+     "start_ms": 1813694400000,
+     "end_ms": 1813701600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-06-29",
+     "start_ms": 1814299200000,
+     "end_ms": 1814306400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-07-06",
+     "start_ms": 1814904000000,
+     "end_ms": 1814911200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-07-13",
+     "start_ms": 1815508800000,
+     "end_ms": 1815516000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-07-20",
+     "start_ms": 1816113600000,
+     "end_ms": 1816120800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-07-27",
+     "start_ms": 1816718400000,
+     "end_ms": 1816725600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-08-03",
+     "start_ms": 1817323200000,
+     "end_ms": 1817330400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-08-10",
+     "start_ms": 1817928000000,
+     "end_ms": 1817935200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-08-17",
+     "start_ms": 1818532800000,
+     "end_ms": 1818540000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-08-24",
+     "start_ms": 1819137600000,
+     "end_ms": 1819144800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-08-31",
+     "start_ms": 1819742400000,
+     "end_ms": 1819749600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-09-07",
+     "start_ms": 1820347200000,
+     "end_ms": 1820354400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-09-14",
+     "start_ms": 1820952000000,
+     "end_ms": 1820959200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-09-21",
+     "start_ms": 1821556800000,
+     "end_ms": 1821564000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-09-28",
+     "start_ms": 1822161600000,
+     "end_ms": 1822168800000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-10-05",
+     "start_ms": 1822766400000,
+     "end_ms": 1822773600000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-10-12",
+     "start_ms": 1823371200000,
+     "end_ms": 1823378400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-10-19",
+     "start_ms": 1823976000000,
+     "end_ms": 1823983200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-10-26",
+     "start_ms": 1824580800000,
+     "end_ms": 1824588000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-11-02",
+     "start_ms": 1825189200000,
+     "end_ms": 1825196400000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-11-09",
+     "start_ms": 1825794000000,
+     "end_ms": 1825801200000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    },
+    {
+     "show": "The Late Kettle",
+     "slug": "the-late-kettle",
+     "kind": "rule",
+     "series": 1,
+     "episode": null,
+     "on": "2027-11-16",
+     "start_ms": 1826398800000,
+     "end_ms": 1826406000000,
+     "overlap_minutes": 60,
+     "short": "Tue, 21:00–23:00",
+     "hosts": [
+      "Shona Campbell"
+     ],
+     "presenter": "",
+     "refused": false
+    }
+   ]
+  }
+ ]
+}

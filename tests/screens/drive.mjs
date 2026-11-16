@@ -152,12 +152,15 @@ if (await draftBtn.isEnabled()) {
 } else {
   check('Draft the season has nothing left to draft', before === 10, `${before}`);
 }
+// Since 1.0.5 Show opens the show's pane at its Dates (week-clashes.md); the show editor is its Details.
 await page.getByRole('tab', { name: 'Show' }).click();
+await sleep(1200);
+await shot(page, 'schedule-show-dates-1440-dark');
+await page.getByRole('tab', { name: 'Details' }).click();
 await sleep(1200);
 await shot(page, 'schedule-show-1440-dark');
 
-// The log editor: an automation block, the rule checks, a refused edit.
-await page.getByRole('tab', { name: 'Episode' }).click();
+// The log editor: an automation block, the rule checks, a refused edit (selecting it leaves the show's pane).
 // The first automation block still ahead: a past hour has no planned items to show.
 await page.locator('.ev.auto:not(.past)').first().focus();
 await page.keyboard.press('Enter');

@@ -84,7 +84,7 @@ pub struct ShowsState {
 impl ShowsState {
     /// The station's name as cards and feeds print it: the setup page's, else the settings
     /// file's.
-    fn station_name(&self) -> String {
+    pub(crate) fn station_name(&self) -> String {
         self.live
             .as_ref()
             .map_or_else(|| self.station.name.clone(), |l| l.name())
@@ -95,7 +95,7 @@ impl ShowsState {
     }
 
     /// `https://kettle.example`, without a trailing slash; `None` when cards are off.
-    fn public(&self) -> Option<&str> {
+    pub(crate) fn public(&self) -> Option<&str> {
         let p = self.publishing.public_url.trim_end_matches('/');
         (!p.is_empty()).then_some(p)
     }
@@ -159,6 +159,8 @@ pub fn router(state: Arc<ShowsState>) -> Router {
         .merge(crate::open::show_routes())
         // A show's rule: changing it, previewing it (release 1.0.4).
         .merge(crate::rules::routes())
+        // Calendar files: the schedule as .ics, and a file read into new shows (release 1.0.5).
+        .merge(crate::calendar::routes())
         .nest_service("/cards", cards)
         .nest_service("/media/episodes", media)
         .layer(TraceLayer::new_for_http())
@@ -283,7 +285,7 @@ pub(crate) type Answer = Result<Response, Fail>;
 // Cards.
 
 /// The card's fields from a resolved show, series or episode.
-fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fail> {
+pub(crate) fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fail> {
     let address = state.printed_address().ok_or_else(|| {
         Fail::Status(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -337,7 +339,7 @@ fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fail> {
 }
 
 /// The renders of one save, drawn off the async threads (the square is 3,000 pixels).
-async fn draw(d: CardData) -> Result<Vec<weavesignal_cards::Rendered>, Fail> {
+pub(crate) async fn draw(d: CardData) -> Result<Vec<weavesignal_cards::Rendered>, Fail> {
     tokio::task::spawn_blocking(move || weavesignal_cards::render_all(&d))
         .await
         .map_err(|e| Fail::Status(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -346,7 +348,10 @@ async fn draw(d: CardData) -> Result<Vec<weavesignal_cards::Rendered>, Fail> {
 
 /// Write the renders to the cards directory (each name is its content's hash, so a file is
 /// never replaced; X keeps a fetched card for days) and say which are current.
-async fn keep(state: &ShowsState, renders: &[weavesignal_cards::Rendered]) -> Result<Value, Fail> {
+pub(crate) async fn keep(
+    state: &ShowsState,
+    renders: &[weavesignal_cards::Rendered],
+) -> Result<Value, Fail> {
     let dir = &state.publishing.cards_dir;
     tokio::fs::create_dir_all(dir).await.map_err(|e| {
         Fail::Status(
@@ -544,7 +549,7 @@ struct WeekEpisode {
     operation_id = "shows_episodes_between",
     tag = "schedule",
     summary = "Episodes in a range",
-    description = "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule.",
+    description = "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281).",
     params(("from_ms" = i64, Query, description = "From, in milliseconds since the Unix epoch"), ("to_ms" = i64, Query, description = "To (exclusive)")),
     responses(
         (status = 200, description = "The episodes.", body = WeekBody),
@@ -601,7 +606,13 @@ async fn episodes_between(
         });
     }
     let dates = crate::rules::open_dates(&state, q.from_ms, q.to_ms).await?;
-    Ok(Json(json!({ "zone": state.zone.name(), "episodes": out, "dates": dates })).into_response())
+    Ok(Json(json!({
+        "zone": state.zone.name(),
+        "episodes": out,
+        "dates": dates,
+        "public_url": state.public(),
+    }))
+    .into_response())
 }
 
 // Shows.
@@ -1158,14 +1169,25 @@ pub(crate) async fn announce_rule_change(
     {
         tracing::warn!(error = %e, "cannot log a changed rule");
     }
-    tell_windows(state, actor, show);
+    tell_windows(state, actor, show, None);
 }
 
-/// *Moira changed when The Folk Club airs.*
-pub(crate) fn tell_windows(state: &ShowsState, actor: &crate::staff::Actor, show: &Show) {
+/// *Moira changed when The Folk Club airs.* `change` is the token the saving window sent, if
+/// any, given back on the notice so that window knows it for its own (1.0.5).
+pub(crate) fn tell_windows(
+    state: &ShowsState,
+    actor: &crate::staff::Actor,
+    show: &Show,
+    change: Option<&str>,
+) {
     tracing::info!(show = %show.slug, by = %actor.label(), "a show's rule changed");
     if let Some(live) = &state.live {
-        live.rule_changed(&crate::steps::mover_name(actor), &show.name);
+        live.rule_changed(
+            &crate::steps::mover_name(actor),
+            &show.name,
+            &show.slug,
+            change,
+        );
     }
 }
 
@@ -2484,6 +2506,12 @@ struct WeekBody {
     /// Every date of every show's rule in the range that no episode fills, is not skipped and is
     /// not over: what the week draws as dotted blocks, so the studio expands no rule itself.
     dates: Vec<crate::rules::OpenDateOut>,
+    /// The station's public address (`publishing.public_url`, without a trailing slash), where
+    /// listeners reach the calendar files, the cards and the feeds; `null` when none is set. The
+    /// studio builds the links it gives out from this, never from the address it talks to,
+    /// which on Cloudron is behind the login (release 1.0.5, ADR-0281).
+    #[schema(example = "https://station.example")]
+    public_url: Option<String>,
 }
 
 /// A card's fields, as `weavesignal-cards`' `CardData` has them (inheritance already resolved).

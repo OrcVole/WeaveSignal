@@ -2480,6 +2480,82 @@
         ]
       }
     },
+    "/api/v1/public/schedule.ics": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "The schedule as a calendar file",
+        "description": "For a person's own calendar (subscribe to it, or download it): every show with a rule, as one VEVENT each (its RRULE or RDATE, EXDATE for skipped dates, an override with RECURRENCE-ID for each moved date), in the station's zone with its VTIMEZONE, so the calendar works out the dates and the clocks changing itself. A show's rule is its current series' (that series' own start date and planned episodes win). Only the public words: the show's name and its description (its page, as `URL`, once the station serves show pages); a drafted episode's title and guests are never in it. Each show's UID is `{show id}@weavesignal` and stays the same for the show's life. `text/calendar; charset=utf-8`. No bearer; CORS open to any origin; limited per address. Cached for 30 s. Release 1.0.5 (ADR-0281).",
+        "operationId": "public_schedule_ics",
+        "responses": {
+          "200": {
+            "description": "The calendar (iCalendar, RFC 5545).",
+            "content": {
+              "text/calendar": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/public/shows/{file}": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "One show as a calendar file",
+        "description": "As `GET /api/v1/public/schedule.ics`, for one show: `{file}` is the show's path with `.ics` (`/api/v1/public/shows/the-late-kettle.ics`). A show without a rule gives a calendar with no events, so a subscription does not fail while a rule is cleared. No bearer; CORS open to any origin; limited per address. Cached for 30 s. Release 1.0.5 (ADR-0281).",
+        "operationId": "public_show_ics",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "The show's path and `.ics`: `the-late-kettle.ics`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The calendar (iCalendar, RFC 5545).",
+            "content": {
+              "text/calendar": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/api/v1/public/station": {
       "get": {
         "tags": [
@@ -3929,7 +4005,7 @@
           "schedule"
         ],
         "summary": "Episodes in a range",
-        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule.",
+        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281).",
         "operationId": "shows_episodes_between",
         "parameters": [
           {
@@ -4060,6 +4136,157 @@
           {
             "api_token": [
               "schedule:write"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v1/schedule/import": {
+      "post": {
+        "tags": [
+          "schedule"
+        ],
+        "summary": "Make the shows chosen from a calendar file",
+        "description": "Makes the chosen shows (1 to 200: each a name, a description and a rule, as `POST /api/v1/schedule/import/preview` proposed them or as the person renamed them) in one transaction: each a new show at step Solo, with no episode drafted and no host, in the next colours of the palette; each path made from its name and made free against the station's shows and the others in the same import, as the studio makes a new show's. Each show's cards are drawn first, and a name that cannot fit refuses the whole import (422, `field` `items[n].name`); a rule that cannot stand refuses it too (422, `field` `items[n].rule`, the item named). Nothing is made unless everything is. The reply lists the shows made and, as warnings, the dates (in the twelve months from each show's first, the first 60) where each overlaps another show's time (the others made in the same import included); an overlap never refuses the import. An admin or a producer (and the station key, and a token with `shows:write`); a presenter or a screener is refused (403). Release 1.0.5 (ADR-0281).",
+        "operationId": "schedule_import",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The shows are made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReply"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "description": "The database or the card renderer failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "shows:write"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v1/schedule/import/preview": {
+      "post": {
+        "tags": [
+          "schedule"
+        ],
+        "summary": "Read a calendar file into proposed shows",
+        "description": "Reads an iCalendar file (at most 1 MB and 200 events; the body is the file itself as `text/calendar`, or JSON with `ics`) and proposes one show per recurring event, and one per run of single events with the same name (on chosen dates, a date at another time moved). Each item says how it was read (`mapping`): `exact`, a rule that gives exactly the calendar's dates and times; `dates`, an RRULE no show's rule can say (every other day, the fifth Friday, another zone whose clocks change on other dates, flagged `clock_differs`), offered as its dates for the next twelve months, at most 120, with `reason`; or `refused`, with `reason` (an all-day event, a zone we do not know, more than once a day, longer than a day, every date passed). Times in another zone are converted to the station's clock. Each item carries the rule in the New show's shape, its sentence (`words`), its next dates with the other shows' times they overlap (as `POST /api/v1/schedule/rule/preview` gives them), the path it would take, and the other items it overlaps. An item that is a show the station already has (the same name with case and spaces folded, and the same dates and times still to come, as when the station's own calendar file is read back) says so in `already`, and is not counted as a clash with itself. Writes nothing. A file that cannot be read is refused (422, `field` `ics`, a sentence); a file over the limits too (413). An admin or a producer (and the station key, and a token with `shows:read`); a presenter or a screener is refused (403). Release 1.0.5 (ADR-0281).",
+        "operationId": "schedule_import_preview",
+        "requestBody": {
+          "description": "The file, as JSON; or the file itself with `Content-Type: text/calendar`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The proposed shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreviewReply"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "413": {
+            "description": "Larger than 1 MB, or more than 200 events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "description": "The database failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "shows:read"
             ]
           }
         ]
@@ -12229,6 +12456,245 @@
           }
         }
       },
+      "ImportAlready": {
+        "type": "object",
+        "description": "A show the station already has.",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Its path."
+          }
+        }
+      },
+      "ImportChoice": {
+        "type": "object",
+        "description": "A show to make, as the person chose it from the preview.",
+        "required": [
+          "name",
+          "rule"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "The preview's `description`, or another (at most 4,000 characters)."
+          },
+          "name": {
+            "type": "string",
+            "description": "The show's name: the preview's, or as the person renamed it (1 to 160 characters)."
+          },
+          "rule": {
+            "$ref": "#/components/schemas/Rule",
+            "description": "The preview's `rule`, as it came (or changed: it is checked as any rule is)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ImportItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Proposal"
+          },
+          {
+            "type": "object",
+            "required": [
+              "dates",
+              "more",
+              "clash_count",
+              "overlaps"
+            ],
+            "properties": {
+              "already": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ImportAlready",
+                    "description": "The show the station already has that this is: the same name (case and spaces folded)\nand the same dates and times still to come, as the station's own calendar file gives\nthem. `null` for a show the station does not have. The studio leaves such a show\nunticked: made again, it would be a second show at the same times."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "clash_count": {
+                "type": "integer",
+                "description": "How many of `dates` clash with a show the station has. A show that is `already` on the\nstation does not clash with itself: its own times are in neither `clashes` nor this.",
+                "minimum": 0
+              },
+              "dates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PreviewDate"
+                },
+                "description": "Its next dates that air (and the skipped ones among them, marked), with the other shows'\ntimes each overlaps, as the rule preview gives them."
+              },
+              "more": {
+                "type": "boolean",
+                "description": "There are more dates than those shown."
+              },
+              "overlaps": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "The other items of this file (by their place in `items`, from 0) whose dates overlap\nthis one's in the twelve months from its first date to come."
+              },
+              "slug": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The path the show would take if made now with this name (`null` when refused). The\nimport makes the path free again when it makes the show, so a renamed show takes its\nnew name's."
+              },
+              "words": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RuleWords",
+                    "description": "The rule's sentence, short form and last date (`null` when refused)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One show the file proposes, with what the New show preview says of a rule."
+      },
+      "ImportPreviewReply": {
+        "type": "object",
+        "required": [
+          "zone",
+          "events",
+          "notes",
+          "items",
+          "ready"
+        ],
+        "properties": {
+          "events": {
+            "type": "integer",
+            "description": "The VEVENTs read.",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportItem"
+            },
+            "description": "In the file's order."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "About the file as a whole: cancelled events left out, changed dates that match nothing."
+          },
+          "ready": {
+            "type": "integer",
+            "description": "How many items can be made (those not refused).",
+            "minimum": 0
+          },
+          "zone": {
+            "type": "string",
+            "description": "The station's zone: every time is on its clock."
+          }
+        }
+      },
+      "ImportPreviewRequest": {
+        "type": "object",
+        "description": "A calendar file to read, as JSON. The route also takes the file itself, sent as\n`text/calendar`.",
+        "required": [
+          "ics"
+        ],
+        "properties": {
+          "ics": {
+            "type": "string",
+            "description": "The file's text (iCalendar, UTF-8): at most 1 MB and 200 events."
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "How many dates that air to show for each proposed show: 1 to 20, five by default.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ImportReply": {
+        "type": "object",
+        "required": [
+          "made",
+          "warnings"
+        ],
+        "properties": {
+          "made": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShowOut"
+            },
+            "description": "The shows made, in the order sent, each with its path, rule, sentence and next date."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportWarning"
+            },
+            "description": "The made shows whose dates overlap another show's time, the others made in the same\nimport included."
+          }
+        }
+      },
+      "ImportRequest": {
+        "type": "object",
+        "description": "The shows to make.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportChoice"
+            },
+            "description": "1 to 200."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ImportWarning": {
+        "type": "object",
+        "description": "A made show that overlaps another show's time.",
+        "required": [
+          "show",
+          "name",
+          "clashes"
+        ],
+        "properties": {
+          "clashes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Clash"
+            },
+            "description": "Its dates in the twelve months from its first (the first 60) that overlap another\nshow's time, one entry per overlap."
+          },
+          "name": {
+            "type": "string"
+          },
+          "show": {
+            "type": "string",
+            "description": "The made show's path and name."
+          }
+        }
+      },
       "InstallFacts": {
         "type": "object",
         "description": "What the page explains but cannot change: the install's own settings, as this control plane\nwas started with them.",
@@ -12717,6 +13183,15 @@
           }
         }
       },
+      "Mapping": {
+        "type": "string",
+        "description": "How a calendar's event became a show's rule.",
+        "enum": [
+          "exact",
+          "dates",
+          "refused"
+        ]
+      },
       "Me": {
         "type": "object",
         "required": [
@@ -13123,6 +13598,13 @@
             "format": "int64",
             "minimum": 0
           },
+          "change": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `rule.changed`: the token the saving window sent with its save (1.0.5), so that\nwindow knows the notice for its own. Null for every other kind, and for a save sent\nwithout one."
+          },
           "id": {
             "type": "integer",
             "format": "int64",
@@ -13140,7 +13622,7 @@
               "string",
               "null"
             ],
-            "description": "The person it is about, if any."
+            "description": "The person it is about, if any; for `rule.changed`, the show's path (1.0.5)."
           },
           "surface": {
             "$ref": "#/components/schemas/Surface"
@@ -14199,6 +14681,87 @@
           "on_air": {
             "type": "string",
             "description": "`desk`, `automation`, `fallback` (the station's files), `default` (the shipped loop,\nADR-0130) or `silence`."
+          }
+        }
+      },
+      "Proposal": {
+        "type": "object",
+        "description": "A show the calendar file proposes.",
+        "required": [
+          "name",
+          "description",
+          "mapping",
+          "notes",
+          "clock_differs",
+          "events"
+        ],
+        "properties": {
+          "clock_differs": {
+            "type": "boolean",
+            "description": "The calendar's zone changes its clocks on other dates than the station's, so its times\nare not always the same on the station's clock."
+          },
+          "description": {
+            "type": "string",
+            "description": "The event's DESCRIPTION."
+          },
+          "events": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of the file's VEVENTs went into it.",
+            "minimum": 0
+          },
+          "mapping": {
+            "$ref": "#/components/schemas/Mapping"
+          },
+          "name": {
+            "type": "string",
+            "description": "The event's SUMMARY, as the show's name."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Things to say that change nothing: dates left out, a zone converted."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is `dates`, or why it is refused."
+          },
+          "rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rule",
+                "description": "The rule, on the station's clock; `null` when refused."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_rule": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The calendar's RRULE as written, for a recurring event."
+          },
+          "uid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The calendar's UID for a recurring event."
+          },
+          "zone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The zone the calendar gave its times in (IANA), when it is not the station's."
           }
         }
       },
@@ -15435,6 +15998,15 @@
           "rule"
         ],
         "properties": {
+          "change": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A token the saving window makes for this save (1.0.5): the `rule.changed` notice every\nwindow gets carries it back, so the window that saved knows the notice for its own. Up to\n64 letters, digits, `-` and `_`.",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
           "drafted": {
             "$ref": "#/components/schemas/Drafted",
             "description": "`move` (the default): the drafted episodes still on their old rule dates move to the new\nrule's dates, in order, keeping their numbers, titles and guests; `leave`: they stay.\nAired episodes, and episodes a person moved or made by hand, never move."
@@ -17737,6 +18309,14 @@
               "$ref": "#/components/schemas/WeekEpisode"
             }
           },
+          "public_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The station's public address (`publishing.public_url`, without a trailing slash), where\nlisteners reach the calendar files, the cards and the feeds; `null` when none is set. The\nstudio builds the links it gives out from this, never from the address it talks to,\nwhich on Cloudron is behind the login (release 1.0.5, ADR-0281).",
+            "example": "https://station.example"
+          },
           "zone": {
             "type": "string",
             "description": "The zone the station's air times are read in."
@@ -18020,7 +18600,7 @@
       "api_token": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load and empty cart slots.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still."
+        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load and empty cart slots.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still."
       },
       "pass": {
         "type": "http",

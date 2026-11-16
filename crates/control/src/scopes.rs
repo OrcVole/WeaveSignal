@@ -60,11 +60,11 @@ pub const SCOPES: &[(&str, &str)] = &[
     ("reports:read", "Read the play and audience reports."),
     (
         "shows:read",
-        "Read shows, series, episodes and corrections.",
+        "Read shows, series, episodes and corrections; read a calendar file into proposed shows.",
     ),
     (
         "shows:write",
-        "Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards.",
+        "Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.",
     ),
     (
         "video:read",
@@ -179,6 +179,9 @@ pub const TABLE: &[(&str, &str, &str)] = &[
         "shows:write",
     ),
     ("POST", "/api/v1/schedule/rule/preview", "shows:read"),
+    // Calendar files (ADR-0281): reading a file writes nothing; making its shows is making shows.
+    ("POST", "/api/v1/schedule/import/preview", "shows:read"),
+    ("POST", "/api/v1/schedule/import", "shows:write"),
     ("POST", "/api/v1/cards/preview", "shows:write"),
     ("POST", "/api/v1/cards/words", "shows:write"),
 ];
@@ -261,6 +264,9 @@ pub const NEVER: &[&str] = &[
     "/api/v1/public/station",
     "/api/v1/public/schedule",
     "/api/v1/public/episodes",
+    // Calendar files (ADR-0281): public, as the schedule is.
+    "/api/v1/public/schedule.ics",
+    "/api/v1/public/shows/{file}",
     // rtmp-out: RTMP out's destinations hold stream keys: an admin's, never a token's.
     "/api/v1/rtmp",
     "/api/v1/rtmp/destinations",
@@ -315,6 +321,7 @@ mod tests {
             ("onair_api.rs", include_str!("onair_api.rs")),
             ("shows.rs", include_str!("shows.rs")),
             ("rules.rs", include_str!("rules.rs")),
+            ("calendar.rs", include_str!("calendar.rs")),
             ("steps.rs", include_str!("steps.rs")),
             ("video.rs", include_str!("video.rs")),
             ("retention.rs", include_str!("retention.rs")),

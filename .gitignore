@@ -36,3 +36,5 @@ __pycache__/
 /docs/public/media/
 # icecast-out stack test
 /tests/playout/run-icecast-out/
+/tests/stations/run/
+/tests/calendar-path/run/

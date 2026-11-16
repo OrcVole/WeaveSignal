@@ -23,7 +23,7 @@ Those keys say **note only** below, and link to [what is planned](/docs/referenc
    Unmodified letters, digits, arrows and `⇧` with a letter fire only on their own tab.
 2. **Text fields own the unmodified keys.**
    While a text field has focus, single keys, `⇧` letters, the function keys and two-press keys never fire, and nor do `⌃D ⌃D` and `⌃F1`–`⌃F5`.
-   `Esc` leaves the field; the other `⌃` chords (`⌃1`–`⌃5`, `⌃T`, `⌃R`, `⌃⇧R`, `⌃⇧B`, `⌃⇧E`, `⌃⏎`) still fire (ADR-0104).
+   `Esc` leaves the field; the other `⌃` chords (`⌃1`–`⌃5`, `⌃T`, `⌃R`, `⌃⇧R`, `⌃⇧B`, `⌃⇧E`, `⌃⏎`) still fire (ADR-0104); `⌃⇧S` does not.
    Settings, the account dialog and the sign-in-ended dialog are forms: only `⌃` chords reach the keymap there, as from a text field.
 3. **Two presses for anything that changes the room or a person's standing.**
    The first press arms the key for 3 s, and its button shows it is armed (*Press again*); the same key again fires it; any other key, or `Esc`, disarms it.
@@ -45,7 +45,7 @@ Those keys say **note only** below, and link to [what is planned](/docs/referenc
 | `⌃4` | the Chat tab | note only: the chat is on the Screener tab ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
 | `⌃T` (held) | on the Screener tab, the screener's talkback to the presenters and DJs; on any other tab, the presenter talks to the screener only | works |
 | `⌃D ⌃D` | drop the caller: on the Screener tab the selected caller; on the Desk tab the caller in slot 4, else the caller on air; on other tabs the caller on air | works |
-| `Esc` | in order: disarm an armed key; leave a text field; dismiss a note in the toast slot; on the Desk tab, decline a caller sent to you (*Not now*, ADR-0098); on the Carts tab, take every cued cart out of the headphones; else dismiss the tab's latest notice | works |
+| `Esc` | in order: disarm an armed key; leave a text field; dismiss a note in the toast slot; on the Desk tab, decline a caller sent to you (*Not now*, ADR-0098); on the Carts tab, take every cued cart out of the headphones; on the Schedule tab, close what the editor column holds and clear the selection (from 1.0.5; [below](#schedule-tab)); else dismiss the tab's latest notice | works |
 | `Del Del` | dump the profanity delay: it throws away what the delay holds, so listeners jump to the live programme | works |
 | `F1` to `F6` | fire carts 1 to 6 of the current bank (its top row); again, fade the cart out (ADR-0020) | works |
 | `⌃F1` to `⌃F5` | switch to cart bank 1 to 5: the show's own bank of that number if it has one, else the station's (from 1.0.2); what sounds keeps sounding | works |
@@ -55,6 +55,7 @@ Those keys say **note only** below, and link to [what is planned](/docs/referenc
 | `⌃⇧R` | restart the encoder | note only: restart the listener process on the server |
 | `⌃⇧B` | switch listeners to the backup stream | note only ([planned](/docs/reference/release-one-status/#not-in-release-one)) |
 | `⌃⇧E` | end the show (also the stage's **End show** button): a dialog, `⏎` to confirm and `Esc` to keep going; everyone off air, carts faded, then automation ([End the show](/docs/how-to/end-the-show/)) | from 1.0.2 (a note only before) |
+| `⌃⇧S` | open the **Stations** list ([Work with several stations](/docs/how-to/work-with-several-stations/)); it never switches by itself, and does nothing from a text field (ADR-0287) | from 1.0.5, the desktop app |
 | `F8` to `F12` | reserved: the app does nothing with them | — |
 
 ## Desk tab
@@ -147,11 +148,16 @@ Every key on this tab works in 1.0.0; [Moderate the chat](/docs/how-to/moderate-
 
 | Key | Does |
 |---|---|
-| `←` `→` | the week before, the week after |
-| `T` | today's week |
+| `←` `→` | the week before, the week after; in the Day view, the day before and after |
+| `T` | today's week, or today in the Day view |
+| `D` | the Day view: the selected block's day, else today when it is in the week shown, else the week's Monday |
+| `W` | the Week view |
+| `Esc` | as **‹ Shows**: closes what the editor column holds (an episode, a date from a rule, an automation log, a card, a show) and clears the selection, so the list of shows is back |
 | `Tab`, `⏎` on a block | reach a block, open it in the editor (the browser's own keys) |
 
 Nothing on the schedule is live, so no key here is two-press; the global keys fire as on every tab, and a text field in the editor owns the unmodified keys.
+`Esc` keeps its order: in a text field the first press leaves the field, an open menu or dialog takes the press for itself, an open **Move…** (an episode's, or a date's in a show's dates) is cancelled by it, and only then does it close the editor column.
+It never throws work away: while the episode, series or show in the column has changes that are not saved, nothing closes, and the tab says *Not closed. The episode has changes that are not saved. Save or discard them first.*
 
 ## Carts tab
 

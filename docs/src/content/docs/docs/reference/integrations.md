@@ -68,8 +68,8 @@ A refused field is named in the answer: `{"error": "…", "field": "scopes"}`.
 | `playout:read` | `GET /playout`, `/playout/zone`, `/logger`, `/library/tracks` |
 | `library:write` | `PUT /library/tracks` (an upload); `DELETE /library/tracks/{id}` |
 | `reports:read` | `GET /reports/plays`, `/reports/audience` |
-| `shows:read` | `GET /shows`, a show, a series, an episode's corrections; `POST /schedule/rule/preview` (it writes nothing) |
-| `shows:write` | changing shows, series and episodes, and when they air (`PUT /shows/{show}/rule`, `PUT /shows/{show}/series/{series}/rule`); putting an episode on air; corrections; publishing files; drawing cards; `POST /cards/preview` and `/cards/words` |
+| `shows:read` | `GET /shows`, a show, a series, an episode's corrections; `POST /schedule/rule/preview` and `POST /schedule/import/preview` (they write nothing) |
+| `shows:write` | changing shows, series and episodes, and when they air (`PUT /shows/{show}/rule`, `PUT /shows/{show}/series/{series}/rule`); putting an episode on air; corrections; publishing files; drawing cards; `POST /cards/preview` and `/cards/words`; making shows from a calendar file (`POST /schedule/import`) |
 | `video:read` | `GET /video/still`, `/video/still/image`, `/video/thumbs`; `GET /shows/{show}/still`, `/shows/{show}/still/image` |
 | `video:write` | `PUT` and `DELETE /video/still`; `PUT` and `DELETE /shows/{show}/still` |
 
@@ -96,10 +96,12 @@ They follow the station's listing setting ([The public pages](/docs/reference/pu
 | `GET /api/v1/public/station` | `station`, `show` (the title on now), `stream_url`, `live` (the show is on air), `call_in_open`, `video` (`live` and `audio` HLS addresses, or null), `zone` |
 | `GET /api/v1/public/schedule?days=7` | the episodes airing from now for `days` (1 to 14), in air order: `show` (`slug`, `name`), `series`, `number`, `aired`, `title`, `description`, `kind`, `air_at` (with the station's offset), `air_at_ms`, `minutes`, `hosts`, `guests`, `tags`, `explicit`, `image`. Under `zone`, with `from_ms` and `to_ms` |
 | `GET /api/v1/public/episodes?limit=20&before_ms=` | episodes that have aired and have published files, newest first (`limit` 1 to 50; `before_ms` pages back): the schedule's fields and `audio` and `audio_opus` (`url`, `mime`, `length`, `duration_ms`), `link`, `feed` |
+| `GET /api/v1/public/schedule.ics`, `GET /api/v1/public/shows/{show}.ics` | the schedule, or one show, as an iCalendar file to subscribe to (1.0.5): one event per show's rule, its name, description and page only ([Calendar files](/docs/reference/calendar-files/#export)) |
 
 An episode with an air time is in the schedule, but until it airs only as its place in it: `title` and `description` are `null`, and `guests` and `tags` are empty, and `image` is the show's card. The station has no step that publishes an episode before it airs, so a season drafted from the rule, or a guest pencilled in, is not announced here; once it has aired, the schedule and the episode list show its words as they went out.
 `image`, `audio`, `link` and `feed` are set when `publishing.public_url` is.
-Caching: `public/station` says `max-age=5`, `public/schedule` and `public/episodes` `max-age=30`.
+Caching: `public/station` says `max-age=5`, `public/schedule`, `public/episodes` and the calendar files `max-age=30`.
+On a Cloudron station the `public/` routes are on the public domain, outside Cloudron's login, GET only.
 
 ## Events out
 

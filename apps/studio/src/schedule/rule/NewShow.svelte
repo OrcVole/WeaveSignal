@@ -39,6 +39,7 @@
     live = true,
     onMade,
     onOpen,
+    onDates,
     onClose,
   }: {
     /** Every show, for the path and the next free colour. */
@@ -64,6 +65,8 @@
     onMade: (saved: ShowSaved) => void | Promise<void>;
     /** Open episode 1: the week moves to it and selects it. */
     onOpen: (saved: ShowSaved) => void;
+    /** See its dates: the show's pane, at its Dates (week-clashes.md section 3). */
+    onDates?: (saved: ShowSaved) => void;
     onClose: () => void;
   } = $props();
 
@@ -242,6 +245,11 @@
     if (saved) onOpen(saved);
     dialogEl?.close();
   }
+
+  function seeDates() {
+    if (saved) onDates?.(saved);
+    dialogEl?.close();
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -308,10 +316,10 @@
           {:else if draftedAll}
             <li>All {rest} are drafted, and wait in the week for their titles and guests.</li>
           {:else}
-            <li>The other dates wait in the week as dotted blocks. Draft each when you are ready{#if rest}, or all {rest} now{/if}.</li>
+            <li>The other dates wait in the week as dotted blocks. Draft each when you are ready{#if rest}, or all {rest} now{/if}.{#if onDates}{' '}They are listed under the show’s <b class="ink">Dates</b>.{/if}</li>
           {/if}
         {:else if hasDates}
-          <li>Its dates wait in the week as dotted blocks. Select one to draft the episode.</li>
+          <li>Its dates wait in the week as dotted blocks. Select one to draft the episode.{#if onDates}{' '}They are listed under the show’s <b class="ink">Dates</b>.{/if}</li>
         {:else}
           <li>It has no dates yet, so nothing is drafted. Give it dates from the Schedule tab.</li>
         {/if}
@@ -321,6 +329,7 @@
       {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
       <div class="acts">
         <button type="button" class="btn quiet left" onclick={() => dialogEl?.close()}>Close</button>
+        {#if onDates && hasDates && saved}<button type="button" class="btn quiet" onclick={seeDates}>See its dates</button>{/if}
         {#if firstEp && rest && !draftedAll}<button type="button" class="btn" onclick={draftAll} disabled={drafting} aria-busy={drafting || undefined}>{drafting ? 'Drafting…' : `Draft all ${rest}`}</button>{/if}
         {#if firstEp}<button type="button" class="btn primary" onclick={openFirst}>Open episode {firstEp.number}</button>{/if}
       </div>

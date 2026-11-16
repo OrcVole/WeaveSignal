@@ -26,6 +26,9 @@ path = [
   "playout/*.json",
   "docs/openapi/*.json",
   "tests/demo-video/script.json",
+  "tests/newshow/import-preview.json",
+  "tests/newshow/import-made.json",
+  "tests/newshow/kettle-old-schedule.ics",
   "apps/studio/src/sandbox/lines-to-record.tsv",
 ]
 precedence = "aggregate"

@@ -3,6 +3,7 @@
 // What each key (and each button, which runs the same action) does: the keymap's actions
 // turned into the control plane's commands. One place, so a button and its key never differ.
 
+import { onStationChange } from './reset.ts';
 import { tick } from 'svelte';
 import * as api from './api.ts';
 import { cartKey, type Action } from '../../../../packages/ui/keymap.ts';
@@ -11,7 +12,8 @@ import { say, setBank, stationNow, studio, takeView } from './studio.svelte.ts';
 import { deskCallers, offNote, stationStep, type OffPart } from './steps.ts';
 import { changesAir } from './prepare.ts';
 import { followStation, nudge, preparing } from './prepare.svelte.ts';
-import { moveWeek, today } from './schedule.svelte.ts';
+import { closeOpen, keyView, step as stepView, today, type Closed } from './schedule.svelte.ts';
+import { openStations } from './stations.svelte.ts';
 import { firstName } from './format.ts';
 import { handoverStep } from './handover.ts';
 import { endShowNote, modeNote, modeRefusal, needsConfirm, type AirAsk } from './air.ts';
@@ -55,6 +57,19 @@ function focusCart(slot: number) {
 /** Who each held talk key opened, by key, so letting go closes that same talk even if the
  *  presenter's seat moved while it was held (the seat follows the air, ADR-0231). */
 const heldTalk = new Map<string, { me: string; to: string }>();
+
+// A change of station (ADR-0285). The frame lets every held key go first, and the releases
+// are sent to the station being left; what is still here after that names people of that
+// station, and must never be sent to the next.
+onStationChange('actions', () => {
+  heldTalk.clear();
+  returnFocus = null;
+});
+
+/** The talk keys this window holds open, by key (a test's). */
+export function heldTalkKeys(): string[] {
+  return [...heldTalk.keys()];
+}
 
 async function talkHeld(key: string, held: boolean, open: { me: string; to: string } | null): Promise<void> {
   if (!held) {
@@ -138,6 +153,22 @@ export function tellOff(part: OffPart): void {
   studio.offNote = { ...n, until: Date.now() + OFF_NOTE_MS };
 }
 
+/** After Esc closed what the Schedule tab's editor column held: a focus that was inside the
+ *  column, which is gone, goes back to where the person came from, the block in the grid or the
+ *  show's row in the list. A focus anywhere else (a block, the toolbar) stays where it is. */
+function focusAfterClose(closed: Extract<Closed, { did: 'closed' }>, from: Element | null): void {
+  if (!from?.closest?.('.schedule aside.editor')) return;
+  // The grid draws its blocks again once the selection has gone, and the list is drawn then too.
+  void tick().then(() =>
+    requestAnimationFrame(() => {
+      const block = closed.block ? [...document.querySelectorAll<HTMLElement>('.schedule .ec-event[data-key]')].find((el) => el.dataset.key === closed.block || el.dataset.key?.startsWith(`${closed.block}@`)) : null;
+      const list = document.querySelector<HTMLElement>('.schedule [data-panel="calendar.shows"]');
+      const row = closed.show ? list?.querySelector<HTMLElement>(`[data-show="${closed.show}"]`) : null;
+      (block ?? row ?? list?.querySelector<HTMLElement>('[data-show][tabindex="0"]'))?.focus({ preventScroll: !!block });
+    }),
+  );
+}
+
 export async function run(a: Action): Promise<void> {
   const v = studio.view;
   const now = Date.now();
@@ -197,6 +228,15 @@ export async function run(a: Action): Promise<void> {
       if (studio.tab === 'carts' && !prep && v?.carts.sounding.some((s) => s.cue && !s.stopping)) {
         await send(api.carts({ op: 'clear_cue' }));
         return;
+      }
+      // On the Schedule tab Esc is ‹ Shows: it closes what the editor column holds and clears
+      // the selection, unless an editor holds changes that are not saved (the tab then says so).
+      // The selection is this window's own, so a preparing window's Esc clears it too.
+      if (studio.tab === 'schedule') {
+        const from = typeof document === 'undefined' ? null : document.activeElement;
+        const closed = closeOpen(stationNow());
+        if (closed.did === 'closed') focusAfterClose(closed, from);
+        if (closed.did !== 'nothing') return;
       }
       const top = v?.notices.filter((n) => n.surface === studio.tab).at(-1);
       if (top) studio.dismissed = [...studio.dismissed, top.id];
@@ -389,10 +429,16 @@ export async function run(a: Action): Promise<void> {
       if (studio.cartFocus) await fireSlot(studio.cartFocus);
       return;
     case 'week':
-      moveWeek(a.delta);
+      stepView(a.delta);
       return;
     case 'today':
       today(stationNow());
+      return;
+    case 'view':
+      keyView(a.view, stationNow());
+      return;
+    case 'stations':
+      openStations();
       return;
     case 'mod-hide':
     case 'mod-timeout':

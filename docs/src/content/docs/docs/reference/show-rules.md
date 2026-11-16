@@ -12,6 +12,7 @@ From WeaveSignal 1.0.4 a show (and a series) airs by a **rule**, which replaces 
 A rule only makes dates; episodes are what air.
 The control plane works the dates out, says the rule in words and finds the clashes; a client draws what it answers.
 Every route named here is in the generated [API reference](/docs/reference/api/).
+From 1.0.5 a rule also goes out as a calendar file and comes in from one: [Calendar files](/docs/reference/calendar-files/).
 
 ## The rule
 
@@ -113,7 +114,7 @@ If anything is refused, a clash among it, nothing is saved.
 | Drafted, and the new rule has no date for it | Stays where it is. |
 
 It is one transaction.
-The change is logged with who made it, and every window is told (*Moira changed when The Folk Club airs.*).
+The change is logged with who made it, and every window is told (*Moira changed when The Folk Club airs.*). The notice names the show by its path and carries the token the saving window sent with the save (`change`, from 1.0.5), so that window does not say its own change back to the person who made it.
 The studio app says it on the Desk and on the Schedule tab. The Schedule tab reads the week again, and does not say a change back to the window that made it.
 `POST /api/v1/schedule/rule/preview` with `show` says what a change would do (`change`) without saving it.
 
@@ -122,6 +123,7 @@ The studio app says it on the Desk and on the Schedule tab. The Schedule tab rea
 `POST /api/v1/schedule/rule/preview` takes a rule and answers its sentence, its next dates (each with its state, times, the clocks changing and its clashes), the last date, and any problem by field.
 It writes nothing.
 A skipped date stays in the list, marked, so it can be put back.
+`POST /api/v1/schedule/import/preview` gives the same for each show a calendar file proposes ([Calendar files](/docs/reference/calendar-files/#import)).
 
 ## Clashes
 

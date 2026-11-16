@@ -10,8 +10,10 @@ import * as api from './schedule.ts';
 import type { Show } from './schedule.ts';
 import { myShow, needsSetup, skipKey } from './wizard.ts';
 import { loadStationFacts } from './schedule.svelte.ts';
+import { onStationChange } from './reset.ts';
 
-export const setup = $state({
+/** What `setup` is when the page first loads: a change of station puts it back (ADR-0285). */
+const fresh = () => ({
   /** The wizard is open over the surface. */
   open: false,
   /** Every show, as last fetched (for the slug check and the colour). */
@@ -21,6 +23,8 @@ export const setup = $state({
   /** The last fetch's problem, in the station's words. */
   error: '',
 });
+
+export const setup = $state(fresh());
 
 /** The show tied to this window's account, from the last fetch. */
 export function mine(): Show | null {
@@ -79,3 +83,8 @@ export function openSetup(): void {
 export function closeSetup(): void {
   setup.open = false;
 }
+
+// A change of station (ADR-0285): the shows are that station's.
+onStationChange('wizard', () => {
+  Object.assign(setup, fresh());
+});

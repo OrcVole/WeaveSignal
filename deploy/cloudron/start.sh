@@ -587,6 +587,9 @@ chat_public='^/api/v1/chat/(info|socket|signin/start|signin/finish|guest|notices
 # (their PUT and DELETE are an admin's, on the app's own domain).
 control_public='^/api/v1/(station|player|call-in|call-in/challenge|pass|pass/token|pass/events|pass/leave|now-playing|now-playing/events|steering)$'
 branding_public='^/api/v1/branding(/icon|/banner)?$'
+# Calendar files (ADR-0281): the schedule and each show's, for a person's own calendar; and the
+# read-only JSON for a station's own website (ADR-0282, crates/control/src/open.rs). GET only.
+calendar_public='^/api/v1/public/(station|schedule|episodes|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
 # The listener stream's mounts: the Opus one, and each MP3 one the station turns on
 # (ADR-0002, ADR-0232). Each read only, behind the stream's password when it has one, without ICY.
 stream_location() {
@@ -763,6 +766,11 @@ $stream_locations
             proxy_read_timeout 1d;
         }
         location ~ $branding_public {
+            $pub_never
+            limit_except GET { deny all; }
+            proxy_pass http://127.0.0.1:$CONTROL_PORT;
+        }
+        location ~ $calendar_public {
             $pub_never
             limit_except GET { deny all; }
             proxy_pass http://127.0.0.1:$CONTROL_PORT;

@@ -188,6 +188,7 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::staff::Api::openapi(),
         crate::shows::Api::openapi(),
         crate::rules::Api::openapi(),
+        crate::calendar::Api::openapi(),
         crate::steps::Api::openapi(),
         crate::video::Api::openapi(),
         crate::steering::Api::openapi(),

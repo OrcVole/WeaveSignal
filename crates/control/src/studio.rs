@@ -206,10 +206,14 @@ pub struct Notice {
     pub tone: Tone,
     /// What it is about (`caller.ready`, `caller.declined`, ...), for the app to pick keys.
     pub kind: String,
-    /// The person it is about, if any.
+    /// The person it is about, if any; for `rule.changed`, the show's path (1.0.5).
     pub subject: Option<String>,
     pub title: String,
     pub message: String,
+    /// For `rule.changed`: the token the saving window sent with its save (1.0.5), so that
+    /// window knows the notice for its own. Null for every other kind, and for a save sent
+    /// without one.
+    pub change: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -739,14 +743,17 @@ impl Studio {
 
     /// Say that a show's rule changed (*Moira changed when The Folk Club airs.*), for every
     /// window (release 1.0.4).
-    pub fn rule_changed(&mut self, now: u64, title: String) {
+    pub fn rule_changed(&mut self, now: u64, note: crate::setup::RuleNote) {
         self.notice(
             now,
             (Surface::Desk, Tone::Good, "rule.changed"),
-            None,
-            title,
+            Some(&note.show),
+            note.title,
             String::new(),
         );
+        if let Some(n) = self.notices.back_mut() {
+            n.change = note.change;
+        }
     }
 
     /// A notice from playout (dead air, the logger) for the desk.
@@ -781,6 +788,7 @@ impl Studio {
             subject: subject.map(str::to_owned),
             title,
             message,
+            change: None,
         });
         while self.notices.len() > NOTICES {
             self.notices.pop_front();
@@ -1385,6 +1393,30 @@ mod tests {
             mount: name.into(),
             listeners: n,
         }
+    }
+
+    #[test]
+    fn a_changed_rule_names_its_show_and_the_save_that_made_it() {
+        let live = crate::setup::Live::new("kettle.toml");
+        live.rule_changed("Moira", "The Folk Club", "the-folk-club", Some("w1-save-7"));
+        live.rule_changed("Morag", "Tuesdays", "tuesdays", None);
+        let mut s = Studio::default();
+        for note in live.take_rule_changes() {
+            s.rule_changed(1_000, note);
+        }
+        assert!(live.take_rule_changes().is_empty(), "each is told once");
+        let v = s.view("", None, None, 1_000);
+        let rules: Vec<_> = v
+            .notices
+            .iter()
+            .filter(|n| n.kind == "rule.changed")
+            .collect();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].title, "Moira changed when The Folk Club airs.");
+        assert_eq!(rules[0].subject.as_deref(), Some("the-folk-club"));
+        assert_eq!(rules[0].change.as_deref(), Some("w1-save-7"));
+        assert_eq!(rules[1].subject.as_deref(), Some("tuesdays"));
+        assert_eq!(rules[1].change, None, "a save sent without a token");
     }
 
     #[test]

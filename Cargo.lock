@@ -705,8 +705,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -2431,6 +2433,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "icalendar"
+version = "0.17.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fe2f2ca4a82ec12ebd129ca664030add9b80d17a2b79ce885884fefb1c650e6"
+dependencies = [
+ "chrono",
+ "iso8601",
+ "nom",
+ "nom-language",
+ "uuid",
+]
+
+[[package]]
 name = "ico"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2615,6 +2630,15 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "iso8601"
+version = "0.6.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ffd3254cf2b0fc53e38414bdba99719f3e269db8a6519731b68a3a90040c41b"
+dependencies = [
+ "nom",
+]
 
 [[package]]
 name = "itertools"
@@ -3210,6 +3234,24 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nom"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "nom-language"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2de2bc5b451bfedaef92c90b8939a8fff5770bdcc1fafd6239d086aab8fa6b29"
+dependencies = [
+ "nom",
 ]
 
 [[package]]
@@ -6693,7 +6735,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-cards"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "jiff",
  "resvg",
@@ -6705,7 +6747,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-chat"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -6738,7 +6780,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-control"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -6775,7 +6817,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-desk"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6798,7 +6840,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-feeds"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "jiff",
  "lofty",
@@ -6814,7 +6856,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-media"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "ebur128",
  "flacenc",
@@ -6835,7 +6877,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-mixer"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6844,9 +6886,10 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-model"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "argon2",
+ "icalendar",
  "jiff",
  "serde",
  "serde_json",
@@ -6854,13 +6897,14 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-normalization",
  "utoipa",
  "uuid",
 ]
 
 [[package]]
 name = "weavesignal-proto"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "base64 0.23.1",
  "hmac",
@@ -6873,7 +6917,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-studio"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "base64 0.22.1",
  "keyring",

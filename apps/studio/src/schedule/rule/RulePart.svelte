@@ -159,7 +159,7 @@
   }
 </script>
 
-<div class="rule" class:bare={!rules} class:narrow bind:this={ruleEl} data-panel="calendar.rule">
+<div class="rulepart" class:bare={!rules} class:narrow bind:this={ruleEl} data-panel="calendar.rule">
   <RuleQuestions
     {form}
     onchange={change}

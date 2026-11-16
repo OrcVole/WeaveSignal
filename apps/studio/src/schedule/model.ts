@@ -116,6 +116,19 @@ export function dayWords(ms: number, zone: string): string {
   return `${WEEKDAYS[p.wd]} ${p.d} ${MONTHS[p.m - 1]}`;
 }
 
+/** `Wednesday 18 November`, for a day's tooltip and its accessible name. */
+export function longDayWords(ms: number, zone: string): string {
+  const p = parts(ms, zone);
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(p.y, p.m - 1, p.d)));
+}
+
+/** `Wed 18 November 2026`, the toolbar's range in the Day view. */
+export function dayRangeWords(ms: number, zone: string): string {
+  const p = parts(ms, zone);
+  const month = new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(p.y, p.m - 1, 1)));
+  return `${WEEKDAYS[p.wd]} ${p.d} ${month} ${p.y}`;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** `Sat 24 Oct 2026 · 20:00–23:00`. */
@@ -247,12 +260,13 @@ export function episodeBlocks(eps: WeekEpisode[], zone: string, now: number): Bl
   return markConflicts(out);
 }
 
-/** Two episodes overlapping in time both carry CONFLICT (the model has no studios yet, so
- *  every overlap is one); automation never conflicts, it yields. */
+/** Every block that shares time with another carries CONFLICT, an episode and a dotted date
+ *  alike (week-clashes.md: a date nobody has drafted clashes too, and never said so). The model
+ *  has no studios yet, so every overlap is one; automation never conflicts, it yields. */
 export function markConflicts(blocks: Block[]): Block[] {
-  const eps = blocks.filter((b) => b.kind === 'episode');
-  for (const a of eps) {
-    for (const b of eps) {
+  const all = blocks.filter((b) => b.kind !== 'automation');
+  for (const a of all) {
+    for (const b of all) {
       if (a !== b && a.start < b.end && b.start < a.end && (a.studio === null || a.studio === b.studio)) a.conflict = true;
     }
   }

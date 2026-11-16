@@ -10,7 +10,7 @@
   import { hm, lengthWords, whenWords, type Block } from './model.ts';
   import { dur } from '../lib/format.ts';
 
-  let { block, zone, now }: { block: Block; zone: string; now: number } = $props();
+  let { block, zone, now, onShows }: { block: Block; zone: string; now: number; /** ‹ Shows: back to the list of shows. */ onShows?: () => void } = $props();
 
   let items = $state<LogItem[]>([]);
   let tracks = $state<Track[]>([]);
@@ -92,7 +92,7 @@
 </script>
 
 <div class="head">
-  <div class="crumbs"><b>Automation</b> › {block.clock ?? 'no clock'}</div>
+  <div class="crumbs">{#if onShows}<button type="button" class="back" title="Back to the list of shows (Esc)" aria-keyshortcuts="Escape" onclick={onShows}>‹ Shows</button> ›{/if} <b>Automation</b> › {block.clock ?? 'no clock'}</div>
   <h2 data-panel-title>{block.show} · {lengthWords(block.end - block.start)}</h2>
   <div class="when">
     <span class="num">{whenWords(block.start, block.end, zone)}</span>

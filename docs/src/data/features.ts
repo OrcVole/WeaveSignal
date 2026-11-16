@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.4:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.5:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -212,6 +212,20 @@ export const groups: Group[] = [
         link: 'When a show airs: the rule',
       },
       {
+        id: 'calendar-files',
+        name: 'Calendar files in and out',
+        what: 'The schedule, or one show, as a calendar link a listener subscribes to, with each show\'s repeat, skipped and moved dates. A calendar file from another system comes in as new shows, each said back with its dates and clashes before anything is made, with a pasted path or a dropped file.',
+        href: '/docs/reference/calendar-files/',
+        link: 'Calendar files: import and export',
+      },
+      {
+        id: 'clashes',
+        name: 'Clashing shows folded, a Day view and each show\'s dates',
+        what: 'Shows that share a time fold in the week, one open and the others as tabs you press to bring forward; a Day view gives each clashing show a lane. A list of shows opens each at its dates: skip, move, draft or put back one, with Undo. The keys D and W switch between day and week.',
+        href: '/docs/how-to/schedule-the-week/',
+        link: 'Schedule the week',
+      },
+      {
         id: 'library',
         name: 'A library and a per-play log',
         what: 'Files are imported with their tags, every play is logged with its time, and listener hours and sessions are kept, for the reports a licence asks for. A legal logger records the programme for as long as retention says.',
@@ -339,7 +353,7 @@ export const groups: Group[] = [
       {
         id: 'api',
         name: 'An API with tokens, open routes and webhooks',
-        what: 'Scoped tokens for other software, open read routes for the station\'s own website, signed webhook deliveries when something happens, and an OpenAPI description generated from the code.',
+        what: 'Scoped tokens for other software, open read routes for the station\'s own website (on a Cloudron station too), signed webhook deliveries when something happens, and an OpenAPI description generated from the code.',
         href: '/docs/reference/integrations/',
         link: 'Integrations',
         home: 'Scoped tokens, open read routes for the station\'s own website, signed webhooks, and an OpenAPI description generated from the code.',
@@ -395,6 +409,13 @@ export const groups: Group[] = [
         href: '/docs/reference/surfaces/carts/',
         link: 'Cart wall',
         shot: 'carts',
+      },
+      {
+        id: 'stations',
+        name: 'Several stations in one studio app',
+        what: 'The station\'s name in the frame lists the stations this computer keeps, each with its own address, sign-in and key, and nothing shared; Ctrl+Shift+S opens the list. Leaving a station that is on air is asked first, and nothing of one station shows on another. The window opens maximised on a small screen.',
+        href: '/docs/how-to/work-with-several-stations/',
+        link: 'Work with several stations',
       },
       {
         id: 'packages',

@@ -8,8 +8,16 @@
 // limited to what the driver's shows use, and is test tooling, not a second implementation.
 // Sample shows and people are the designs' (ADR-0071).
 
+import { readFileSync } from 'node:fs';
+
 const ZONE = 'Europe/London';
 const DAY = 86_400_000;
+/** The control plane's own reply to `POST /api/v1/schedule/import/preview`, recorded from a real
+ *  one on 2026-11-15 reading `kettle-old-schedule.ics` (the file beside this one) into a station
+ *  with The Late Kettle on Tuesdays at 21:00: the calendar driver (calendar.mjs) replays it, so
+ *  the import's screens are driven with serde's field names and the control plane's sentences. */
+export const IMPORT_PREVIEW = JSON.parse(readFileSync(new URL('./import-preview.json', import.meta.url), 'utf8'));
+export const SAMPLE_ICS = readFileSync(new URL('./kettle-old-schedule.ics', import.meta.url), 'utf8').replace(/\r?\n/g, '\r\n');
 const WD = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const WD3 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -143,7 +151,12 @@ export function words(rule, today) {
 
 /** Kettle FM, as the week holds it on Friday 13 November 2026 at 10:00. */
 export class Station {
-  constructor({ today = '2026-11-13', nowMinutes = 600, version = '1.0.4', role = 'producer' } = {}) {
+  constructor({ today = '2026-11-13', nowMinutes = 600, version = '1.0.4', role = 'producer', publicUrl = 'https://kettle.example' } = {}) {
+    // The station's public address (`publishing.public_url`), sent with the week from 1.0.5:
+    // null for a station that has none. A station older than rules sends no such key.
+    this.publicUrl = publicUrl;
+    // What the import's preview answers: the recorded reply, or what a driver puts in its place.
+    this.importPreview = IMPORT_PREVIEW;
     this.today = today;
     this.now = instant(today, nowMinutes);
     this.version = version;
@@ -172,8 +185,10 @@ export class Station {
   }
 
   /** Every window is told a show's rule changed: *Moira changed when The Folk Club airs.* */
-  ruleChanged(who, show) {
-    this.notices.push({ id: ++this.noticeId, at_ms: this.now * 1000, surface: 'desk', tone: 'good', kind: 'rule.changed', subject: null, title: `${who} changed when ${show} airs.`, message: '' });
+  //  From 1.0.5 the notice names the show (`subject`) and gives back the saving window's token.
+  ruleChanged(who, show, slug = null, change = null) {
+    const named = this.version >= '1.0.5';
+    this.notices.push({ id: ++this.noticeId, at_ms: this.now * 1000, surface: 'desk', tone: 'good', kind: 'rule.changed', subject: named ? slug : null, title: `${who} changed when ${show} airs.`, message: '', ...(named ? { change } : {}) });
     if (this.notices.length > 32) this.notices.shift();
   }
 
@@ -181,7 +196,7 @@ export class Station {
   changeElsewhere(who, slug, rule) {
     const s = this.shows.find((x) => x.slug === slug);
     s.rule = rule;
-    this.ruleChanged(who, s.name);
+    this.ruleChanged(who, s.name, s.slug);
   }
 
   /** The studio's view (apps/studio/src/lib/api.ts `View`): a station with nobody at the desk,
@@ -274,7 +289,7 @@ export class Station {
     return out;
   }
 
-  preview({ rule, show = null, count = 10 }) {
+  preview({ rule, show = null, limit = undefined, count = limit ?? 10 }) {
     const problems = [];
     const hints = [];
     const kept = { ...rule, skip: [], moves: [] };
@@ -332,6 +347,9 @@ export class Station {
           by_hand: eps.filter((e) => e.aired_at === null && e.by_hand).map((e) => ({ series: 1, number: e.number, at: e.air_at })),
         }
       : null;
+    // The control plane's own reply says whether the rule gives more dates than it sent, and
+    // counts none (crates/control/src/rules.rs, `PreviewReply`); the week driver asks for that.
+    if (this.previewShape === 'control') return { ...words(clean, this.today), dates, more: live.filter((o) => !o.skipped).length > airing, clear, problems, hints, dropped, change };
     return { ...words(clean, this.today), dates, total, clear, problems, hints, dropped, change };
   }
 
@@ -347,7 +365,61 @@ export class Station {
       let n = this.episodes.filter((e) => e.slug === s.slug).length;
       return this.unfilled(s).map((o) => ({ show: s.slug, series: s.series[0]?.number ?? null, on: o.on, number: ++n, start: o.start, minutes: o.minutes, moved_from: o.moved_from, clock: null })).filter((d) => inside(d.start));
     });
-    return this.version >= '1.0.4' ? { zone: ZONE, episodes, dates } : { zone: ZONE, episodes };
+    return this.version >= '1.0.4' ? { zone: ZONE, episodes, dates, public_url: this.publicUrl } : { zone: ZONE, episodes };
+  }
+
+  /** A calendar file as the station writes one, cut to what the driver looks for: the name and
+   *  one event for each show with a rule. Test tooling, not an exporter. */
+  ics(slug = null) {
+    const shows = this.shows.filter((x) => x.rule && (!slug || x.slug === slug));
+    const name = slug ? `${this.shows.find((x) => x.slug === slug)?.name} on Kettle FM` : 'Kettle FM';
+    const events = shows.map((x) => `BEGIN:VEVENT\r\nUID:${x.id}@weavesignal\r\nSUMMARY:${x.name}\r\nEND:VEVENT\r\n`).join('');
+    return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//WeaveSignal//stand-in//EN\r\nX-WR-CALNAME:${name}\r\n${events}END:VCALENDAR\r\n`;
+  }
+
+  /** `POST /api/v1/schedule/import/preview`: the refusals as the control plane words them, else
+   *  the recorded reply. It writes nothing. */
+  importPreviewOf(body) {
+    if (this.role === 'presenter') return [403, { error: 'Only an admin or a producer imports a calendar.' }];
+    const ics = typeof body?.ics === 'string' ? body.ics : '';
+    if (ics.length > 1024 * 1024) return [413, { error: 'The file is larger than 1 MB. Export a shorter range of dates, or one calendar at a time.', field: 'ics' }];
+    if (!/^\uFEFF?\s*BEGIN:VCALENDAR/i.test(ics)) return [422, { error: 'This is not a calendar file: it does not begin with BEGIN:VCALENDAR.', field: 'ics' }];
+    const events = (ics.match(/^BEGIN:VEVENT/gim) ?? []).length;
+    if (events > 200) return [413, { error: `The file holds ${events} events; at most 200 can be read at once. Export a shorter range of dates.`, field: 'ics' }];
+    if (!events) return [422, { error: 'The file holds no events.', field: 'ics' }];
+    return [200, this.importPreview];
+  }
+
+  /** `POST /api/v1/schedule/import`: every show made, or none; each at Solo with no episode,
+   *  its path made free, in the next colours; the overlaps of each as warnings. */
+  importOf(body) {
+    if (this.role === 'presenter') return [403, { error: 'Only an admin or a producer imports a calendar.' }];
+    const items = Array.isArray(body?.items) ? body.items : [];
+    if (!items.length || items.length > 200) return [422, { error: 'Choose 1 to 200 shows to make.', field: 'items' }];
+    for (const [i, c] of items.entries()) {
+      const unknown = Object.keys(c).filter((k) => !['name', 'description', 'rule'].includes(k));
+      if (unknown.length) return [422, { error: `Send the shows to make as JSON with \`items\`: unknown field \`${unknown[0]}\`.`, field: 'items' }];
+      const name = String(c.name ?? '').trim();
+      if (!name || [...name].length > 160) return [422, { error: `Give show ${i + 1} a name of 1 to 160 characters.`, field: `items[${i}].name` }];
+      if (/^the the/i.test(name)) return [422, { error: `“${name}”: The name does not fit the card at its smallest size: shorten it.`, field: `items[${i}].name` }];
+      if (!c.rule || typeof c.rule !== 'object') return [422, { error: `“${name}”: the rule is missing.`, field: `items[${i}].rule` }];
+    }
+    const before = this.shows.length;
+    const made = items.map((c, i) => {
+      const name = c.name.trim();
+      const stem = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'show';
+      let slug = stem;
+      for (let n = 2; this.shows.some((x) => x.slug === slug); n++) slug = `${stem}-${n}`;
+      this.add({ slug, name, description: c.description ?? '', colour_slot: ((before + i) % 12) + 1, presenter: '', rule: c.rule, step: 'solo' });
+      return this.shows.at(-1);
+    });
+    // The overlaps are looked for in a small import only: enough for the driver, and a stand-in
+    // that tried 200 shows against each other would take minutes.
+    const warnings = (made.length > 20 ? [] : made).flatMap((s) => {
+      const clashes = occurrences(s.rule, 60).filter((o) => !o.skipped && o.start + o.minutes * 60 > this.now).flatMap((o) => this.clashes(s.slug, o.start, o.minutes).map((c) => ({ ...c, on: o.on })));
+      return clashes.length ? [{ show: s.slug, name: s.name, clashes: clashes.slice(0, 60) }] : [];
+    });
+    return [201, { made: made.map((s) => this.show(s)), warnings }];
   }
 
   /** One request: `[status, body]`. */
@@ -360,6 +432,14 @@ export class Station {
     if (p === '/api/v1/shows' && method === 'GET') return [200, this.shows.map((s) => this.show(s))];
     if (p === '/api/v1/schedule/episodes') return [200, this.week(+url.searchParams.get('from_ms'), +url.searchParams.get('to_ms'))];
     if (p === '/api/v1/schedule/rule/preview') return [200, this.preview(body)];
+    // Calendar files (ADR-0281). A calendar is text: the driver answers a string as `text/calendar`.
+    if (p === '/api/v1/schedule/import/preview' && method === 'POST') return this.importPreviewOf(body);
+    if (p === '/api/v1/schedule/import' && method === 'POST') return this.importOf(body);
+    if (p === '/api/v1/public/schedule.ics') return [200, this.ics()];
+    {
+      const f = /^\/api\/v1\/public\/shows\/([a-z0-9-]+)\.ics$/.exec(p);
+      if (f) return this.shows.some((x) => x.slug === f[1]) ? [200, this.ics(f[1])] : [404, { error: `show \`${f[1]}\` does not exist` }];
+    }
     if (p === '/api/v1/schedule/clocks') return [200, { clocks: [{ id: 'day', name: 'Daytime mix', slots: [] }] }];
     if (p === '/api/v1/schedule/week') return [200, { hours: [] }];
     if (p === '/api/v1/playout/settings') return [200, { time_zone: ZONE, artist_separation_min: 60, title_separation_min: 120, album_separation_min: 30, mode: 'auto', default_clock: 'day' }];
@@ -401,7 +481,8 @@ export class Station {
       }
       return [200, { ...this.view(s), drafted }];
     }
-    if ((m = /^\/api\/v1\/shows\/([^/]+)\/rule$/.exec(p))) {
+    if ((m = /^\/api\/v1\/shows\/([^/]+)(?:\/series\/\d+)?\/rule$/.exec(p))) {
+      // A series' own rule is kept as the show's here: the stand-in's shows have one series.
       const s = this.shows.find((x) => x.slug === m[1]);
       const moved = [];
       if (body.rule && body.drafted === 'move') {
@@ -414,13 +495,33 @@ export class Station {
       }
       s.rule = body.rule;
       // As the control plane does (crates/control/src/rules.rs): the window that saved is told too.
-      this.ruleChanged(this.mover(), s.name);
+      this.ruleChanged(this.mover(), s.name, s.slug, body.change ?? null);
       return [200, { rule: s.rule, rule_words: s.rule ? words(s.rule, this.today) : null, moved }];
     }
     if ((m = /^\/api\/v1\/shows\/([^/]+)\/series\/(\d+)$/.exec(p))) {
       const s = this.shows.find((x) => x.slug === m[1]);
       if (method === 'PUT' && !s.series.length) s.series.push({ id: `${s.slug}-s1`, show_id: s.id, number: 1, title: null, description: null, hosts: null, slot: null, rule: null, starts_on: null, planned_episodes: null, tags: null, cards: null });
       return [200, { series: s.series[0], resolved: this.resolved(s), episodes: this.episodes.filter((e) => e.slug === s.slug).map((e) => ({ episode: e, resolved: this.resolved(s, e) })) }];
+    }
+    if ((m = /^\/api\/v1\/shows\/([^/]+)\/series\/(\d+)\/episodes\/(\d+)$/.exec(p)) && method === 'PATCH') {
+      // An episode's own time (Move… on a drafted episode, a block dragged): `air_at` is a zoned
+      // time, `2026-12-05T20:00:00+00:00[Europe/London]`, read as the station's wall clock.
+      const s = this.shows.find((x) => x.slug === m[1]);
+      const ep = this.episodes.find((e) => e.slug === m[1] && e.number === +m[3]);
+      if (!s || !ep) return [404, { error: 'no such episode' }];
+      if (ep.aired_at !== null) return [409, { error: 'An aired episode is frozen: correct it instead.' }];
+      const at = typeof body.air_at === 'string' ? instant(body.air_at.slice(0, 10), +body.air_at.slice(11, 13) * 60 + +body.air_at.slice(14, 16)) : null;
+      // A presenter may not move an episode onto another show's time: the control plane judges
+      // it by the time sent and the length the episode would have (shows.rs, patch_episode).
+      if (at !== null && this.role === 'presenter') {
+        const clashes = this.clashes(m[1], at, body.minutes ?? ('minutes' in body ? 60 : (ep.minutes ?? s.rule?.minutes ?? 60)));
+        if (clashes.length) return [409, { error: `${clashes[0].show} has that time.`, field: 'rule', clashes }];
+      }
+      if (at !== null) ep.air_at = at;
+      else if (body.air_at === null) ep.air_at = null;
+      if ('minutes' in body) ep.minutes = body.minutes;
+      for (const k of ['title', 'description', 'guests', 'kind']) if (k in body) ep[k] = body[k];
+      return [200, { episode: ep, resolved: this.resolved(s, ep) }];
     }
     if ((m = /^\/api\/v1\/shows\/([^/]+)\/series\/(\d+)\/episodes$/.exec(p))) {
       const s = this.shows.find((x) => x.slug === m[1]);
@@ -436,4 +537,51 @@ export class Station {
     if (p === '/api/v1/retention') return [200, { setting: { us_statutory_licence: false } }];
     return [404, { error: `the stand-in station has no ${method} ${p}` }];
   }
+}
+
+/** A week of clashes, for the week driver (week.mjs; week-clashes.md): the design's own sample
+ *  shows, added to Kettle FM after it is made so the New show driver's station is unchanged.
+ *  In the week of Monday 16 November 2026: two shows at one hour on Wednesday (an episode over a
+ *  date nobody has drafted), a special over the last hour of Kettle Drive on Thursday, a one-off
+ *  that runs past midnight over the end of The Bothy Sessions on Friday, three at one hour on
+ *  Saturday, and a show that starts half an hour before the one over it on Sunday. On Tuesday,
+ *  the 1.0.5 test run's own shape: an hour's show over the middle of a three-hour one. The Bothy
+ *  Sessions has a past (three aired), a skipped date, a moved one and a later clash. */
+export function clashWeek(station) {
+  station.previewShape = 'control';
+  const weekly = (weekdays, start, minutes, o = {}) => ({ starts_on: '2026-09-07', start, minutes, repeat: { kind: 'weekly', every: 1, weekdays }, end: { kind: 'never' }, skip: [], moves: [], ...o });
+  const once = (on, start, minutes) => ({ starts_on: on, start, minutes, repeat: { kind: 'once' }, end: { kind: 'never' }, skip: [], moves: [] });
+  station.add({ slug: 'kettle-drive', name: 'Kettle Drive', colour_slot: 2, presenter: 'Heather Douglas', hosts: ['Heather Douglas'], rule: weekly([1, 2, 3, 4, 5], 960, 180) });
+  station.add({ slug: 'budget-night-special', name: 'Budget Night Special', colour_slot: 11, presenter: 'Rory Bruce', hosts: ['Rory Bruce'], rule: once('2026-11-19', 1080, 90) });
+  station.add({ slug: 'the-tea-break', name: 'The Tea Break', colour_slot: 10, presenter: 'Elspeth Gordon', hosts: ['Elspeth Gordon'], rule: weekly([3], 900, 60) });
+  station.add({ slug: 'schools-hour', name: 'Schools Hour', colour_slot: 9, presenter: '', rule: weekly([3], 900, 60, { starts_on: '2026-11-18' }) });
+  station.add({ slug: 'saturday-sport', name: 'Saturday Sport', colour_slot: 5, presenter: 'Callum Murray', hosts: ['Callum Murray'], rule: weekly([6], 900, 60) });
+  station.add({ slug: 'listeners-choice', name: 'Listeners’ Choice', colour_slot: 7, presenter: '', rule: weekly([6], 900, 60, { starts_on: '2026-11-21' }) });
+  station.add({ slug: 'record-fair-live', name: 'Record Fair Live', colour_slot: 8, presenter: 'Magnus Henderson', hosts: ['Magnus Henderson'], rule: once('2026-11-21', 900, 60) });
+  station.add({ slug: 'gardeners-corner', name: 'Gardeners’ Corner', colour_slot: 4, presenter: '', rule: weekly([7], 870, 90, { starts_on: '2026-11-22' }) });
+  station.add({ slug: 'kettle-classics', name: 'Kettle Classics', colour_slot: 10, presenter: '', rule: weekly([7], 900, 60, { starts_on: '2026-11-22' }) });
+  station.add({ slug: 'the-late-shift', name: 'The Late Shift', colour_slot: 9, presenter: '', rule: once('2026-11-20', 1350, 120) });
+  station.add({ slug: 'st-andrews-weekend', name: 'St Andrew’s Weekend', colour_slot: 4, presenter: '', rule: once('2026-11-27', 1320, 90) });
+  station.add({
+    slug: 'the-bothy-sessions',
+    name: 'The Bothy Sessions',
+    colour_slot: 12,
+    presenter: 'Finlay Grant',
+    hosts: ['Finlay Grant'],
+    rule: { starts_on: '2026-11-04', start: 1260, minutes: 120, repeat: { kind: 'weekly', every: 1, weekdays: [3, 5] }, end: { kind: 'until', until: '2027-02-26' }, skip: ['2026-12-09'], moves: [{ from: '2026-12-04', to: '2026-12-05T17:00:00', minutes: null }] },
+  });
+  station.add({ slug: 'the-long-lunch', name: 'The Long Lunch', colour_slot: 6, presenter: 'Elspeth Gordon', hosts: ['Elspeth Gordon'], rule: weekly([2], 720, 180, { starts_on: '2026-11-17' }) });
+  station.add({ slug: 'steeped', name: 'Steeped', colour_slot: 3, presenter: 'Rory Bruce', hosts: ['Rory Bruce'], rule: once('2026-11-17', 780, 60) });
+  station.draft('the-long-lunch', '2026-11-17');
+  station.draft('steeped', '2026-11-17');
+  for (const d of ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19']) station.draft('kettle-drive', d);
+  station.draft('budget-night-special', '2026-11-19');
+  station.draft('the-tea-break', '2026-11-18');
+  station.draft('saturday-sport', '2026-11-21');
+  station.draft('record-fair-live', '2026-11-21');
+  station.draft('gardeners-corner', '2026-11-22');
+  station.draft('kettle-classics', '2026-11-22');
+  for (const d of ['2026-11-04', '2026-11-06', '2026-11-11', '2026-11-13', '2026-11-18', '2026-11-20']) station.draft('the-bothy-sessions', d, { aired: d < station.today });
+  station.episodes.find((e) => e.slug === 'the-bothy-sessions' && e.occurrence === '2026-11-20').title = 'Fiddle night';
+  return station;
 }

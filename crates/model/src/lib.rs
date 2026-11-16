@@ -8,6 +8,7 @@
 
 pub mod carts;
 pub mod chat;
+pub mod ics;
 pub mod passes;
 pub mod planner;
 pub mod playout;

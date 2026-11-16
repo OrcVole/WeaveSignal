@@ -1062,6 +1062,129 @@ fn check_slug(slug: &str) -> Result<(), ShowError> {
     Ok(())
 }
 
+/// A show's path from its name, as the studio's `slugOf` makes it: lower case, accents taken
+/// off, every run of other characters one hyphen, at most 60 characters (with no hyphen left
+/// at either end).
+pub fn slug_of(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    let lower = name.to_lowercase();
+    let mut out = String::with_capacity(lower.len());
+    let mut gap = false;
+    for c in lower
+        .nfkd()
+        .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+    {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            if gap && !out.is_empty() {
+                out.push('-');
+            }
+            gap = false;
+            out.push(c);
+        } else {
+            gap = true;
+        }
+    }
+    out.truncate(60);
+    out.trim_end_matches('-').to_owned()
+}
+
+/// A path for a new show that no show in `taken` holds, as the studio's `freeSlug` makes it:
+/// the name's, else `-2`, `-3`… (`show` for a name with no letter or digit).
+pub fn free_slug(name: &str, taken: &std::collections::HashSet<String>) -> String {
+    let base = match slug_of(name) {
+        b if b.is_empty() => "show".to_owned(),
+        b => b,
+    };
+    if !taken.contains(&base) {
+        return base;
+    }
+    let stem = |n: usize| base[..base.len().min(n)].trim_end_matches('-').to_owned();
+    for n in 2..100 {
+        let s = format!("{}-{n}", stem(57));
+        if !taken.contains(&s) {
+            return s;
+        }
+    }
+    loop {
+        let tail = Uuid::new_v4().simple().to_string();
+        let s = format!("{}-{}", stem(40), &tail[..8]);
+        if !taken.contains(&s) {
+            return s;
+        }
+    }
+}
+
+/// A show a calendar file proposed (ADR-0281), as the person chose to make it.
+#[derive(Clone, Debug)]
+pub struct ImportedShow {
+    /// The path wanted (its cards were drawn with it); another is made free if it has been
+    /// taken meanwhile.
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub rule: Rule,
+    pub colour_slot: u8,
+}
+
+/// Make the shows of a calendar import in one transaction: each new, at step Solo, with no
+/// episode drafted and no host; each at its wanted path, or, if that has been taken meanwhile,
+/// at one made free against the station's shows and those made before it in the same import. The show table is locked against other writers meanwhile, so a
+/// path chosen here cannot be taken (and an existing show overwritten) before the insert.
+pub async fn import_shows(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    shows: &[ImportedShow],
+) -> Result<Vec<Show>, ShowError> {
+    let inputs: Vec<ShowInput> = shows
+        .iter()
+        .map(|s| ShowInput {
+            name: s.name.trim().to_owned(),
+            description: s.description.clone(),
+            colour_slot: s.colour_slot,
+            layout: poster(),
+            slot: None,
+            rule: Some(Some(s.rule.clone())),
+            draft_first: false,
+            hosts: Vec::new(),
+            tags: Vec::new(),
+            explicit: false,
+            presenter: None,
+            contact: None,
+            links: None,
+            commercial_music: None,
+            presenter_account: None,
+            step: Some(Step::Solo),
+        })
+        .collect();
+    for i in &inputs {
+        i.check()?;
+    }
+    let mut tx = pool.begin().await?;
+    sqlx::query("LOCK TABLE show IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+    let mut taken: std::collections::HashSet<String> =
+        sqlx::query_scalar("SELECT slug FROM show WHERE station_id = $1")
+            .bind(station.as_uuid())
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let mut made = Vec::with_capacity(inputs.len());
+    for (s, input) in shows.iter().zip(&inputs) {
+        let slug = if is_slug(&s.slug) && !taken.contains(&s.slug) {
+            s.slug.clone()
+        } else {
+            free_slug(&input.name, &taken)
+        };
+        check_slug(&slug)?;
+        taken.insert(slug.clone());
+        made.push(put_show_in(&mut tx, station, &slug, input, &[]).await?);
+    }
+    tx.commit().await?;
+    Ok(made)
+}
+
 /// [`put_show`] inside a transaction the caller holds; the input is checked and the hosts made.
 pub async fn put_show_in(
     conn: &mut sqlx::PgConnection,
@@ -2337,6 +2460,35 @@ pub async fn published_episodes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The studio's own cases (`schedule.test.ts`, `wizard.test.ts`): an imported show takes the
+    /// path the studio would have given it.
+    #[test]
+    fn a_new_show_takes_the_path_the_studio_would_give_it() {
+        assert_eq!(slug_of("Saturday Night Kettle"), "saturday-night-kettle");
+        assert_eq!(slug_of("Rùnach & co."), "runach-co");
+        assert_eq!(slug_of("  Ceòl -- agus  Còmhradh!  "), "ceol-agus-comhradh");
+        let taken = |l: &[&str]| l.iter().map(|s| s.to_string()).collect();
+        assert_eq!(free_slug("The Night Show", &taken(&[])), "the-night-show");
+        assert_eq!(
+            free_slug("The Night Show", &taken(&["the-night-show"])),
+            "the-night-show-2"
+        );
+        assert_eq!(
+            free_slug(
+                "The Night Show",
+                &taken(&["the-night-show", "the-night-show-2"])
+            ),
+            "the-night-show-3"
+        );
+        assert_eq!(free_slug("!!!", &taken(&[])), "show");
+        // Long names stay paths: 60 characters at most, never ending in a hyphen.
+        let long = "A Very Long Name For A Show That Goes On And On Past Sixty-One Characters";
+        let s = free_slug(long, &taken(&[]));
+        assert!(is_slug(&s) && s.len() <= 60, "{s}");
+        let again = free_slug(long, &taken(&[s.as_str()]));
+        assert!(is_slug(&again) && again.ends_with("-2"), "{again}");
+    }
 
     fn london() -> TimeZone {
         TimeZone::get("Europe/London").unwrap()

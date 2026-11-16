@@ -12,7 +12,8 @@
 import type { CartsView, Catalogue } from '../../../../packages/ui/carts.ts';
 import type { StationMode } from '../../../../packages/ui/states.ts';
 import type { EpisodeView, ShowInput, ShowView } from './schedule.ts';
-import { markOwn, unmarkOwn } from './ruleNotice.ts';
+import { markOwn, newChange, unmarkOwn } from './ruleNotice.ts';
+import { onStationChange } from './reset.ts';
 
 export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'producer' | 'listener';
 
@@ -84,9 +85,12 @@ export interface Notice {
   surface: 'desk' | 'screener';
   tone: 'good' | 'warning' | 'serious';
   kind: string;
+  /** The person it is about; for `rule.changed`, the show's path (1.0.5). */
   subject: string | null;
   title: string;
   message: string;
+  /** For `rule.changed`: the token the saving window sent (1.0.5); absent from older stations. */
+  change?: string | null;
 }
 
 /** The profanity delay toward playout (desk B's `desk.delay`). */
@@ -263,15 +267,29 @@ export function settlePrepare(accountId: string | null): void {
 /** Where builds before ADR-0121 kept the station and its key, in the page's local storage. */
 const STATION_KEY = 'weavesignal.station';
 
-/** The station a packaged app runs (ADR-0019 §3): its address and where its key is kept. The
- * key itself stays on the Rust side, in the system's keychain (ADR-0121); the page never
- * holds it. */
+/** The station a packaged app is on (ADR-0019 §3): this computer's id for it (ADR-0285), its
+ * address and where its key is kept. The key itself stays on the Rust side, in the system's
+ * keychain (ADR-0121); the page never holds it. */
 export interface SavedStation {
+  id: string;
   url: string;
   kept: 'keychain' | 'file';
+  /** False only for a station just added while the window is on another: it has joined the
+   *  list, and the window switches to it by the path every switch takes. */
+  current?: boolean;
 }
 
 let station: SavedStation | null = null;
+
+/** The window is leaving its station (ADR-0285): from here until the page loads again, no
+ *  request leaves it. The Rust side refuses a request that names the wrong station as well;
+ *  this is the page's own lock, so nothing is even asked. */
+let sealed = false;
+
+/** Seal the page: a switch has closed the links and is about to tell the Rust side. */
+export function sealStation(): void {
+  sealed = true;
+}
 
 async function core() {
   return import('@tauri-apps/api/core');
@@ -308,12 +326,55 @@ export async function checkStation(url: string, key: string): Promise<number> {
   return invoke<number>('station_check', { url, key });
 }
 
-/** Save the station and its key on the Rust side; the page keeps only the address. */
+/** Save the station and its key on the Rust side; the page keeps only the address. A station
+ *  added while the window is on another answers `current: false`, and the page's station stays. */
 export async function saveStation(url: string, key: string): Promise<SavedStation> {
   const { invoke } = await core();
-  station = await invoke<SavedStation>('station_save', { url, key });
-  return station;
+  const saved = await invoke<SavedStation>('station_save', { url, key });
+  if (saved.current !== false) station = saved;
+  return saved;
 }
+
+/** A station as the list keeps it (ADR-0285): what this computer last saw there, and no key. */
+export interface StationRow {
+  id: string;
+  url: string;
+  /** The name the person gave it on this computer. */
+  label: string | null;
+  /** The station's own name, as it last said it. */
+  name: string | null;
+  /** Who was signed in there, as the frame says it. */
+  who: string | null;
+  version: string | null;
+  /** Where its key is; null while signed out. */
+  kept: 'keychain' | 'file' | null;
+}
+
+/** Every station kept on this computer, which one the window is on, and this app's version. */
+export interface StationList {
+  app_version: string;
+  current: string | null;
+  stations: StationRow[];
+}
+
+async function listCall(cmd: string, args: Record<string, unknown> = {}): Promise<StationList> {
+  const { invoke } = await core();
+  return invoke<StationList>(cmd, args);
+}
+
+/** The list of stations (packaged). */
+export const listStations = () => listCall('stations_list');
+/** Move the window to another station on the Rust side: it stops every request still open. */
+export const switchToStation = (id: string) => listCall('stations_switch', { id });
+/** Give a station a name on this computer; empty takes it away. */
+export const renameStation = (id: string, label: string) => listCall('stations_rename', { id, label });
+/** Sign out of a station in the list; its row stays. */
+export const signOutOfStation = (id: string) => listCall('stations_sign_out', { id });
+/** Remove a station from this computer: its key is deleted, its row forgotten. */
+export const removeStation = (id: string) => listCall('stations_remove', { id });
+/** Tell the list what the window sees at its own station, for the rows. */
+export const noteStation = (id: string, seen: { name?: string | null; who?: string | null; version?: string | null }) =>
+  listCall('stations_note', { id, name: seen.name ?? null, who: seen.who ?? null, version: seen.version ?? null });
 
 /** A staff member's role, station-wide (ADR-0127). Release one enforces two tiers: an admin
  *  alone changes retention, erases people, sees personal data and manages staff; every role
@@ -356,8 +417,10 @@ export async function signIn(
     username,
     password,
   });
-  station = r.station;
-  settlePrepare(null);
+  if (r.station.current !== false) {
+    station = r.station;
+    settlePrepare(null);
+  }
   return r;
 }
 
@@ -382,8 +445,10 @@ export async function finishSignInCode(
     email,
     code,
   });
-  station = r.station;
-  settlePrepare(null);
+  if (r.station.current !== false) {
+    station = r.station;
+    settlePrepare(null);
+  }
   return r;
 }
 
@@ -602,6 +667,8 @@ async function stationFetch(input: RequestInfo | URL, init: RequestInit = {}): P
     finish(o?.error ? new Error(o.error) : undefined);
   };
   const headers: Record<string, string> = {
+    // The station this page is on: the Rust side refuses a request that names another (ADR-0285).
+    'x-station-id': station?.id ?? '',
     'x-station-method': (init.method ?? 'GET').toUpperCase(),
     'x-station-path': path,
     'x-station-channel': `__CHANNEL__:${channel.id}`,
@@ -634,6 +701,16 @@ export function setUnauthorizedHandler(fn: ((why: string) => boolean) | null): v
   sessionOver = false;
 }
 
+/** Whether this station's rule saves carry a token (1.0.5), as its version was last read. */
+let sendChange = false;
+
+// A sign-in that ended at one station says nothing about another (ADR-0285). The handler
+// itself is the frame's wiring, and stays.
+onStationChange('api', () => {
+  sessionOver = false;
+  sendChange = false;
+});
+
 async function noticeRefusal(url: string, res: Response): Promise<void> {
   if (res.status !== 401 || !onUnauthorized || url.includes('/api/v1/chat/')) return;
   const data = await res
@@ -647,6 +724,7 @@ async function noticeRefusal(url: string, res: Response): Promise<void> {
  * redirect of the preflight would otherwise block every request; and the key stays out of the
  * page), the browser's otherwise. A 401 is noticed on the way back. */
 export const netFetch: typeof fetch = async (input, init) => {
+  if (sealed) throw new Error('This window is changing station.');
   if (import.meta.env.MODE === 'sandbox') return (await import('../sandbox/sandbox.svelte.ts')).sandboxFetch(input, init);
   const res = await (packaged() ? stationFetch(input, init) : fetch(input, init));
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -1110,7 +1188,8 @@ const secs = (o: Raw, key: string): number | null => {
 const strings = (v: unknown): string[] => list(v).filter((x): x is string => typeof x === 'string' && x !== '');
 const ISO = /\d{4}-\d{2}-\d{2}/;
 
-function asClash(v: unknown, refused = false): Clash {
+/** A clash, whichever way the control plane sent it (`start_ms` and `end_ms`, `short`, `hosts`). */
+export function asClash(v: unknown, refused = false): Clash {
   const c = obj(v);
   const start = secs(c, 'start') ?? 0;
   const end = secs(c, 'end');
@@ -1272,14 +1351,30 @@ export function asScheduleDates(raw: unknown): ScheduleDate[] | null {
 /** The first release whose control plane stores a rule (ADR-0278). */
 export const RULES_SINCE = '1.0.4';
 
-/** Whether a station of this version takes `rule` and `draft_first`: an older control plane
- *  refuses a field it does not know. Only the numbers count, so `1.0.4-test.2` is 1.0.4. */
-export function speaksRules(version: string | null | undefined): boolean {
+/** The first release whose rule saves take a window's `change` token and give it back on the
+ *  notice (1.0.5): an older control plane refuses a field it does not know. */
+export const CHANGE_SINCE = '1.0.5';
+
+/** Whether a station of this version is at least `floor`. Only the numbers count, so
+ *  `1.0.4-test.2` is 1.0.4. */
+function since(version: string | null | undefined, floor: string): boolean {
   const core = (v: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(v.trim()) ?? []).slice(1).map(Number);
-  const [a, b] = [core(version ?? ''), core(RULES_SINCE)];
+  const [a, b] = [core(version ?? ''), core(floor)];
   if (a.length < 3) return false;
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
   return true;
+}
+
+/** Whether a station of this version takes `rule` and `draft_first`: an older control plane
+ *  refuses a field it does not know. */
+export const speaksRules = (version: string | null | undefined): boolean => since(version, RULES_SINCE);
+
+/** Whether a station of this version takes a rule save's `change` token (1.0.5). */
+export const speaksChange = (version: string | null | undefined): boolean => since(version, CHANGE_SINCE);
+
+/** The station's version, as the Schedule tab read it: it decides whether a save sends its token. */
+export function noteStationVersion(version: string | null): void {
+  if (version !== null) sendChange = speaksChange(version);
 }
 
 /** The station's version, from `/health`; null when it cannot be read. */
@@ -1328,20 +1423,22 @@ export type DraftedChoice = 'move' | 'leave';
 
 /** Save a show's rule alone; `null` leaves it with no dates. */
 export const putShowRule = (slug: string, rule: Rule | null, drafted: DraftedChoice) =>
-  ownRuleChange(slug, async () => asRuleChanged(await call<unknown>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/rule`, { rule, drafted })));
+  ownRuleChange(slug, async (change) => asRuleChanged(await call<unknown>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/rule`, { rule, drafted, change })));
 
 /** Save a series' rule alone; `null` follows the show again. */
 export const putSeriesRule = (slug: string, series: number, rule: Rule | null, drafted: DraftedChoice) =>
-  ownRuleChange(slug, async () => asRuleChanged(await call<unknown>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/series/${series}/rule`, { rule, drafted })));
+  ownRuleChange(slug, async (change) => asRuleChanged(await call<unknown>('PUT', `/api/v1/shows/${encodeURIComponent(slug)}/series/${series}/rule`, { rule, drafted, change })));
 
 /** The station tells every window of a changed rule, this one too: the save is marked as this
- *  window's own, so the Schedule tab does not say it back to the person who made it. */
-async function ownRuleChange<T>(slug: string, save: () => Promise<T>): Promise<T> {
-  markOwn(slug);
+ *  window's own, with a token the station gives back on its notice (1.0.5; an older station
+ *  ignores it), so the Schedule tab does not say it back to the person who made it. */
+async function ownRuleChange<T>(slug: string, save: (change: string | undefined) => Promise<T>): Promise<T> {
+  const change = sendChange ? newChange() : null;
+  markOwn(slug, Date.now(), change);
   try {
-    return await save();
+    return await save(change ?? undefined);
   } catch (e) {
-    unmarkOwn(slug);
+    unmarkOwn(slug, change);
     throw e;
   }
 }

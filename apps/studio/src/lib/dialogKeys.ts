@@ -17,3 +17,11 @@ export interface ChordKey {
 export function dialogLets(k: ChordKey): boolean {
   return (k.ctrl || k.meta) && !k.shift && !k.alt && k.code === 'KeyT';
 }
+
+/** An Esc that something on the page has already taken (a guided dialog, a menu) is not the
+ *  keymap's as well. A dialog closes itself while it handles the key, so by the time the key
+ *  reaches the window no dialog is open, and the keymap's Esc would act behind the dialog that
+ *  has just closed: on the Schedule tab it would clear the selection too. One press, one thing. */
+export function escTaken(e: { key: string; defaultPrevented: boolean }): boolean {
+  return e.key === 'Escape' && e.defaultPrevented;
+}

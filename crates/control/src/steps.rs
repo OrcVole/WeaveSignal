@@ -263,8 +263,8 @@ async fn read(
 pub async fn refresh(state: &AppState) {
     let Some(pool) = &state.db else { return };
     let _one_at_a_time = state.hub.live.step_gate().await;
-    for title in state.hub.live.take_rule_changes() {
-        state.hub.with_studio(|s, now| s.rule_changed(now, title));
+    for note in state.hub.live.take_rule_changes() {
+        state.hub.with_studio(|s, now| s.rule_changed(now, note));
     }
     let facts = match read(pool, state.station.id).await {
         Ok(f) => f,

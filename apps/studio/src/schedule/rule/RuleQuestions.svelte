@@ -34,6 +34,7 @@
     type RuleForm,
   } from './form.ts';
   import { edges } from './edges.ts';
+  import TimeField from '../TimeField.svelte';
 
   let {
     form,
@@ -149,8 +150,8 @@
         />
       </div>
       <div class="row">
-        <label class="t"><span aria-hidden="true">from</span><input id="{idp}-from" type="time" value={form.from} aria-label="Start, station time" aria-invalid={timeErrs.length ? true : undefined} aria-describedby="{idp}-time-notes {idp}-zone" onchange={(e) => set({ from: (e.currentTarget as HTMLInputElement).value, overnightOk: false })} /></label>
-        <label class="t"><span aria-hidden="true">until</span><input id="{idp}-until" type="time" value={form.until} aria-label="End, station time" aria-invalid={timeErrs.length ? true : undefined} aria-describedby="{idp}-time-notes {idp}-zone" onchange={(e) => set({ until: (e.currentTarget as HTMLInputElement).value, overnightOk: false })} /></label>
+        <span class="t"><label for="{idp}-from" aria-hidden="true">from</label><TimeField id="{idp}-from" value={form.from} label="Start, station time" invalid={timeErrs.length > 0} describedby="{idp}-time-notes {idp}-zone" onchange={(v) => set({ from: v, overnightOk: false })} /></span>
+        <span class="t"><label for="{idp}-until" aria-hidden="true">until</label><TimeField id="{idp}-until" value={form.until} label="End, station time" invalid={timeErrs.length > 0} describedby="{idp}-time-notes {idp}-zone" onchange={(v) => set({ until: v, overnightOk: false })} /></span>
         {#if t}<span class="len num" data-testid="rule-length">{lengthWords(t.minutes)}</span>{/if}
       </div>
     </div>

@@ -2,6 +2,13 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.0.5]
+
+- **Calendar files** (ADR-0281): the schedule and each show go out as iCalendar files a listener can subscribe to, and the studio can import a calendar file as new shows. The two calendar routes, `/api/v1/public/schedule.ics` and `/api/v1/public/shows/{show}.ics`, are on the public domain, GET only, with no bearer.
+- **The public JSON routes are on the public domain** (ADR-0282): `/api/v1/public/station`, `/schedule` and `/episodes` answered 404 there before; a station's own website can read them now. GET only.
+- **The week's clashes folded, a Day view and each show's dates** in the studio app; the studio app can keep several stations.
+- No migrations (the database stays at 0036) and no new settings. The domains are unchanged, but the public domain's proxy rules gain the routes above, so it needs the new image's start script (the update brings it). Tried on a Cloudron install (the test station).
+
 [1.0.4]
 
 - **New show, guided like calendar software** (ADR-0278): once, weekly, monthly, yearly or on chosen dates, with skips, moves and an end; the station says each rule back in words, shows its dates, marks clashes and the clocks changing, and offers a clear time when every date clashes. **Migration 0036** turns each weekly slot into the same rule, airing at exactly the same times; drafted episodes keep their dates.

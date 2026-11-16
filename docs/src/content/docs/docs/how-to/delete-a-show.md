@@ -20,7 +20,7 @@ The station key counts as an admin.
 
 ## Delete a show
 
-1. On the Schedule tab (`⌃5`), open the show editor: select one of the show's episodes and choose **Show** in the level switch, or choose the show's name in the list of shows with nothing coming up.
+1. On the Schedule tab (`⌃5`), open the show: choose its row in the list of shows (**‹ Shows** comes back to the list from anywhere in the column), or select one of its episodes and choose **Show** in the level switch. It opens at **Dates**; choose **Details** for the show editor.
 2. At the foot of the editor, on the left and away from **Save show**, select **Delete show…**. A station older than 1.0.4 does not offer it, and nor does the editor to anyone who may not.
 3. The dialog is headed *Delete* and the show's name, and says what goes with it, with the counts it has read: *Its 2 series and 7 drafted episodes go with it, and its cart banks and cards. This cannot be undone.*
 4. **Keep it** is the default, so `⏎` or `Esc` leaves the show as it was. Select **Delete show** to go on.

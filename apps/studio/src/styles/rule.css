@@ -40,6 +40,7 @@ dialog.wz .check .hint { grid-column: 2; }
 dialog.wz .check-inline { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-1); font-size: var(--fs-14); font-weight: 400; }
 dialog.wz .hint { display: block; font-size: var(--fs-13); color: var(--muted); line-height: var(--lh-body); }
 dialog.wz .err { color: var(--ink); font-size: var(--fs-13); line-height: var(--lh-body); border-left: 3px solid var(--status-critical); padding-left: var(--s-2); }
+dialog.wz .elsewhere { color: var(--ink); font-size: var(--fs-13); line-height: var(--lh-body); border-left: 3px solid var(--status-warning); padding-left: var(--s-2); }
 dialog.wz .acts { display: flex; gap: var(--s-2); justify-content: flex-end; flex-wrap: wrap; margin-top: var(--s-1); }
 dialog.wz .acts .left { margin-right: auto; }
 dialog.wz .lead { display: flex; gap: var(--s-2); align-items: center; line-height: var(--lh-body); }
@@ -58,16 +59,18 @@ dialog.wz .swatches button { appearance: none; border: 2px solid transparent; bo
 dialog.wz .swatches button i { display: block; width: 100%; height: 6px; border-radius: 3px; background: var(--sw); }
 dialog.wz .swatches button[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-3); }
 
-/* calendar.rule: the questions on the left, what they make on the right */
-.rule { display: grid; grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); gap: var(--s-5); align-items: start; }
-.rule.bare { grid-template-columns: minmax(0, 1fr); }
-.rule .qs { display: grid; gap: var(--s-4); align-content: start; min-width: 0; }
-dialog.wz .rule input.date { width: 11.5rem; }
-dialog.wz .rule input.time { width: 4.75rem; text-align: center; font-variant-numeric: tabular-nums; }
-dialog.wz .rule input.n { width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
-dialog.wz .rule select { width: auto; flex: 0 1 auto; }
-.rule .len { color: var(--ink-2); font-size: var(--fs-13); white-space: nowrap; border: 1px dashed var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); line-height: 1.6; }
-.rule .rows2 { display: grid; gap: var(--s-2); }
+/* calendar.rule: the questions on the left, what they make on the right. The class is `rulepart`, not `rule`:
+   a dotted block of the week carries `rule` (blockHtml.ts), as do a cell of the retention table and a line of the
+   desk's waiting row, and a rule for the bare word reached all three (week-clashes.md section 1). */
+.rulepart { display: grid; grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); gap: var(--s-5); align-items: start; }
+.rulepart.bare { grid-template-columns: minmax(0, 1fr); }
+.rulepart .qs { display: grid; gap: var(--s-4); align-content: start; min-width: 0; }
+dialog.wz .rulepart input.date { width: 11.5rem; }
+dialog.wz .rulepart input.time { width: 4.75rem; text-align: center; font-variant-numeric: tabular-nums; }
+dialog.wz .rulepart input.n { width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+dialog.wz .rulepart select { width: auto; flex: 0 1 auto; }
+.rulepart .len { color: var(--ink-2); font-size: var(--fs-13); white-space: nowrap; border: 1px dashed var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); line-height: 1.6; }
+.rulepart .rows2 { display: grid; gap: var(--s-2); }
 /* New show: First on and from came from the block selected in the week, and say so */
 dialog.wz .seeded { margin: 2px 0; padding: var(--s-1) var(--s-2); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink-2); text-wrap: pretty; }
 dialog.wz .seeded b { color: var(--ink); }
@@ -80,7 +83,7 @@ dialog.wz .choices label { display: grid; grid-template-columns: auto minmax(0, 
 dialog.wz .choices label:hover { background: var(--surface-2); }
 dialog.wz .choices label:has(input:checked) { background: var(--surface-2); border-color: var(--accent); font-weight: 600; }
 dialog.wz .choices input, dialog.wz .ends input[type="radio"], dialog.wz .monthly input[type="radio"], dialog.wz .twoway input[type="radio"] { width: 1rem; height: 1rem; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); flex: none; }
-.rule .morebtn { justify-self: start; }
+.rulepart .morebtn { justify-self: start; }
 
 /* Repeats as the whole rule: five kinds, then that kind's own controls */
 .seg5 { display: flex; border: 1px solid var(--axis); border-radius: var(--r-2); overflow: hidden; }
@@ -228,19 +231,19 @@ dialog.wz .ends label { padding: 0 calc(var(--s-2) + 1px); }
    56 rem the preview goes under the questions and the two scroll as one. RulePart measures
    that and sets .narrow: a container query's rem is multiplied by <html>'s zoom while the
    container is measured without it, so at 110 % the widest dialog stacked (the 1.0.4 run) */
-dialog.wz.wide .rule { min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
-dialog.wz.wide .rule > .qs, dialog.wz.wide .rule > .preview { min-height: 0; overflow-y: auto; }
-dialog.wz.wide .rule > .qs { padding: 2px var(--s-2) 2px 2px; }
-dialog.wz.wide .rule.narrow { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; overflow-y: auto; }
-dialog.wz.wide .rule.narrow > .qs, dialog.wz.wide .rule.narrow > .preview { overflow-y: visible; min-height: auto; }
+dialog.wz.wide .rulepart { min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+dialog.wz.wide .rulepart > .qs, dialog.wz.wide .rulepart > .preview { min-height: 0; overflow-y: auto; }
+dialog.wz.wide .rulepart > .qs { padding: 2px var(--s-2) 2px 2px; }
+dialog.wz.wide .rulepart.narrow { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; overflow-y: auto; }
+dialog.wz.wide .rulepart.narrow > .qs, dialog.wz.wide .rulepart.narrow > .preview { overflow-y: visible; min-height: auto; }
 /* a column with more above or below what is in view fades at that edge (edges.ts marks it) */
-dialog.wz.wide .rule > [data-more~='above'] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem); mask-image: linear-gradient(to bottom, transparent, #000 1.75rem); }
-dialog.wz.wide .rule > [data-more~='below'] { -webkit-mask-image: linear-gradient(to top, transparent, #000 1.75rem); mask-image: linear-gradient(to top, transparent, #000 1.75rem); }
-dialog.wz.wide .rule > [data-more='above below'] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent); mask-image: linear-gradient(to bottom, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent); }
+dialog.wz.wide .rulepart > [data-more~='above'] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem); mask-image: linear-gradient(to bottom, transparent, #000 1.75rem); }
+dialog.wz.wide .rulepart > [data-more~='below'] { -webkit-mask-image: linear-gradient(to top, transparent, #000 1.75rem); mask-image: linear-gradient(to top, transparent, #000 1.75rem); }
+dialog.wz.wide .rulepart > [data-more='above below'] { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent); mask-image: linear-gradient(to bottom, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent); }
 /* a native date or time field keeps to its content */
-dialog.wz .rule input[type='date'] { width: 11.5rem; }
-dialog.wz .rule input[type='time'] { width: 6.5rem; }
-dialog.wz .rule input[type='number'] { width: 4.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+dialog.wz .rulepart input[type='date'] { width: 11.5rem; }
+dialog.wz .rulepart input[type='time'] { width: 6.5rem; }
+dialog.wz .rulepart input[type='number'] { width: 4.5rem; text-align: center; font-variant-numeric: tabular-nums; }
 dialog.wz .ends label:has(input[type='radio']:not(:checked)) input:not([type='radio']) { color: var(--muted); border-color: var(--axis); }
 /* the small months and the rows take the keyboard: one stop each, the arrows inside */
 .month .grid .d[tabindex] { cursor: default; }
@@ -269,8 +272,35 @@ dialog.wz .ends label:has(input[type='radio']:not(:checked)) input:not([type='ra
 .schedule .toast2 > span + .heard { padding-left: var(--s-3); border-left: 1px solid var(--axis); }
 dialog.wz .choices label.off { opacity: 0.5; cursor: not-allowed; }
 .nd li.mv label { font-weight: 400; }
+/* `at` stays with its time when the row wraps */
+.nd li.mv .at { display: inline-flex; align-items: center; gap: var(--s-2); white-space: nowrap; }
 .nd li.mv .err { flex-basis: 100%; }
 dialog.wz .foot2 { display: grid; gap: var(--s-2); }
 dialog.wz.wide .keep { display: contents; }
 dialog.wz .keep[hidden] { display: none; }
 .schedule:has(> .toast2) { grid-template-rows: auto auto minmax(0, 1fr); }
+
+/* a schedule time with its two arrows (TimeField.svelte; the 1.0.5 click-through): WebKitGTK
+   draws a time field with no arrows of its own. The field and the arrows are one control: the
+   arrows take the field's height, its border and its ground, and its right corners. Each is
+   1.5 rem wide and as tall as its field (1.75 rem at the least), so never under 24 px by 24 px
+   (design-system.md, --target); the glyph is the calendar's own arrow, turned for earlier. */
+.timefield { display: inline-flex; align-items: stretch; flex: none; }
+.timefield input.time { flex: none; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+/* the focus ring goes round the whole control, not between the field and its arrows */
+.timefield:has(input.time:focus-visible) { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--r-1); }
+.timefield input.time:focus-visible { outline: none; }
+.timefield .steps { display: inline-flex; }
+.timefield .steps button { appearance: none; display: inline-grid; place-items: center; width: 1.5rem; min-width: var(--target); min-height: var(--target); margin: 0 0 0 -1px; padding: 0; font: inherit; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--axis); border-radius: 0; cursor: pointer; }
+.timefield .steps button:last-child { border-top-right-radius: var(--r-1); border-bottom-right-radius: var(--r-1); }
+.timefield .steps button:hover { color: var(--ink); background: var(--surface-3); }
+.timefield .steps button:active { background: var(--axis); }
+.timefield .steps button:focus-visible { position: relative; z-index: 1; outline-offset: -2px; border-radius: 0; }
+.timefield .steps button[disabled] { opacity: 0.5; cursor: not-allowed; }
+.timefield .steps svg { width: 12px; height: 12px; }
+.timefield .steps .earlier svg { transform: rotate(180deg); }
+/* in a guided dialog the fields stand on the plane with a --muted border and --r-2 corners */
+dialog.wz .timefield .steps button { background: var(--plane); border-color: var(--muted); }
+dialog.wz .timefield .steps button:hover { background: var(--surface-2); }
+dialog.wz .timefield .steps button:last-child { border-top-right-radius: var(--r-2); border-bottom-right-radius: var(--r-2); }
+dialog.wz .t label { font-weight: inherit; }

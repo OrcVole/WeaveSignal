@@ -16,15 +16,24 @@ export interface GridProps {
   now: number;
   selected: string | null;
   onSelect: (id: string) => void;
+  /** A press on the grid where no block is: the gap beside a day's blocks, or the plane beside
+   *  the Day view's column. Never the heads, the time axis or a scrollbar. */
+  onClear?: () => void;
   /** A future block dragged or resized: resolves with null when the control plane took it, or
    *  the reason it refused, and the grid snaps the block back. */
   onMove: (id: string, start: number, end: number) => Promise<string | null>;
+  /** A day asked for: its header in the week, a day of the Day view's strip, or the count on a
+   *  fold. 0 (Monday) to 6. */
+  onOpenDay?: (day: number) => void;
   /** The resource view's columns, when the grid is asked for one (studios as columns). */
   studios?: string[] | null;
-  /** The week, or one day with a column per studio. */
-  view?: 'week' | 'studios';
-  /** The day the studios view shows, 0 (Monday) to 6. */
+  /** The week; one day, a lane for each clashing show; or one day with a column per studio. */
+  view?: 'week' | 'day' | 'studios';
+  /** The day the Day view and the studios view show, 0 (Monday) to 6. */
   day?: number;
+  /** A block to bring into view when it changes (a row of a show's dates was pressed): the grid
+   *  scrolls to it. `n` makes the same block asked for twice a new ask. */
+  reveal?: { id: string; n: number } | null;
 }
 
 /** A moment a block may still be moved: a future block that has not aired (calendar.md §5). */

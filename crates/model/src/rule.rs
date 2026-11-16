@@ -419,6 +419,13 @@ impl Rule {
             .any(|d| d == date)
     }
 
+    /// The dates the repeat gives from the rule's start (from `from` for a rule without one),
+    /// in order, before the skips and the end are applied and before any move: the set an
+    /// iCalendar RRULE gives before EXDATE (the calendar files, ADR-0281).
+    pub fn repeat_dates(&self, from: Date) -> impl Iterator<Item = Date> + Send + '_ {
+        self.raw(self.starts_on.unwrap_or(from))
+    }
+
     /// The dates the repeat gives from `anchor`, in order, with no end and no skips.
     fn raw(&self, anchor: Date) -> Box<dyn Iterator<Item = Date> + Send + '_> {
         match &self.repeat {

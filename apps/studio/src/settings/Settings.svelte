@@ -10,6 +10,7 @@
   // The studio app's updates (ADR-0140) are the Updates panel's, drawn in the packaged app only.
   // Staff accounts (ADR-0127) are the Staff panel's; retention and holds are an admin's, and
   // anyone else is told so here rather than refused by the station.
+  import { readScoped, writeScoped } from '../lib/scoped.ts';
   import { untrack } from 'svelte';
   import Staff from './Staff.svelte';
   import MyShow from './MyShow.svelte';
@@ -85,20 +86,14 @@
   let savedNote = $state('');
   let whoError = $state('');
 
+  // Kept for each station apart (ADR-0285): the name signs that station's log.
   function readName(): string {
-    try {
-      return globalThis.localStorage?.getItem(NAME_KEY) ?? '';
-    } catch {
-      return '';
-    }
+    return readScoped(NAME_KEY) ?? '';
   }
 
   function keepName() {
-    try {
-      globalThis.localStorage?.setItem(NAME_KEY, by.trim());
-    } catch {
-      // A private window: the name is this session's only.
-    }
+    // In a private window the name is this session's only.
+    writeScoped(NAME_KEY, by.trim());
   }
 
   async function refresh() {

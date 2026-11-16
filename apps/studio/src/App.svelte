@@ -11,7 +11,7 @@
   // while preparing, a band under the frame on the tabs that drive the air (Desk, Screener,
   // Carts). A preparing window's keys change nothing on air; the band answers instead.
   import { setupState, stationZone } from './lib/schedule.ts';
-  import { dialogLets } from './lib/dialogKeys.ts';
+  import { dialogLets, escTaken } from './lib/dialogKeys.ts';
   import { onMount } from 'svelte';
   import Glyphs from './lib/Glyphs.svelte';
   import Mark from './lib/Mark.svelte';
@@ -20,13 +20,16 @@
   import CartWall from './carts/CartWall.svelte';
   import Settings from './settings/Settings.svelte';
   import StationSetup from './lib/StationSetup.svelte';
+  import Stations from './lib/Stations.svelte';
   import Account from './lib/Account.svelte';
   import StepControl from './lib/StepControl.svelte';
   import PrepareControl from './lib/PrepareControl.svelte';
   import SessionEnded from './lib/SessionEnded.svelte';
   import ShowWizard from './settings/ShowWizard.svelte';
   import Schedule from './schedule/Schedule.svelte';
-  import { base, follow, packaged, sandboxed, savedStation } from './lib/api.ts';
+  import { base, follow, noteStation, packaged, sandboxed, savedStation, stationVersion } from './lib/api.ts';
+  import { onLeave } from './lib/reset.ts';
+  import { hereRow, onBeforeLeave, settleArrival, stations } from './lib/stations.svelte.ts';
   import { isAdmin } from './lib/account.ts';
   import { account, installSessionWatch, loadMe } from './lib/account.svelte.ts';
   import { closeSetup, decideSetup, loadShows, mine, rememberSkip, setup } from './lib/wizard.svelte.ts';
@@ -34,7 +37,7 @@
   import { canPrepare, changesAir, prepareBand } from './lib/prepare.ts';
   import { installUpdateCheck, updateNag } from './lib/update.svelte.ts';
   import { run, tellOff } from './lib/actions.ts';
-  import { look, say, setCartShow, setShowAll, studio, takeView } from './lib/studio.svelte.ts';
+  import { look, say, setCartShow, setShowAll, settleBank, studio, takeView } from './lib/studio.svelte.ts';
   import { STEP_WORD, gate, offTag, stationStep, tabShown } from './lib/steps.ts';
   import { chat } from './lib/chat.svelte.ts';
   import { theme, setTheme, THEMES, THEME_WORDS } from './lib/theme.svelte.ts';
@@ -92,6 +95,11 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
+    // Add a station lies over the studio (ADR-0285): nothing typed into a sign-in form reaches
+    // the desk underneath, not even a chord.
+    if (stations.adding) return;
+    // An Esc a dialog or a menu has already taken is theirs alone.
+    if (escTaken(e)) return;
     // A modal dialog owns the keyboard: only ⌃T reaches the desk while one is open (U1).
     if (document.querySelector('dialog[open]') && !dialogLets(input(e))) return;
     // Settings is a form: only the global chords (⌃) reach the keymap, and as from a text field,
@@ -182,8 +190,27 @@
   /** One row for the frame, two for the sandbox's guide, one for each band, then the surface. */
   const rows = $derived(`${'auto '.repeat(1 + (sandboxed() ? 2 : 0) + (studio.showAll ? 1 : 0) + (prepBand ? 1 : 0))}minmax(0, 1fr)`);
 
+  // Once the station has said who the window is (ADR-0285): the list is told what the window
+  // sees here, and after a switch the toast slot says where the window is. Once a page.
+  let arrived = false;
+  $effect(() => {
+    if (arrived || !account.loaded || !packaged() || !savedStation()) return;
+    arrived = true;
+    void stationVersion().then(settleArrival);
+  });
+  // The station's own name, when the view brings one the list does not have yet.
+  $effect(() => {
+    const [name, row] = [studio.view?.station, hereRow()];
+    if (!arrived || !name || !row || row.name === name) return;
+    void noteStation(row.id, { name })
+      .then((l) => (stations.list = l))
+      .catch(() => {});
+  });
+
   onMount(() => {
     document.documentElement.dataset.surface = studio.tab;
+    // The cart bank is kept for each station apart, and the station is known by now.
+    settleBank();
     // Who this window runs as, and the 401 watch, before the first request goes out.
     installSessionWatch();
     // Then, for a presenter signed in as themselves with no show of their own, the setup wizard (ADR-0218).
@@ -207,6 +234,10 @@
     // One look at the update feed a little after the app opens (packaged only); it installs nothing.
     const stopUpdateCheck = installUpdateCheck();
     onBeforePreparing(letGo);
+    // Leaving the station (ADR-0285): every held key is let go first, then the event stream is
+    // closed, before any store is emptied or the Rust side is told.
+    onBeforeLeave(letGo);
+    const offLeave = onLeave('studio events', stop);
     const tick = setInterval(() => {
       studio.now = Date.now();
       if (studio.armed && studio.now - studio.armed.at > ARM_MS) studio.armed = null;
@@ -223,6 +254,8 @@
       stopZoom();
       stopUpdateCheck();
       onBeforePreparing(null);
+      onBeforeLeave(null);
+      offLeave();
       clearInterval(tick);
       document.removeEventListener('visibilitychange', hidden);
     };
@@ -237,10 +270,20 @@
 {#if packaged() && !savedStation()}
   <StationSetup />
 {:else}
-<div class="shell" class:with-guide={sandboxed()} class:with-all={studio.showAll} class:with-prepare={!!prepBand} style:grid-template-rows={rows}>
+{#if stations.adding}
+  <!-- Add a station (ADR-0285): the sign-in screen lies over the studio, which stays as it is
+       underneath and takes no key or pointer meanwhile. -->
+  <div class="setup-over"><StationSetup /></div>
+{/if}
+<div class="shell" class:with-guide={sandboxed()} class:with-all={studio.showAll} class:with-prepare={!!prepBand} style:grid-template-rows={rows} inert={stations.adding}>
   {#if import.meta.env.MODE === 'sandbox'}{#await import('./sandbox/Guide.svelte') then guide}<guide.default />{/await}{/if}
   <header class="frame" data-panel="studio.frame">
-    <span class="brand" data-panel-title><Mark />{studio.view?.station || 'WeaveSignal'}</span>
+    {#if packaged()}
+      <!-- The station's name is the button that lists the stations (ADR-0285). -->
+      <Stations />
+    {:else}
+      <span class="brand" data-panel-title><Mark />{studio.view?.station || 'WeaveSignal'}</span>
+    {/if}
     <StepControl />
     <nav class="tabs" aria-label="Studio">
       {#each tabs as t (t.tab)}
@@ -385,6 +428,14 @@
        a second row instead of cutting off the ones at its right end (found at 120-130 %). */
     flex-wrap: wrap;
     row-gap: var(--s-1);
+  }
+  /* Add a station lies over the whole studio; the dialogs' top layer is empty meanwhile. */
+  .setup-over {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    overflow: auto;
+    background: var(--plane);
   }
   .brand {
     display: inline-flex;

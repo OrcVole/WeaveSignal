@@ -5,6 +5,7 @@
 // each open it, and the tab draws it once, beside itself rather than inside the editor that
 // asked: the editors' own field styles would otherwise reach into the dialog.
 
+import { onStationChange } from '../../lib/reset.ts';
 import type { IsoDate, Rule, RuleChanged } from '../../lib/api.ts';
 
 export interface RuleDialogAsk {
@@ -21,12 +22,22 @@ export interface RuleDialogAsk {
   onSaved: (changed: RuleChanged | null) => void | Promise<void>;
 }
 
-export const ruleDialog = $state({ open: null as RuleDialogAsk | null });
+/** `elsewhere`: the sentence of a change someone else made to this show's rule while the
+ *  dialog was open (1.0.5), so a save does not quietly put this one in its place. */
+export const ruleDialog = $state({ open: null as RuleDialogAsk | null, elsewhere: null as string | null });
+
+// A change of station (ADR-0285): a rule being edited is that station's show's.
+onStationChange('rule dialog', () => {
+  ruleDialog.open = null;
+  ruleDialog.elsewhere = null;
+});
 
 export function openRuleDialog(ask: RuleDialogAsk): void {
   ruleDialog.open = ask;
+  ruleDialog.elsewhere = null;
 }
 
 export function closeRuleDialog(): void {
   ruleDialog.open = null;
+  ruleDialog.elsewhere = null;
 }

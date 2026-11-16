@@ -21,6 +21,12 @@ jiff.workspace = true
 # Staff accounts (migration 0012, ADR-0127): passwords as Argon2id, session tokens as SHA-256.
 argon2.workspace = true
 sha2.workspace = true
+# Calendar files (release 1.0.5, ADR-0281): the iCalendar parser reads the content lines (unfolding,
+# parameters, components); what they mean (dates, zones, RRULE) is read here with jiff. MIT OR
+# Apache-2.0; its parser only, without its chrono-tz and rrule features. Read 2026-11-15.
+icalendar = { version = "0.17.17", default-features = false, features = ["parser"] }
+# A new show's path from its name, as the studio's `slugOf` makes it (NFKD, marks dropped).
+unicode-normalization = "0.1.26"
 
 [dev-dependencies]
 tokio.workspace = true

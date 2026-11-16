@@ -36,6 +36,7 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 - [Schedule the week](/docs/how-to/schedule-the-week/): shows, automation blocks and corrections.
 - [Set the show clock and the rundown](/docs/how-to/set-the-show/): the show, what is coming up, who was banned before.
 - [Add staff and sign in](/docs/how-to/add-staff/): accounts, roles and sign-in codes.
+- [Work with several stations](/docs/how-to/work-with-several-stations/): one studio app, a list of stations, switching between them.
 - [Set retention](/docs/how-to/set-retention/): the jurisdiction presets, holds and the sweeper.
 - [Who hears whom](/docs/reference/who-hears-whom/): every route through the desk, by role.
 

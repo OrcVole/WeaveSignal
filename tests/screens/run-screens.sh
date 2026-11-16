@@ -86,7 +86,10 @@ for i in $(seq 1 60); do
 done
 
 # Kettle FM's week.
-CONTROL="http://127.0.0.1:$CONTROL_PORT" ADMIN_TOKEN=$ADMIN_TOKEN node "$root/tests/screens/seed.mjs"
+CONTROL="http://127.0.0.1:$CONTROL_PORT" ADMIN_TOKEN=$ADMIN_TOKEN SEED_SQL="$run/seed.sql" node "$root/tests/screens/seed.mjs"
+# The seed's episodes placed on dates other than the ones they were drafted for (the aired weeks
+# before today) take those dates as their rule dates too, which no route sets (seed.mjs).
+if [ -s "$run/seed.sql" ]; then podman exec -i "$prefix-pg" psql -q -v ON_ERROR_STOP=1 -U postgres -d weavesignal < "$run/seed.sql"; fi
 
 # The interface, with /api passed to the control plane and the bearer added by the server.
 (

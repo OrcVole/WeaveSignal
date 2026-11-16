@@ -2,6 +2,180 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.0.5 (2026-11-16)
+
+- **An episode's Move… saves the move at once.** In the 1.0.5 test run nobody could tell how a
+  moved show was kept: **Move…** then **Set** only put the new time in the editor's draft, and
+  it was saved by **Save episode** at the foot of the column. The button is now **Move**, and
+  one press saves it, as a show's Dates do (ADR-0283): the week shows the episode at its new
+  time and follows it to another week or day, and the tab's line says where it is, and any
+  show it now clashes with, with **Undo**. Only the time is sent, and the length if it was
+  changed, so a title or guests typed in the editor stay a draft for **Save episode**. `⏎` in
+  a field is **Move**; **Cancel** and `Esc` are as before. A move the station refuses (a
+  presenter's onto another show) leaves **Move…** open with what was typed and the reason.
+  **Back to the rule** is saved at once too, with **Undo**. An aired episode is not moved, as
+  before.
+- **Arrows beside every schedule time.** The studio app's own window on Linux draws a time
+  field with no arrows, so a time could only be typed. Each time on the Schedule tab now has
+  two: in an episode's **Move…**, a date's **Move…** in a show's Dates and in the rule dialog,
+  and the rule's **from** and **until** (New show, **Change…**, the presenter's setup). A press
+  moves the time to the quarter-hour before or after it (18:07 goes to 18:15, or back to
+  18:00); the field is still typed in for an odd minute, and `↑` `↓` in it step as the system
+  has them. In a **Move…**, a step past midnight takes the date with it; **from** and **until**
+  wrap round the clock. `Tab` passes over the arrows.
+- **`Esc` clears the selection on the Schedule tab.** Once a block or a show was open in the
+  editor column, the only ways out were another block, **‹ Shows**, or a change of view. `Esc`
+  now closes what the column holds and clears the selection, so the list of shows is back; a
+  menu or a dialog still takes the press first, an episode's **Move…** is cancelled by it as a
+  date's is, and in a text field the first `Esc` leaves the field. It never throws work away: while the episode, series or show has changes that are
+  not saved, nothing closes and the tab says so. A press on the grid where no block is does
+  the same, though automation fills every gap in time, so that is only the narrow gap beside
+  a day's blocks and, in a wide window, the plane beside the Day view's column. **‹ Shows**
+  names the key in its tooltip. An `Esc` that closes New show or another dialog on the tab is
+  that dialog's alone, and no longer reaches the tab behind it.
+- **Studios says that it is not in this build.** The Schedule tab's **Studios** button wrote
+  its note where only the Desk and Screener tabs draw one, so nothing showed; it is in the
+  tab's own line now.
+- **A folded show's tab reads as its show's colour.** The tab's ground was 40 % of the show's
+  colour over the surface, which the 1.0.5 test run found too faint: a dark green on
+  near-black in Dark, a pale blue in Light. It is now 60 % in Dark and Light and 50 % in
+  Night, whose colours are lighter, and the count on a fold stands on the same grounds. The
+  chevron and the name on a tab are white in Dark and a warm white in Night (the ink the
+  lamps use on a filled colour) and stay dark in Light: 5.9:1, 4.9:1 and 4.7:1 at the least
+  over the twelve show colours, worked out from the tokens and checked in the tests.
+- **The Day view with nothing selected lists the shows.** A block pressed on one day (the
+  hours automation fills, say) still held the editor column after another day was opened, so
+  the Day view showed an automation log (*Nothing generated for these hours yet*) beside a day
+  with nothing selected in it. The column now shows the selected block only while its day is
+  the one open, and lists the shows otherwise, as the week does; the block is selected still
+  on its own day and in the week.
+- **A changed rule's notice names its show and the save that made it.** The window that saved
+  knows the notice for its own exactly, even with two windows of one account or two shows of
+  one name, and a rule dialog open on that show says so (*Moira changed when The Folk Club
+  airs. Saving puts this rule in its place.*) before a save would replace someone else's
+  change. A station older than 1.0.5 is not sent the token, and the sentence is read as before.
+- **Several stations in one studio app** (ADR-0285, ADR-0287). The
+  station's name in the frame is now the button that lists the stations this computer keeps.
+  Each is a separate install with its own address and sign-in; nothing is shared between
+  them. **Add a station…** opens the sign-in screen over the studio; pressing a row switches
+  to it; **Manage** gives a station a name of your own, signs out of it or removes it.
+  A station you already use carries over as the first in the list, and you stay signed in.
+  `⌃⇧S` opens the list from any tab (not from a text field); no chord switches by itself.
+- **Leaving a station that is on air is asked first.** A switch cuts no audio, but nobody at
+  the window can mute, dump or take a call on the station left until they switch back. Held
+  talk keys are let go first. A Live window is asked once while a strip is open or a caller is
+  in screening; a Preparing window and a quiet desk switch at once.
+- **Nothing of one station shows or is sent on another.** A switch closes the event stream
+  and the chat's socket, empties every store, tells the app's own side (which stops every
+  request still open and refuses any that names the wrong station), and loads the page again.
+  Each station's key is its own entry in the keychain, or its own file where there is no
+  keyring; removing a station deletes it.
+- **A station on another version is said, not refused**: *older than this app* or *newer than
+  this app* on its row and in the note on arrival.
+- **Fixed: the packaged studio app could not read the station's version.** It asked for
+  `/health`, which the app's own side did not let through, and fell back to guessing from the
+  week's reply.
+- **Fixed: the cart bank the window last showed was never restored** when the app opened: the
+  read failed quietly and every window opened on bank 1. It is now kept for each station.
+- **Clashing shows fold in the week.** Where shows share time, one block is open and readable
+  and the others fold beside it at the day's right edge, in their own colours; press a folded
+  block, or `⏎` on it, and it comes forward. Two or more hidden at one time are a count (*+2*).
+  Each day's header counts the shows that clash on it. Nothing is drawn through anything else,
+  and hover no longer looks like selection. In a very wide window they stand side by side.
+- **A Day view**: **Week**, **Day**, **Studios** in the toolbar. One day at the week's scale,
+  with a lane for each clashing show and the week's seven days as buttons above it. A day's
+  header in the week opens it, and so do **Open the day** and the count. The week never
+  changes to it by itself, and the tab opens on **Week** every time.
+- **A clash is said where it is.** A block in a clash has a warning triangle before its time,
+  and names the other show; a date nobody has drafted says CONFLICT too, which it never did.
+  With such a block selected, the editor begins with **Clashes with**: each other show, **Show
+  it**, who is on air by the schedule, and **Open the day**. A block dropped onto another
+  show's time says so, with **Undo**.
+- **A list of shows, and each show's dates.** With nothing selected, the editor column lists the
+  station's shows by name, each with its rule in short and its next date; **‹ Shows** at the
+  start of every pane's path comes back to it. A show opens at **Dates**: when it airs in a
+  sentence, how many are to come, and a row for each date (drafted, not drafted, skipped,
+  moved, clashing), with **Draft**, **Skip** or **Put back**, **Move…** and **Back to the
+  rule**. Pressing a row shows it in the week. Each change is saved as it is made, with
+  **Undo**. What has aired is listed under the rows. **Details** is the show editor as before.
+  The list is also reached from **Show** on an episode, **All dates**, **All its dates**,
+  **See its dates** when New show is done, and **See them** after **Give it dates…**.
+- **The week's blocks have their grounds and colours.** Every block now carries its show's
+  colour on its left edge and stands on a solid ground, with automation hatched, as the design
+  has had them: a style rule had been overriding both, so the grid's lines showed through
+  every block. The selected block has its inner line again.
+- Fixed: an episode's **Move…** showed its date and cut its time off: one date-and-time box was
+  too narrow for the editor column. It has a date field and a time field now, as a show's dates do.
+- Fixed: a style meant for the rule dialog's two columns also reached the desk's *Not on air*
+  line, cutting it to 24 rem, and a column of the retention table.
+
+- **Keys for the Day view** (ADR-0283): on the Schedule tab `D` opens the Day view on the day
+  its button would choose and `W` returns to the week; in the Day view `←` `→` move a day, as
+  the toolbar's arrows do (they moved a week).
+- **The public JSON routes on Cloudron** (ADR-0282): `/api/v1/public/station`, `/schedule` and
+  `/episodes` are on a Cloudron station's public domain, GET only, as on the Compose edge, so a
+  station's own website can read them; they answered 404 there.
+- **Large screens** (ADR-0286): the root text no longer jumps to 20 px (18 px on the Screener)
+  above 2,200 px wide; the window's growth (1.0.4) and **A+** **A−** set it.
+- **The Windows installer has been run on Windows** (Windows 11, 2026-11-15): it installs for
+  the user with no administrator prompt, signs in to a station and keeps the key in Credential
+  Manager. The install guide now gives Edge's own steps to keep the download, and says the
+  SmartScreen window may not appear after them.
+- Fixed: the desktop app never read the station's version (it may ask only under `/api/`, and
+  the version is at `/health`), so New show took any station to store rules; an older station
+  would refuse it. The app may now ask for `/health` too, and nothing else outside `/api/`.
+- Fixed: the studio app's window opened larger than a small screen's free space (1280 by 800
+  less the task bar, on Windows), so a dialog's buttons sat under the task bar; it now opens
+  maximised there, and its smallest height is 600 px, so a 1366 by 768 laptop holds it.
+- Fixed: every window opened on cart bank 1; the bank last shown on this machine comes back.
+- **Calendar files** (ADR-0281). The schedule and each show's go out as iCalendar files a
+  listener or a presenter can subscribe to (`/api/v1/public/schedule.ics`,
+  `/api/v1/public/shows/{show}.ics`), one event per show's rule with its repeat, skipped and
+  moved dates and the station's zone, carrying only the show's name and description. And a
+  calendar file from another system comes in as new shows (`POST
+  /api/v1/schedule/import/preview`, then `POST /api/v1/schedule/import`): one per recurring
+  event or per run of events with one name, each said back with its sentence, next dates and
+  clashes, marked exact, as chosen dates for twelve months (a rule no show's rule can say, or
+  another zone whose clocks change on other dates), or refused with the reason; made in one go
+  at Solo with no episode drafted. On Cloudron the two calendar routes are on the public
+  domain. The reference page *Calendar files* has the detail.
+- **Subscribe…** on the Schedule tab's toolbar, and beside **When it airs** in a show's
+  **Details**: the link to the schedule's calendar file, or the show's, as `webcal://` and as
+  `https://`, each with **Copy**, and **Download .ics**. The link is on the station's public
+  address, never the one the studio talks to (on Cloudron that one is behind the login); a
+  station with no public address shows no link and says who sets one. The studio app saves the
+  download into the Downloads folder, says where, and never writes over a file there.
+- **Import a calendar…** on the toolbar, for an admin or a producer: choose an `.ics` file
+  (up to 1 MB and 200 events), read each proposed show with its sentence, next dates and
+  clashes, untick or rename any, and **Make the shows**. A file that is not a calendar, or is
+  too large, is refused in a sentence; a show the station refuses says so under its own row,
+  and nothing is made.
+- The two are buttons where the window has room for their words, and the entries of one menu
+  (**⋮**, beside **New show**) in a narrower one, so the toolbar stays on one line at 1440 by
+  900.
+- The week's reply (`GET /api/v1/schedule/episodes`) says the station's public address
+  (`public_url`, or `null`), from which the studio makes those links.
+- **A show the station already has is not a clash with itself.** Reading a station's own
+  calendar file back with **Import a calendar…** proposed every show as a CONFLICT with
+  itself. A proposed show with the name of one the station has (case and spaces apart) and the
+  same dates and times now says **Already on the station**, starts unticked, and is left out
+  of the clashes' count; its dates still clash with other shows as before. The preview's reply
+  says which show in `already`.
+- **Import a calendar… takes a pasted path and a dropped file.** The system's file chooser was
+  hard to paste a path into. A file can now be dropped anywhere on the dialog, and in the
+  studio app its path can be pasted into **Or paste the file's path**, as a file manager
+  copies it or as **Download .ics** said it (quotes and `~` are fine). The app reads only a
+  file ending `.ics`, of at most 1 MB, that begins as a calendar. A browser cannot read a
+  path, so there the field is not shown.
+- **A folded show in the week is a tab you can see and press.** A show lying behind another
+  showed only as a thin line of its colour at the day's right edge. It is now a tab as wide as
+  the strip, on a ground filled with the show's colour, with a chevron, the show's name down it
+  where the tab is tall enough, and a tooltip; pointing at it rings it and a press brings the
+  show forward. A long show with a shorter one over its middle has its name again below. The
+  open block says what it is over even when it is an hour tall: *over The Long Lunch*. In the
+  studio app the week's scrollbar no longer lies over Sunday's tabs, which could be seen and
+  not pressed.
+
 ## 1.0.4 (2026-11-15)
 
 - **New show, guided like calendar software** (ADR-0278): **New show** asks for the name, then

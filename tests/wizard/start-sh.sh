@@ -71,13 +71,21 @@ pass "without a setup.env, weavesignal.env decides"
 conf=$( set -euo pipefail
   run=/run/weavesignal CONTROL_PORT=7310 CHAT_PORT=7311 LISTENERS_PORT=7312 LIVEKIT_HTTP_PORT=7880
   stream_locations='' listener_root='' pub_noindex='' pub_never='' pub_robots='x'
-  eval "$(sed -n "/^chat_public=/p;/^control_public=/p;/^branding_public=/p" "$start")"
+  eval "$(sed -n "/^chat_public=/p;/^control_public=/p;/^branding_public=/p;/^calendar_public=/p" "$start")"
   eval "$(sed -n '/^cat > "\$run\/nginx.conf" <<NGINX$/,/^NGINX$/p' "$start" | sed '1s/.*/cat <<NGINX/')" )
 public=$(sed -n '/listen 8003;/,$p' <<<"$conf")
 studio=$(sed -n '/listen 8000 default_server;/,/listen 8001;/p' <<<"$conf")
 grep -q 'location ~ \^/api/v1/branding(/icon|/banner)?\$ {' <<<"$public" || fail "the public domain does not pass the branding routes"
 sed -n '/location ~ \^\/api\/v1\/branding/,/}/p' <<<"$public" | grep -q 'limit_except GET { deny all; }' || fail "the public domain lets the branding routes be written"
 pass "the public domain passes the three branding routes, for reading only"
+# Calendar files (ADR-0281) and the read-only JSON for a station's own website (ADR-0282), for
+# reading only, and nothing else under /api/v1/public/.
+grep -q 'location ~ \^/api/v1/public/(station|schedule|episodes|schedule\\.ics|shows/\[a-z0-9-\]+\\.ics)\$ {' <<<"$public" || fail "the public domain does not pass the calendar files and the public JSON routes"
+sed -n '/location ~ \^\/api\/v1\/public\//,/}/p' <<<"$public" | grep -q 'limit_except GET { deny all; }' || fail "the public domain lets the public routes be written"
+re='^/api/v1/public/(station|schedule|episodes|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
+for p in /api/v1/public/station /api/v1/public/schedule /api/v1/public/episodes /api/v1/public/schedule.ics /api/v1/public/shows/the-late-kettle.ics; do [[ $p =~ $re ]] || fail "$p is not passed"; done
+for p in /api/v1/public/shows/x /api/v1/public/shows/a/b.ics /api/v1/public/scheduleXics /api/v1/public/stations /api/v1/schedule/import; do [[ $p =~ $re ]] && fail "$p is passed on the public domain"; done
+pass "the public domain passes the calendar files and the three public JSON routes, for reading only, and nothing else of /api/v1/public/"
 grep -q 'location ~ \^/setup(/|\$) { return 404; }' <<<"$public" || fail "the public domain serves the setup page"
 grep -q 'location /api/ {  return 404; }' <<<"$public" || fail "the public domain's API fallback is gone"
 pass "the public domain answers 404 for /setup/ (and, as for every other route, for /api/v1/setup)"

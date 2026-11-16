@@ -16,6 +16,7 @@
   import RulePart from './RulePart.svelte';
   import { fromRule, newForm, remembersWhole, slotOf, type RuleForm } from './form.ts';
   import { dialogKeys } from './keys.ts';
+  import { ruleDialog } from './dialog.svelte.ts';
   import { airedWords, countWords, firstState, hasEpisodes, ruleStatus, saveWords } from './view.ts';
 
   let {
@@ -222,6 +223,7 @@
       {/if}
     {/if}
     <div class="foot2">
+      {#if ruleDialog.elsewhere}<p class="elsewhere" role="status" data-elsewhere>{ruleDialog.elsewhere} Saving puts this rule in its place.</p>{/if}
       {#if problem}<p class="err" role="alert">{problem}</p>{/if}
       <div class="acts">
         <button type="button" class="btn quiet left" onclick={leave} disabled={saving}>{step === 'change' && !reset ? 'Back' : 'Cancel'}</button>

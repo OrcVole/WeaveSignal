@@ -8,14 +8,17 @@ sidebar:
   order: 36
 ---
 
-> **Not run on Windows yet.** The installer has been built on Linux and inspected, but installing it on a Windows machine is [planned](/docs/reference/release-one-status/).
-
 The studio app's Windows installer is `WeaveSignal_<version>_x64-setup.exe`, for 64-bit Windows 10 and 11 (ADR-0015).
 It is an NSIS installer and it is not signed (ADR-0076).
 
 ## Download it
 
-Download `WeaveSignal_1.0.4_x64-setup.exe` and the checksum file `SHA256SUMS-1.0.4-windows` from the assets of [release v1.0.4 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.4); the updater reads the same files from `https://weavesignal.top/updates/`.
+Download `WeaveSignal_1.0.5_x64-setup.exe` and the checksum file `SHA256SUMS-1.0.5-windows` from the assets of [release v1.0.5 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.5); the updater reads the same files from `https://weavesignal.top/updates/`.
+
+Edge holds the installer at first: it says the file *isn't commonly downloaded*. To keep it:
+
+1. In Edge's downloads, right-click the installer and choose **Keep**.
+2. A window says *Make sure you trust WeaveSignal_<version>_x64-setup.exe before you open it*, with the publisher **Unknown**. Open the arrow beside **Delete** and choose **Keep anyway**.
 
 To build the installer yourself instead, run `just package-windows` in the repository on Linux ([Packages and install files](/docs/reference/packages/)).
 
@@ -26,7 +29,7 @@ The release lists it in `SHA256SUMS-<version>-windows`.
 In PowerShell, in the folder you saved it to:
 
 ```powershell
-Get-FileHash .\WeaveSignal_1.0.4_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\WeaveSignal_1.0.5_x64-setup.exe -Algorithm SHA256
 ```
 
 The `Hash` it prints must match the line for the installer, letter for letter (case does not matter).
@@ -34,14 +37,14 @@ If it does not, delete the file and do not run it.
 
 ## Get past "Windows protected your PC"
 
-Because the installer carries no publisher signature, Microsoft Defender SmartScreen stops it the first time:
+Because the installer carries no publisher signature, Microsoft Defender SmartScreen may stop it the first time:
 
 1. Double-click the installer. A blue window says **Windows protected your PC** and names the publisher as **Unknown publisher**.
 2. Choose **More info**. The window now shows the app's name and a **Run anyway** button.
 3. Choose **Run anyway**.
 
 If there is no **More info** link, your organisation's policy blocks unsigned programs; ask whoever manages the computer.
-Your browser may also warn when downloading; choose to keep the file.
+If you kept the download in Edge as above, the installer may simply open, with no blue window (Windows 11, 2026-11-15).
 
 ## Install
 
@@ -68,5 +71,5 @@ Then give your username and password, or choose "Use the station key instead" (t
 
 Open **Settings**, then **Apps**, then **Installed apps**, find **WeaveSignal**, and choose **Uninstall**.
 
-Verified on a development workstation · 2026-10-26: the installer was cross-built on Linux for the GNU target with NSIS 3.11, and it carries the app and Microsoft's `WebView2Loader.dll`; the app links only Windows' own libraries besides it.
-It was not run on Windows, so the SmartScreen steps above follow Microsoft's documented behaviour, not a test.
+Verified on Windows 11 (build 26100, en-GB) · 2026-11-15: the 1.0.4 installer downloaded with Edge and kept as above, its checksum matched, it installed for the user with no administrator prompt and no SmartScreen window, and the app signed in to a station with its key, which Credential Manager kept across a restart.
+The installer is cross-built on Linux for the GNU target with NSIS 3.11, and carries the app and Microsoft's `WebView2Loader.dll`.

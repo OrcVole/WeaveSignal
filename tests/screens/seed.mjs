@@ -13,6 +13,9 @@
 const CONTROL = process.env.CONTROL ?? 'http://127.0.0.1:26310';
 const TOKEN = process.env.ADMIN_TOKEN ?? 'screens-admin-test-only';
 const ZONE = process.env.STATION_ZONE ?? 'Europe/London';
+/** Where to write the SQL that gives a shifted episode its new rule date (run-screens.sh runs it). */
+const SEED_SQL = process.env.SEED_SQL ?? null;
+const sql = [];
 
 async function call(method, path, body, raw = false) {
   const res = await fetch(`${CONTROL}${path}`, {
@@ -72,11 +75,23 @@ for (const s of SHOWS) {
       starts_on: start,
       ...(s.slug === 'saturday-night' ? { planned_episodes: 10, title: 'autumn' } : {}),
     });
-    const made = await call('POST', `/api/v1/shows/${s.slug}/series/${n}/episodes`, { count: s.slug === 'saturday-night' ? 7 : 4 });
-    // The first two instances have gone out: frozen as aired.
-    for (const e of made.slice(0, 2)) {
-      if (e.episode.air_at * 1000 < now.getTime()) await call('POST', `/api/v1/shows/${s.slug}/series/${n}/episodes/${e.episode.number}/air`);
+    const drafted = await call('POST', `/api/v1/shows/${s.slug}/series/${n}/episodes`, { count: s.slug === 'saturday-night' ? 7 : 4 });
+    // Drafting never goes into the past (1.0.4), so the series' first two weeks are made by
+    // hand: episodes 1 and 2 go to the two weeks before the first date drafted and are frozen
+    // as aired, and each later episode takes the date two before it had, so the numbers run
+    // in order and this week keeps its episode.
+    const dates = drafted.map((e) => e.episode.air_at);
+    const first = civilDay(dates[0]);
+    const back = (weeks) => zonedAt(new Date(first.getTime() - weeks * 7 * 86_400_000), s.slot.start / 60 | 0, s.slot.start % 60);
+    const targets = [back(2), back(1), ...dates.slice(0, -2).map((t) => zoned(new Date(t * 1000)))];
+    for (const [i, e] of drafted.entries()) {
+      await call('PATCH', `/api/v1/shows/${s.slug}/series/${n}/episodes/${e.episode.number}`, { air_at: targets[i] });
+      // A route moves the time, not the rule date it was drafted for (a person's move); the seed
+      // means the episode to be the rule's on its new date, so the date goes with it.
+      sql.push(`UPDATE episode SET occurrence = DATE '${targets[i].slice(0, 10)}' WHERE id = '${e.episode.id}';`);
     }
+    for (const e of drafted.slice(0, 2)) await call('POST', `/api/v1/shows/${s.slug}/series/${n}/episodes/${e.episode.number}/air`);
+    const made = (await call('GET', `/api/v1/shows/${s.slug}/series/${n}`)).episodes;
     if (s.slug === 'saturday-night') {
       const tonight = made.find((e) => e.episode.air_at * 1000 > now.getTime());
       if (tonight) {
@@ -111,6 +126,12 @@ for (const s of SHOWS) {
     await call('POST', `/api/v1/shows/${slug}/series/1/episodes`, { count: 1, title: 'The count', guests: ['Dr Una Robertson'] });
     await call('PATCH', `/api/v1/shows/${slug}/series/1/episodes/1`, { air_at: at, minutes: 90 });
   }
+}
+
+/** The civil day in the station's zone of a time in seconds, as midnight UTC of that date. */
+function civilDay(secs) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(secs * 1000)).map((x) => [x.type, x.value]));
+  return new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)));
 }
 
 /** `2026-10-29T18:00:00+00:00[Europe/London]` for a civil date's wall clock in the zone. */
@@ -158,6 +179,10 @@ if (tracks.tracks.length < 6) {
   }
 }
 await call('POST', '/api/v1/schedule/generate', {});
+if (SEED_SQL && sql.length) {
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(SEED_SQL, ['BEGIN;', 'SET CONSTRAINTS ALL DEFERRED;', ...sql, 'COMMIT;', ''].join('\n'));
+}
 console.log('seeded: Kettle FM’s shows, series and episodes, four clocks, the week grid, the library, the log');
 
 /** An eight-second stereo sine as a WAV file. */

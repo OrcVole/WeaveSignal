@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 
-//! The station the packaged app runs (ADR-0019 §3) and its key (ADR-0121), or a staff
+//! The station the packaged app is on (ADR-0019 §3) and its key (ADR-0121), or a staff
 //! member's sign-in (ADR-0127), kept the same way: the address in a
 //! small file of the app's own, the key in the system's keychain (Secret Service on Linux,
 //! Credential Manager on Windows, the Keychain on macOS). On a Linux desktop without a
 //! keyring the key goes in a file only this user can read, and the setup says so.
 //!
+//! The app keeps a list of stations and the window is on one of them (ADR-0285); the list is
+//! `stations.rs`, and the commands for it are here.
+//!
 //! The page never holds the key: every request to the station goes out from here, which adds
-//! it. The page names only a path under the saved station's `/api/`, so it cannot send the key
-//! anywhere else. Bodies come back over a channel as they arrive, so the studio's event
-//! stream works as before.
+//! it. The page names only a path under the station's `/api/` (and `/health`), and the station
+//! it believes it is on, so it cannot send the key anywhere else, and a request left over from
+//! before a switch is refused. Bodies come back over a channel as they arrive, so the studio's
+//! event stream works as before.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,29 +26,36 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, JavaScriptChannelId, Request};
 use tauri::{AppHandle, Manager, State, Webview};
 
-/// The keychain entry's service; the account is the station's address.
-const SERVICE: &str = "weavesignal-studio";
+use crate::stations::{self, Book, Kept, Keychain, Shelf, Station};
 
-/// Where the key is kept, as the setup shows it.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Kept {
-    Keychain,
-    File,
-}
-
-/// The station as the page may know it: its address and where its key is kept.
+/// A station the window is signed in to, as the page may know it: this computer's id for it,
+/// its address, where its key is kept, and whether the window is on it.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct StationInfo {
+    pub id: String,
     pub url: String,
     pub kept: Kept,
+    /// The window is on this station. False only for a station just added while the window is
+    /// on another: the page then switches to it by the path every switch takes.
+    pub current: bool,
 }
 
-/// Requests in flight, so the page can stop one (an event stream it no longer follows).
+/// Requests in flight, so the page can stop one (an event stream it no longer follows) and a
+/// switch can stop them all; and the one lock around the list of stations.
 pub struct Stations {
     client: reqwest::Client,
     next: AtomicU32,
     open: Mutex<HashMap<u32, tauri::async_runtime::JoinHandle<()>>>,
+    book: Mutex<()>,
+}
+
+impl Stations {
+    /// Stop every request still open: a switch closes the station being left.
+    fn stop_all(&self) {
+        for (_, task) in self.open.lock().expect("open requests").drain() {
+            task.abort();
+        }
+    }
 }
 
 impl Stations {
@@ -60,6 +71,7 @@ impl Stations {
                 .expect("an HTTP client with the platform's TLS"),
             next: AtomicU32::new(1),
             open: Mutex::new(HashMap::new()),
+            book: Mutex::new(()),
         }
     }
 }
@@ -68,14 +80,6 @@ fn dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
         .map_err(|e| format!("no folder for the app's settings: {e}"))
-}
-
-fn info_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(dir(app)?.join("station.json"))
-}
-
-fn key_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(dir(app)?.join("station.key"))
 }
 
 /// What the sign-in says when plain http is tried on an address that is not nearby (ADR-0139).
@@ -142,8 +146,13 @@ pub fn clean_url(url: &str) -> Result<String, String> {
     Ok(url.to_owned())
 }
 
-/// A path the page may ask for: under `/api/`, with no way out of it.
+/// A path the page may ask for: under `/api/`, with no way out of it, or exactly `/health`,
+/// the one place a station of any version says its version (the studio reads it to know
+/// whether the station stores rules, ADR-0278).
 pub fn clean_path(path: &str) -> Result<&str, String> {
+    if path == "/health" {
+        return Ok(path);
+    }
     let ok = path.starts_with("/api/")
         && !path.contains("..")
         && !path.contains('#')
@@ -184,61 +193,68 @@ fn off_runtime<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::spawn(f).join().expect("the keychain thread")
 }
 
-fn read_info(app: &AppHandle) -> Option<StationInfo> {
-    let text = std::fs::read_to_string(info_path(app).ok()?).ok()?;
-    // A station saved by a build that accepted plain http anywhere is not used again unless the
-    // address passes today's rule (ADR-0139): the key must not cross the internet in clear. The
-    // setup opens and asks for the address again.
-    serde_json::from_str::<StationInfo>(&text)
-        .ok()
-        .filter(|i| clean_url(&i.url).is_ok())
+/// Whether an address may be used today (ADR-0139). A station saved by a build that accepted
+/// plain http anywhere is not used again unless its address passes: the key must not cross the
+/// internet in clear.
+fn allowed(url: &str) -> bool {
+    clean_url(url).is_ok()
 }
 
-fn read_key(app: &AppHandle, info: &StationInfo) -> Result<String, String> {
-    match info.kept {
-        Kept::Keychain => keyring::Entry::new(SERVICE, &info.url)
-            .and_then(|e| e.get_password())
-            .map_err(|e| format!("the station's key is not in the keychain: {e}")),
-        Kept::File => std::fs::read_to_string(key_path(app)?)
-            .map(|k| k.trim().to_owned())
-            .map_err(|e| format!("the station's key file cannot be read: {e}")),
+/// Work on the list of stations: on a thread of its own (the keychain), under the one lock, so
+/// two commands never read and write the list across each other.
+fn with_shelf<T: Send + 'static>(
+    app: &AppHandle,
+    f: impl FnOnce(&Shelf<'_>) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let app = app.clone();
+    off_runtime(move || {
+        let dir = dir(&app)?;
+        let stations = app.state::<Stations>();
+        let _held = stations.book.lock().expect("the list of stations");
+        f(&Shelf {
+            dir: &dir,
+            keys: &Keychain,
+            allowed,
+        })
+    })
+}
+
+/// The station the window is on and signed in to, with its key.
+fn here(app: &AppHandle) -> Result<(Station, String), String> {
+    with_shelf(app, |s| {
+        let book = s.load();
+        let station = book
+            .here()
+            .filter(|st| st.kept.is_some())
+            .cloned()
+            .ok_or("no station is set up")?;
+        let key = s.key_of(&station)?;
+        Ok((station, key))
+    })
+}
+
+fn info_of(station: &Station, current: bool) -> Option<StationInfo> {
+    Some(StationInfo {
+        id: station.id.clone(),
+        url: station.url.clone(),
+        kept: station.kept?,
+        current,
+    })
+}
+
+/// Say in the window's title which station it is on, so the task bar says it too.
+fn retitle(app: &AppHandle, book: &Book) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_title(&stations::title(book));
     }
 }
 
-/// Write the key to a file only this user can read.
-fn write_key_file(path: &std::path::Path, key: &str) -> std::io::Result<()> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    use std::io::Write;
-    let mut f = opts.open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    f.write_all(key.as_bytes())
-}
-
-fn forget_keys(app: &AppHandle) {
-    if let Some(old) = read_info(app)
-        && let Ok(e) = keyring::Entry::new(SERVICE, &old.url)
-    {
-        let _ = e.delete_credential();
-    }
-    if let Ok(p) = key_path(app) {
-        let _ = std::fs::remove_file(p);
-    }
-}
-
-/// The saved station, if any.
+/// The station the window is on, if it is signed in there.
 #[tauri::command]
 pub fn station_info(app: AppHandle) -> Option<StationInfo> {
-    read_info(&app)
+    let book = with_shelf(&app, |s| Ok(s.load())).ok()?;
+    retitle(&app, &book);
+    book.here().and_then(|st| info_of(st, true))
 }
 
 /// Ask a station whether it takes this key, before saving it: the HTTP status it answers.
@@ -266,53 +282,33 @@ pub async fn station_check(
     Ok(res.status().as_u16())
 }
 
-/// Save the station and its key: in the keychain, or where there is none, in a file only this
-/// user can read. A key saved before for another station is forgotten.
+/// Keep a station and its key: in the keychain, or where there is none, in a file only this
+/// user can read. The address's own row if it has one, else a new one; no other station's key
+/// is touched (ADR-0285).
 #[tauri::command]
 pub fn station_save(app: AppHandle, url: String, key: String) -> Result<StationInfo, String> {
     let url = clean_url(&url)?;
-    save(&app, url, key.trim())
+    save(&app, url, key.trim().to_owned())
 }
 
 /// Keep a station and its bearer (the station key, or a staff session's token).
-fn save(app: &AppHandle, url: String, key: &str) -> Result<StationInfo, String> {
-    let app = app.clone();
-    if key.is_empty() {
-        return Err("The key is empty.".to_owned());
-    }
-    forget_keys(&app);
-    std::fs::create_dir_all(dir(&app)?).map_err(|e| e.to_string())?;
-    let kept = match keyring::Entry::new(SERVICE, &url).and_then(|e| {
-        e.set_password(key)?;
-        // Read back: some keyrings accept a write they do not keep.
-        e.get_password().map(|k| k == key)
-    }) {
-        Ok(true) => Kept::Keychain,
-        _ => {
-            write_key_file(&key_path(&app)?, key)
-                .map_err(|e| format!("the key could not be kept: {e}"))?;
-            Kept::File
-        }
-    };
-    let info = StationInfo { url, kept };
-    std::fs::write(
-        info_path(&app)?,
-        serde_json::to_string_pretty(&info).expect("station info serialises"),
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = std::fs::write(last_path(&app)?, &info.url);
-    Ok(info)
+fn save(app: &AppHandle, url: String, key: String) -> Result<StationInfo, String> {
+    let (station, current) = with_shelf(app, move |s| s.keep(&url, &key))?;
+    info_of(&station, current).ok_or_else(|| "the key could not be kept".to_owned())
 }
 
-fn last_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(dir(app)?.join("last-station.txt"))
-}
-
-/// The last station's address, for the sign-in screen after a sign-out.
+/// The address of the station the window is on while it is signed out of it, for the sign-in
+/// screen after a sign-out or a sign-in that ended.
 #[tauri::command]
 pub fn station_last(app: AppHandle) -> Option<String> {
-    let url = std::fs::read_to_string(last_path(&app).ok()?).ok()?;
-    clean_url(&url).ok()
+    with_shelf(&app, |s| {
+        Ok(s.load()
+            .here()
+            .filter(|st| st.kept.is_none())
+            .map(|st| st.url.clone()))
+    })
+    .ok()
+    .flatten()
 }
 
 /// What a sign-in answers the page: the station, and who signed in. The session's token goes
@@ -395,9 +391,7 @@ async fn keep_sign_in(
         .and_then(|t| t.as_str())
         .filter(|t| t.starts_with("rss_"))
         .ok_or("The station's answer had no sign-in in it.")?;
-    let token = token.to_owned();
-    let handle = app.clone();
-    let station = off_runtime(move || save(&handle, url, &token))?;
+    let station = save(app, url, token.to_owned())?;
     Ok(SignedIn {
         station,
         account: v.get("account").cloned().unwrap_or_default(),
@@ -485,42 +479,152 @@ pub async fn station_code_finish(
     .await
 }
 
-/// Sign out: the station ends the session, and this computer forgets it. The address is kept
-/// for the next sign-in. A station key is only forgotten here (it has no session to end).
-#[tauri::command]
-pub async fn station_sign_out(app: AppHandle, stations: State<'_, Stations>) -> Result<(), String> {
-    let handle = app.clone();
-    let key = off_runtime(move || read_info(&handle).map(|info| (read_key(&handle, &info), info)));
-    if let Some((Ok(key), info)) = key
+/// Sign out of a station, or remove it: this computer forgets its key (and, removing, its row),
+/// and the station is told to end the session with the key it had. A station key is only
+/// forgotten (it has no session to end). Leaving the station the window is on stops every
+/// request still open.
+async fn leave(
+    app: &AppHandle,
+    stations: &Stations,
+    id: String,
+    remove: bool,
+) -> Result<Listed, String> {
+    let was_here = with_shelf(app, {
+        let id = id.clone();
+        move |s| Ok(s.load().current.as_deref() == Some(id.as_str()))
+    })?;
+    if was_here {
+        stations.stop_all();
+    }
+    let (book, had) = with_shelf(app, move |s| {
+        if remove {
+            s.remove(&id)
+        } else {
+            s.sign_out(&id)
+        }
+    })?;
+    if let Some((station, key)) = had
         && key.starts_with("rss_")
     {
         // Best effort: an unreachable station ends the session itself when it runs out.
         let _ = stations
             .client
-            .delete(format!("{}/api/v1/sessions/me", info.url))
+            .delete(format!("{}/api/v1/sessions/me", station.url))
             .bearer_auth(key)
             .timeout(std::time::Duration::from_secs(5))
             .send()
             .await;
     }
-    let handle = app.clone();
-    off_runtime(move || {
-        forget_keys(&handle);
-        if let Ok(p) = info_path(&handle) {
-            let _ = std::fs::remove_file(p);
-        }
-    });
+    retitle(app, &book);
+    Ok(Listed::of(book))
+}
+
+/// The id of the station the window is on, signed in or not.
+fn here_id(app: &AppHandle) -> Result<Option<String>, String> {
+    with_shelf(app, |s| Ok(s.load().current))
+}
+
+/// Sign out of the station the window is on: the station ends the session, and this computer
+/// forgets it. Its row stays, with its address, for the next sign-in.
+#[tauri::command]
+pub async fn station_sign_out(app: AppHandle, stations: State<'_, Stations>) -> Result<(), String> {
+    if let Some(id) = here_id(&app)? {
+        leave(&app, &stations, id, false).await?;
+    }
     Ok(())
 }
 
-/// Forget the station and its key.
+/// Forget the station the window is on, and its key.
 #[tauri::command]
-pub fn station_forget(app: AppHandle) -> Result<(), String> {
-    forget_keys(&app);
-    if let Ok(p) = info_path(&app) {
-        let _ = std::fs::remove_file(p);
+pub async fn station_forget(app: AppHandle, stations: State<'_, Stations>) -> Result<(), String> {
+    if let Some(id) = here_id(&app)? {
+        leave(&app, &stations, id, true).await?;
     }
     Ok(())
+}
+
+/// The list of stations as the page may know it (ADR-0285): no key is in it.
+#[derive(Serialize)]
+pub struct Listed {
+    /// This app's version, to say whether a station is older or newer.
+    app_version: &'static str,
+    /// The station the window is on.
+    current: Option<String>,
+    stations: Vec<Station>,
+}
+
+impl Listed {
+    fn of(book: Book) -> Self {
+        Listed {
+            app_version: env!("CARGO_PKG_VERSION"),
+            current: book.current,
+            stations: book.stations,
+        }
+    }
+}
+
+/// Every station kept on this computer, and which one the window is on.
+#[tauri::command]
+pub fn stations_list(app: AppHandle) -> Result<Listed, String> {
+    with_shelf(&app, |s| Ok(Listed::of(s.load())))
+}
+
+/// Move the window to another station. Every request still open is stopped first, so nothing
+/// of the station being left is still arriving; the page has already closed its own links and
+/// loads again when this answers.
+#[tauri::command]
+pub fn stations_switch(
+    app: AppHandle,
+    stations: State<'_, Stations>,
+    id: String,
+) -> Result<Listed, String> {
+    stations.stop_all();
+    let book = with_shelf(&app, move |s| s.switch(&id))?;
+    retitle(&app, &book);
+    Ok(Listed::of(book))
+}
+
+/// Give a station a name on this computer; empty takes it away. The station is not told.
+#[tauri::command]
+pub fn stations_rename(app: AppHandle, id: String, label: String) -> Result<Listed, String> {
+    let book = with_shelf(&app, move |s| s.rename(&id, &label))?;
+    retitle(&app, &book);
+    Ok(Listed::of(book))
+}
+
+/// What the window last saw at the station it is on (its own name, who is signed in, its
+/// version), kept for the list.
+#[tauri::command]
+pub fn stations_note(
+    app: AppHandle,
+    id: String,
+    name: Option<String>,
+    who: Option<String>,
+    version: Option<String>,
+) -> Result<Listed, String> {
+    let book = with_shelf(&app, move |s| s.note(&id, name, who, version))?;
+    retitle(&app, &book);
+    Ok(Listed::of(book))
+}
+
+/// Sign out of any station in the list; its row stays.
+#[tauri::command]
+pub async fn stations_sign_out(
+    app: AppHandle,
+    stations: State<'_, Stations>,
+    id: String,
+) -> Result<Listed, String> {
+    leave(&app, &stations, id, false).await
+}
+
+/// Remove any station from this computer: its key is deleted and its row forgotten.
+#[tauri::command]
+pub async fn stations_remove(
+    app: AppHandle,
+    stations: State<'_, Stations>,
+    id: String,
+) -> Result<Listed, String> {
+    leave(&app, &stations, id, true).await
 }
 
 /// The start of an answer; its body follows on the channel: raw bytes as they arrive, then
@@ -537,9 +641,10 @@ fn header<'a>(req: &'a Request<'_>, name: &str) -> Option<&'a str> {
     req.headers().get(name).and_then(|v| v.to_str().ok())
 }
 
-/// A request to the saved station, with its key. Named in headers: `x-station-method`,
-/// `x-station-path`, `x-station-channel`, and `x-station-content-type` when there is a body;
-/// the body is the invoke's raw bytes.
+/// A request to the station the window is on, with its key. Named in headers: `x-station-id`
+/// (the station the page believes it is on; a request naming another is refused, ADR-0285),
+/// `x-station-method`, `x-station-path`, `x-station-channel`, and `x-station-content-type` when
+/// there is a body; the body is the invoke's raw bytes.
 #[tauri::command]
 pub async fn station_fetch(
     app: AppHandle,
@@ -547,11 +652,8 @@ pub async fn station_fetch(
     stations: State<'_, Stations>,
     request: Request<'_>,
 ) -> Result<Head, String> {
-    let info = read_info(&app).ok_or("no station is set up")?;
-    let key = {
-        let (handle, info) = (app.clone(), info.clone());
-        off_runtime(move || read_key(&handle, &info))?
-    };
+    let (info, key) = here(&app)?;
+    stations::same_station(header(&request, "x-station-id"), &info.id)?;
     let method = header(&request, "x-station-method").unwrap_or("GET");
     let method = reqwest::Method::from_str(&method.to_ascii_uppercase())
         .map_err(|_| format!("not a method: {method}"))?;
@@ -698,17 +800,13 @@ fn strips_open(body: &[u8]) -> Option<String> {
     ))
 }
 
-/// Ask the saved station, now, whether a strip is open on the desk (ADR-0140). The update
+/// Ask the station the window is on, now, whether a strip is open on the desk (ADR-0140). The update
 /// commands ask this before an install or a rollback restarts the app, because the page's view
 /// can be stale or wrong. When the desk's state cannot be had (no station set up, no answer
 /// within five seconds, a refusal) the page's rule applies: it cannot tell, it has said so, and
 /// the person may go ahead. A held talk key is the page's to know; it is not checked here.
 pub(crate) async fn desk_busy(app: &AppHandle, stations: &Stations) -> Option<String> {
-    let info = read_info(app)?;
-    let key = {
-        let (handle, info) = (app.clone(), info.clone());
-        off_runtime(move || read_key(&handle, &info)).ok()?
-    };
+    let (info, key) = here(app).ok()?;
     let res = stations
         .client
         .get(format!("{}/api/v1/studio", info.url))
@@ -822,12 +920,18 @@ mod tests {
     }
 
     #[test]
-    fn the_page_names_only_a_path_under_api() {
+    fn the_page_names_only_a_path_under_api_or_health() {
         assert!(clean_path("/api/v1/studio/events").is_ok());
         assert!(clean_path("/api/v1/cards/preview?output=link").is_ok());
+        // The station's version, and nothing else outside `/api/`.
+        assert!(clean_path("/health").is_ok());
         for bad in [
             "",
-            "/health",
+            "/health/x",
+            "/health/",
+            "/healthz",
+            "/health?x=1",
+            "/setup/",
             "https://elsewhere.example/api/v1/x",
             "//elsewhere.example/api/v1",
             "/api/../admin",
@@ -871,7 +975,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("weavesignal-key-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("station.key");
-        write_key_file(&p, "secret-key").unwrap();
+        stations::write_key_file(&p, "secret-key").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "secret-key");
         #[cfg(unix)]
         {

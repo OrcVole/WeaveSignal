@@ -8,6 +8,7 @@
 // the admin bearer added), or `?chat=` names another, or else the control plane's `?control=`;
 // the bearer comes the way the control plane's does (api.ts: the proxy, or `?token=`).
 
+import { onLeave, onStationChange } from './reset.ts';
 import {
   CLOSE_SIGNED_OUT,
   CLOSE_SLOW,
@@ -98,7 +99,8 @@ export interface ChatToast {
   until: number;
 }
 
-export const chat = $state({
+/** What `chat` is when the page first loads: a change of station puts it back (ADR-0285). */
+const fresh = () => ({
   link: 'off' as ChatLink,
   why: '',
   /** When the next try starts, on this machine's clock. */
@@ -141,6 +143,8 @@ export const chat = $state({
   /** The posted picture shown full size (screener.attachment), or null. */
   viewing: null as import('../../../../packages/ui/chat.ts').Attachment | null,
 });
+
+export const chat = $state(fresh());
 
 // ---- the address ----
 
@@ -199,13 +203,19 @@ export function actorName(): string {
   return chat.me?.name || actor || studio.view?.seats.screener_name || 'Screener';
 }
 
-async function staffSession(): Promise<string> {
-  actor = await myName();
+/** A session at the chat for this window. `live` says whether the loop that asked is still
+ *  the one running: an answer that arrives after the window has left the station is dropped
+ *  (null), and writes nothing. */
+async function staffSession(live: () => boolean): Promise<string | null> {
+  const name = await myName();
+  if (!live()) return null;
+  actor = name;
   const s = await call<SignedIn>('/api/v1/chat/staff/session', {
     method: 'POST',
     headers: headers(true),
-    body: JSON.stringify({ name: actor, role: 'screener' }),
+    body: JSON.stringify({ name, role: 'screener' }),
   });
+  if (!live()) return null;
   chat.me = s.me;
   return s.session;
 }
@@ -217,35 +227,68 @@ function modHeaders(): HeadersInit {
   return { ...(headers(true) as Record<string, string>), 'X-WeaveSignal-Actor': safe };
 }
 
-async function loadInfo(): Promise<void> {
+async function loadInfo(live: () => boolean): Promise<void> {
   try {
-    chat.info = await call<ChatInfo>('/api/v1/chat/info');
+    const info = await call<ChatInfo>('/api/v1/chat/info');
+    if (live()) chat.info = info;
   } catch {
     // The preview does without the service's own words.
   }
 }
 
-/** Start following the chat; it keeps going for as long as the page lives. */
+/** Start following the chat; it keeps going until the page goes, or the window leaves the
+ *  station (`stopChat`, ADR-0285). */
 export function startChat(): void {
   if (started) return;
   started = true;
-  void run();
+  void run(++runs);
 }
 
-async function run(): Promise<void> {
+/** Which run of the loop is the live one: `stopChat` moves it on, and a loop that wakes from a
+ *  wait as an older run ends without another word to the station. */
+let runs = 0;
+
+/** Stop following the chat: the loop ends, the socket closes, and the chat's own session and
+ *  the place in the room are forgotten, so they cannot be offered to another station. The
+ *  socket opens from the page, not from the Rust side, so nothing else would stop it. */
+export function stopChat(): void {
+  runs++;
+  started = false;
+  session = null;
+  since = null;
+  const ws = socket;
+  socket = null;
+  try {
+    ws?.close();
+  } catch {
+    // Already closed.
+  }
+}
+
+async function run(mine: number): Promise<void> {
   let attempt = 0;
-  for (;;) {
+  const live = () => mine === runs;
+  while (live()) {
     chat.link = 'connecting';
     let code = 0;
     try {
-      session ??= await staffSession();
-      if (!chat.info) void loadInfo();
-      const out = await connect(session);
+      // Never `session ??= await …`: a stop while the session is on its way must not be undone
+      // by the old station's session landing in the cleared slot.
+      let token = session;
+      if (!token) {
+        token = await staffSession(live);
+        if (!token) return;
+        session = token;
+      }
+      if (!chat.info) void loadInfo(live);
+      const out = await connect(token);
+      if (!live()) return;
       code = out.code;
       if (out.welcomed) attempt = 0;
       if (code === CLOSE_SIGNED_OUT || out.refused) session = null;
       chat.why = out.why;
     } catch (e) {
+      if (!live()) return;
       chat.why = e instanceof Error ? e.message : String(e);
       // No chat service behind the station's address (issue 14): say so quietly, not as a
       // fault, and look again now and then.
@@ -257,6 +300,7 @@ async function run(): Promise<void> {
         continue;
       }
     }
+    if (!live()) return;
     socket = null;
     // A client that fell behind reconnects at once and recovers (4008).
     if (code === CLOSE_SLOW) continue;
@@ -279,6 +323,8 @@ function connect(token: string): Promise<{ code: number; why: string; welcomed: 
       ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: 'ping' })), 25_000);
     };
     ws.onmessage = (e) => {
+      // A frame from a socket the window has left (a station it is no longer on) is dropped.
+      if (socket !== ws) return;
       let f: ServerFrame;
       try {
         f = JSON.parse(String(e.data)) as ServerFrame;
@@ -497,4 +543,26 @@ export function studioMsg(): StudioMsg | null {
 /** The chat's clock now (epoch ms), ticking with the studio clock. */
 export function chatNow(): number {
   return studio.now + chat.skew;
+}
+
+// A change of station (ADR-0285): the link is closed first, then everything of the room goes:
+// the messages, who this window moderates as, the hides it sent, and the pictures it fetched
+// (their object URLs are let go).
+onLeave('chat', stopChat);
+onStationChange('chat', () => {
+  stopChat();
+  for (const url of [...Object.values(chat.pictures), ...Object.values(chat.attachments)]) {
+    if (url) URL.revokeObjectURL(url);
+  }
+  Object.assign(chat, fresh());
+  actor = '';
+  toastId = 0;
+  for (const id of Object.keys(myHides)) delete myHides[Number(id)];
+  asked.clear();
+  askedFiles.clear();
+});
+
+/** What the chat's link holds between frames (a test's): its session, its place, its socket. */
+export function chatLinkState(): { started: boolean; session: string | null; since: unknown; socket: unknown; asked: number } {
+  return { started, session, since, socket, asked: asked.size + askedFiles.size };
 }

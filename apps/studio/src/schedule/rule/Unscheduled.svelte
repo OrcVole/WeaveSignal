@@ -5,7 +5,9 @@
   // nothing selected, the shows that draw nothing in the week. No dates yet: shows without a
   // rule, each with Give it dates…. Finished: a one-off that has aired or a rule that has
   // ended, with why; closed by default and counted, because a finished show is not a fault.
-  // A show's name opens its show editor, which a show with no block has no other way to.
+  // A show's name opens the show's pane (its Dates, and its Details), which a show with no
+  // block has no other way to. Since 1.0.5 these two groups stand at the foot of the list of
+  // shows (`calendar.shows`).
   import type { Show } from '../../lib/schedule.ts';
   import { unscheduled } from './view.ts';
 
@@ -38,7 +40,7 @@
         <ul>
           {#each u.none as r (r.show.slug)}
             <li>
-              <button type="button" class="nm" title="Open the show editor" onclick={() => onedit(r.show)}>{r.show.name}</button>
+              <button type="button" class="nm" title="Open the show: its dates and its details" onclick={() => onedit(r.show)}>{r.show.name}</button>
               <span class="wy">{r.why}</span>
               <button type="button" class="btn sm primary" onclick={() => ondates(r.show)}>Give it dates…</button>
             </li>
@@ -52,7 +54,7 @@
         <ul>
           {#each u.toDraft as r (r.show.slug)}
             <li>
-              <button type="button" class="nm" title="Open the show editor" onclick={() => onedit(r.show)}>{r.show.name}</button>
+              <button type="button" class="nm" title="Open the show: its dates and its details" onclick={() => onedit(r.show)}>{r.show.name}</button>
               <span class="wy">{r.why}</span>
               <button type="button" class="btn sm" onclick={() => ondraft(r.show)}>Draft the next episode</button>
             </li>
@@ -66,7 +68,7 @@
         <ul>
           {#each u.finished as r (r.show.slug)}
             <li>
-              <button type="button" class="nm" title="Open the show editor" onclick={() => onedit(r.show)}>{r.show.name}</button>
+              <button type="button" class="nm" title="Open the show: its dates and its details" onclick={() => onedit(r.show)}>{r.show.name}</button>
               <span class="wy">{r.why}</span>
               <button type="button" class="btn sm" onclick={() => ondates(r.show)}>Give it new dates…</button>
             </li>

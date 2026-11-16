@@ -60,12 +60,23 @@ pub struct Live(RwLock<Inner>, StepWake);
 /// What wakes the step reconciler (ADR-0271) when a route changes a show's step, and who
 /// did it, for the notice every window gets. Kept here because the shows' routes and the studio's
 /// hub already share this object.
+/// A changed rule, waiting to be told to every window (1.0.5: with its show and its save).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleNote {
+    /// *Moira changed when The Folk Club airs.*
+    pub title: String,
+    /// The show's path.
+    pub show: String,
+    /// The token the saving window sent with the save, if it sent one.
+    pub change: Option<String>,
+}
+
 #[derive(Debug, Default)]
 struct StepWake {
     wake: tokio::sync::Notify,
     mover: Mutex<Option<(std::time::Instant, String)>>,
     /// Notices of changed rules (1.0.4) waiting for the reconciler to give every window.
-    rules: Mutex<Vec<String>>,
+    rules: Mutex<Vec<RuleNote>>,
     /// One reconciliation at a time: a later look must not be undone by an earlier one.
     gate: tokio::sync::Mutex<()>,
 }
@@ -98,18 +109,24 @@ impl Live {
         self.1.wake.notify_one();
     }
 
-    /// A show's rule was changed by `who`: every window is told, at the next look.
-    pub fn rule_changed(&self, who: &str, show: &str) {
+    /// A show's rule was changed by `who`: every window is told, at the next look. `slug` names
+    /// the show and `change` the save (the token the saving window sent, 1.0.5), so a window
+    /// knows its own change exactly and a rule dialog open on the show can warn.
+    pub fn rule_changed(&self, who: &str, show: &str, slug: &str, change: Option<&str>) {
         self.1
             .rules
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .push(format!("{who} changed when {show} airs."));
+            .push(RuleNote {
+                title: format!("{who} changed when {show} airs."),
+                show: slug.to_owned(),
+                change: change.map(str::to_owned),
+            });
         self.1.wake.notify_one();
     }
 
     /// The notices of changed rules not yet given to the windows.
-    pub fn take_rule_changes(&self) -> Vec<String> {
+    pub fn take_rule_changes(&self) -> Vec<RuleNote> {
         std::mem::take(&mut *self.1.rules.lock().unwrap_or_else(|p| p.into_inner()))
     }
 

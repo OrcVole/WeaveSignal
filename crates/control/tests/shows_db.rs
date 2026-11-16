@@ -953,6 +953,11 @@ struct Rig {
 }
 
 async fn rig() -> Rig {
+    rig_at("https://kettle.example").await
+}
+
+/// The rig with the station's public address as given (`publishing.public_url`).
+async fn rig_at(public_url: &str) -> Rig {
     let url =
         std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
     let pool = sqlx::PgPool::connect(&url).await.expect("connect");
@@ -1003,7 +1008,7 @@ async fn rig() -> Rig {
         admin_token: Some(ADMIN.into()),
         staff,
         publishing: PublishingConfig {
-            public_url: "https://kettle.example".into(),
+            public_url: public_url.into(),
             place: "Dunfermline".into(),
             cards_dir: dir.join("cards"),
             episodes_dir: dir.join("episodes"),
@@ -1620,6 +1625,23 @@ async fn changing_a_rule_moves_the_drafted_episodes_in_order_and_leaves_the_rest
     )
     .await;
     assert!(code.is_client_error());
+    // A window's token for its save (1.0.5) is taken; one that is not a plain token is refused.
+    let (code, v) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/tuesdays/rule",
+        serde_json::json!({"rule": weekly(4, 1200, 60, "2036-09-04"), "drafted": "leave", "change": "3f2a9c1e-7b4d"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    let (code, _) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/tuesdays/rule",
+        serde_json::json!({"rule": weekly(4, 1200, 60, "2036-09-04"), "drafted": "leave", "change": "not a token"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
     // A series' own rule, and following the show again.
     let (code, v) = json(
         &r.app,
@@ -1702,6 +1724,31 @@ async fn an_older_studio_keeps_a_rule_it_cannot_see_and_a_slot_still_means_a_wee
     let v = put(serde_json::json!({})).await;
     assert!(v["show"]["rule"].is_null());
     assert!(v["show"]["slot"].is_null());
+}
+
+/// The studio makes the calendar links it gives out (Subscribe…, ADR-0281) from the station's
+/// public address, which the week's reply carries: on Cloudron the address the studio talks to
+/// is behind the login, and a link made from it would lead listeners to a login page.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn the_week_says_the_public_address_or_that_there_is_none() {
+    let week = "/api/v1/schedule/episodes?from_ms=2114380800000&to_ms=2114985600000";
+    let r = rig_at("https://kettle.example/").await;
+    let v = ok_body(json(&r.app, "GET", week, serde_json::Value::Null).await);
+    assert_eq!(
+        v["public_url"], "https://kettle.example",
+        "no trailing slash"
+    );
+    // Any role that reads the week reads it: a presenter subscribes to their own show.
+    let (code, v) = json_as(&r.app, &r.presenter, "GET", week, serde_json::Value::Null).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["public_url"], "https://kettle.example");
+    // A station for this machine only has none, and says so with null (never the key left out,
+    // which is how a studio tells a station too old to have calendar files).
+    let r = rig_at("").await;
+    let v = ok_body(json(&r.app, "GET", week, serde_json::Value::Null).await);
+    assert!(v.as_object().unwrap().contains_key("public_url"));
+    assert!(v["public_url"].is_null());
 }
 
 #[tokio::test]
@@ -2271,4 +2318,566 @@ async fn a_show_that_has_aired_or_is_on_air_stays_and_nothing_is_removed() {
         body["error"],
         "On Now has aired 1 episode, so it stays as the station's record: only a show that has never aired can be deleted."
     );
+}
+
+// ---- calendar files (release 1.0.5, ADR-0281) ----
+
+/// A calendar another system exported: a weekly show over Saturday Night Kettle's time, the
+/// last Friday of each month, every other day (not a rule a show can say), an hourly bulletin
+/// (refused) and a one-off.
+fn other_systems_calendar() -> String {
+    [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Elsewhere//EN",
+        "BEGIN:VEVENT",
+        "UID:ceilidh@elsewhere",
+        "SUMMARY:Late Ceilidh",
+        "DESCRIPTION:Reels\\, jigs and requests.",
+        "DTSTART;TZID=Europe/London:20360906T210000",
+        "DTEND;TZID=Europe/London:20360906T223000",
+        "RRULE:FREQ=WEEKLY;BYDAY=SA",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:folk@elsewhere",
+        "SUMMARY:Folk Night",
+        "DTSTART;TZID=Europe/London:20360926T190000",
+        "DURATION:PT2H",
+        "RRULE:FREQ=MONTHLY;BYDAY=FR;BYSETPOS=-1",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:alt@elsewhere",
+        "SUMMARY:Alternate Mornings",
+        "DTSTART;TZID=Europe/London:20360901T070000",
+        "DURATION:PT1H",
+        "RRULE:FREQ=DAILY;INTERVAL=2;COUNT=30",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:news@elsewhere",
+        "SUMMARY:News on the hour",
+        "DTSTART;TZID=Europe/London:20360901T070000",
+        "RRULE:FREQ=HOURLY",
+        "END:VEVENT",
+        "BEGIN:VEVENT",
+        "UID:burns@elsewhere",
+        "SUMMARY:Burns Supper",
+        "DTSTART;TZID=Europe/London:20370125T193000",
+        "DTEND;TZID=Europe/London:20370125T223000",
+        "END:VEVENT",
+        "END:VCALENDAR",
+        "",
+    ]
+    .join("\r\n")
+}
+
+async fn shows_count(r: &Rig) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM show WHERE station_id = $1")
+        .bind(r.station.as_uuid())
+        .fetch_one(&r.pool)
+        .await
+        .unwrap()
+}
+
+async fn get_text(app: &axum::Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+    let res = app
+        .clone()
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (code, headers) = (res.status(), res.headers().clone());
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (code, headers, String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_calendar_file_is_previewed_made_into_shows_and_published_again() {
+    let r = rig().await;
+    // The station's own show, Saturdays 20:00 to 23:00 from 6 September 2036, with a drafted
+    // episode whose title is not to be published before it airs.
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "PUT",
+            "/api/v1/shows/saturday-night",
+            show_body(
+                "Saturday Night Kettle",
+                serde_json::json!({"rule": weekly(6, 1200, 180, "2036-09-06"), "draft_first": true}),
+            ),
+        )
+        .await,
+    );
+    ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "PATCH",
+            "/api/v1/shows/saturday-night/series/1/episodes/1",
+            serde_json::json!({"title": "Secret Guest Night"}),
+        )
+        .await,
+    );
+    let before = shows_count(&r).await;
+    let file = other_systems_calendar();
+
+    // Who may: not a presenter, a screener or a stranger.
+    for (bearer, want) in [
+        (r.presenter.as_str(), StatusCode::FORBIDDEN),
+        (r.screener.as_str(), StatusCode::FORBIDDEN),
+        ("not-a-token", StatusCode::UNAUTHORIZED),
+    ] {
+        let (code, body) = json_as(
+            &r.app,
+            bearer,
+            "POST",
+            "/api/v1/schedule/import/preview",
+            serde_json::json!({"ics": file}),
+        )
+        .await;
+        assert_eq!(code, want, "{body}");
+    }
+
+    // A producer's preview: five items in the file's order, nothing written.
+    let body = ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "POST",
+            "/api/v1/schedule/import/preview",
+            serde_json::json!({"ics": file, "limit": 3}),
+        )
+        .await,
+    );
+    assert_eq!(shows_count(&r).await, before, "a preview writes nothing");
+    assert_eq!(body["zone"], "Europe/London");
+    assert_eq!(body["events"], 5);
+    assert_eq!(body["ready"], 4);
+    let items = body["items"].as_array().unwrap();
+    let names: Vec<&str> = items.iter().map(|i| i["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        names,
+        [
+            "Late Ceilidh",
+            "Folk Night",
+            "Alternate Mornings",
+            "News on the hour",
+            "Burns Supper"
+        ]
+    );
+    let mappings: Vec<&str> = items
+        .iter()
+        .map(|i| i["mapping"].as_str().unwrap())
+        .collect();
+    assert_eq!(mappings, ["exact", "exact", "dates", "refused", "exact"]);
+    let ceilidh = &items[0];
+    assert_eq!(ceilidh["description"], "Reels, jigs and requests.");
+    assert_eq!(ceilidh["slug"], "late-ceilidh");
+    assert_eq!(
+        ceilidh["words"]["sentence"],
+        "Every week on Saturday, 21:00 to 22:30, from 6 September 2036."
+    );
+    assert_eq!(ceilidh["dates"].as_array().unwrap().len(), 3);
+    assert_eq!(ceilidh["dates"][0]["on"], "2036-09-06");
+    assert_eq!(ceilidh["clash_count"], 3, "{ceilidh}");
+    assert_eq!(ceilidh["dates"][0]["clashes"][0]["slug"], "saturday-night");
+    assert_eq!(
+        items[1]["rule"]["repeat"],
+        serde_json::json!({"kind": "monthly_nth", "every": 1, "nth": -1, "weekday": 5})
+    );
+    assert!(
+        items[2]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("every 2 days")
+    );
+    assert!(items[3]["rule"].is_null() && items[3]["slug"].is_null());
+    assert!(
+        items[3]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("within a day")
+    );
+    assert_eq!(items[4]["rule"]["repeat"]["kind"], "once");
+
+    // The file itself, as text/calendar, reads the same.
+    let res = r
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/schedule/import/preview")
+                .header(header::AUTHORIZATION, format!("Bearer {}", r.admin))
+                .header(header::CONTENT_TYPE, "text/calendar; charset=utf-8")
+                .body(Body::from(file.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // A file that is not a calendar: 422, a sentence, the field named. Too many events: 413.
+    let (code, body) = json_as(
+        &r.app,
+        &r.producer,
+        "POST",
+        "/api/v1/schedule/import/preview",
+        serde_json::json!({"ics": "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:2036"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["field"], "ics");
+    assert!(body["error"].as_str().unwrap().ends_with('.'));
+    let many: String = (0..201)
+        .map(|i| {
+            format!(
+                "BEGIN:VEVENT\r\nUID:{i}\r\nSUMMARY:S\r\nDTSTART:20370101T120000Z\r\nEND:VEVENT\r\n"
+            )
+        })
+        .collect();
+    let (code, body) = json_as(
+        &r.app,
+        &r.producer,
+        "POST",
+        "/api/v1/schedule/import/preview",
+        serde_json::json!({"ics": format!("BEGIN:VCALENDAR\r\n{many}END:VCALENDAR\r\n")}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+
+    // Make four, one renamed. A presenter may not; a rule that cannot stand refuses the lot.
+    let chosen: Vec<serde_json::Value> = items
+        .iter()
+        .filter(|i| i["mapping"] != "refused")
+        .map(|i| {
+            let name = if i["name"] == "Late Ceilidh" {
+                "The Late Ceilidh".into()
+            } else {
+                i["name"].clone()
+            };
+            serde_json::json!({"name": name, "description": i["description"], "rule": i["rule"]})
+        })
+        .collect();
+    let (code, _) = json_as(
+        &r.app,
+        &r.presenter,
+        "POST",
+        "/api/v1/schedule/import",
+        serde_json::json!({"items": chosen}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let mut broken = chosen.clone();
+    broken[1]["rule"]["repeat"]["nth"] = serde_json::json!(5);
+    let (code, body) = json_as(
+        &r.app,
+        &r.producer,
+        "POST",
+        "/api/v1/schedule/import",
+        serde_json::json!({"items": broken}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["field"], "items[1].rule");
+    assert!(body["error"].as_str().unwrap().starts_with("“Folk Night”"));
+    assert_eq!(shows_count(&r).await, before, "nothing made");
+
+    let (code, body) = json_as(
+        &r.app,
+        &r.producer,
+        "POST",
+        "/api/v1/schedule/import",
+        serde_json::json!({"items": chosen}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{body}");
+    let made = body["made"].as_array().unwrap();
+    let slugs: Vec<&str> = made.iter().map(|s| s["slug"].as_str().unwrap()).collect();
+    assert_eq!(
+        slugs,
+        [
+            "the-late-ceilidh",
+            "folk-night",
+            "alternate-mornings",
+            "burns-supper"
+        ]
+    );
+    for s in made {
+        assert_eq!(s["step"], "solo");
+        assert!(s["cards"]["square"].is_string(), "{s}");
+        assert!(s["rule_words"]["sentence"].is_string());
+    }
+    assert_eq!(made[0]["rule"], items[0]["rule"]);
+    let episodes: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM episode e JOIN series s ON s.id = e.series_id JOIN show sh ON sh.id = s.show_id WHERE sh.station_id = $1 AND sh.slug <> 'saturday-night'",
+    )
+    .bind(r.station.as_uuid())
+    .fetch_one(&r.pool)
+    .await
+    .unwrap();
+    assert_eq!(episodes, 0, "no episode is drafted");
+    let warnings = body["warnings"].as_array().unwrap();
+    assert_eq!(warnings.len(), 1, "{body}");
+    assert_eq!(warnings[0]["show"], "the-late-ceilidh");
+    assert_eq!(warnings[0]["clashes"][0]["slug"], "saturday-night");
+
+    // The same again: the paths are made free, and nothing is overwritten.
+    let body = ok_body(
+        json_as(
+            &r.app,
+            &r.admin,
+            "POST",
+            "/api/v1/schedule/import",
+            serde_json::json!({"items": [chosen[1].clone()]}),
+        )
+        .await,
+    );
+    assert_eq!(body["made"][0]["slug"], "folk-night-2");
+    // Its card prints its own address, not the first Folk Night's.
+    assert!(
+        body["made"][0]["cards"]["alt"]
+            .as_str()
+            .unwrap()
+            .ends_with("kettle.example/folk-night-2"),
+        "{body}"
+    );
+    assert_eq!(shows_count(&r).await, before + 5);
+
+    // Published: the whole schedule and one show, no bearer, as calendar files.
+    let (code, headers, all) = get_text(&r.app, "/api/v1/public/schedule.ics").await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "text/calendar; charset=utf-8"
+    );
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=30");
+    assert!(all.starts_with("BEGIN:VCALENDAR\r\n"));
+    assert!(all.contains("BEGIN:VTIMEZONE\r\nTZID:Europe/London\r\n"));
+    assert_eq!(all.matches("\r\nBEGIN:VEVENT\r\n").count(), 6);
+    assert!(all.contains("SUMMARY:Saturday Night Kettle\r\n"));
+    // No show page answers at the station's address yet, so no URL is given.
+    assert!(!all.contains("\r\nURL:"));
+    assert!(
+        !all.contains("Secret Guest"),
+        "a drafted title is not published"
+    );
+    let (code, _, one) = get_text(&r.app, "/api/v1/public/shows/the-late-ceilidh.ics").await;
+    assert_eq!(code, StatusCode::OK);
+    assert!(one.contains("X-WR-CALNAME:The Late Ceilidh on Kettle FM\r\n"));
+    assert!(one.contains("RRULE:FREQ=WEEKLY;BYDAY=SA\r\n"));
+    for missing in [
+        "/api/v1/public/shows/no-such-show.ics",
+        "/api/v1/public/shows/the-late-ceilidh",
+    ] {
+        let (code, _, _) = get_text(&r.app, missing).await;
+        assert_eq!(code, StatusCode::NOT_FOUND, "{missing}");
+    }
+
+    // And what was published reads back as the same rule.
+    let body = ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "POST",
+            "/api/v1/schedule/import/preview",
+            serde_json::json!({"ics": one}),
+        )
+        .await,
+    );
+    assert_eq!(body["items"][0]["mapping"], "exact");
+    assert_eq!(body["items"][0]["rule"], items[0]["rule"]);
+    assert_eq!(body["items"][0]["slug"], "the-late-ceilidh-2");
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_stations_own_calendar_read_back_is_already_there_and_no_clash_with_itself() {
+    // The test station's case (the 1.0.5 run): its own schedule.ics imported into itself
+    // proposed every show, each a CONFLICT with itself on every date.
+    let r = rig().await;
+    let put = |slug: &'static str, name: &'static str, extra: serde_json::Value| {
+        let (app, producer) = (r.app.clone(), r.producer.clone());
+        async move {
+            ok_body(
+                json_as(
+                    &app,
+                    &producer,
+                    "PUT",
+                    &format!("/api/v1/shows/{slug}"),
+                    show_body(name, extra),
+                )
+                .await,
+            )
+        }
+    };
+    // A show with an episode drafted (its own clash would be an `episode`); weekdays with a
+    // skipped date; an old weekly slot with no start date; one date.
+    put(
+        "saturday-night",
+        "Saturday Night Kettle",
+        serde_json::json!({"rule": weekly(6, 1200, 180, "2036-09-06"), "draft_first": true}),
+    )
+    .await;
+    put(
+        "kettle-breakfast",
+        "Kettle Breakfast",
+        serde_json::json!({"rule": {
+            "starts_on": "2036-09-01", "start": 420, "minutes": 180,
+            "repeat": {"kind": "weekly", "every": 1, "weekdays": [1, 2, 3, 4, 5]},
+            "skip": ["2036-09-03"]
+        }}),
+    )
+    .await;
+    put(
+        "kettle-drive",
+        "Kettle Drive",
+        serde_json::json!({"slot": {"weekday": 3, "start": 960, "minutes": 120}}),
+    )
+    .await;
+    put(
+        "budget-night",
+        "Budget Night Special",
+        serde_json::json!({"rule": {
+            "starts_on": "2036-11-19", "start": 1080, "minutes": 90, "repeat": {"kind": "once"}
+        }}),
+    )
+    .await;
+    // And one that really does overlap another: Mondays 06:00 to 08:00, over Kettle Breakfast.
+    put(
+        "early-kettle",
+        "Early Kettle",
+        serde_json::json!({"rule": weekly(1, 360, 120, "2036-09-01")}),
+    )
+    .await;
+    let before = shows_count(&r).await;
+
+    let (code, _, file) = get_text(&r.app, "/api/v1/public/schedule.ics").await;
+    assert_eq!(code, StatusCode::OK);
+    let body = ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "POST",
+            "/api/v1/schedule/import/preview",
+            serde_json::json!({"ics": file, "limit": 6}),
+        )
+        .await,
+    );
+    assert_eq!(shows_count(&r).await, before, "a preview writes nothing");
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 5, "{body}");
+    assert_eq!(body["ready"], 5);
+    let own = [
+        ("Saturday Night Kettle", "saturday-night"),
+        ("Kettle Breakfast", "kettle-breakfast"),
+        ("Kettle Drive", "kettle-drive"),
+        ("Budget Night Special", "budget-night"),
+        ("Early Kettle", "early-kettle"),
+    ];
+    for (name, slug) in own {
+        let i = items
+            .iter()
+            .find(|i| i["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is proposed: {body}"));
+        assert_eq!(i["mapping"], "exact", "{i}");
+        // It is the show the station has, by its path and under the name the station gives it.
+        assert_eq!(
+            i["already"],
+            serde_json::json!({"slug": slug, "name": name}),
+            "{i}"
+        );
+        // Made again it would take a second path; that is still said.
+        assert_ne!(i["slug"], slug, "{i}");
+        // Its own times are no clash, on any date, drafted or not.
+        let dates = i["dates"].as_array().unwrap();
+        assert!(!dates.is_empty(), "{i}");
+        for d in dates {
+            for c in d["clashes"].as_array().unwrap() {
+                assert_ne!(c["slug"], slug, "{name} clashes with itself: {d}");
+            }
+        }
+        let clashing = dates
+            .iter()
+            .filter(|d| !d["clashes"].as_array().unwrap().is_empty())
+            .count();
+        assert_eq!(i["clash_count"], clashing, "{i}");
+        match name {
+            // Another show's time is a clash as before: Mondays, each with the other.
+            "Kettle Breakfast" => {
+                assert!(clashing > 0, "{i}");
+                let first = dates
+                    .iter()
+                    .find(|d| !d["clashes"].as_array().unwrap().is_empty())
+                    .unwrap();
+                assert_eq!(first["on"], "2036-09-01");
+                assert_eq!(first["clashes"][0]["slug"], "early-kettle");
+                assert_eq!(first["clashes"].as_array().unwrap().len(), 1);
+            }
+            "Early Kettle" => {
+                assert_eq!(i["clash_count"], 6, "{i}");
+                assert!(
+                    dates
+                        .iter()
+                        .all(|d| d["clashes"][0]["slug"] == "kettle-breakfast")
+                );
+            }
+            _ => assert_eq!(i["clash_count"], 0, "{i}"),
+        }
+    }
+
+    // The same name over other times is not the show: it clashes with it, as it should.
+    let moved = file.replace("T200000", "T193000");
+    assert_ne!(moved, file);
+    let body = ok_body(
+        json_as(
+            &r.app,
+            &r.producer,
+            "POST",
+            "/api/v1/schedule/import/preview",
+            serde_json::json!({"ics": moved, "limit": 3}),
+        )
+        .await,
+    );
+    let saturday = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["name"] == "Saturday Night Kettle")
+        .unwrap()
+        .clone();
+    assert!(saturday["already"].is_null(), "{saturday}");
+    assert_eq!(saturday["clash_count"], 3, "{saturday}");
+    assert_eq!(
+        saturday["dates"][0]["clashes"][0]["slug"], "saturday-night",
+        "{saturday}"
+    );
+
+    // A name that differs only in case and spaces is the show; another name is not.
+    for (renamed, there) in [
+        ("  saturday   NIGHT kettle ", true),
+        ("Saturday Kettle", false),
+    ] {
+        let body = ok_body(
+            json_as(
+                &r.app,
+                &r.producer,
+                "POST",
+                "/api/v1/schedule/import/preview",
+                serde_json::json!({"ics": file.replace("SUMMARY:Saturday Night Kettle", &format!("SUMMARY:{renamed}")), "limit": 3}),
+            )
+            .await,
+        );
+        let i = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["rule"]["repeat"]["weekdays"] == serde_json::json!([6]))
+            .unwrap()
+            .clone();
+        assert_eq!(!i["already"].is_null(), there, "{renamed}: {i}");
+        assert_eq!(
+            i["clash_count"],
+            if there { 0 } else { 3 },
+            "{renamed}: {i}"
+        );
+    }
 }

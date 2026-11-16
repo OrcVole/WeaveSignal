@@ -2,18 +2,25 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 <script lang="ts">
   // The episode editor (calendar.md §4; ADR-0055): the path, the title, the date and a chip for
-  // tonight, the level switch (Episode, Series n, Show), and every field with its marker.
+  // tonight, the level switch (Episode, Series n, Show), and every field with its marker. Show
+  // on the switch leads to the show's own pane, which opens at its Dates (week-clashes.md
+  // section 3); the crumbs begin with ‹ Shows, and the show's name in them leads there too.
+  // With the episode in a clash, `calendar.clash` is the first thing under the head.
   // Inherited fields follow the level above by reference until Set here; Reset to series puts
   // one back (the control plane's `null`); an aired episode is frozen and read-only. The foot
   // saves, discards, drafts the next episode or the rest of the season from the rule.
+  //
+  // The date and time are the one field that is not drafted: Move… and Back to the rule are
+  // saved as they are pressed, with Undo in the tab's line, as a show's dates are (ADR-0283;
+  // `move.ts`). Whatever else is typed here stays in the draft for Save episode.
   import Field from './Field.svelte';
   import SeriesEditor from './SeriesEditor.svelte';
-  import ShowEditor from './ShowEditor.svelte';
+  import ClashBox from './ClashBox.svelte';
+  import TimeField from './TimeField.svelte';
   import * as api from '../lib/schedule.ts';
   import type { Correction, CorrectionInput, EpisodeKind, EpisodePatch, WeekEpisode } from '../lib/schedule.ts';
   import {
     changeWords,
-    fromLocalInput,
     initials,
     localInputValue,
     marker,
@@ -23,10 +30,12 @@
     whenWords,
     dayWords,
     hm,
-    zonedString,
   } from './model.ts';
-  import { shortOfSlot } from './rule/form.ts';
-  import { sched } from '../lib/schedule.svelte.ts';
+  import { moveAsk, ruleAsk } from './move.ts';
+  import { addDays, shortOfSlot } from './rule/form.ts';
+  import { tick } from 'svelte';
+  import { noteUnsaved, sched } from '../lib/schedule.svelte.ts';
+  import type { Block } from './model.ts';
 
   let {
     item,
@@ -34,20 +43,39 @@
     now,
     us,
     onChanged,
-    onDeleted,
+    onMove,
     onCard,
+    block = null,
+    blocks = [],
+    onShows,
+    onShowDates,
+    onShowBlock,
+    onDay,
   }: {
     item: WeekEpisode;
     zone: string;
     now: number;
     us: boolean | null;
     onChanged: () => Promise<void>;
-    /** The episode's show was deleted from its show level (ADR-0279): the tab clears this editor. */
-    onDeleted?: (name: string) => Promise<void> | void;
+    /** Move… and Back to the rule: the time, and the length when it changed, saved at once.
+     *  The tab says it with Undo and the week follows the episode. It answers with the reason
+     *  when the station refuses (a presenter's move onto another show), else null. */
+    onMove: (to: EpisodePatch, back: boolean) => Promise<string | null>;
     onCard: () => void;
+    /** The episode's block and the week on screen, for what it clashes with. */
+    block?: Block | null;
+    blocks?: readonly Block[];
+    /** ‹ Shows: back to the list of shows. */
+    onShows?: () => void;
+    /** The show's pane, at its Dates: Show on the level switch, the show's name, All dates. */
+    onShowDates?: () => void;
+    /** Show it, on a show this one clashes with. */
+    onShowBlock?: (id: string) => void;
+    /** Open the day. */
+    onDay?: () => void;
   } = $props();
 
-  type Level = 'episode' | 'series' | 'show';
+  type Level = 'episode' | 'series';
   let level = $state<Level>('episode');
 
   const ep = $derived(item.episode);
@@ -62,8 +90,14 @@
   // The draft: what differs from the episode as the control plane holds it.
   let draft = $state<EpisodePatch>({});
   let moving = $state(false);
-  let moveAt = $state('');
-  let moveMinutes = $state(60);
+  let moveDate = $state('');
+  let moveTime = $state('');
+  let moveMinutes = $state<number | null>(60);
+  let moveErr = $state('');
+  /** Which of Move…'s fields the reason is about: the date and time, or the length. */
+  let moveErrOn = $state<'when' | 'length'>('when');
+  /** A move is on its way to the station: a second press waits for the first. */
+  let movingNow = $state(false);
   let problem = $state('');
   let saving = $state(false);
 
@@ -80,6 +114,12 @@
   });
 
   const dirty = $derived(Object.keys(draft).length > 0);
+  // Esc on the tab closes this editor, but never over a draft (lib/schedule.svelte.ts, closeOpen).
+  const me = {};
+  $effect(() => {
+    noteUnsaved(me, dirty ? 'The episode' : null);
+    return () => noteUnsaved(me, null);
+  });
   const title = $derived(draft.title ?? ep.title);
   const description = $derived(draft.description ?? ep.description);
   const hostsOwn = $derived(draft.hosts !== undefined ? draft.hosts : ep.hosts);
@@ -120,24 +160,81 @@
     draft = { ...draft, [field]: null };
   }
 
-  function beginMove() {
-    moveAt = localInputValue(start, zone);
-    moveMinutes = minutes;
-    moving = true;
+  /** The field's own buttons, by their words: the focus goes back to one when its row closes. */
+  async function focusAct(field: Element | null, words: string) {
+    await tick();
+    // Not when the focus has gone elsewhere meanwhile (another field, while the station answered).
+    const at = document.activeElement;
+    if (at && at !== document.body && !field?.contains(at)) return;
+    [...(field?.querySelectorAll<HTMLElement>('.lab button.act') ?? [])].find((b) => b.textContent === words)?.focus();
   }
-  function applyMove() {
-    const ms = fromLocalInput(moveAt, zone);
-    if (ms === null) {
-      problem = 'The date and time are not readable; use the picker.';
+  async function beginMove(e: MouseEvent) {
+    // Two fields, as a show's dates have: one date-and-time box was too narrow for the editor
+    // column, and WebKitGTK showed its date and cut its time off (the 1.0.5 click-through).
+    const field = (e.currentTarget as HTMLElement).closest('.field');
+    const at = localInputValue(ep.air_at === null ? now : start, zone);
+    moveDate = at.slice(0, 10);
+    moveTime = at.slice(11, 16);
+    moveMinutes = minutes;
+    moveErr = '';
+    moving = true;
+    await tick();
+    field?.querySelector<HTMLInputElement>('.row.move input.date')?.focus();
+  }
+  function closeMove(field: Element | null) {
+    moving = false;
+    moveErr = '';
+    void focusAct(field, 'Move…');
+  }
+  /** ⏎ in a field of Move… moves, and Esc cancels it, as in a show's dates; the focus goes back
+   *  to its button. The keys are Move…'s own: Esc does not go on to close the editor with a
+   *  date half typed. On a button ⏎ presses that button. */
+  function moveKeys(e: KeyboardEvent) {
+    const field = (e.currentTarget as HTMLElement).closest('.field');
+    if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+      e.preventDefault();
+      e.stopPropagation();
+      void doMove(field);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMove(field);
+    }
+  }
+  /** Move: saved at once. The row stays open on a refusal, with what was typed and the reason. */
+  async function doMove(field: Element | null) {
+    if (movingNow) return;
+    const ask = moveAsk({ date: moveDate, time: moveTime, minutes: moveMinutes }, ep.air_at === null ? null : start, minutes, zone);
+    if ('problem' in ask) {
+      moveErr = ask.problem;
+      moveErrOn = ask.about;
       return;
     }
-    draft = { ...draft, air_at: zonedString(ms, zone), minutes: moveMinutes };
-    moving = false;
+    if ('same' in ask) return closeMove(field);
+    movingNow = true;
+    moveErr = '';
+    try {
+      const refused = await onMove(ask.patch, false);
+      if (refused === null) closeMove(field);
+      else {
+        moveErr = refused;
+        moveErrOn = 'when';
+      }
+    } finally {
+      movingNow = false;
+    }
   }
-  function backToRule() {
-    if (ruleTime === null) return;
-    draft = { ...draft, air_at: zonedString(ruleTime, zone), minutes: null };
-    moving = false;
+  /** Back to the rule: the rule's own time and length again, saved at once as Move is. */
+  async function backToRule(e: MouseEvent) {
+    if (ruleTime === null || movingNow) return;
+    const field = (e.currentTarget as HTMLElement).closest('.field');
+    movingNow = true;
+    try {
+      // Its button goes once the episode is on its rule: the focus goes to Move… beside it.
+      if ((await onMove(ruleAsk(ruleTime, zone), true)) === null) closeMove(field);
+    } finally {
+      movingNow = false;
+    }
   }
 
   async function save() {
@@ -157,7 +254,6 @@
 
   function discard() {
     draft = {};
-    moving = false;
     problem = '';
   }
 
@@ -263,7 +359,11 @@
 </script>
 
 <div class="head">
-  <div class="crumbs"><b>{r.show}</b> › <b>{seriesWord}</b> › Episode {ep.number}</div>
+  <div class="crumbs">
+    {#if onShows}<button type="button" class="back" title="Back to the list of shows (Esc)" aria-keyshortcuts="Escape" onclick={onShows}>‹ Shows</button> ›{/if}
+    {#if onShowDates}<button type="button" class="back" title="The show’s dates" onclick={onShowDates}>{r.show}</button>{:else}<b>{r.show}</b>{/if}
+    › <b>{seriesWord}</b> › Episode {ep.number}
+  </div>
   <h2 data-panel-title>Episode {ep.number}{title ? ` · ${title}` : ''}</h2>
   <div class="when">
     <span class="num">{ep.air_at === null ? 'no air time yet' : whenWords(start, end, zone)}</span>
@@ -278,16 +378,15 @@
   <div class="levels" role="tablist" aria-label="Level">
     <button type="button" role="tab" aria-selected={level === 'episode'} onclick={() => (level = 'episode')}>Episode</button>
     <button type="button" role="tab" aria-selected={level === 'series'} onclick={() => (level = 'series')}>{seriesWord}</button>
-    <button type="button" role="tab" aria-selected={level === 'show'} onclick={() => (level = 'show')}>Show</button>
+    <button type="button" role="tab" aria-selected="false" title="The show: its dates and its details" onclick={() => onShowDates?.()}>Show</button>
   </div>
 </div>
 
 {#if level === 'series'}
   <SeriesEditor slug={item.show.slug} number={item.series.number} {zone} {onChanged} />
-{:else if level === 'show'}
-  <ShowEditor slug={item.show.slug} show={item.show} onSaved={onChanged} onRule={onChanged} {onDeleted} {onCard} embedded />
 {:else}
   <div class="fields">
+    {#if block && onShowBlock && onDay}<ClashBox {block} {blocks} {zone} onshow={onShowBlock} onday={onDay} />{/if}
     {#if frozen}
       <div class="frozen-note">
         <svg aria-hidden="true"><use href="#g-lock" /></svg>
@@ -310,23 +409,27 @@
 
     <Field
       label="Date and time"
-      marker={frozen ? 'frozen' : draft.air_at !== undefined || !onRule ? 'set' : 'inherited'}
+      marker={frozen ? 'frozen' : onRule ? 'inherited' : 'set'}
       from={seriesFrom}
-      hint={ruleShort ? `${ruleShort}, ${zone}` : 'The show has no dates of its own; the time is this episode’s own.'}
+      hint={`${ruleShort ? `${ruleShort}, ${zone}.` : 'The show has no dates of its own; the time is this episode’s own.'}${frozen ? '' : ' A move is saved as you make it.'}`}
     >
       {#snippet actions()}
         {#if !moving}<button type="button" class="act" onclick={beginMove}>Move…</button>{/if}
-        {#if ruleTime !== null && (!onRule || draft.air_at !== undefined)}<button type="button" class="act" onclick={backToRule}>Back to the rule</button>{/if}
+        {#if onShowDates}<button type="button" class="act" onclick={onShowDates}>All dates</button>{/if}
+        {#if ruleTime !== null && !onRule}<button type="button" class="act" disabled={movingNow} onclick={backToRule}>Back to the rule</button>{/if}
       {/snippet}
       {#if moving}
-        <div class="row">
-          <input type="datetime-local" bind:value={moveAt} aria-label="New date and time, station time" />
-          <input type="number" min="1" max="1440" bind:value={moveMinutes} aria-label="Length in minutes" /> min
-          <button type="button" class="btn sm" onclick={applyMove}>Set</button>
-          <button type="button" class="btn sm quiet" onclick={() => (moving = false)}>Cancel</button>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="row move" onkeydown={moveKeys}>
+          <input class="date" type="date" bind:value={moveDate} aria-label="New date, station time" aria-invalid={moveErr && moveErrOn === 'when' ? true : undefined} aria-describedby={moveErr && moveErrOn === 'when' ? 'ee-mv-err' : undefined} />
+          <TimeField bind:value={moveTime} label="New time, station time" invalid={!!moveErr && moveErrOn === 'when'} describedby={moveErr && moveErrOn === 'when' ? 'ee-mv-err' : undefined} oncarry={(d) => (moveDate = addDays(moveDate, d))} />
+          <span class="len"><input type="number" min="1" max="1440" bind:value={moveMinutes} aria-label="Length in minutes" aria-invalid={moveErr && moveErrOn === 'length' ? true : undefined} aria-describedby={moveErr && moveErrOn === 'length' ? 'ee-mv-err' : undefined} /> min</span>
+          <button type="button" class="btn sm primary" disabled={movingNow} onclick={(e) => doMove((e.currentTarget as HTMLElement).closest('.field'))}>Move</button>
+          <button type="button" class="btn sm quiet" onclick={(e) => closeMove((e.currentTarget as HTMLElement).closest('.field'))}>Cancel</button>
+          {#if moveErr}<p id="ee-mv-err" class="err" role="alert">{moveErr}</p>{/if}
         </div>
       {:else}
-        <span class="num">{draft.air_at ? `${draft.air_at.slice(0, 16).replace('T', ' ')} · ${draft.minutes ?? minutes} min (unsaved)` : ep.air_at === null ? 'not set' : `${whenWords(start, end, zone)}`}</span>
+        <span class="num">{ep.air_at === null ? 'not set' : whenWords(start, end, zone)}</span>
       {/if}
     </Field>
 

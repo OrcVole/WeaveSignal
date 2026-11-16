@@ -6,6 +6,7 @@
 pub mod api;
 pub mod apikey;
 pub mod app;
+pub mod calendar;
 pub mod carts;
 pub mod challenge;
 pub mod config;

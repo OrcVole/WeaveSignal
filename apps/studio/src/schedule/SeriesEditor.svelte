@@ -12,7 +12,7 @@
   import * as api from '../lib/schedule.ts';
   import type { SeriesInput, SeriesView } from '../lib/schedule.ts';
   import { initials, splitList } from './model.ts';
-  import { sched } from '../lib/schedule.svelte.ts';
+  import { noteUnsaved, sched } from '../lib/schedule.svelte.ts';
   import { openRuleDialog } from './rule/dialog.svelte.ts';
   import { dateWords, ruleOfSlot, shortOfSlot } from './rule/form.ts';
 
@@ -38,6 +38,12 @@
   const s = $derived(view?.series ?? null);
   const r = $derived(view?.resolved ?? null);
   const dirty = $derived(Object.keys(draft).length > 0);
+  // Esc on the tab closes the editor column, but never over a draft (closeOpen).
+  const me = {};
+  $effect(() => {
+    noteUnsaved(me, dirty ? 'The series' : null);
+    return () => noteUnsaved(me, null);
+  });
   const hosts = $derived(draft.hosts !== undefined ? draft.hosts : (s?.hosts ?? null));
   const tags = $derived(draft.tags !== undefined ? draft.tags : (s?.tags ?? null));
   /** The series' own rule, or null while it follows the show's. */

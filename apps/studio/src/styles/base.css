@@ -7,7 +7,6 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 html { font-size: 16px; }
-@media (min-width: 2200px) { html { font-size: 20px; } html[data-surface="screener"] { font-size: 18px; } }   /* the desk's and the screener's own 2,560 sizes */
 body {
   background: var(--plane); color: var(--ink);
   font-family: var(--font-ui); font-size: var(--fs-14); line-height: var(--lh-label);

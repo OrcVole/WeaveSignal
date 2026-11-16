@@ -14,6 +14,7 @@
   import type { PreviewState } from './previewer.ts';
   import { afterWords, boundsWords, clashNotice, live, months as monthsOf, moveBounds, rows as rowsOf } from './view.ts';
   import { edges } from './edges.ts';
+  import TimeField from '../TimeField.svelte';
 
   let {
     state: st,
@@ -328,8 +329,7 @@
           <li class="mv" onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); doMove(r.on); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); void closeMove(r.on); } }}>
             <label for="rp-mv-date">Move this date to</label>
             <input id="rp-mv-date" type="date" bind:value={moveDate} aria-invalid={moveErr ? true : undefined} aria-describedby="rp-mv-hint" />
-            <label for="rp-mv-time">at</label>
-            <input id="rp-mv-time" type="time" bind:value={moveTime} />
+            <span class="at"><label for="rp-mv-time">at</label> <TimeField id="rp-mv-time" bind:value={moveTime} oncarry={(d) => (moveDate = addDays(moveDate, d))} /></span>
             <button type="button" class="btn sm primary" onclick={() => doMove(r.on)}>Move</button>
             <button type="button" class="btn sm quiet" onclick={() => closeMove(r.on)}>Cancel</button>
             <!-- Refused for its neighbours, the reason is the hint's own sentence: said once, as the error. -->

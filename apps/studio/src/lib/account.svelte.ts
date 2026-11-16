@@ -7,8 +7,10 @@
 // proxy or `?token=`, and there is no keychain to sign out of.
 
 import { FieldError, packaged, setUnauthorizedHandler, signOut, whoAmI, type Me } from './api.ts';
+import { onStationChange } from './reset.ts';
 
-export const account = $state({
+/** What `account` is when the page first loads: a change of station puts it back (ADR-0285). */
+const fresh = () => ({
   /** Who this window runs as; null until the station has answered, or when it cannot say. */
   me: null as Me | null,
   /** The station has answered (or refused) `/sessions/me` once. */
@@ -16,6 +18,8 @@ export const account = $state({
   /** The sign-in has ended: the station's sentence. */
   ended: null as string | null,
 });
+
+export const account = $state(fresh());
 
 /** Ask the station who this window is. An older control plane without the route (404)
  *  leaves `me` null and `loaded` true: the window then behaves as the station key did. */
@@ -56,3 +60,8 @@ export function installSessionWatch(): void {
     return packaged();
   });
 }
+
+// A change of station (ADR-0285): who the window ran as there says nothing about the next.
+onStationChange('account', () => {
+  Object.assign(account, fresh());
+});

@@ -9,8 +9,10 @@ import { account } from './account.svelte.ts';
 import { say, studio } from './studio.svelte.ts';
 import { setup } from './wizard.svelte.ts';
 import { canPrepare, cartShowFor, isPreparing, liveAsks, onAirFor, startsPreparing, type OnAir, type WindowIs } from './prepare.ts';
+import { onStationChange } from './reset.ts';
 
-export const prepare = $state({
+/** What `prepare` is when the page first loads: a change of station puts it back (ADR-0285). */
+const fresh = () => ({
   /** The dialog (`studio.prepare.menu`) is open. */
   menu: false,
   /** What the dialog opens on: the band's Switch to Live… opens it with Live picked. */
@@ -24,6 +26,8 @@ export const prepare = $state({
   /** When a key or a button last met a control this window has switched off: the band answers. */
   nudgedAt: 0,
 });
+
+export const prepare = $state(fresh());
 
 /** Whether this window is preparing: the station's word. */
 export function preparing(): boolean {
@@ -137,3 +141,9 @@ export async function followStation(): Promise<void> {
 export function nudge(): void {
   prepare.nudgedAt = Date.now();
 }
+
+// A change of station (ADR-0285): Live or Preparing is the station's word for that sign-in, and
+// is settled again on arrival. `letGo` is the frame's wiring, and stays.
+onStationChange('prepare', () => {
+  Object.assign(prepare, fresh());
+});

@@ -243,8 +243,11 @@ async function screens() {
   await page.getByRole('button', { name: 'New show' }).click();
   await sleep(800);
   await shot(page, 'how-to-schedule-the-week-new-show');
+  // The first Escape leaves the name field (keymap.md), the second closes the dialog.
   await page.keyboard.press('Escape');
-  await page.locator('.ev', { hasText: 'Saturday Night' }).first().focus();
+  await page.keyboard.press('Escape');
+  await page.locator('dialog[open]').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  await page.locator('.ec .ev:not(.auto):not(.rule)', { hasText: 'Saturday Night' }).first().focus();
   await page.keyboard.press('Enter');
   await panel(page, 'calendar.episode-editor').waitFor();
   await sleep(1200);
@@ -268,7 +271,9 @@ async function screens() {
   await shot(editor, 'reference-calendar-series-editor');
 
   // The show level: a slate picture chosen (the station's demo still), with its size
+  // (since 1.0.5 Show opens the show's pane at its Dates; the show editor is its Details)
   await page.getByRole('tab', { name: /^Show/ }).click();
+  await page.getByRole('tab', { name: 'Details' }).click();
   await panel(page, 'calendar.show-still').waitFor({ timeout: 10000 });
   await page.locator('input[type=file][aria-label^="Choose the show"]').setInputFiles(join(root, 'assets/stills-demo/kettle-fm.png'));
   await page.locator('.still-preview img').waitFor({ timeout: 20000 });
@@ -276,8 +281,7 @@ async function screens() {
   await sleep(1200);
   await shot(panel(page, 'calendar.show-still'), 'reference-calendar-show-still');
 
-  // The log editor: the first automation block still ahead
-  await page.getByRole('tab', { name: 'Episode' }).click();
+  // The log editor: the first automation block still ahead (selecting it leaves the show's pane)
   await page.locator('.ev.auto:not(.past)').first().focus();
   await page.keyboard.press('Enter');
   await panel(page, 'calendar.log-editor').waitFor({ timeout: 10000 });
@@ -285,7 +289,7 @@ async function screens() {
   await shot(editor, 'reference-calendar-log-editor');
 
   // An aired episode: put tonight's on air now, then read it frozen
-  await page.locator('.ev', { hasText: 'Saturday Night' }).first().focus();
+  await page.locator('.ec .ev:not(.auto):not(.rule)', { hasText: 'Saturday Night' }).first().focus();
   await page.keyboard.press('Enter');
   await sleep(800);
   await page.getByRole('button', { name: 'On air now' }).click();

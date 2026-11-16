@@ -294,6 +294,21 @@ PY
         [[ $code == 200 ]] || fail "public $path answered $code, not 200"
     done
     ok "public domain: /api/v1/chat/info, /api/v1/player, /api/v1/station, /api/v1/now-playing answer 200"
+    # Calendar files (ADR-0281): the schedule as .ics, with no bearer.
+    headers=$(curl -fsS -D - -o /dev/null --max-time 5 "$pub/api/v1/public/schedule.ics") \
+        || fail "public /api/v1/public/schedule.ics did not answer 200"
+    grep -qi '^content-type: text/calendar' <<< "$headers" || fail "public schedule.ics is not text/calendar"
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 5 "$pub/api/v1/public/schedule.ics" || true)
+    [[ $code == 405 || $code == 403 ]] || fail "public schedule.ics took a POST ($code)"
+    ok "public domain: /api/v1/public/schedule.ics answers as a calendar, GET only"
+    # The read-only JSON for a station's own website (ADR-0282), GET only.
+    for path in /api/v1/public/station /api/v1/public/schedule /api/v1/public/episodes; do
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$pub$path" || true)
+        [[ $code == 200 ]] || fail "public $path answered $code, not 200"
+        code=$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 5 "$pub$path" || true)
+        [[ $code == 405 || $code == 403 ]] || fail "public $path took a POST ($code)"
+    done
+    ok "public domain: /api/v1/public/station, schedule and episodes answer 200, GET only"
     for path in /api/v1/studio /api/v1/chat/admin/holds /api/v1/chat/mod/log /api/v1/chat/mod/avatars/00000000-0000-0000-0000-000000000000 /api/v1/retention/setting /api/v1/carts /api/v1/staff /api/v1/sessions/me; do
         code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $admin" --max-time 5 "$pub$path" || true)
         [[ $code == 404 ]] || fail "public $path answered $code, not 404"

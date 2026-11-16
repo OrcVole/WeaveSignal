@@ -18,7 +18,8 @@
   // Delete show… (`calendar.show-delete`, ADR-0279) is at the foot, left, for an admin or a
   // producer on a station of 1.0.4 or later: a confirmation that says what goes with the show,
   // with its real counts, and shows the station's own sentence when it refuses (409: an episode
-  // has aired or is on air now), keeping the show.
+  // has aired or is on air now), keeping the show. When it airs also offers Subscribe…
+  // (`calendar.subscribe`, ADR-0281): the link to this show's calendar file.
   import { untrack } from 'svelte';
   import Field from './Field.svelte';
   import ShowStill from './ShowStill.svelte';
@@ -33,10 +34,11 @@
   import { MUSIC_REMINDER } from '../lib/wizard.ts';
   import StepList from '../lib/StepList.svelte';
   import { STEP_LONG, asStep } from '../lib/steps.ts';
-  import { sched } from '../lib/schedule.svelte.ts';
+  import { noteUnsaved, sched } from '../lib/schedule.svelte.ts';
   import { openRuleDialog } from './rule/dialog.svelte.ts';
   import { dateWords, ruleOfSlot, shortOfSlot, whenFields } from './rule/form.ts';
   import { unscheduled } from './rule/view.ts';
+  import Subscribe from './files/Subscribe.svelte';
 
   let {
     slug,
@@ -79,6 +81,14 @@
     // The step the show has (Full before steps arrived).
     step: asStep(seed.show.step),
   });
+  /** The draft as it was last read from the station or saved to it: Esc on the tab closes the
+   *  editor column, but never over a draft that differs (lib/schedule.svelte.ts, closeOpen). */
+  let clean = $state(untrack(() => JSON.stringify(draft)));
+  const me = {};
+  $effect(() => {
+    noteUnsaved(me, JSON.stringify(draft) !== clean ? 'The show' : null);
+    return () => noteUnsaved(me, null);
+  });
   let problem = $state('');
   let saving = $state(false);
   /** The ask before a show's dates are cleared. */
@@ -93,6 +103,11 @@
   /** A rule that gives nothing more: `Finished: its 10 episodes are made`. */
   const finished = $derived(rulesOn && hasRule ? (unscheduled([stored], true).finished[0]?.why ?? '') : '');
   const next = $derived(stored.next_on?.on ? dateWords(stored.next_on.on, { weekday: 'short' }) : '');
+
+  /** Subscribe… (`calendar.subscribe`, ADR-0281): the link to this show's calendar file, on a
+   *  station that has calendar files (1.0.5: it sends its public address, or null, with the week). */
+  const calendarFiles = $derived(sched.publicUrl !== undefined);
+  let subscribing = $state(false);
 
   /** Delete show… is the station's for an admin or a producer, from 1.0.4 (the same release as
    *  the rule); nobody is offered it before the station has said who this window is. */
@@ -156,6 +171,7 @@
           commercial_music: v.show.commercial_music ?? false,
           step: asStep(v.show.step),
         };
+        clean = JSON.stringify(draft);
       })
       .catch((e) => (problem = e instanceof Error ? e.message : String(e)));
   });
@@ -189,6 +205,7 @@
       if (view && body.step === asStep(view.show.step)) delete body.step;
       const v = await api.putShow(path, body);
       view = v;
+      clean = JSON.stringify(draft);
       await onSaved(v);
     } catch (e) {
       problem = e instanceof Error ? e.message : String(e);
@@ -279,6 +296,7 @@
     {#snippet actions()}
       <button type="button" class="act" onclick={changeRule}>{hasRule ? 'Change…' : 'Give it dates…'}</button>
       {#if hasRule && !clearing}<button type="button" class="act" onclick={() => (clearing = true)}>Clear</button>{/if}
+      {#if calendarFiles}<button type="button" class="act" aria-haspopup="dialog" title="The link to this show’s calendar file, for listeners’ own calendars" onclick={() => (subscribing = true)}>Subscribe…</button>{/if}
     {/snippet}
     {#if clearing}
       <span class="confirm" role="group" aria-label="Clear the show's dates">
@@ -337,6 +355,9 @@
   </div>
   <p class="caption">Saving draws the show's three cards (link, post, square); a name that does not fit even at its floor is refused with the field named.</p>
 </div>
+{#if subscribing}
+  <Subscribe show={{ slug, name: stored.name, hasDates: hasRule }} publicUrl={sched.publicUrl} onClose={() => (subscribing = false)} />
+{/if}
 {#if removing}
   <dialog bind:this={removeEl} class="wz confirm" data-panel="calendar.show-delete" role="alertdialog" aria-labelledby="sd-h" aria-describedby="sd-p" oncancel={(e) => { e.preventDefault(); removing = null; }}>
     <div class="head">

@@ -21,6 +21,31 @@
 .schedule .toolbar .legend svg { width: 12px; height: 12px; }
 .schedule .toolbar .legend .past { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--axis); background: var(--surface-2); opacity: 0.6; border-radius: 2px; }
 .schedule .toolbar .load { font-size: var(--fs-13); color: var(--muted); }
+/* Calendar files (ADR-0281; calendar-files.md section 1). The toolbar stays on one line at
+   1440 by 900 (week-clashes.md section 2), where the legend leaves about 35 px in a week such
+   as 16 – 22 November and less under a longer month's name: so Import a calendar… and
+   Subscribe… are two buttons only in a window with room for their words beside the legend,
+   and otherwise the two entries of one menu, on a narrow button that stands against New show
+   (2 px from it, 1.5 rem wide: 26 px of the line in all). The toolbar is the container the
+   room is measured in, in its own pixels, so the text size counts. */
+.schedule .toolbar { container-type: inline-size; container-name: caltools; position: relative; z-index: 5; }
+.schedule .toolbar .files-wide { display: none; }
+.schedule .toolbar .files-menu { position: relative; display: inline-flex; margin-left: calc(2px - var(--s-3)); }
+.schedule .toolbar .more { width: 1.5rem; padding: 0; }
+.schedule .toolbar .more svg { width: 14px; height: 14px; fill: currentColor; }
+.schedule .toolbar .more[aria-expanded='true'] { background: var(--surface-3); border-color: var(--accent); }
+@container caltools (min-width: 116rem) {
+  .schedule .toolbar .files-wide { display: inline-flex; }
+  .schedule .toolbar .files-menu { display: none; }
+}
+.schedule .tmenu { position: absolute; inset: auto; top: calc(100% + var(--s-1)); left: 0; margin: 0; z-index: 1100; width: max-content; max-width: min(22rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); padding: var(--s-1); background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: var(--r-2); box-shadow: var(--e-3); }
+.schedule .tmenu[open] { display: block; }
+.schedule .tmenu [role='menu'] { display: grid; gap: 2px; }
+.schedule .tmenu.end { left: auto; right: 0; }
+.schedule .tmenu button { appearance: none; font: inherit; text-align: left; color: var(--ink); background: transparent; border: 0; border-radius: var(--r-1); padding: var(--s-2) var(--s-3); cursor: pointer; display: grid; gap: 1px; }
+.schedule .tmenu button:hover, .schedule .tmenu button:focus-visible { background: var(--surface-2); }
+.schedule .tmenu button b { font-weight: 600; font-size: var(--fs-14); }
+.schedule .tmenu button span { font-size: var(--fs-12); color: var(--ink-2); }
 
 /* the body: calendar plus editor */
 .schedule .body { display: grid; grid-template-columns: minmax(0, 1fr) 26rem; min-height: 0; }
@@ -29,60 +54,179 @@
 .schedule .cal .empty { padding: var(--s-4); color: var(--muted); font-size: var(--fs-13); }
 .schedule .cal .grid-host { min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr); }
 
+/* The fold's tab (week-clashes.md): how much of the show's colour its ground holds over the surface, and the ink on it.
+   The ink is the one the system puts on a filled colour, not the page's: the page's ink fails on the lighter show colours
+   above 49 % in Dark and 44 % in Night. Worked out from tokens.css for the twelve show colours and --deemph, the least
+   contrast of the ink on the ground (4.5:1 is the mark for the name, 3:1 for the chevron): Dark, 60 % and white, 5.87:1;
+   Light, 60 % and --ink, 4.92:1; Night, 50 % and its warm white, 4.71:1 (Night's colours are lighter: at 60 % the peach
+   and the yellow leave no ink above 4.5:1 but a dark one). clash.test.ts does the sums again from the two files. */
+.schedule .ec { --fold-tint: 60%; --fold-ink: var(--live-onair-ink); }
+:root[data-theme="light"] .schedule .ec { --fold-ink: var(--ink); }
+:root[data-theme="night"] .schedule .ec { --fold-tint: 50%; }
 /* Event Calendar restyled to the tokens */
-.schedule .ec { color-scheme: inherit; --ec-bg-color: transparent; --ec-text-color: var(--ink-2); --ec-border-color: var(--hairline); --ec-today-bg-color: transparent; --ec-highlight-color: color-mix(in srgb, var(--accent) 5%, transparent); --ec-event-bg-color: transparent; --ec-event-text-color: var(--ink-2); --ec-bg-event-color: transparent; --ec-bg-event-opacity: 1; --ec-event-col-gap: 0.25rem; --ec-now-indicator-color: var(--live-onair); font-size: var(--fs-12); font-family: var(--font-ui); }
+.schedule .ec { --fold-tab: 1.5rem; color-scheme: inherit; --ec-bg-color: transparent; --ec-text-color: var(--ink-2); --ec-border-color: var(--hairline); --ec-today-bg-color: transparent; --ec-highlight-color: color-mix(in srgb, var(--accent) 5%, transparent); --ec-event-bg-color: transparent; --ec-event-text-color: var(--ink-2); --ec-bg-event-color: transparent; --ec-bg-event-opacity: 1; --ec-event-col-gap: 0.25rem; --ec-now-indicator-color: var(--live-onair); font-size: var(--fs-12); font-family: var(--font-ui); }
 .schedule .ec .ec-header { background: var(--surface); border-bottom: 1px solid var(--hairline); }
 .schedule .ec .ec-header .ec-col-head, .schedule .ec .ec-header .ec-sidebar { border-color: var(--hairline); }
-.schedule .ec .ec-col-head { padding: var(--s-2); min-height: 3rem; line-height: var(--lh-label); font-size: var(--fs-13); color: var(--ink-2); text-align: left; }
-.schedule .ec .ec-col-head time { display: grid; }
-.schedule .ec .ec-col-head b { display: block; color: var(--ink); font-weight: 600; font-size: var(--fs-14); }
+.schedule .ec .ec-col-head { padding: 0; min-height: 3rem; line-height: var(--lh-label); font-size: var(--fs-13); color: var(--ink-2); text-align: left; }
+.schedule .ec .ec-col-head time { display: grid; min-height: 3rem; min-width: 0; }
+.schedule .ec .ec-col-head time > b, .schedule .ec .ec-col-head time > .dst { padding: 0 var(--s-2); }
+.schedule .ec .ec-col-head b { display: block; color: var(--ink); font-weight: 600; font-size: var(--fs-14); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .schedule .ec .ec-col-head .today-word { color: var(--accent); font-weight: 600; font-size: var(--fs-12); }
-.schedule .ec .ec-col-head .dst { display: block; font-size: var(--fs-12); color: var(--muted); }
+.schedule .ec .ec-col-head .dst { display: flex; gap: var(--s-2); align-items: center; font-size: var(--fs-12); color: var(--muted); white-space: nowrap; }
+/* a day's header is a button that opens the day (week-clashes.md); a day with a clash counts the shows in it */
+.schedule .ec .dayhd { appearance: none; font: inherit; color: inherit; text-align: left; background: transparent; border: 0; margin: 0; padding: var(--s-2); min-width: 0; min-height: 3rem; overflow: hidden; display: grid; align-content: start; cursor: pointer; line-height: var(--lh-label); }
+.schedule .ec .dayhd:hover { background: var(--surface-2); }
+.schedule .ec .dayhd:focus-visible, .schedule .ec .strip button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.schedule .cl { display: inline-flex; align-items: center; gap: 3px; color: var(--ink); font-weight: 700; font-size: var(--fs-12); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 0 4px; line-height: 1.25; white-space: nowrap; }
+.schedule .cl svg { width: 11px; height: 11px; color: var(--status-warning); flex: none; }
+/* calendar.day.strip: the week's seven days as buttons, in place of the Day view's one column head */
+.schedule .ec .strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-height: 3rem; min-width: 0; }
+.schedule .ec .strip button { appearance: none; font: inherit; font-size: var(--fs-13); color: var(--ink-2); background: transparent; border: 0; border-left: 1px solid var(--hairline); margin: 0; padding: 0 var(--s-3); display: flex; align-items: center; gap: var(--s-2); cursor: pointer; min-width: 0; white-space: nowrap; overflow: hidden; }
+.schedule .ec .strip button:first-child { border-left: 0; }
+.schedule .ec .strip button b { display: inline; font-weight: 600; font-size: var(--fs-14); color: var(--ink-2); }
+.schedule .ec .strip button:hover { background: var(--surface-2); }
+.schedule .ec .strip button[aria-pressed='true'] { background: var(--surface-3); box-shadow: inset 0 -3px 0 var(--accent); }
+.schedule .ec .strip button[aria-pressed='true'] b { color: var(--ink); }
+.schedule .ec-host.dayview .ec .ec-header .ec-highlight { box-shadow: none; }
 .schedule .ec .ec-header .ec-highlight { box-shadow: inset 0 -3px 0 var(--accent); }
 .schedule .ec .ec-sidebar { font-family: var(--font-mono); font-size: var(--fs-12); color: var(--muted); font-variant-numeric: tabular-nums; }
 .schedule .ec .ec-time, .schedule .ec .ec-line { border-color: var(--grid); }
 .schedule .ec .ec-day { border-color: var(--hairline); }
 .schedule .ec .ec-body .ec-highlight { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-.schedule .ec .ec-event { padding: 0; border-radius: var(--r-1); box-shadow: none; background: transparent; color: inherit; overflow: hidden; }
-.schedule .ec .ec-event:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+/* The week scrolls in .ec-main. In the studio app (WebKitGTK) a scrollbar drawn over the content takes the pointer for
+   some 22 px inside the scroller's right edge, which is most of Sunday's strip: a folded block's tab there could be
+   seen and not pressed (measured in the real build, tests/calendar-path). A scrollbar with a width of its own has room
+   of its own, and the days end beside it. */
+.schedule .ec .ec-main::-webkit-scrollbar { width: 10px; height: 10px; }
+.schedule .ec .ec-main::-webkit-scrollbar-track { background: transparent; }
+.schedule .ec .ec-main::-webkit-scrollbar-thumb { background: var(--axis); border: 2px solid transparent; border-radius: 5px; background-clip: padding-box; }
+.schedule .ec .ec-main::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
+.schedule .ec .ec-main::-webkit-scrollbar-corner { background: transparent; }
+/* The library's own ground, shadow and radius give way to the block's (.ev, below). This rule used to set a transparent
+   ground and no shadow with three classes, which outranked every .ev rule: no block had a ground at all, the grid's lines
+   and any block behind showed through, and the selected block lost its inner line (week-clashes.md section 1). */
+.schedule .ec-event { padding: 0; border-radius: var(--r-1); color: inherit; overflow: hidden; }
+.schedule .ec .ec-event:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.schedule .ec .ec-event.selectable { cursor: pointer; }
 .schedule .ec .ec-event-body { height: 100%; display: block; }
 .schedule .ec .ec-event-title { display: contents; font: inherit; }
 .schedule .ec .ec-event-time { display: none; }
 .schedule .ec .ec-draggable { cursor: grab; }
-.schedule .ec .ec-bg-event.now-line { background: transparent; border-top: 2px solid var(--live-onair); z-index: 3; overflow: visible; opacity: 1; pointer-events: none; }
+/* The block the library moves while dragging is a copy of the event, and carries the place in the stack the fold gave it
+   inline; it must be in front of every block all the same (the library's own rule says 1000, and loses to an inline value). */
+.schedule .ec .ec-event.ec-preview { z-index: 1000 !important; }
+.schedule .ec .ec-bg-event.now-line { background: transparent; border-top: 2px solid var(--live-onair); z-index: 60; overflow: visible; opacity: 1; pointer-events: none; }
 .schedule .ec .ec-bg-event.now-line::before { content: ''; position: absolute; left: -5px; top: -6px; width: 10px; height: 10px; border-radius: 50%; background: var(--live-onair); }
 .schedule .ec .ec-bg-event.now-line .now-label { position: absolute; left: var(--s-2); top: -1rem; font-family: var(--font-mono); font-size: var(--fs-12); color: var(--live-onair); background: var(--plane); padding: 0 var(--s-1); font-variant-numeric: tabular-nums; display: block; line-height: 1.1; }
 
 /* a block: a show instance (the same markup whichever library places it). The library's own
    element carries .ev (the frame: band, surface, border); our .evb inside it is the column. */
-.ev { height: 100%; min-width: 0; border-radius: var(--r-1); background: var(--surface); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); padding: 0; overflow: hidden; font-size: var(--fs-12); line-height: var(--lh-label); color: var(--ink-2); cursor: pointer; text-align: left; font-family: var(--font-ui); box-shadow: var(--e-1); box-sizing: border-box; }
-.ev:hover { background: var(--surface-2); }
-.ev .evb { display: flex; flex-direction: column; gap: 1px; height: 100%; padding: 3px var(--s-2) 3px var(--s-2); overflow: hidden; min-width: 0; }
-.ev .evb > *, .ev .rest > * { flex: none; min-width: 0; }
-.ev .rest { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
-.ev .t { display: flex; justify-content: space-between; gap: var(--s-1); font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; min-width: 0; overflow: hidden; }
-.ev .t .rep { font-family: var(--font-ui); display: inline-flex; align-items: center; gap: 2px; }
-.ev .t .rep svg { width: 11px; height: 11px; }
-.ev b { color: var(--ink); font-weight: 600; font-size: var(--fs-13); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ev .kind { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: var(--fs-12); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; color: var(--ink-2); }
-.ev .kind svg { width: 11px; height: 11px; }
-.ev .who { color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ev .ep { color: var(--ink-2); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ev .ep.studio { color: var(--muted); }
-.ev.auto { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--surface-3) 70%, transparent) 6px 7px), var(--plane); border-left-color: var(--deemph); color: var(--muted); box-shadow: none; }
-.ev.auto b { color: var(--ink-2); font-weight: 500; }
-.ev.auto .kind { color: var(--muted); }
-.ev.rule { background: transparent; border-style: dashed; border-left-style: solid; box-shadow: none; }
-.ev.rule b { color: var(--ink-2); }
-.ev.past { background: color-mix(in srgb, var(--surface) 70%, var(--plane)); border-left-color: color-mix(in srgb, var(--show-colour, var(--deemph)) 55%, var(--plane)); box-shadow: none; }
-.ev.auto.past { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--surface-3) 45%, transparent) 6px 7px), var(--plane); }
-.ev.sel { background: var(--surface-2); border-color: var(--accent); border-left-color: var(--show-colour, var(--deemph)); box-shadow: inset 0 0 0 1px var(--accent), var(--e-2); }
-.ev .flag { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 1px 3px; width: max-content; max-width: 100%; margin-top: 2px; line-height: 1.2; }
-.ev .flag svg { width: 11px; height: 11px; color: var(--status-warning); }
-.ev .flag.moved { border-color: var(--accent); }
-.ev .flag.moved svg { color: var(--accent); }
-.ev .flag.onair { border-color: var(--live-onair); background: var(--live-onair); color: var(--live-onair-ink); }
-.ev .flag.onair svg { color: var(--live-onair-ink); }
+.schedule .ev { height: 100%; min-width: 0; border-radius: var(--r-1); background: var(--surface); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); padding: 0; overflow: hidden; font-size: var(--fs-12); line-height: var(--lh-label); color: var(--ink-2); cursor: pointer; text-align: left; font-family: var(--font-ui); box-shadow: var(--e-1); box-sizing: border-box; }
+/* hover is quieter than selection: the ground lifts and the border darkens; only the selected block has the accent line */
+.schedule .ev:not(.auto):not(.sel):hover { background: var(--surface-2); border-top-color: var(--axis); border-right-color: var(--axis); border-bottom-color: var(--axis); }
+.schedule .ev.auto:not(.sel):hover { border-top-color: var(--axis); border-right-color: var(--axis); border-bottom-color: var(--axis); }
+.schedule .ev .evb { display: flex; flex-direction: column; gap: 1px; height: 100%; padding: 3px var(--s-2) 3px var(--s-2); overflow: hidden; min-width: 0; }
+.schedule .ev .evb > *, .schedule .ev .rest > * { flex: none; min-width: 0; }
+.schedule .ev .rest { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
+/* a line that does not fit is left out whole, never cut through: the lines under the name wrap into a column that is out of sight */
+.schedule .ev .evb:not(.wide):not(.tabb) .rest { flex: 1 1 0; min-height: 0; flex-wrap: wrap; align-content: flex-start; column-gap: 100rem; overflow: hidden; }
+.schedule .ev .evb:not(.wide):not(.tabb) .rest::before { content: ''; flex: none; height: 0; margin-bottom: -1px; }
+.schedule .ev .evb:not(.wide):not(.tabb) .rest > * { max-width: 100%; }
+.schedule .ev .evb:not(.wide) .rest .flag { margin-top: 1px; margin-bottom: 1px; }
+.schedule .ev .t { display: flex; justify-content: space-between; gap: var(--s-1); font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; min-width: 0; overflow: hidden; }
+/* the warning triangle leads the time row, where neither a one-hour block nor a narrow one can cut it off */
+.schedule .ev .t .tl { display: inline-flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; flex: 0 1 auto; }
+.schedule .ev .t .cf { display: inline-flex; color: var(--status-warning); flex: none; }
+.schedule .ev .t .cf svg { width: 11px; height: 11px; }
+.schedule .ev .t .rep { font-family: var(--font-ui); display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.schedule .ev .t .rep svg { width: 11px; height: 11px; }
+.schedule .ev b { color: var(--ink); font-weight: 600; font-size: var(--fs-13); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.schedule .ev .kind { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: var(--fs-12); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; color: var(--ink-2); }
+.schedule .ev .kind svg { width: 11px; height: 11px; }
+.schedule .ev .who { color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.schedule .ev .ep { color: var(--ink-2); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.schedule .ev .ep.studio { color: var(--muted); }
+.schedule .ev.auto { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--surface-3) 70%, transparent) 6px 7px), var(--plane); border-left-color: var(--deemph); color: var(--muted); box-shadow: none; }
+.schedule .ev.auto b { color: var(--ink-2); font-weight: 500; }
+.schedule .ev.auto .kind { color: var(--muted); }
+/* a dotted date's ground is opaque, so nothing under it shows through */
+.schedule .ev.rule { background: var(--plane); border-style: dashed; border-left-style: solid; box-shadow: none; }
+.schedule .ev.rule b { color: var(--ink-2); }
+.schedule .ev.rule:not(.sel):hover { background: var(--surface); }
+.schedule .ev.past { background: color-mix(in srgb, var(--surface) 70%, var(--plane)); border-left-color: color-mix(in srgb, var(--show-colour, var(--deemph)) 55%, var(--plane)); box-shadow: none; }
+.schedule .ev.auto.past { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--surface-3) 45%, transparent) 6px 7px), var(--plane); }
+.schedule .ev.sel, .schedule .ev.rule.sel { background: var(--surface-2); border-color: var(--accent); border-left-color: var(--show-colour, var(--deemph)); box-shadow: inset 0 0 0 1px var(--accent), var(--e-2); }
+.schedule .ev .flag { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 1px 3px; width: max-content; max-width: 100%; margin-top: 2px; line-height: 1.2; }
+.schedule .ev .flag svg { width: 11px; height: 11px; color: var(--status-warning); }
+.schedule .ev .flag.moved { border-color: var(--accent); }
+.schedule .ev .flag.moved svg { color: var(--accent); }
+.schedule .ev .flag.onair { border-color: var(--live-onair); background: var(--live-onair); color: var(--live-onair-ink); }
+.schedule .ev .flag.onair svg { color: var(--live-onair-ink); }
+
+/* "over" names the other show, with a square of its colour (the colour of that show's tab beside the block) */
+.schedule .ev .over { display: block; color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.schedule .ev .over i, .clashbox li i { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
+.schedule .ev .over i { margin: 0 4px 0 1px; vertical-align: -1px; }
+/* an hour's block has one line for its name: cut at the block's edge, never through a second line */
+.schedule .ev.short .evb:not(.wide) > b { display: block; white-space: nowrap; text-overflow: ellipsis; }
+/* and, in a clash, a third line for what it is over (the 1.0.5 test run: an hour's block over a three-hour show said
+   nothing of it). The CONFLICT chip gives way (the triangle before the time says it) and the three lines sit tighter. */
+.schedule .ev.short .evb:not(.wide) .rest .flag:not(.onair) { display: none; }
+.schedule .ev.short.conflict:not(.tiny) .evb:not(.wide):not(.tabb) { padding-top: 2px; padding-bottom: 1px; gap: 0; }
+.schedule .ev.short.conflict:not(.tiny) .evb:not(.wide) .t { line-height: 13px; }
+.schedule .ev.short.conflict:not(.tiny) .evb:not(.wide) > b { line-height: 15px; }
+.schedule .ev.short.conflict:not(.tiny) .evb:not(.wide) .over { line-height: 13px; }
+.schedule .ev.tiny .over { display: none; }
+
+/* the fold (week-clashes.md): one block open, the others behind it, each showing in a strip 1.5 rem wide at the day's
+   right edge. Where a clashing block sits is the adapter's to say (its width, its place in the stack); this is how it looks. */
+/* the open block gives its repeat glyph's room to the time, and sits a little from the strip */
+.schedule .ev.narrow .t .rep { display: none; }
+.schedule .ev.narrow .evb { padding-left: 6px; padding-right: var(--s-1); }
+.schedule .ev.narrow .t .num { letter-spacing: -0.03em; }
+/* a block that is covered later than its first hour keeps its words above the cover, cut where the cover begins */
+.schedule .ev.under .evb { max-height: var(--clear, none); }
+/* the tab: beside each stretch another block covers, the covered block shows as a thing to press. A ground filled with
+   the show's colour (--fold-tint of it over the surface, with --fold-ink on it: above), the colour itself as a band on
+   its left as on every block, a chevron towards the open block, and the show's name down it where the tab is an hour and
+   a half or taller. The strip is the target size (1.5 rem). At 40 % the operator's 1.0.5 run found the ground too faint
+   to read as the show's colour: a dark green on near-black in Dark, a pale blue in Light. */
+.schedule .ev .ftab { position: absolute; right: 0; width: var(--fold-tab); box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 0 4px; overflow: hidden; background: color-mix(in srgb, var(--show-colour, var(--deemph)) var(--fold-tint), var(--surface)); border-top: 1px solid var(--axis); border-bottom: 1px solid var(--axis); border-left: 4px solid var(--show-colour, var(--deemph)); color: var(--fold-ink); cursor: pointer; }
+.schedule .ev .ftab .chev { width: 12px; height: 12px; flex: none; }
+.schedule .ev .ftab .fn { writing-mode: vertical-rl; flex: 0 1 auto; min-height: 0; max-height: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-ui); font-size: var(--fs-12); font-weight: 600; line-height: 1.25; }
+.schedule .ev .ftab.bare .fn { display: none; }
+/* a covered block that itself leaves the strip to a block behind it (three shows in a chain) is the open block's width:
+   its tab stands out in the strip, beyond its own edge, so every covered stretch has its tab where a tab is looked for */
+.schedule .ec .ec-event.ev.spill { overflow: visible; }
+.schedule .ev .ftab.out { right: calc(-1 * (var(--fold-tab) + 3px)); }
+/* a dotted date's tab keeps the dashes of its block */
+.schedule .ev.rule .ftab { border-top-style: dashed; border-bottom-style: dashed; }
+.schedule .ev.past .ftab { background: color-mix(in srgb, var(--show-colour, var(--deemph)) 22%, var(--plane)); border-left-color: color-mix(in srgb, var(--show-colour, var(--deemph)) 55%, var(--plane)); color: var(--ink-2); }
+/* pointed at or focused, the tab is ringed; nothing moves (the week keeps still under the pointer) */
+.schedule .ev:hover .ftab, .schedule .ec .ec-event:focus-visible .ftab { box-shadow: inset 0 0 0 1px var(--fold-ink); }
+.schedule .ev.past:hover .ftab, .schedule .ec .ec-event.past:focus-visible .ftab { box-shadow: inset 0 0 0 1px var(--ink); }
+.schedule .ev.tab { cursor: pointer; }
+.schedule .ev.tab .evb.tabb { position: absolute; inset: 0; padding: 0; display: block; }
+/* a covered block's name, in any part of half an hour or more that the blocks over it leave clear */
+.schedule .ev .lbl { position: absolute; left: var(--s-2); right: var(--s-2); color: var(--ink); font-weight: 600; font-size: var(--fs-12); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.schedule .ev.rule .lbl, .schedule .ev.past .lbl { color: var(--ink-2); }
+/* two or more hidden at one time: one tab with the count, on their colours side by side; it opens the day */
+.schedule .ev.tab.count { border: 1px solid var(--axis); background: var(--stripes), var(--surface); box-shadow: none; }
+.schedule .ev.tab.count:not(.sel):hover, .schedule .ec .ec-event.tab.count:focus-visible { background: var(--stripes), var(--surface); box-shadow: inset 0 0 0 1px var(--fold-ink); }
+.schedule .ev.tab.count .plus { position: absolute; top: 4px; left: 0; right: 0; text-align: center; font-size: var(--fs-12); font-weight: 700; color: var(--fold-ink); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* calendar.day: with a lane's width, a block lays the rest of its words along the line */
+.schedule .ev .evb.wide { padding: 4px var(--s-3); flex-direction: row; flex-wrap: wrap; align-content: flex-start; align-items: baseline; gap: 2px var(--s-3); }
+.schedule .ev .evb.wide .t { flex: none; justify-content: flex-start; gap: var(--s-2); }
+.schedule .ev .evb.wide > b { display: block; flex: 1 1 0; min-width: 6rem; white-space: nowrap; text-overflow: ellipsis; }
+.schedule .ev .evb.wide .rest { flex: 0 0 100%; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px var(--s-3); }
+/* a one-hour block keeps to two lines: the rest of its words stay on one, cut at the lane's edge */
+.schedule .ev.short .evb.wide .rest { flex-wrap: nowrap; overflow: hidden; }
+.schedule .ev.short .evb.wide .rest > * { flex: 0 0 auto; }
+.schedule .ev.short .evb.wide .rest > .ep:last-child, .schedule .ev.short .evb.wide .rest > .who { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.schedule .ev .evb.wide .rest .flag { margin-top: 0; }
+.schedule .ev .evb.wide .who { display: block; white-space: nowrap; }
+.schedule .ev .evb.wide .over { display: flex; align-items: center; }
 
 /* the editor column */
 .schedule .editor { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; background: var(--surface); }
@@ -91,7 +235,13 @@
 .schedule .editor .head .crumbs b { color: var(--ink-2); font-weight: 600; }
 .schedule .editor .head h2 { font-size: var(--fs-16); }
 .schedule .editor .head .when { font-size: var(--fs-13); color: var(--ink-2); display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+/* the way back: every pane's crumbs begin with ‹ Shows, and a show's name in them leads to its dates */
+.schedule .editor .head .crumbs { align-items: center; }
+.schedule .editor .head .crumbs .back { appearance: none; font: inherit; font-size: var(--fs-12); font-weight: 600; color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-2); min-height: var(--target); padding: 0 var(--s-2); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule .editor .head .crumbs .back:hover { background: var(--surface-3); }
 .schedule .editor .levels { display: flex; gap: 2px; margin-top: var(--s-1); }
+.schedule .editor .levels.two button { min-width: 5.5rem; }
+.schedule .editor .nothing.flat { padding: 0; }
 .schedule .editor .levels button { appearance: none; border: 1px solid var(--axis); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-12); font-weight: 600; padding: 0 var(--s-2); min-height: var(--target); cursor: pointer; border-radius: var(--r-1); }
 .schedule .editor .levels button[aria-selected='true'] { background: var(--surface-3); color: var(--ink); border-color: var(--ink-2); }
 .schedule .editor .fields { overflow-y: auto; padding: var(--s-3) var(--s-4); display: grid; gap: var(--s-3); align-content: start; }
@@ -118,6 +268,12 @@
 .schedule .field input[type='number'] { width: 6rem; }
 .schedule .field .row { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
 .schedule .field .row input { width: auto; flex: 1; }
+.schedule .field .row.move input.date { flex: none; width: 10.5rem; }
+.schedule .field .row.move input.time { flex: none; width: 6rem; }
+.schedule .field .row.move .len { display: inline-flex; gap: var(--s-2); align-items: center; }
+.schedule .field .row.move .len input { flex: none; width: 4.5rem; }
+.schedule .field .row.move input[aria-invalid='true'] { border-color: var(--status-critical); border-width: 2px; }
+.schedule .field .row.move .err { flex-basis: 100%; margin: 0; color: var(--ink); font-size: var(--fs-13); line-height: var(--lh-body); border-left: 3px solid var(--status-critical); padding-left: var(--s-2); }
 .schedule .field .chip { display: inline-flex; align-items: center; gap: var(--s-1); border: 1px solid var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); height: 1.5rem; font-size: var(--fs-12); color: var(--ink); background: var(--surface); }
 .schedule .field .chip .ini { width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--surface-3); color: var(--ink-2); font-size: var(--fs-12); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; letter-spacing: -0.02em; }
 .schedule .field .hint { font-size: var(--fs-12); color: var(--muted); line-height: var(--lh-label); }
@@ -185,10 +341,72 @@
 .schedule .still-preview.none .status { color: var(--muted); }
 .schedule .still-preview .problem b { color: var(--ink); }
 
-@media (prefers-reduced-motion: reduce) { .ev { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .schedule .ev { transition: none; } }
 @container (max-width: 1100px) { .schedule .body { grid-template-columns: 1fr; } }
 
 /* shows with no weekly rule, listed where Nothing selected is (the operator's 1.0.2 run) */
 .schedule .unruled { border-left: 3px solid var(--status-warning); background: var(--surface-2); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); }
 .schedule .unruled ul { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; gap: var(--s-2); }
 .schedule .unruled li { display: flex; gap: var(--s-2); align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* ---- week clashes and a show's dates (week-clashes.md, release 1.0.5): the editor column ---- */
+
+/* calendar.clash: what a selected block clashes with */
+.clashbox { display: grid; gap: var(--s-2); padding: var(--s-2) var(--s-3) var(--s-3); border: 1.5px solid var(--status-warning); border-radius: var(--r-2); font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-body); }
+.clashbox h3 { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-13); font-weight: 700; color: var(--ink); }
+.clashbox .flag { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--status-warning); border-radius: var(--r-1); padding: 1px 4px; line-height: 1.25; white-space: nowrap; }
+.clashbox .flag svg { width: 11px; height: 11px; color: var(--status-warning); }
+.clashbox ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); }
+.clashbox li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--s-2); align-items: center; padding: var(--s-1) var(--s-2); background: var(--surface-2); border-radius: var(--r-1); color: var(--ink-2); line-height: var(--lh-label); }
+.clashbox li b { color: var(--ink); }
+.clashbox p b { color: var(--ink); }
+.clashbox .r { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+
+/* calendar.shows: every show with dates to come, by name */
+.schedule .editor .showlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.schedule .editor .showrow { appearance: none; font: inherit; text-align: left; width: 100%; display: grid; gap: 1px; padding: var(--s-1) var(--s-3); min-height: 2.75rem; align-content: center; background: var(--surface-2); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); border-radius: var(--r-1); cursor: pointer; color: var(--ink-2); font-size: var(--fs-12); line-height: var(--lh-label); min-width: 0; }
+.schedule .editor .showrow b { color: var(--ink); font-size: var(--fs-14); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule .editor .showrow > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule .editor .showrow:hover { background: var(--surface-3); }
+.schedule .editor .showrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.schedule .editor .findshow input { font: inherit; font-size: var(--fs-14); color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-1); padding: var(--s-1) var(--s-2); min-height: 2rem; width: 100%; box-sizing: border-box; }
+.schedule .editor .fields .unsched { margin-bottom: 0; }
+.schedule .editor .fields .nothing { color: var(--muted); font-size: var(--fs-13); line-height: var(--lh-body); }
+
+/* calendar.show-dates: the show's dates as rows, in the rule dialog's own words */
+.schedule .editor .sum { display: grid; gap: var(--s-1); padding-left: var(--s-3); border-left: 3px solid var(--show-colour, var(--accent)); }
+.schedule .editor .sum .lab { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+.schedule .editor .sum .lab .act { margin-left: auto; text-transform: none; letter-spacing: 0; font: inherit; font-size: var(--fs-12); font-weight: 600; color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-2); cursor: pointer; padding: 0 var(--s-2); min-height: 1.75rem; }
+.schedule .editor .sum .lab .act:hover { background: var(--surface-3); }
+.schedule .editor .sum .say { font-size: var(--fs-14); color: var(--ink); font-weight: 600; line-height: var(--lh-body); text-wrap: pretty; }
+.schedule .editor .sum .last, .schedule .editor .sum .count { font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-body); }
+.schedule .editor .sum .last b, .schedule .editor .sum .count b { color: var(--ink); }
+.schedule .editor h3.lst { font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-2); font-weight: 700; margin-top: var(--s-1); }
+/* a row is two lines: the number, the date, the times and Open; then its tags and its buttons. A clash adds a third. */
+.nd.dl li.r { grid-template-columns: 2.75rem minmax(0, 1fr) auto auto; cursor: pointer; padding: 3px var(--s-2); gap: 2px var(--s-2); font-size: var(--fs-13); }
+.nd.dl li.r .t { align-self: center; justify-self: end; color: var(--ink-2); }
+.nd.dl li.r .open { grid-column: 4; grid-row: 1; justify-self: end; }
+.nd.dl li.r .st.below { grid-column: 2; grid-row: 2; padding-bottom: 2px; align-self: center; }
+.nd.dl li.r .do { grid-column: 3 / -1; grid-row: 2; justify-content: flex-end; align-self: start; padding-bottom: 2px; }
+.nd.dl li.r .do:empty { display: none; }
+.nd.dl li.r .why2 { grid-column: 2 / -1; grid-row: 3; font-size: var(--fs-12); color: var(--ink-2); line-height: var(--lh-label); padding-bottom: 3px; }
+.nd.dl li.r .why2 b { color: var(--ink); }
+.nd.dl li.r:hover { background: var(--surface-2); }
+.nd.dl li.r.drafted { background: var(--surface); }
+.nd.dl li.r.drafted:hover { background: var(--surface-2); }
+.nd.dl li.r.cur { border-color: var(--accent); border-left-color: var(--show-colour, var(--deemph)); box-shadow: inset 0 0 0 1px var(--accent); }
+.nd.dl li.r:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.nd.dl li.r.aired { background: transparent; }
+.nd.dl li.ser { font-size: var(--fs-12); color: var(--ink-2); font-weight: 600; padding: var(--s-1) 0 0; }
+.nd.dl .tag svg { width: 10px; height: 10px; margin-right: 3px; }
+.nd.dl .act2:disabled { opacity: 0.6; cursor: default; }
+.nd.dl li.mv { margin-left: 0; }
+.nd.dl li.mv input { font: inherit; font-size: var(--fs-13); color: var(--ink); background: var(--surface-2); border: 1px solid var(--axis); border-radius: var(--r-1); padding: 0 var(--s-2); min-height: 1.75rem; }
+.nd.dl li.mv input.date { width: 9.5rem; }
+.nd.dl li.mv input.time { width: 6rem; }
+.nd.dl li.mv .hint { font-size: var(--fs-12); color: var(--ink-2); }
+.schedule .editor .after { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-13); color: var(--ink-2); }
+.schedule .editor details.aired { border: 1px solid var(--hairline); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); }
+.schedule .editor details.aired summary { cursor: pointer; color: var(--ink-2); font-size: var(--fs-13); }
+.schedule .editor details.aired summary b { color: var(--ink); }
+.schedule .editor details.aired ol { margin-top: var(--s-2); }

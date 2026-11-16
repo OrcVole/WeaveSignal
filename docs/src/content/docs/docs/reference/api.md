@@ -1368,7 +1368,7 @@ Needs: staff: any staff session, or the station key; or an API token with `sched
 
 Needs: staff: any staff session, or the station key; or an API token with `schedule:read`.
 
-Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule.
+Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281).
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -1402,6 +1402,47 @@ Request body: [GenerateBody](#schema-generatebody).
 | 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/schedule/import
+
+**Make the shows chosen from a calendar file**
+
+Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
+
+Makes the chosen shows (1 to 200: each a name, a description and a rule, as `POST /api/v1/schedule/import/preview` proposed them or as the person renamed them) in one transaction: each a new show at step Solo, with no episode drafted and no host, in the next colours of the palette; each path made from its name and made free against the station's shows and the others in the same import, as the studio makes a new show's. Each show's cards are drawn first, and a name that cannot fit refuses the whole import (422, `field` `items[n].name`); a rule that cannot stand refuses it too (422, `field` `items[n].rule`, the item named). Nothing is made unless everything is. The reply lists the shows made and, as warnings, the dates (in the twelve months from each show's first, the first 60) where each overlaps another show's time (the others made in the same import included); an overlap never refuses the import. An admin or a producer (and the station key, and a token with `shows:write`); a presenter or a screener is refused (403). Release 1.0.5 (ADR-0281).
+
+Request body: [ImportRequest](#schema-importrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The shows are made. | [ImportReply](#schema-importreply) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The database or the card renderer failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/schedule/import/preview
+
+**Read a calendar file into proposed shows**
+
+Needs: staff: any staff session, or the station key; or an API token with `shows:read`.
+
+Reads an iCalendar file (at most 1 MB and 200 events; the body is the file itself as `text/calendar`, or JSON with `ics`) and proposes one show per recurring event, and one per run of single events with the same name (on chosen dates, a date at another time moved). Each item says how it was read (`mapping`): `exact`, a rule that gives exactly the calendar's dates and times; `dates`, an RRULE no show's rule can say (every other day, the fifth Friday, another zone whose clocks change on other dates, flagged `clock_differs`), offered as its dates for the next twelve months, at most 120, with `reason`; or `refused`, with `reason` (an all-day event, a zone we do not know, more than once a day, longer than a day, every date passed). Times in another zone are converted to the station's clock. Each item carries the rule in the New show's shape, its sentence (`words`), its next dates with the other shows' times they overlap (as `POST /api/v1/schedule/rule/preview` gives them), the path it would take, and the other items it overlaps. An item that is a show the station already has (the same name with case and spaces folded, and the same dates and times still to come, as when the station's own calendar file is read back) says so in `already`, and is not counted as a clash with itself. Writes nothing. A file that cannot be read is refused (422, `field` `ics`, a sentence); a file over the limits too (413). An admin or a producer (and the station key, and a token with `shows:read`); a presenter or a screener is refused (403). Release 1.0.5 (ADR-0281).
+
+Request body: [ImportPreviewRequest](#schema-importpreviewrequest). The file, as JSON; or the file itself with `Content-Type: text/calendar`.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The proposed shows. | [ImportPreviewReply](#schema-importpreviewreply) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 413 | Larger than 1 MB, or more than 200 events. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The database failed. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ### GET /api/v1/schedule/log
@@ -2363,6 +2404,39 @@ For a station's own website: the episodes with an air time from now for `days` d
 |---|---|---|
 | 200 | The schedule. | [PublicSchedule](#schema-publicschedule) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/public/schedule.ics
+
+**The schedule as a calendar file**
+
+Needs: nobody (no bearer).
+
+For a person's own calendar (subscribe to it, or download it): every show with a rule, as one VEVENT each (its RRULE or RDATE, EXDATE for skipped dates, an override with RECURRENCE-ID for each moved date), in the station's zone with its VTIMEZONE, so the calendar works out the dates and the clocks changing itself. A show's rule is its current series' (that series' own start date and planned episodes win). Only the public words: the show's name and its description (its page, as `URL`, once the station serves show pages); a drafted episode's title and guests are never in it. Each show's UID is `{show id}@weavesignal` and stays the same for the show's life. `text/calendar; charset=utf-8`. No bearer; CORS open to any origin; limited per address. Cached for 30 s. Release 1.0.5 (ADR-0281).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The calendar (iCalendar, RFC 5545). | string (`text/calendar`) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/public/shows/{file}
+
+**One show as a calendar file**
+
+Needs: nobody (no bearer).
+
+As `GET /api/v1/public/schedule.ics`, for one show: `{file}` is the show's path with `.ics` (`/api/v1/public/shows/the-late-kettle.ics`). A show without a rule gives a calendar with no events, so a subscription does not fail while a rule is cleared. No bearer; CORS open to any origin; limited per address. Cached for 30 s. Release 1.0.5 (ADR-0281).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `file` | path | string | yes | The show's path and `.ics`: `the-late-kettle.ics` |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The calendar (iCalendar, RFC 5545). | string (`text/calendar`) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
@@ -4046,6 +4120,94 @@ The outgoing Icecast source (ADR-0226): the programme sent to another Icecast se
 | `tls` | boolean | yes |  |
 | `wanted` | boolean | yes | The control plane is asking the listener process to send now. |
 
+### Schema: ImportAlready
+
+A show the station already has.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `slug` | string | yes | Its path. |
+
+### Schema: ImportChoice
+
+A show to make, as the person chose it from the preview.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `description` | string | no | The preview's `description`, or another (at most 4,000 characters). |
+| `name` | string | yes | The show's name: the preview's, or as the person renamed it (1 to 160 characters). |
+| `rule` | [Rule](#schema-rule) | yes | The preview's `rule`, as it came (or changed: it is checked as any rule is). |
+
+### Schema: ImportItem
+
+One show the file proposes, with what the New show preview says of a rule.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `clock_differs` | boolean | yes | The calendar's zone changes its clocks on other dates than the station's, so its times are not always the same on the station's clock. |
+| `description` | string | yes | The event's DESCRIPTION. |
+| `events` | integer (int32) | yes | How many of the file's VEVENTs went into it. |
+| `mapping` | [Mapping](#schema-mapping) | yes |  |
+| `name` | string | yes | The event's SUMMARY, as the show's name. |
+| `notes` | array of string | yes | Things to say that change nothing: dates left out, a zone converted. |
+| `reason` | string, or null | no | Why it is `dates`, or why it is refused. |
+| `rule` | [Rule](#schema-rule), or null | no |  |
+| `source_rule` | string, or null | no | The calendar's RRULE as written, for a recurring event. |
+| `uid` | string, or null | no | The calendar's UID for a recurring event. |
+| `zone` | string, or null | no | The zone the calendar gave its times in (IANA), when it is not the station's. |
+| `already` | [ImportAlready](#schema-importalready), or null | no |  |
+| `clash_count` | integer | yes | How many of `dates` clash with a show the station has. A show that is `already` on the station does not clash with itself: its own times are in neither `clashes` nor this. |
+| `dates` | array of [PreviewDate](#schema-previewdate) | yes | Its next dates that air (and the skipped ones among them, marked), with the other shows' times each overlaps, as the rule preview gives them. |
+| `more` | boolean | yes | There are more dates than those shown. |
+| `overlaps` | array of integer | yes | The other items of this file (by their place in `items`, from 0) whose dates overlap this one's in the twelve months from its first date to come. |
+| `slug` | string, or null | no | The path the show would take if made now with this name (`null` when refused). The import makes the path free again when it makes the show, so a renamed show takes its new name's. |
+| `words` | [RuleWords](#schema-rulewords), or null | no |  |
+
+### Schema: ImportPreviewReply
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `events` | integer | yes | The VEVENTs read. |
+| `items` | array of [ImportItem](#schema-importitem) | yes | In the file's order. |
+| `notes` | array of string | yes | About the file as a whole: cancelled events left out, changed dates that match nothing. |
+| `ready` | integer | yes | How many items can be made (those not refused). |
+| `zone` | string | yes | The station's zone: every time is on its clock. |
+
+### Schema: ImportPreviewRequest
+
+A calendar file to read, as JSON. The route also takes the file itself, sent as `text/calendar`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `ics` | string | yes | The file's text (iCalendar, UTF-8): at most 1 MB and 200 events. |
+| `limit` | integer, or null | no | How many dates that air to show for each proposed show: 1 to 20, five by default. |
+
+### Schema: ImportReply
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `made` | array of [ShowOut](#schema-showout) | yes | The shows made, in the order sent, each with its path, rule, sentence and next date. |
+| `warnings` | array of [ImportWarning](#schema-importwarning) | yes | The made shows whose dates overlap another show's time, the others made in the same import included. |
+
+### Schema: ImportRequest
+
+The shows to make.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `items` | array of [ImportChoice](#schema-importchoice) | yes | 1 to 200. |
+
+### Schema: ImportWarning
+
+A made show that overlaps another show's time.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `clashes` | array of [Clash](#schema-clash) | yes | Its dates in the twelve months from its first (the first 60) that overlap another show's time, one entry per overlap. |
+| `name` | string | yes |  |
+| `show` | string | yes | The made show's path and name. |
+
 ### Schema: InstallFacts
 
 What the page explains but cannot change: the install's own settings, as this control plane was started with them.
@@ -4212,6 +4374,12 @@ An item of the generated log.
 | `dir` | string | no |  |
 | `on` | boolean | yes |  |
 
+### Schema: Mapping
+
+How a calendar's event became a show's rule.
+
+one of `exact`, `dates`, `refused`
+
 ### Schema: Me
 
 | Field | Type | Needed | Meaning |
@@ -4352,10 +4520,11 @@ one of `none`, `once_passed`, `ended`, `complete`
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `at_ms` | integer (int64) | yes |  |
+| `change` | string, or null | no | For `rule.changed`: the token the saving window sent with its save (1.0.5), so that window knows the notice for its own. Null for every other kind, and for a save sent without one. |
 | `id` | integer (int64) | yes |  |
 | `kind` | string | yes | What it is about (`caller.ready`, `caller.declined`, ...), for the app to pick keys. |
 | `message` | string | yes |  |
-| `subject` | string, or null | no | The person it is about, if any. |
+| `subject` | string, or null | no | The person it is about, if any; for `rule.changed`, the show's path (1.0.5). |
 | `surface` | [Surface](#schema-surface) | yes |  |
 | `title` | string | yes |  |
 | `tone` | [Tone](#schema-tone) | yes |  |
@@ -4677,6 +4846,24 @@ A refusal or a failure: one plain sentence, and for a refused field its name.
 | `desk_sounding` | boolean | yes |  |
 | `mode` | string | yes |  |
 | `on_air` | string | yes | `desk`, `automation`, `fallback` (the station's files), `default` (the shipped loop, ADR-0130) or `silence`. |
+
+### Schema: Proposal
+
+A show the calendar file proposes.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `clock_differs` | boolean | yes | The calendar's zone changes its clocks on other dates than the station's, so its times are not always the same on the station's clock. |
+| `description` | string | yes | The event's DESCRIPTION. |
+| `events` | integer (int32) | yes | How many of the file's VEVENTs went into it. |
+| `mapping` | [Mapping](#schema-mapping) | yes |  |
+| `name` | string | yes | The event's SUMMARY, as the show's name. |
+| `notes` | array of string | yes | Things to say that change nothing: dates left out, a zone converted. |
+| `reason` | string, or null | no | Why it is `dates`, or why it is refused. |
+| `rule` | [Rule](#schema-rule), or null | no |  |
+| `source_rule` | string, or null | no | The calendar's RRULE as written, for a recurring event. |
+| `uid` | string, or null | no | The calendar's UID for a recurring event. |
+| `zone` | string, or null | no | The zone the calendar gave its times in (IANA), when it is not the station's. |
 
 ### Schema: PublicEpisode
 
@@ -5044,6 +5231,7 @@ A rule to set, and what to do with the episodes already drafted for dates to com
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `change` | string, or null | no | A token the saving window makes for this save (1.0.5): the `rule.changed` notice every window gets carries it back, so the window that saved knows the notice for its own. Up to 64 letters, digits, `-` and `_`. |
 | `drafted` | [Drafted](#schema-drafted) | no | `move` (the default): the drafted episodes still on their old rule dates move to the new rule's dates, in order, keeping their numbers, titles and guests; `leave`: they stay. Aired episodes, and episodes a person moved or made by hand, never move. |
 | `rule` | [Rule](#schema-rule), or null | yes |  |
 
@@ -5811,6 +5999,7 @@ A webhook as it is kept.
 |---|---|---|---|
 | `dates` | array of [OpenDateOut](#schema-opendateout) | yes | Every date of every show's rule in the range that no episode fills, is not skipped and is not over: what the week draws as dotted blocks, so the studio expands no rule itself. |
 | `episodes` | array of [WeekEpisode](#schema-weekepisode) | yes |  |
+| `public_url` | string, or null | no | The station's public address (`publishing.public_url`, without a trailing slash), where listeners reach the calendar files, the cards and the feeds; `null` when none is set. The studio builds the links it gives out from this, never from the address it talks to, which on Cloudron is behind the login (release 1.0.5, ADR-0281). |
 | `zone` | string | yes | The zone the station's air times are read in. |
 
 ### Schema: WeekHour

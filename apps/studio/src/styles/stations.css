@@ -1,0 +1,72 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The station switcher (ADR-0285; docs/reference/design/station-switcher.md): the station's
+   name in the frame as the button that lists the stations, the Stations dialog with the leave
+   question, and the other stations on the sign-in screen. It adds no colour: a station is told
+   apart by its name and a badge of two letters, never by a hue (every colour family here
+   already has one job). */
+
+/* the station button in the frame (studio.station): quiet until pointed at, as the account's */
+.stationbtn { appearance: none; display: inline-flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; min-width: 4rem; max-width: 16rem; min-height: 1.75rem; margin-left: calc(-1 * var(--s-1)); padding: 0 var(--s-2) 0 var(--s-1); border: 1px solid transparent; border-radius: var(--r-pill); background: transparent; color: var(--ink); font: inherit; font-size: var(--fs-13); font-weight: 700; cursor: pointer; white-space: nowrap; }
+.stationbtn:hover { background: var(--surface); border-color: var(--axis); }
+.stationbtn[aria-expanded="true"] { background: var(--surface); border-color: var(--accent); }
+.stationbtn .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stationbtn .caret { width: 10px; height: 10px; color: var(--muted); flex: none; }
+
+/* the badge: two letters of the station's name, ink on the raised surface */
+.stbadge { display: inline-grid; place-items: center; flex: none; width: 1.625rem; height: 1.25rem; border: 1px solid var(--axis); border-radius: var(--r-1); background: var(--surface-3); color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-12); font-weight: 700; line-height: 1; letter-spacing: 0; text-transform: none; }
+.stbadge.lg { width: 2.25rem; height: 2.25rem; border-radius: var(--r-2); font-size: var(--fs-14); }
+.stbadge.out { border-style: dashed; background: transparent; color: var(--muted); }   /* signed out */
+
+/* the Stations dialog (studio.stations), under its button as the step menu is under its own */
+dialog.stations { width: min(34rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); max-height: calc(var(--win-h, 100vh) - 4rem); overflow-y: auto; margin: 3rem auto auto var(--s-3); background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: var(--r-3); box-shadow: var(--e-3); padding: var(--s-4); gap: var(--s-3); font-size: var(--fs-14); font-weight: 400; white-space: normal; display: none; }
+/* It is drawn inside the frame, which keeps its own words on one line at 13 px: the dialog takes neither. */
+dialog.stations[open] { display: grid; grid-template-columns: minmax(0, 1fr); }
+dialog.stations::backdrop { background: var(--scrim); }
+.stations h2 { font-size: var(--fs-16); overflow-wrap: anywhere; }
+.stations .lede { color: var(--ink-2); font-size: var(--fs-13); line-height: var(--lh-body); }
+.stations .lede b { color: var(--ink); }
+.stations .err { color: var(--ink); font-size: var(--fs-13); line-height: var(--lh-body); border-left: 3px solid var(--status-critical); padding-left: var(--s-2); }
+.stations .acts { display: flex; gap: var(--s-2); justify-content: flex-end; flex-wrap: wrap; }
+.stations .foot { display: flex; gap: var(--s-2); justify-content: space-between; flex-wrap: wrap; }
+
+/* one row a station; the rows never reorder */
+.stlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; min-width: 0; }
+.strow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--s-1); border: 1px solid transparent; border-radius: var(--r-2); min-width: 0; }
+.strow.here { background: var(--surface-2); border-color: var(--accent); }
+.strow.open { background: var(--surface-2); }
+.strow .go { appearance: none; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s-3); row-gap: 2px; align-items: center; min-width: 0; min-height: 3.25rem; padding: var(--s-2); border: 0; border-radius: var(--r-2); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.strow .go:hover { background: var(--surface-2); }
+.strow.here .go { cursor: default; }
+.strow.here .go:hover { background: transparent; }
+.strow .go[disabled] { cursor: progress; opacity: 0.6; }
+.strow .stbadge { grid-row: 1 / span 2; }
+.strow .nm { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; font-weight: 700; }
+.strow .nm > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strow .own { font-weight: 400; color: var(--ink-2); font-size: var(--fs-13); white-space: nowrap; }
+/* ink-2, not the muted of other small caps: on the raised row muted is 4.2 to 1, under the 4.5 a 12 px word needs */
+.strow .heretag { flex: none; font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+.strow .sub { color: var(--ink-2); font-size: var(--fs-13); line-height: var(--lh-label); overflow-wrap: anywhere; }
+.strow .sub .ver { white-space: nowrap; }
+.strow .manage { margin-right: var(--s-2); }
+
+/* Manage: the row opened out, under the name */
+.stmanage { grid-column: 1 / -1; display: grid; gap: var(--s-3); padding: var(--s-1) var(--s-3) var(--s-3) calc(var(--s-2) + 2.25rem + var(--s-3)); min-width: 0; }
+.stmanage .field { display: grid; gap: var(--s-1); }
+.stmanage label { font-weight: 600; font-size: var(--fs-13); }
+.stmanage .inrow { display: flex; gap: var(--s-2); }
+.stmanage input { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: var(--plane); border: 1px solid var(--muted); border-radius: var(--r-2); min-height: 2rem; padding: 0 var(--s-2); }
+.stmanage .hint { color: var(--ink-2); font-size: var(--fs-13); line-height: var(--lh-body); }
+.stmanage .acts { justify-content: flex-start; }
+/* a question asked in place: remove, and the leave question */
+.stask { display: grid; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-left: 3px solid var(--status-warning); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); min-width: 0; }
+.strow.open .stask, .strow.here .stask { background: var(--surface-3); }
+.stask b { font-weight: 700; }
+.stask ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 2px; }
+.stask .acts { justify-content: flex-end; }
+
+/* the sign-in screen with stations kept: the way back, and the others to open instead (setup.stations) */
+.setup-back { justify-self: start; margin: calc(-1 * var(--s-2)) 0 0 calc(-1 * var(--s-2)); }
+.setup-others { display: grid; gap: var(--s-2); border-top: 1px solid var(--hairline); padding-top: var(--s-4); min-width: 0; }
+.setup-others h2 { font-size: var(--fs-14); font-weight: 600; color: var(--ink-2); }
+.setup-others .strow .go { width: 100%; }

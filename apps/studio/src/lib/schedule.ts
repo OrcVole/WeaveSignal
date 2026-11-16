@@ -371,10 +371,18 @@ export function inputOf(v: ShowView): ShowInput {
 
 /** The week's episodes and, from a station that stores rules, every rule's unfilled dates in
  *  the window (`dates`; null from an older station). */
-export const weekEpisodes = async (fromMs: number, toMs: number): Promise<{ zone: string; episodes: WeekEpisode[]; dates: ScheduleDate[] | null }> => {
-  const w = await get<{ zone: string; episodes: WeekEpisode[]; dates?: unknown }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
-  return { zone: w.zone, episodes: w.episodes.map((e) => ({ ...e, show: asShow(e.show) })), dates: asScheduleDates(w.dates) };
+export const weekEpisodes = async (fromMs: number, toMs: number): Promise<{ zone: string; episodes: WeekEpisode[]; dates: ScheduleDate[] | null; publicUrl: string | null | undefined }> => {
+  const w = await get<{ zone: string; episodes: WeekEpisode[]; dates?: unknown; public_url?: unknown }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
+  return { zone: w.zone, episodes: w.episodes.map((e) => ({ ...e, show: asShow(e.show) })), dates: asScheduleDates(w.dates), publicUrl: asPublicUrl(w) };
 };
+
+/** The station's public address from the week's reply (`public_url`, 1.0.5): the address, null
+ *  when the station has none, and undefined from a station too old to say (it has no calendar
+ *  files either). */
+export function asPublicUrl(week: { public_url?: unknown }): string | null | undefined {
+  if (!('public_url' in week)) return undefined;
+  return typeof week.public_url === 'string' && week.public_url ? week.public_url : null;
+}
 export const shows = async () => (await get<Show[]>('/api/v1/shows')).map(asShow);
 /** The station's setup (ADR-0237): admins only; `pending` while the setup page is still offered. */
 export const setupState = () => get<{ status: 'pending' | 'done'; missing: string[] }>('/api/v1/setup');

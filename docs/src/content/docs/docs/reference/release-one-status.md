@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, and **1.0.4** on 2026-11-15, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, and **1.0.5** on 2026-11-16, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -39,7 +39,7 @@ Where a page says **planned**, the feature is not in release one; [Not in releas
 | **M7**, the rest | an edge on another network, with join time and failover in a real hls.js player; steering through Bunny tried against Bunny itself; the hours-long real-network soak of `icecast.server` against Icecast 2.5.0, which decides the listener server (ADR-0011) |
 | **M8**, the rest | a step that publishes an episode's words before it airs; opening an episode's recording and publishing it as a podcast episode from the studio app (files are attached through the API); an episode marked as aired by itself (only **On air now** does it) |
 | **M9 · The presenter kit and the Windows server** | moved to release two (ADR-0207): presets, the patchbay, VBAN, and the server on Windows. The studio app's Windows installer stays in release one |
-| **M10**, the rest | an update and a rollback run on a real install; the Windows installer run on Windows |
+| **M10**, the rest | an update and a rollback run on a real install (the Windows installer has been run on Windows 11, 2026-11-15) |
 | **M11**, the rest | screenshots of every surface from the running app |
 
 ## Since 1.0.0
@@ -95,6 +95,16 @@ Released in 1.0.4 (2026-11-15):
 | **Delete show** (ADR-0279) | for a show none of whose episodes has aired |
 | **The studio grows with its window** (ADR-0277) | the interface scales above 1920 by 1080, and dialogs fit any window and text size |
 
+Released in 1.0.5 (2026-11-16):
+
+| Part | What it brings |
+|---|---|
+| **Calendar files** (ADR-0281) | the schedule and each show go out as iCalendar files to subscribe to (**Subscribe…** on the Schedule tab and in a show's Details), and a calendar file from another system comes in as new shows (**Import a calendar…**, with a pasted path or a dropped file); a show the station already has is marked **Already on the station** ([Calendar files](/docs/reference/calendar-files/)) |
+| **The week's clashes folded, a Day view and a show's Dates** | clashing shows fold in the week, each a tab you can see and press; a Day view with a lane for each clashing show (keys `D` and `W`, ADR-0283); a list of shows, each opening at its Dates: skip, move, draft or put back one date, with Undo |
+| **Several stations in one studio app** (ADR-0285, ADR-0287) | the station's name in the frame is the button that lists the stations this computer keeps; each has its own address, sign-in and key; `⌃⇧S` opens the list, and leaving a station on air is asked first ([Work with several stations](/docs/how-to/work-with-several-stations/)) |
+| **The public JSON routes on Cloudron** (ADR-0282) | `/api/v1/public/station`, `/schedule` and `/episodes` (and the calendar files) answer on a Cloudron station's public domain, GET only, as on the Compose edge |
+| **A window that fits a small screen** | the studio app opens maximised where a screen is small (a 1366 by 768 laptop holds it), and the root text no longer jumps on large screens (ADR-0286) |
+
 ## Decisions that changed release one
 
 | Decision | What it changed |
@@ -115,7 +125,7 @@ Released in 1.0.4 (2026-11-15):
 | The station's own player following content steering to an edge has not been tried in a browser: 1.0.1's CSP allows the edges' hosts (1.0.0's allowed only the station and `join.hls_url`) | Try it against your edges before relying on it, or point `join.hls_url` at one CDN address ([Put Bunny in front of the station](/docs/how-to/use-bunny/#send-viewers-to-bunny)) |
 | The desk's show heading, rundown and banned list come from `[studio]`, which the Compose bundle cannot set: it writes the control plane's settings without that section, and has no place for the station's own file | On Compose the desk says *No show set*. On Cloudron (from 1.0.1) put them in `/app/data/station.toml`; with the Quadlets, edit the generated file ([Set the show, the rundown and the banned list](/docs/how-to/set-the-show/)) |
 | The studio app's Linux webview has no WebRTC | Presenters and guests join the room from a browser; the studio app drives the desk |
-| The Windows installer is unsigned, and has not been run on Windows | SmartScreen stops it the first time ([Install the studio app on Windows](/docs/how-to/install-studio-windows/)) |
+| The Windows installer is unsigned | Edge holds the download and SmartScreen may stop it the first time; run on Windows 11 on 2026-11-15 ([Install the studio app on Windows](/docs/how-to/install-studio-windows/)) |
 | The Cloudron package 1.0.0 runs with Cloudron's soft limit of 1,024 open files, so its listener stream takes fewer than 1,024 listeners | Update to 1.0.1, which raises it to 65,536 ([Open files and large audiences](/docs/how-to/install-on-cloudron/#open-files-and-large-audiences)) |
 | RTMP out has not been tried from a Cloudron install: the package's image carries the encoders (Ubuntu's OpenH264 and vo-aacenc, checked to load and encode in the image), but no Cloudron station has sent to an RTMP server yet | Send a short test stream with a test key before the first show, or send from a station on the Compose bundle ([What has been tried](/docs/how-to/send-to-video-platforms/#what-has-been-tried)) |
 | RTMP out has been tested against servers on the test machine only (MediaMTX, OvenMediaEngine, PeerTube): not against Rumble, Odysee or another real platform, not over RTMPS, and not with NVENC's H.264 | Send a short test stream with a test key before the first show ([What has been tried](/docs/how-to/send-to-video-platforms/#what-has-been-tried)) |
