@@ -75,6 +75,8 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .state.hollow-auto { border-color: var(--mode-auto); color: var(--ink); }   /* AUTO (ADR-0183): hollow, the border and glyph in the mode colour */
 .g-critical { color: var(--status-critical); } .g-serious { color: var(--status-serious); } .g-warning { color: var(--status-warning); } .g-good { color: var(--status-good); } .g-accent { color: var(--accent); } .g-auto { color: var(--mode-auto); } .g-muted { color: var(--muted); }
 .g-talk { color: var(--live-talk); } .g-cue { color: var(--live-cue); } .g-onair { color: var(--live-onair); }
+/* a borrowed shape (hosts-in-their-own-studios.md section 5): NOT CONNECTED and TEST are STANDBY's lamp, dashed */
+.state.dashed { border-style: dashed; }
 .state.sm { height: 1.5rem; font-size: var(--fs-12); padding: 0 var(--s-2) 0 var(--s-1); gap: var(--s-1); }
 
 /* vertical meter (R128 short-term, target −23) */

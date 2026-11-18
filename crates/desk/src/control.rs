@@ -86,6 +86,10 @@ pub enum Request {
     OnAir {
         identity: String,
         on: bool,
+        /// Fade over this many milliseconds (the schedule's moves, ADR-0280); absent or 0 is at
+        /// once.
+        #[serde(default)]
+        fade_ms: Option<u32>,
     },
     Mute {
         identity: String,
@@ -394,7 +398,17 @@ pub fn handle(desk: &Desk, line: &str) -> Reply {
             ok: true,
             plays: desk.cart_plays(after),
         },
-        Request::OnAir { identity, on } => done(desk.set_on_air(&identity, on), &identity),
+        Request::OnAir {
+            identity,
+            on,
+            fade_ms,
+        } => done(
+            match fade_ms {
+                Some(ms) if ms > 0 => desk.set_on_air_faded(&identity, on, ms),
+                _ => desk.set_on_air(&identity, on),
+            },
+            &identity,
+        ),
         Request::Mute { identity, on } => done(desk.set_mute(&identity, on), &identity),
         Request::Cue { identity, on } => done(desk.set_cue(&identity, on), &identity),
         Request::Talk { identity, on } => done(desk.set_talk(&identity, on), &identity),
@@ -481,7 +495,19 @@ mod tests {
                 .unwrap(),
             Request::OnAir {
                 identity: "callum".into(),
-                on: true
+                on: true,
+                fade_ms: None
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(
+                r#"{"op":"on_air","identity":"callum","on":false,"fade_ms":2000}"#
+            )
+            .unwrap(),
+            Request::OnAir {
+                identity: "callum".into(),
+                on: false,
+                fade_ms: Some(2000)
             }
         );
         assert_eq!(

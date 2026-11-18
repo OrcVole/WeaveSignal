@@ -70,9 +70,8 @@ export function stepTitle(s: StepView | null | undefined): string {
 /** The parts a step brings, each with the step it arrives at (design section 1). A part not
  *  listed is drawn at every step. */
 export const ARRIVES = {
-  /** The Screener tab and the Chat tab. */
+  /** The Screener tab, and ⌃4 with it: the Room is a lane of the Screener tab. */
   'tab.screener': 'full',
-  'tab.chat': 'full',
   /** The Not on air row, with playout's tile and Invite someone…. */
   waiting: 'guests',
   invite: 'guests',
@@ -109,7 +108,7 @@ export const offTag = (step: ShowStep): string => `off at ${STEP_WORD[step]}`;
 
 /** The tabs this window draws: Desk, Carts and Schedule at every step, the rest at Full. */
 export function tabShown(tab: Tab, look: ShowStep): boolean {
-  return tab === 'screener' ? shown('tab.screener', look) : tab === 'chat' ? shown('tab.chat', look) : true;
+  return tab === 'screener' || tab === 'chat' ? shown('tab.screener', look) : true;
 }
 
 /** `desk.step-note`, the guest's empty seat: at Solo only. */
@@ -145,7 +144,7 @@ export function needsOwnLink(sources: readonly Source[], look: ShowStep, mayChan
  *  names the part for the one note a session gets. */
 export type Gate = { allow: true } | { allow: false; told: OffPart };
 
-export type OffPart = 'dump' | 'drop' | 'screener-tab' | 'chat-tab' | 'talk-screener' | 'handover' | 'picture' | 'take-caller';
+export type OffPart = 'dump' | 'drop' | 'screener-tab' | 'talk-screener' | 'handover' | 'picture' | 'take-caller';
 
 const GO: Gate = { allow: true };
 const no = (told: OffPart): Gate => ({ allow: false, told });
@@ -161,8 +160,8 @@ function callerOnDesk(v: View | null): boolean {
 export function gate(a: Action, step: ShowStep, look: ShowStep, v: View | null): Gate {
   switch (a.type) {
     case 'tab':
-      if (a.tab === 'screener' && !tabShown('screener', look)) return no('screener-tab');
-      if (a.tab === 'chat' && !tabShown('chat', look)) return no('chat-tab');
+      // ⌃4 opens the Screener tab's Room lane, so it is off wherever the Screener tab is.
+      if ((a.tab === 'screener' || a.tab === 'chat') && !tabShown(a.tab, look)) return no('screener-tab');
       return GO;
     case 'dump':
       return atLeast(step, 'callers') ? GO : no('dump');
@@ -205,8 +204,6 @@ export function offNote(part: OffPart, step: ShowStep): { title: string; message
       return { title: `Taking a caller is off at ${at}`, message: `${runs}, so the lines are closed. Call-in comes with Callers.` };
     case 'screener-tab':
       return { title: `The Screener tab is off at ${at}`, message: `${runs}, so nobody is on the phones. The Screener tab comes with Full.` };
-    case 'chat-tab':
-      return { title: `The Chat tab is off at ${at}`, message: `${runs}. The Chat tab comes with Full.` };
     case 'talk-screener':
       return { title: `Talk to the screener is off at ${at}`, message: `${runs}, so the screener's seat is empty. It comes with Full.` };
     case 'handover':

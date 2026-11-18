@@ -32,7 +32,8 @@ The same held in the third live rehearsal and in the live News and Moos show.
    The desk levels voices itself, so gain control in the browser has nothing to add.
 3. **The presenter's gate at the desk.**
    First in the presenter's and DJ's input chain, it turns the microphone down by up to 18 dB while the presenter is not speaking (below −34 dBFS, at 1:3), so a quiet leak stays out of the programme.
-   It follows the voice's envelope, opening in a millisecond and closing over 150 ms, so it does not chop the ends of words.
+   It follows the voice's envelope, opening in a millisecond; when the voice falls it stays open for another 250 ms (`hold_ms`) and then closes over 150 ms, so it does not chop the ends of words: a word's last `t`, `d`, `p` or `s` can come a tenth of a second after the vowel and sit thirty decibels below it.
+   The hold costs a quarter of a second more of any leak after the presenter stops speaking; bleed alone, at −50 dBFS, never opens the gate.
    GStreamer's own expander was tried first and rejected: at one setting it turned quiet signals up, at another it distorted speech.
 
    ![The echo test page on a phone, with its Start the echo test button.](../../../../assets/screens/reference-public-pages-echo-test.png)

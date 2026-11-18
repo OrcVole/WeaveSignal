@@ -48,10 +48,11 @@ export interface AudienceWords {
 const mountName = (m: string) => m.replace(/^\/+/, '') || m;
 
 /**
- * The panel's words. A count is the listeners on the station's own listener process, by mount;
- * with no count the reason is said plainly: the listener process did not answer, or this control
- * plane is too old to count at all. Edges and a CDN carry listeners the origin does not see, so
- * the figure is the origin's.
+ * The panel's words. A count is the listeners on the station's own listener process, by mount
+ * (`scope` is `origin`: what the figure covers, issue 17); with no count the reason is said
+ * plainly: the listener process did not answer (`error`), it has not answered yet, or this
+ * control plane is too old to count at all. Edges and a CDN carry listeners the origin does not
+ * see, so with `edges` the figure says it is the station's own stream only.
  */
 export function audienceWords(v: View | null | undefined): AudienceWords {
   const a = v?.audience;
@@ -65,7 +66,7 @@ export function audienceWords(v: View | null | undefined): AudienceWords {
   if (a.listeners === null) {
     return {
       count: null,
-      detail: a.error ? `Not counted: ${a.error}.` : 'Not counted yet: waiting for the first answer from the listener process.',
+      detail: a.error ? `Not counted: ${a.error}.` : 'Waiting for the first answer from the listener process.',
       edges: '',
     };
   }
@@ -77,7 +78,7 @@ export function audienceWords(v: View | null | undefined): AudienceWords {
     count: a.listeners,
     detail,
     edges: a.edges
-      ? 'Edges or a CDN are set up: this counts the listeners on the origin, and each edge counts as one. Listeners on an edge are not added here.'
+      ? 'Edges or a CDN are set up. This counts this station’s own stream only: each edge counts as one, and the listeners on an edge are not added.'
       : '',
   };
 }

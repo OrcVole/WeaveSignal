@@ -140,6 +140,7 @@ The gain control is deliberately gentle: it can add or take away at most 6 dB, r
 A programme already at the target gets no gain.
 It evens out what nothing else processes: the library, the fallback files and the default loop.
 `processing.status` on playout's control socket says whether it runs, its target and limit, and the gain it applies now.
+`playout.restart` on the same socket answers, then shuts playout down a second later; the supervisor starts it again (the studio's `⌃R` twice, from 1.1).
 
 | Setting | Default | Does |
 |---|---|---|

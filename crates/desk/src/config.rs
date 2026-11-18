@@ -35,6 +35,64 @@ pub struct Config {
     pub carts: Carts,
     #[serde(default)]
     pub video: Video,
+    /// Hosts in their own studios (ADR-0280): what the ingest hands the desk.
+    #[serde(default)]
+    pub sources: SourcesIn,
+}
+
+/// Where the ingest hands the desk the sound of a host's own studio (ADR-0280): PCM in WAV over
+/// loopback, one connection for each source standing by, as playout's feed comes (ADR-0172).
+/// The desk listens; the ingest connects with the password in [`SOURCES_PASSWORD_ENV`], and
+/// without one the desk takes no sources at all.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields, default)]
+pub struct SourcesIn {
+    pub enabled: bool,
+    /// Loopback only, like every link between the station's own processes.
+    pub bind: IpAddr,
+    /// `ports.desk_sources` in the control plane's settings (ADR-0075).
+    pub port: u16,
+    /// How far ahead of the mixing pass a source's sound is placed as it arrives: it comes in
+    /// codec frames, after a network, so a little more than playout's feed needs.
+    pub cushion_ms: u32,
+    /// The slow gain that brings a source to the desk's level (no gate, no phone band).
+    pub leveller: weavesignal_mixer::SourceLevellerSettings,
+}
+
+/// The environment variable that holds the password the ingest sends with each source. Unset,
+/// the desk does not listen for sources.
+pub const SOURCES_PASSWORD_ENV: &str = "WEAVESIGNAL_DESK_SOURCES_PASSWORD";
+
+impl Default for SourcesIn {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            port: 7318,
+            cushion_ms: 300,
+            leveller: weavesignal_mixer::SourceLevellerSettings::default(),
+        }
+    }
+}
+
+impl SourcesIn {
+    fn validate(&self) -> Result<(), String> {
+        if !self.bind.is_loopback() {
+            return Err(format!(
+                "sources.bind is {}; the ingest hands sources over on loopback only",
+                self.bind
+            ));
+        }
+        if self.enabled && self.port == 0 {
+            return Err("sources.port is 0".into());
+        }
+        if !(50..=2_000).contains(&self.cushion_ms) {
+            return Err("sources.cushion_ms must be 50 to 2000".into());
+        }
+        self.leveller
+            .validate()
+            .map_err(|e| format!("sources.leveller: {e}"))
+    }
 }
 
 /// The video path (M5, ADR-0009): off by default per station. Cameras in the room, the vision
@@ -841,6 +899,7 @@ impl Config {
         if self.programme.srt_port == 0 {
             return invalid("programme.srt_port is 0".into());
         }
+        self.sources.validate().map_err(ConfigError::Invalid)?;
         if !(self.livekit.url.starts_with("ws://") || self.livekit.url.starts_with("wss://")) {
             return invalid(format!(
                 "livekit.url `{}` is not a ws:// or wss:// URL",

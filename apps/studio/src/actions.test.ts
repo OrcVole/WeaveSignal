@@ -10,7 +10,7 @@ import { run } from './lib/actions.ts';
 import { studio } from './lib/studio.svelte.ts';
 import type { DeskPerson, View } from './lib/api.ts';
 
-vi.mock('./lib/api.ts', async (orig) => ({ ...(await orig<typeof api>()), endPass: vi.fn(), desk: vi.fn() }));
+vi.mock('./lib/api.ts', async (orig) => ({ ...(await orig<typeof api>()), endPass: vi.fn(), desk: vi.fn(), restartPlayout: vi.fn() }));
 
 const person = (identity: string, name: string, role: DeskPerson['role']): DeskPerson => ({
   identity,
@@ -55,6 +55,7 @@ beforeEach(() => {
   studio.note = null;
   vi.mocked(api.endPass).mockReset();
   vi.mocked(api.desk).mockReset();
+  vi.mocked(api.restartPlayout).mockReset();
 });
 
 describe('arming', () => {
@@ -137,5 +138,77 @@ describe('a held talk key', () => {
     await run({ type: 'talk', slot: 3, held: true });
     await run({ type: 'talk', slot: 3, held: false });
     expect(api.desk).not.toHaveBeenCalled();
+  });
+});
+
+// Issue 9 (ADR-0289): ⌃R twice restarts playout through the station; ⌃⇧R and ⌃⇧B are not keys; ⌃4
+// opens the Screener's Room lane, because the chat is moderated there and the app has no Chat tab.
+describe('restarting playout (⌃R twice)', () => {
+  it('asks the station once, says so, and keeps no key armed', async () => {
+    vi.mocked(api.restartPlayout).mockResolvedValue({ restarting: true, words: 'Playout is restarting. Listeners hear the fallback for a few seconds.' });
+    studio.armed = { what: 'restart-playout', at: 1 };
+    await run({ type: 'restart-playout' });
+    expect(api.restartPlayout).toHaveBeenCalledTimes(1);
+    expect(studio.armed).toBeNull();
+    expect(studio.note).toMatchObject({ tone: 'good', title: 'Playout is restarting' });
+  });
+
+  it('says what the second press does when the first arms it', async () => {
+    await run({ type: 'arm', what: 'restart-playout' });
+    expect(studio.armed).toMatchObject({ what: 'restart-playout' });
+    expect(studio.note).toMatchObject({ title: 'Restart playout?' });
+    expect(studio.note?.message).toContain('⌃R again');
+    expect(api.restartPlayout).not.toHaveBeenCalled();
+  });
+
+  it('gives the station’s own words when it refuses', async () => {
+    vi.mocked(api.restartPlayout).mockRejectedValue(new api.ApiError(502, 'Playout did not answer. If it is stopped, the server’s supervisor is starting it.'));
+    await run({ type: 'restart-playout' });
+    expect(studio.note).toMatchObject({ tone: 'warning', title: 'Not done' });
+    expect(studio.note?.message).toContain('supervisor');
+  });
+});
+
+describe('⌃4', () => {
+  /** A page with a Room panel in it: the lines the focus may go to, and the heading. */
+  const page = (lines: boolean) => {
+    const focused: string[] = [];
+    const el = (name: string, attrs: Record<string, string> = {}) => ({
+      focus: () => focused.push(name),
+      hasAttribute: (n: string) => n in attrs,
+      setAttribute: (n: string, v: string) => (attrs[n] = v),
+    });
+    const line = el('line', { tabindex: '0' });
+    const head = el('heading');
+    const room = { querySelector: (q: string) => (q.includes('room-line') ? (lines ? line : null) : q === 'h2' ? head : null) };
+    vi.stubGlobal('document', {
+      documentElement: { dataset: {} as Record<string, string> },
+      querySelector: (q: string) => (q === '[data-panel="screener.room"]' ? room : null),
+    });
+    return focused;
+  };
+
+  it('opens the Screener tab and puts the focus in the Room lane, on its newest or selected line', async () => {
+    const focused = page(true);
+    studio.tab = 'desk';
+    await run({ type: 'tab', tab: 'chat' });
+    expect(studio.tab).toBe('screener');
+    expect(focused).toEqual(['line']);
+    vi.unstubAllGlobals();
+  });
+
+  it('falls back to the Room’s heading when the Room has no line yet', async () => {
+    const focused = page(false);
+    studio.tab = 'carts';
+    await run({ type: 'tab', tab: 'chat' });
+    expect(studio.tab).toBe('screener');
+    expect(focused).toEqual(['heading']);
+    vi.unstubAllGlobals();
+  });
+
+  it('never says the Chat tab is missing: there is no such note', async () => {
+    studio.tab = 'desk';
+    await run({ type: 'tab', tab: 'chat' });
+    expect(studio.note).toBeNull();
   });
 });

@@ -13,6 +13,8 @@
   import { readScoped, writeScoped } from '../lib/scoped.ts';
   import { untrack } from 'svelte';
   import Staff from './Staff.svelte';
+  import Hosts from './Hosts.svelte';
+  import { mayManageHosts } from '../lib/hosts.ts';
   import MyShow from './MyShow.svelte';
   import Zone from './Zone.svelte';
   import Tokens from './Tokens.svelte';
@@ -65,6 +67,8 @@
    *  who the window is counts as the key, which is what it was. */
   const canManage = $derived(!known || who === null || isAdmin(who));
   const showStaff = $derived(!!who && isAdmin(who));
+  /** Own studios: an admin, a producer or the key; a presenter has their own show's in Your show. */
+  const showHosts = $derived(!!who && mayManageHosts(who) && !sandboxed());
   /** Your show (ADR-0218): for a member of staff signed in as themselves; not in the sandbox. */
   const showMine = $derived(who?.kind === 'staff' && !sandboxed());
 
@@ -440,6 +444,11 @@
 
     {#if showStaff}
       <Staff me={who} />
+    {/if}
+    <!-- Own studios (ADR-0280): after Staff, for an admin or a producer. The sandbox has no
+         hosts, and a station older than 1.1 has no such routes: the panel then draws nothing. -->
+    {#if showHosts}<Hosts me={who} />{/if}
+    {#if showStaff}
       <Zone />
       <IcecastOut admin={canManage} />
       <Tokens />

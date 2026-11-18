@@ -45,6 +45,34 @@ pub struct DeskPerson {
     pub lufs: Option<f32>,
     #[serde(default)]
     pub lufs_peak: Option<f32>,
+    /// A host's own studio (ADR-0280): how it came in and what the leveller does; absent for a
+    /// person in the room.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<DeskSource>,
+}
+
+/// A host's own studio as the desk reports it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskSource {
+    /// `icecast` or `srt`.
+    pub way: String,
+    /// What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`).
+    pub format: String,
+    /// The show key's public id.
+    pub key: String,
+    /// The show's slug.
+    pub show: String,
+    /// How long the desk has had it, unbroken: its steady time.
+    pub connected_ms: u64,
+    /// What the leveller is doing to bring it to the desk's level, in dB (±12).
+    pub leveller_db: f32,
+    /// Its own level over the leveller's ten seconds, before the gain, in dBFS RMS; `None`
+    /// until it has sounded.
+    #[serde(default)]
+    pub level_db: Option<f32>,
+    /// Its monitor link is open: the desk is making its monitor mix (someone listens).
+    #[serde(default)]
+    pub monitor: bool,
 }
 
 /// Whether playout is connected to the desk's programme output.
@@ -302,6 +330,11 @@ pub enum DeskCommand {
     OnAir {
         identity: String,
         on: bool,
+        /// Fade over this many milliseconds instead of switching at once: the schedule's moves
+        /// (the post, a grace's end, End show passing the air) ask for it, a person's press never
+        /// does. Absent is at once. A desk before 1.1 does not know the field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fade_ms: Option<u32>,
     },
     Mute {
         identity: String,
@@ -855,6 +888,7 @@ pub(crate) mod tests {
             .send(&DeskCommand::OnAir {
                 identity: "x".into(),
                 on: true,
+                fade_ms: None,
             })
             .await;
         assert!(matches!(refused, Err(DeskError::Refused(e)) if e.contains("not at the desk")));

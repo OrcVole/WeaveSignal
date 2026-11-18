@@ -20,7 +20,11 @@ The toast says *Playout down · room alive*, with how long ago the link dropped,
    Guests hear you; listeners do not.
    Tell guests plainly, or hold a talk key to say it to one of them only.
 2. **Restart playout on the server.**
-   The desk's **Restart playout** button and `⌃R` only show a note in 1.0.0 ([planned](/docs/reference/release-one-status/#not-in-release-one)).
+   From 1.1, press `⌃R` twice (the first press says what the second does), or press the desk's **Restart playout** button.
+   The station asks playout to shut down and its supervisor starts it again, which is how Compose, the Quadlets and the Cloudron app are all set up.
+   Any member of staff may do it.
+   Before 1.1 the button and the key only showed a note.
+   If the station answers that playout did not answer, the supervisor is already starting it, or playout's process is gone: restart it from the server.
    On Cloudron, restart the app.
    With the Compose bundle, restart the `playout` service, from the folder that holds `compose.yaml`: `docker compose -p weavesignal restart playout`, or `podman compose -p weavesignal restart playout`.
 3. **Wait for ON AIR.**

@@ -12,11 +12,11 @@ What the repository builds, where each piece lives, and where the 1.0.0 builds a
 
 | What | Published at |
 |---|---|
-| The studio app's packages, with their `.sig` files and checksums | the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.0.5), and the updater's tree under `https://weavesignal.top/updates/` |
+| The studio app's packages, with their `.sig` files and checksums | the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.1.0), and the updater's tree under `https://weavesignal.top/updates/` |
 | The updater's feed | `https://weavesignal.top/updates/latest.json` |
-| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5` |
-| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.5`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.5` |
-| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.0.5` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
+| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0` |
+| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.1.0`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.1.0` |
+| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.1.0` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
 
 The repository's root also holds `CHANGELOG.md`, what each release changed, and `SECURITY.md`, how to report a security fault.
 
@@ -140,8 +140,8 @@ Not pinned: the base images (`ubuntu:24.04`, `debian:13`, `fedora:44`, `node`, `
 | Setting | Made by the script |
 |---|---|
 | `STATION_ID` | a fresh identifier |
-| `LIVEKIT_API_SECRET`, `LISTENERS_SOURCE_PASSWORD`, `POSTGRES_PASSWORD`, `CONTROL_ADMIN_TOKEN`, `CHAT_EMAIL_KEY`, `CONTROL_EMAIL_KEY`, `CONTROL_TOKEN_KEY` | 40 random letters and digits each, made once, kept on later runs and never printed; secrets are never taken from the environment. The three keys key the chat's and the staff's email hashes and the API tokens ([The email key](/docs/reference/chat/#the-email-key), [Integrations](/docs/reference/integrations/#the-key)) |
-| `CONTROL_PORT`, `CHAT_PORT`, `LISTENERS_PORT`, `SRT_INGEST_PORT`, `PLAYOUT_FEED_PORT`, `DESK_FEED_PORT`, `LIVEKIT_HTTP_PORT`, `LIVEKIT_MEDIA_PORT` | free ports ([Ports](/docs/reference/ports/#with-weavesignalsh)) |
+| `LIVEKIT_API_SECRET`, `LISTENERS_SOURCE_PASSWORD`, `POSTGRES_PASSWORD`, `CONTROL_ADMIN_TOKEN`, `CHAT_EMAIL_KEY`, `CONTROL_EMAIL_KEY`, `CONTROL_TOKEN_KEY`, `INGEST_TOKEN`, `DESK_SOURCES_PASSWORD` | 40 random letters and digits each, made once, kept on later runs and never printed; secrets are never taken from the environment. The three keys key the chat's and the staff's email hashes and the API tokens ([The email key](/docs/reference/chat/#the-email-key), [Integrations](/docs/reference/integrations/#the-key)) |
+| `CONTROL_PORT`, `CHAT_PORT`, `LISTENERS_PORT`, `SRT_INGEST_PORT`, `PLAYOUT_FEED_PORT`, `DESK_FEED_PORT`, `DESK_SOURCES_PORT`, `LIVEKIT_HTTP_PORT`, `LIVEKIT_MEDIA_PORT` | free ports ([Ports](/docs/reference/ports/#with-weavesignalsh)) |
 | `STATION_NAME`, `ROOM`, `SERVER_IMAGE`, `LIVEKIT_API_KEY`, `MAIL_MODE`, `MAIL_FROM` | the defaults, or what the environment gives; `--image` sets `SERVER_IMAGE` |
 | `CONSENT_CONTACT` | empty unless set: call-in stays closed until it is ([Open call-in](/docs/how-to/install-with-weavesignal-sh/#open-call-in)) |
 | `DEMO_STILL` | the demo slate picture for a station left with the demo name, Kettle FM; empty for any other name; kept as written on later runs (ADR-0200) |
@@ -154,4 +154,4 @@ The containers and volumes carry the Compose project's name (`weavesignal` by de
 ## The Quadlets
 
 `deploy/quadlets/generate.sh` writes [the Quadlet route's](/docs/how-to/run-with-quadlets/) units from the Compose bundle and a settings file: a `.container` per service, a `.volume` per volume (named `<project>_<volume>`, as Compose names them), the services' settings files, and `<project>.target`.
-The secrets become Podman secrets named `<project>-livekit-api-secret`, `<project>-listeners-source-password`, `<project>-postgres-password`, `<project>-control-admin-token`, `<project>-chat-email-key`, `<project>-control-email-key`, `<project>-control-token-key` and `<project>-livekit-livekit-keys` (LiveKit's key and secret together, as LiveKit reads them).
+The secrets become Podman secrets named `<project>-livekit-api-secret`, `<project>-listeners-source-password`, `<project>-postgres-password`, `<project>-control-admin-token`, `<project>-chat-email-key`, `<project>-control-email-key`, `<project>-control-token-key`, `<project>-ingest-token` and `<project>-desk-sources-password` (hosts' own studios: each given to its two units only), and `<project>-livekit-livekit-keys` (LiveKit's key and secret together, as LiveKit reads them).

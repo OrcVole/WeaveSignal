@@ -406,6 +406,10 @@ async function desk() {
   const k = page.keyboard;
   await until((v) => v.sources.length >= 4 && v.callers.length >= 4, 30000);
   await sleep(2500); // the meters settle
+  // A desk notice shows for 20 s (DeskB's lastNotice). The stack's start can raise one by itself
+  // (a moment of dead air before the people sound, "Back on air"), and the reference picture
+  // shows the desk at rest, so it waits for any such notice to pass (2026-11-17).
+  await until((v) => !v.notices.some((n) => n.surface === 'desk' && n.kind !== 'caller.ready' && Date.now() - n.at_ms < 21_000), 30000);
 
   // --- Desk B as it is when the show is running: lamp, stage, the rest of the room waiting ---
   await shot(page, 'reference-desk-window');

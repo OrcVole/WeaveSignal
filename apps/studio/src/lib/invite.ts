@@ -5,9 +5,9 @@
 // fragment; the role decides whether its person joins on air or off. The show's step decides
 // which roles there are (ADR-0271): the next show's DJ comes with Full.
 
-import { FieldError, type Invite, type InviteRole, type ShowStep } from './api.ts';
+import { FieldError, type Invite, type InviteRole, type Me, type ShowStep, type Source, type View } from './api.ts';
 import { firstName, hm } from './format.ts';
-import { atLeast } from './steps.ts';
+import { atLeast, needsOwnLink } from './steps.ts';
 
 /** The roles an invitation may carry, the DJ first (the default), each with what joining means. */
 export const INVITE_ROLES: readonly { role: InviteRole; name: string; what: string }[] = [
@@ -80,12 +80,96 @@ export function inviteProblem(e: unknown): string {
   return 'The station did not answer. Check the link to the station, then try again.';
 }
 
+/** The identity the station gives a presenter's own microphone link: `presenter-me-` and the
+ *  account's id without its hyphens (`crates/control/src/steps.rs`, `own_identity`). */
+export const ownIdentity = (accountId: string) => `presenter-me-${accountId.replaceAll('-', '')}`;
+
+/** Whether a person at the desk is this window's own account in the room, by its microphone link. */
+export function isMine(identity: string, me: Me | null | undefined): boolean {
+  return me?.kind === 'staff' && !!me.account && identity === ownIdentity(me.account.id);
+}
+
+/** Leaving the room from the desk (the operator on talk, 2026-11-16: the only way off the air was
+ *  the join page's own Leave). The presenter's own tile says it, and Leave is End pass for
+ *  yourself, in two presses like it. */
+export const LEAVE = {
+  button: 'Leave',
+  inRoom: 'You’re in the room',
+  why: 'Takes you off air and out of the room, and closes your microphone link. A new microphone link brings you back.',
+  doneTitle: 'You have left the room',
+} as const;
+
+/** What the toast says after Leave, from the view the station answered with (as `letGoWords`
+ *  does after Off air): where the air is, and how to come back only where that button is drawn. */
+export function leaveWords(v: View | null | undefined, signedIn: boolean, look: ShowStep): { title: string; message: string } {
+  const onAir = (v?.sources ?? []).filter((s) => s.on_air).map((s) => firstName(s.name, s.identity));
+  const who = onAir.length > 1 ? `${onAir.slice(0, -1).join(', ')} and ${onAir[onAir.length - 1]}` : (onAir[0] ?? '');
+  const air = onAir.length
+    ? `${who} ${onAir.length === 1 ? 'keeps' : 'keep'} the air.`
+    : v?.mode === 'auto'
+      ? 'Automation holds the air.'
+      : v?.mode === null || v?.mode === undefined
+        ? 'Listeners hear the fallback.'
+        : 'Nobody is on air.';
+  const back = v && needsOwnLink(v.sources, look, !!v.step?.may_change, signedIn) ? ' Join with my microphone… makes the link again.' : '';
+  return { title: LEAVE.doneTitle, message: `You are off air and your microphone link is closed. ${air}${back}` };
+}
+
 /** The Solo DJ's own link (ADR-0274): the lines of the dialog's second page. */
 export const OWN_LINK = {
   button: 'Join with my microphone…',
   title: 'Your microphone link',
-  lede: 'Open it in a browser on this computer and press Join the studio. You are on air the moment you join.',
+  lede: 'Open it in a browser on this computer and press Join the studio. You are on air the moment you join. Keep that tab open: it carries your voice.',
+  /** The lede while automation holds the air. */
+  ledeAuto: 'Open it in a browser on this computer and press Join the studio. Automation holds the air, so you join open to the room; Take the air back puts you on air. Keep that tab open: it carries your voice.',
+  /** The stage's words before the link is made: the tab is the microphone. */
+  stage: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link, press Join the studio, and you are on air. Keep that tab open: it carries your voice.',
+  /** The same while automation holds the air: joining opens you to the room, and the air stays
+   *  automation's until it is taken back (the post's rule, ADR-0280). */
+  stageAuto: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join open to the room while automation holds the air, and Take the air back puts you on air. Keep that tab open: it carries your voice.',
   open: 'Open in browser',
+  /** After the link is handed to the browser. */
+  opened: 'Opened in your browser. Allow the microphone if it asks, then press Join the studio. Keep that tab open: it carries your voice.',
   /** The packaged app could not hand the link to a browser. */
   notOpened: 'Could not open a browser from here. Copy the link and paste it into your browser.',
 } as const;
+
+/** The host in their own studio who has the air (1.1): a source on air, or one whose place is
+ *  kept while its link is lost, since the air is theirs to come back to. `name` is their first
+ *  name, empty when two hosts are on air at once (an overlap). Null when no source holds the
+ *  air: the stage's offer is then the headline it always was. */
+export interface AirHost {
+  name: string;
+  /** Their link is lost and their place is kept: nobody is there to talk to. */
+  lost: boolean;
+}
+
+export function airHost(sources: readonly Pick<Source, 'role' | 'on_air' | 'name' | 'identity'>[], kept: { name: string } | null | undefined): AirHost | null {
+  const on = sources.filter((s) => s.role === 'source' && s.on_air);
+  if (on.length) return { name: on.length === 1 ? firstName(on[0].name, on[0].identity) : '', lost: false };
+  return kept ? { name: firstName(kept.name, ''), lost: true } : null;
+}
+
+/** The offer's one quiet line while a host in their own studio has the air (the look's review,
+ *  2026-11-17, finding 2): beside Invite someone… in the Not on air row, not the stage's
+ *  headline. The show is not this window's to present, so the line says what joining is for,
+ *  Talk and Cue, and that joining puts you on air: here that is a warning, not a promise.
+ *
+ *  It says only what the station will do (`plan` in crates/model/src/post.rs). While automation
+ *  holds the air (`mode` is `auto`: it covers a lost link, or was handed the air) a presenter
+ *  who joins is open to the room and not heard, so the line says that and not *on air* (the
+ *  lamp and the stage's own line above say automation holds the air; one line has no room to
+ *  say it again). With the
+ *  host's link lost there is nobody to talk to. Then, under automation, the station brings a
+ *  returning host back by itself and takes the air back with them, which puts whoever joined on
+ *  air too; with the desk holding the air, whoever joined holds it, and the returning host
+ *  stands by. */
+export function ownLinkBeside(host: AirHost, mode?: View['mode']): string {
+  const auto = mode === 'auto';
+  if (host.lost) {
+    const who = host.name || 'the host';
+    return auto ? `You join open to the room, and are on air when ${who} is back.` : `Joining puts you on air. If ${who} reconnects, they then stand by.`;
+  }
+  const who = host.name || 'the hosts';
+  return `Join to talk to ${who} or to hear a cue. ${auto ? 'You join open to the room.' : 'Joining puts you on air.'}`;
+}

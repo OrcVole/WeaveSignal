@@ -64,15 +64,17 @@ describe('the keymap', () => {
         expect(out.handled, `${code} on ${tab} must reach the field`).toBe(false);
       }
     }
-    // ⌃D ⌃D is a two-press chord: not even the first press arms from a field.
+    // ⌃D ⌃D and ⌃R ⌃R are two-press chords: not even the first press arms from a field.
     expect(k.down(key('KeyD', { ctrl: true }), typing('screener'), 0).action).toBeNull();
     expect(k.down(key('KeyD', { ctrl: true }), typing('screener'), 10).action).toBeNull();
+    expect(k.down(key('KeyR', { ctrl: true }), typing('screener'), 20).action).toBeNull();
+    expect(k.down(key('KeyR', { ctrl: true }), typing('screener'), 30).action).toBeNull();
+    expect(k.armedNow(40)).toBeNull();
   });
 
   it('still fires single modifier chords in a text field, and Esc leaves the field', () => {
     const k = new KeyEngine();
     expect(k.down(key('Digit2', { ctrl: true }), typing('desk'), 0).action).toEqual({ type: 'tab', tab: 'screener' });
-    expect(k.down(key('KeyR', { ctrl: true }), typing('screener'), 0).action).toEqual({ type: 'restart-playout' });
     expect(k.down(key('KeyT', { ctrl: true }), typing('screener'), 0).action).toEqual({ type: 'talk-seat', held: true });
     expect(k.down(key('Escape'), typing('screener'), 0).action).toEqual({ type: 'leave-field' });
   });
@@ -172,8 +174,43 @@ describe('the chat keys on the screener (keymap section 5, M6)', () => {
     expect(k.down(key('KeyH'), screener, 10_100).action).toEqual({ type: 'mod-hide' });
     expect(k.down(shiftB, screener, 10_200).action).toEqual({ type: 'arm', what: 'ban' });
     expect(k.down(shiftB, screener, 10_200 + ARM_MS + 1).action).toEqual({ type: 'arm', what: 'ban' });
-    // ⌃⇧B is still the backup stream, on every tab.
-    expect(k.down(key('KeyB', { ctrl: true, shift: true }), screener, 0).action).toEqual({ type: 'backup-stream' });
+  });
+
+  it('restarts playout on a second ⌃R within 3 s, like Dump, from any tab (issue 9)', () => {
+    const k = new KeyEngine();
+    const ctrlR = key('KeyR', { ctrl: true });
+    for (const where of [desk, screener]) {
+      expect(k.down(ctrlR, where, 0).action).toEqual({ type: 'arm', what: 'restart-playout' });
+      expect(k.armedNow(1000)).toBe('restart-playout');
+      expect(k.down(ctrlR, where, 2000).action).toEqual({ type: 'restart-playout' });
+      expect(k.armedNow(2001)).toBeNull();
+    }
+    // Too late, or another key between: the second press arms again instead.
+    expect(k.down(ctrlR, desk, 0).action).toEqual({ type: 'arm', what: 'restart-playout' });
+    expect(k.down(ctrlR, desk, ARM_MS + 1).action).toEqual({ type: 'arm', what: 'restart-playout' });
+    k.down(key('Digit1'), desk, ARM_MS + 2);
+    expect(k.down(ctrlR, desk, ARM_MS + 3).action).toEqual({ type: 'arm', what: 'restart-playout' });
+    // Esc disarms it, and a held key repeating is not a press.
+    expect(k.down(key('Escape'), desk, ARM_MS + 4).action).toEqual({ type: 'disarm' });
+    expect(k.down({ ...ctrlR, repeat: true }, desk, ARM_MS + 5).action).toBeNull();
+  });
+
+  it('has no key for restarting the listener process (⌃⇧R) or a backup stream (⌃⇧B), on any tab', () => {
+    const k = new KeyEngine();
+    for (const code of ['KeyR', 'KeyB']) {
+      for (const where of [desk, screener, typing('desk')]) {
+        const out = k.down(key(code, { ctrl: true, shift: true }), where, 0);
+        expect(out.action, `${code}`).toBeNull();
+        expect(out.handled, `${code} is left to the browser`).toBe(false);
+      }
+    }
+  });
+
+  it('opens the Room with ⌃4, as the Chat tab’s key, on every tab and from a field', () => {
+    const k = new KeyEngine();
+    for (const where of [desk, screener, typing('desk')]) {
+      expect(k.down(key('Digit4', { ctrl: true }), where, 0).action).toEqual({ type: 'tab', tab: 'chat' });
+    }
   });
 
   it('posts as staff with ⌃⏎ from the composer, and only on the screener', () => {
@@ -459,15 +496,11 @@ describe('the listener delay (ADR-0103, ADR-0272)', () => {
     expect(listenerDelayMs({ ms: 12_000 })).toBe(12_000);
   });
 
-  it('names what is read live and what is a setting', () => {
+  it('names the parts in plain words: the station’s own readings, and the rest as an estimate', () => {
     const d = { ms: 26_000, measured: false, desk_ms: 8_000, process_ms: 3_200, rest_ms: 14_500 };
-    expect(delayParts(d)).toBe(
-      "Read now: 8.0 s profanity delay, 3.2 s in the listener process; about 14.5 s more is set, not read: the stream's own hold and each listener's player",
-    );
-    // The listener process does not answer: only the desk is read.
-    expect(delayParts({ ...d, process_ms: null, rest_ms: 15_000 })).toBe(
-      "Read now: 8.0 s profanity delay; about 15.0 s more is set, not read: the stream's own hold and each listener's player",
-    );
+    expect(delayParts(d)).toBe('8.0 s profanity delay, 3.2 s buffer, about 14.5 s in listeners’ players (estimated)');
+    // The listener process does not answer: only the desk's part is known.
+    expect(delayParts({ ...d, process_ms: null, rest_ms: 15_000 })).toBe('8.0 s profanity delay, about 15 s in listeners’ players (estimated)');
     // A control plane too old to split it says nothing rather than guess.
     expect(delayParts({ ms: 15_000, measured: false })).toBe('');
     expect(delayParts(null)).toBe('');

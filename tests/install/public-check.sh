@@ -125,6 +125,41 @@ fi
 grep -qF "TURN_UDP_PORT=3478 (udp) is in use" "$out" || fail "the TURN UDP clash is not named"
 pass "taken ports: the proxy's refused (8443 and forwarding named), TURN over TLS moves to 15349, a set TURN UDP port is checked"
 
+# Hosts in their own studios (ADR-0280): both ports off unless set; a set one is checked, kept,
+# named in what to open, and the ingest takes every address on the public route only.
+[ "$(sed -n 's/^SOURCE_ICECAST_PORT=//p' "$run/first.env")" = 0 ] && [ "$(sed -n 's/^SOURCE_SRT_PORT=//p' "$run/first.env")" = 0 ] \
+  && [ "$(sed -n 's/^INGEST_BIND=//p' "$run/first.env")" = 0.0.0.0 ] || fail "hosts' ports are not off by default, or the public ingest is not on every address"
+n=$((n + 1)); out="$run/out-hosts.txt"
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file SOURCE_ICECAST_PORT=8005 SOURCE_SRT_PORT=9710 "$script" --env-file "$run/hosts.env" --image x --public "$domain" > "$out" 2>&1 \
+  || { cat "$out" >&2; fail "hosts' ports were refused"; }
+grep -q "^SOURCE_ICECAST_PORT=8005$" "$run/hosts.env" && grep -q "^SOURCE_SRT_PORT=9710$" "$run/hosts.env" || fail "hosts' ports were not kept"
+grep -qF "hosts' own studios TCP 8005 (Icecast) and UDP 9710 (SRT)" "$out" || { cat "$out" >&2; fail "the output does not name hosts' ports to open"; }
+n=$((n + 1)); out="$run/out-hosts2.txt"
+if PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file SOURCE_SRT_PORT=9710 STUB_TAKEN="udp:9710" "$script" --env-file "$run/hosts2.env" --image x --public "$domain" --no-start > "$out" 2>&1; then
+  fail "a taken SOURCE_SRT_PORT was accepted"
+fi
+grep -qF "SOURCE_SRT_PORT=9710 (udp) is in use" "$out" || fail "the hosts' SRT clash is not named"
+rm -f "$run/hosts.env" "$run/hosts2.env"
+pass "hosts' own studios: both ports off by default; set, they are checked, kept and named to open; the public ingest takes every address"
+
+# The show and steering (issue 5): kept as written, and a value the settings file cannot take is
+# refused with the setting named, not left for the control plane to stop on.
+n=$((n + 1)); out="$run/out-studio.txt"
+printf 'STUDIO_SHOW="The Morning Kettle"\nSTUDIO_RUNDOWN=%s\nSTEERING_TTL_S=120\n' "'{ at = \"10:00\", title = \"News\" }'" > "$run/studio.env"
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/studio.env" --image x --public "$domain" --no-start > "$out" 2>&1 \
+  || { cat "$out" >&2; fail "the show and steering's settings were refused"; }
+grep -qxF 'STUDIO_SHOW="The Morning Kettle"' "$run/studio.env" && grep -qxF "STUDIO_RUNDOWN='{ at = \"10:00\", title = \"News\" }'" "$run/studio.env" && grep -qx 'STEERING_TTL_S=120' "$run/studio.env" \
+  || fail "the show and steering's settings were not kept as written"
+n=$((n + 1)); out="$run/out-studio2.txt"
+printf 'STUDIO_SHOW=The "Late" Show\n' > "$run/studio2.env"
+if PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/studio2.env" --image x --public "$domain" --no-start > "$out" 2>&1; then fail "a show with a quote was accepted"; fi
+grep -qF "STUDIO_SHOW in" "$out" || { cat "$out" >&2; fail "the quote in the show is not named"; }
+printf 'STEERING_TTL_S=five\n' > "$run/studio3.env"
+if PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/studio3.env" --image x --public "$domain" --no-start > "$out" 2>&1; then fail "a steering TTL that is not a number was accepted"; fi
+grep -qF "STEERING_TTL_S=five" "$out" || { cat "$out" >&2; fail "the bad TTL is not named"; }
+rm -f "$run"/studio*.env
+pass "the show and steering's settings are kept as written; a quote in the show and a TTL that is not a number are refused, named"
+
 # Refusals.
 for bad in "https://station.example" "Station.Example" "station" "station.example:8443" "a b.example"; do
   args=(--env-file "$run/bad.env" --public "$bad" --no-start)

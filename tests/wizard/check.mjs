@@ -148,7 +148,9 @@ async function station(browser) {
   const baseDir = (process.argv.find((a) => a.startsWith('BASE=')) ?? '').slice(5) || process.env.BASE;
   if (baseDir) {
     mkdirSync(join(OUT, 'unbranded'), { recursive: true });
-    for (const [name, path] of [['player', '/'], ['join', '/join/']]) {
+    // The station is still called Kettle FM with setup open, so `/` is the not-set-up page (1.1):
+    // the player is read at its own file.
+    for (const [name, path] of [['player', '/index.html'], ['join', '/join/']]) {
       await everySize(browser, async (page, { size, theme }) => {
         await page.goto(`${base}${path}`, { waitUntil: 'networkidle' });
         await page.waitForTimeout(300);

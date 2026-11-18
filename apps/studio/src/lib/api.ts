@@ -15,7 +15,32 @@ import type { EpisodeView, ShowInput, ShowView } from './schedule.ts';
 import { markOwn, newChange, unmarkOwn } from './ruleNotice.ts';
 import { onStationChange } from './reset.ts';
 
-export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'producer' | 'listener';
+/** `source` is a host's own studio (ADR-0280): what their software sends, taken with a show key
+ *  and never through the room. It is at the desk like a person, with a slot and its keys. */
+export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'producer' | 'listener' | 'source';
+
+/** A host's own studio as the desk reports it on its tile (`sources[].source`, ADR-0280). */
+export interface DeskSource {
+  way: SourceWay;
+  /** What the host's software sends, as the station read it: `mp3 44.1 kHz stereo`. */
+  format: string;
+  /** The show key's public id. */
+  key: string;
+  /** The show's slug. */
+  show: string;
+  /** How long the desk has had it, unbroken: its steady time. It moves with every view. */
+  connected_ms: number;
+  /** What the leveller does to bring it to the desk's level, in dB (within 12 either way). */
+  leveller_db: number;
+  /** Its own level before the leveller, in dBFS RMS; null until it has sounded. */
+  level_db?: number | null;
+  /** Its monitor link is open: someone listens, and the desk makes their monitor mix. Absent
+   *  from a station that has no monitor link yet. */
+  monitor?: boolean;
+}
+
+/** The two ways in for a host's software. */
+export type SourceWay = 'icecast' | 'srt';
 
 export interface DeskPerson {
   identity: string;
@@ -35,6 +60,9 @@ export interface DeskPerson {
 
 export interface Source extends DeskPerson {
   slot: number;
+  /** For a host's own studio (role `source`): how it came in and what the leveller does.
+   *  Absent for a person in the room, and from a station older than 1.1. */
+  source?: DeskSource | null;
   caller: { line: string; note: string; name_on_air: string; sent: boolean; taken: boolean } | null;
 }
 
@@ -151,6 +179,63 @@ export interface View {
   mode?: StationMode | null;
   /** The station's beginner step (ADR-0271, ADR-0274): what is switched on, and whose step it is. */
   step: StepView;
+  /** The next handover (ADR-0280): the show whose post it is, its host's source and the clocks of
+   *  the post's rule, who holds it, a lost link and its place kept. Null with no handover to
+   *  show; absent from a station older than 1.1. */
+  post?: PostView | null;
+}
+
+/** The show whose post it is: the next to start, or the one on air whose host has not taken the air. */
+export interface PostShow {
+  slug: string;
+  name: string;
+  /** When its post is (its airing's start). */
+  start_ms: number;
+  /** Its post has come. */
+  started: boolean;
+}
+
+/** How far the post's source has got. */
+export type PostState = 'not_connected' | 'connecting' | 'standing_by' | 'on_air' | 'link_lost';
+
+/** A lost link and the place kept for it. The source itself has left the desk, so it is not
+ *  among the view's `sources` until its software reconnects. */
+export interface LinkLost {
+  key_id: string;
+  name: string;
+  /** Its show's slug. */
+  show?: string | null;
+  /** When the link was lost. */
+  lost_ms: number;
+  /** When automation covers it, if nobody else is on air. */
+  covers_ms: number;
+  /** Until when the place is kept. */
+  place_kept_until_ms: number;
+  /** Automation has covered it already. */
+  covered: boolean;
+}
+
+/** What `/studio` says of the post (hosts-in-their-own-studios.md section 10). */
+export interface PostView {
+  show?: PostShow | null;
+  /** Its source: the key's id, or for a presenter in the room their identity. */
+  source?: string | null;
+  source_name?: string | null;
+  /** Null when the show has no host to bring on (it comes from the room). */
+  state?: PostState | null;
+  /** When the source became steady, while the schedule may still bring it on by itself. */
+  standing_since_ms?: number | null;
+  /** When the schedule puts it on air from automation: at the post, or the late count's end. */
+  on_air_at_ms?: number | null;
+  /** When the grace ends and the schedule hands over from whoever holds the air. */
+  grace_ends_ms?: number | null;
+  /** Who holds this handover; the grace does not run. */
+  held_by?: string | null;
+  /** When the late count ends and the source goes on air. */
+  late_ends_ms?: number | null;
+  /** Who presents now, on air at the desk, by name. */
+  holders: string[];
+  link_lost?: LinkLost | null;
 }
 
 /** How much of the studio a show uses (ADR-0271): each step adds one kind of person. */
@@ -176,6 +261,13 @@ export interface ListenerDelay {
   /** True only when no part is a setting. Nothing reads the mount's own hold or a player's buffer,
    *  so a control plane of this build always says false. */
   measured: boolean;
+  /** `estimate` while part of `ms` is a setting, `measured` only when the whole path was measured
+   *  (issue 17). The same fact as `measured`, as a word. Absent from a control plane before 1.1. */
+  basis?: 'estimate' | 'measured';
+  /** The part of `ms` that is read live now: `desk_ms` plus `process_ms`. Absent before 1.1. */
+  read_ms?: number;
+  /** The part of `ms` that is a setting and never read: the same as `rest_ms`. Absent before 1.1. */
+  set_ms?: number;
   /** What the desk's profanity delay holds now (read live). Absent from a control plane too old. */
   desk_ms?: number;
   /** What the listener process holds of playout's feed (read live); null while it does not answer. */
@@ -199,6 +291,10 @@ export interface AudienceView {
   error?: string | null;
   /** The station has edges or a CDN configured. */
   edges: boolean;
+  /** What the count covers (issue 17): `origin`, the station's own listener process, every mount
+   *  together; listeners on an edge or a CDN and video viewers on HLS are not added. Absent
+   *  from a control plane before 1.1. */
+  scope?: 'origin';
 }
 
 export type DeskCommand =
@@ -508,6 +604,11 @@ export const whoAmI = () => call<Me>('GET', '/api/v1/sessions/me');
 export const setPreparing = (preparing: boolean) => call<Me>('PUT', '/api/v1/sessions/me/mode', { preparing });
 /** Every staff account, on or off (an admin's). */
 export const listStaff = () => call<{ accounts: StaffAccount[] }>('GET', '/api/v1/staff').then((r) => r.accounts);
+/** Who is on the team, for a producer or an admin (1.1, ADR-0289; a presenter or a screener gets
+ *  403): each account that is on, with only its id, name and role. The show editor names a show's
+ *  presenter from it. */
+export const listTeam = () =>
+  call<{ accounts: { id: string; name: string; role: StaffRole }[] }>('GET', '/api/v1/staff/directory').then((r) => r.accounts);
 /** A new account (an admin's). Errors name `username`, `name` or `password`. */
 export const createStaff = (a: { username: string; name: string; role: StaffRole; password: string }) =>
   call<StaffAccount>('POST', '/api/v1/staff', a);
@@ -770,6 +871,9 @@ export interface EndShowResult {
   /** When the air goes to automation: 0 it was there already, milliseconds the profanity delay
    *  still has to play out, null the station has no playout layer to hand it to. */
   automation_in_ms: number | null;
+  /** The next host's name when they were standing by and the air passed to them (ADR-0280);
+   *  nothing went to automation then. Absent otherwise, and from a station older than 1.1. */
+  passed_to?: string | null;
 }
 
 /** End the show: everyone off air, the carts faded, the air to automation once the delay has played out. */
@@ -782,6 +886,21 @@ export async function endShow(): Promise<EndShowResult> {
 
 /** Hand the air to automation (`auto`) or take it back (`live`), at once, taking nobody off air. */
 export const setMode = (mode: StationMode) => post('/api/v1/playout/mode', { mode });
+
+/** What the station says of a restart of playout. */
+export interface PlayoutRestarting {
+  restarting: boolean;
+  words: string;
+}
+
+/** Restart playout (⌃R twice): the station asks it to shut down, and its supervisor starts it
+ *  again. Listeners hear the fallback for a few seconds. */
+export async function restartPlayout(): Promise<PlayoutRestarting> {
+  const res = await netFetch(`${base()}/api/v1/playout/restart`, { method: 'POST', headers: headers(true), body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `${res.status} ${res.statusText}`);
+  return data as PlayoutRestarting;
+}
 
 /** The roles an invitation may carry; a caller joins from the player page instead. */
 export type InviteRole = 'dj' | 'guest' | 'presenter';
@@ -1449,3 +1568,159 @@ export function refusedClash(e: unknown): Clash | null {
   const c = list(e.data.clashes)[0] ?? e.data.clash;
   return c ? asClash(c, true) : null;
 }
+
+// ---- hosts in their own studios (ADR-0280, ADR-0284; 1.1) ----
+
+/** A show key as the station lists it: never a secret. */
+export interface ShowKey {
+  id: string;
+  show_id: string;
+  /** Who it is for: their name on the desk. */
+  label: string;
+  /** The member of staff it is for, if one. */
+  staff_id: string | null;
+  /** The public part: the SRT stream id, and the first part of the Icecast password. */
+  key_id: string;
+  /** How the host means to send: a hint, not a lock. */
+  hint: SourceWay;
+  created_by: string;
+  created_ms: number;
+  last_used_ms: number | null;
+  /** When it ended, if it has. */
+  revoked_ms: number | null;
+  /** It ends when its connection closes (a new key was made with *when they disconnect*). */
+  ends_on_disconnect: boolean;
+  /** Turned away from the desk until then (the tile's Disconnect). */
+  turned_away_until_ms: number | null;
+  turned_away_by: string | null;
+}
+
+/** A line of a key's log, as a row shows its last refusal. */
+export interface SourceLogEntry {
+  at_ms: number;
+  key_id: string;
+  event: string;
+  /** For a refusal: its word (`wrong_key`, `ended`, `not_your_slot`, `in_use`, `too_many`,
+   *  `turned_away`, `format`, `desk_full`, `too_fast`). */
+  reason: string | null;
+  detail?: string;
+  way: SourceWay | null;
+}
+
+/** How a host's software reaches the station. Outside the reply that makes a key, the two
+ *  secret fields hold the station's placeholder sentence, never a secret. */
+export interface SourceDetails {
+  /** The station's address as listeners reach it; null when the station's settings give none. */
+  host: string | null;
+  icecast: { port: number; mount: string; user: string; password: string };
+  srt: { port: number; streamid: string; passphrase: string; pbkeylen: number; url: string | null };
+}
+
+/** A key with what its row shows. */
+export interface KeyRow extends ShowKey {
+  last_refusal: SourceLogEntry | null;
+  details: SourceDetails;
+}
+
+/** A show's keys, live and ended, newest first, and where the show comes from. */
+export interface KeyList {
+  show: string;
+  source: 'room' | 'push';
+  keys: KeyRow[];
+}
+
+/** A key just made: its two secrets and the details, shown this once. */
+export interface MadeKey {
+  key: ShowKey;
+  secret: string;
+  /** The monitor link's secret, made and ended with the key. */
+  monitor_secret: string;
+  details: SourceDetails;
+  /** The station's own text block for a message. */
+  as_text: string;
+}
+
+/** A source connected or due, as `GET /sources` lists it. */
+export interface SourceNow {
+  key_id: string;
+  identity: string;
+  label: string;
+  show: string;
+  show_name: string;
+  /** `test` is a connection outside its slot, never on the desk; `not_connected` is a key whose
+   *  slot's door is open and whose host has not connected. */
+  state: 'on_air' | 'standby' | 'test' | 'not_connected';
+  slot: number | null;
+  way: SourceWay | null;
+  format: string | null;
+  /** At the desk: short-term LUFS after the leveller. For a test: the station's reading in dBFS RMS. */
+  level: number | null;
+  leveller_db: number | null;
+  steady_ms: number | null;
+  /** The host's monitor link is open: someone listens, and the desk makes their monitor mix. */
+  monitor_open: boolean;
+  door_closes_ms: number | null;
+  /** What the host's software says is playing (Icecast's metadata). */
+  title: string | null;
+  turned_away_until_ms: number | null;
+}
+
+export interface SourcesNow {
+  /** Whether the part of the station that takes hosts' software is running and reporting. */
+  listening: boolean;
+  sources: SourceNow[];
+}
+
+/** The station's rules for sources. `PUT` takes every field at once. */
+export interface SourceSettings {
+  door_before_min: number;
+  /** 0 (off), 60, 120 or 300. */
+  grace_s: number;
+  /** 0 is off. */
+  late_count_s: number;
+  test_outside: boolean;
+  test_max_min: number;
+  steady_s: number;
+  silence_s: number;
+  place_kept_s: number;
+  fade_ms: number;
+  port_icecast: number;
+  port_srt: number;
+}
+
+const showKeys = (slug: string) => `/api/v1/shows/${encodeURIComponent(slug)}/keys`;
+
+/** A show's keys and where it comes from. For an admin, a producer or the show's presenter. */
+export const listShowKeys = (slug: string) => call<KeyList>('GET', showKeys(slug));
+/** Make a key: the reply holds its secrets, once. Errors name `label`, `hint` or `staff_id`. */
+export const makeShowKey = (slug: string, k: { label: string; hint: SourceWay; staff_id?: string | null }) =>
+  call<MadeKey>('POST', showKeys(slug), { label: k.label, hint: k.hint, ...(k.staff_id ? { staff_id: k.staff_id } : {}) });
+/** A new key in place of one, for the same person: the old one ends now, or when its connection closes. */
+export const renewShowKey = (slug: string, keyId: string, old: 'now' | 'on_disconnect') =>
+  call<MadeKey>('POST', `${showKeys(slug)}/${encodeURIComponent(keyId)}/renew`, { old });
+/** End a key and its monitor link for good; a connection with it is closed. */
+export const endShowKey = (slug: string, keyId: string) => call<{ ended: boolean }>('DELETE', `${showKeys(slug)}/${encodeURIComponent(keyId)}`);
+/** Every source connected or due, and whether the station is listening for them. */
+export const listSources = () => call<SourcesNow>('GET', '/api/v1/sources');
+/** The tile's Disconnect: closes the connection and turns the key away until its slot's door
+ *  closes. Refused from a window that is preparing (409). */
+export const disconnectSource = (keyId: string) =>
+  call<{ disconnected: boolean; until_ms: number }>('POST', `/api/v1/sources/${encodeURIComponent(keyId)}/disconnect`);
+/** Hold this handover (an admin's or a producer's): the grace stops, and the air passes by a
+ *  press only. The view follows within a second. */
+export const holdPost = () => call<{ held: boolean }>('POST', '/api/v1/air/post/hold');
+/** Let the held handover go: the grace runs again. */
+export const releasePost = () => call<{ held: boolean }>('DELETE', '/api/v1/air/post/hold');
+/** Go on air now: a source standing by takes the air from automation at once, skipping the late count. */
+export const sourceGo = (keyId: string) => call<{ on_air: boolean }>('POST', `/api/v1/sources/${encodeURIComponent(keyId)}/go`);
+/** Not yet: the late count stops, and the source goes on air by a press. */
+export const sourceNotYet = (keyId: string) => call<unknown>('POST', `/api/v1/sources/${encodeURIComponent(keyId)}/not-yet`);
+/** Off air on a kept place: a source whose link is lost has its place let go at once. `covered`
+ *  says automation took the air with it. Refused (409) unless the key's place is kept now. */
+export const sourceOffAir = (keyId: string) => call<{ let_go: boolean; covered: boolean }>('POST', `/api/v1/sources/${encodeURIComponent(keyId)}/off-air`);
+/** Let back in: the key is taken again at once. */
+export const letSourceBack = (keyId: string) => call<{ let_back: boolean }>('DELETE', `/api/v1/sources/${encodeURIComponent(keyId)}/disconnect`);
+/** The rules for sources (an admin's). */
+export const getSourceSettings = () => call<SourceSettings>('GET', '/api/v1/settings/sources');
+/** Every rule at once (an admin's). Errors name the field. */
+export const putSourceSettings = (s: SourceSettings) => call<SourceSettings>('PUT', '/api/v1/settings/sources', s);

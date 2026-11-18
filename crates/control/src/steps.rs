@@ -667,10 +667,12 @@ mod tests {
         let dj_on = DeskCommand::OnAir {
             identity: "dj-1".into(),
             on: true,
+            fade_ms: None,
         };
         let dj_off = DeskCommand::OnAir {
             identity: "dj-1".into(),
             on: false,
+            fade_ms: None,
         };
         let picture = DeskCommand::Picture {
             mode: "auto".into(),

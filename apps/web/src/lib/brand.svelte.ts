@@ -53,12 +53,18 @@ export function lookOf(v: unknown): Look {
   };
 }
 
-const theme = (): ThemeName => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+/** The theme the accent is derived for; none in Night (ADR-0270), which keeps its own amber
+ *  accent whatever the station chose: Night has no blue, and a station's colour may be one. */
+const theme = (): ThemeName | null => {
+  const t = document.documentElement.dataset.theme;
+  return t === 'night' ? null : t === 'light' ? 'light' : 'dark';
+};
 
 let accent: string | null = null;
 function paint() {
   const style = document.documentElement.style;
-  const d = accent ? derive(accent, theme()) : null;
+  const t = theme();
+  const d = accent && t ? derive(accent, t) : null;
   if (d) {
     style.setProperty('--accent', d.accent);
     style.setProperty('--accent-ink', d.ink);

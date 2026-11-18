@@ -98,6 +98,8 @@ A refused field answers 422 with `{"error": "…", "field": …}`, the field one
 A session ends 12 hours after it was last used, and never more than 7 days after sign-in.
 The live sessions are held in memory and in the database, so a restart keeps them.
 
+`GET /api/v1/staff/directory` (1.1) is the staff list's short form, for any member of staff or the station key: `{"accounts": [{"id", "name", "role"}]}` for each account that is on, by name, and nothing else (no username, address or dates, and no account that is off). The show editor reads it to name a show's presenter (`presenter_account`); no API token reaches it.
+
 How to use these from the studio app: [Add staff and sign in](/docs/how-to/add-staff/).
 
 ## The studio's view and the step

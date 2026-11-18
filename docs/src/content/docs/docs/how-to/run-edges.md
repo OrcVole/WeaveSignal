@@ -31,7 +31,7 @@ The relay's own source and relay passwords are random at every start, and it tak
 
 - One machine per edge with a public address, Podman or Docker, and a 1 Gbit/s port or better. Size by the port, not the processor: about 1,000 video viewers per Gbit/s at the default quality, or about 9,000 audio listeners (*inference* from bench 02, where two edges served 4,000 viewers on under 5 % of a core each).
 - A host name per edge under a subdomain kept for edges, such as `edge-1.edges.example`, and a wildcard certificate for that subdomain only: its key sits on machines you may throw away.
-- The images. They are published as `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.5` and `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.5`; or build them from the repository with `just edge-image`, which tags them `localhost/weavesignal-edge:m1` and `localhost/weavesignal-relay:m1`.
+- The images. They are published as `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.1.0` and `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.1.0`; or build them from the repository with `just edge-image`, which tags them `localhost/weavesignal-edge:m1` and `localhost/weavesignal-relay:m1`.
 - The station's HLS origin running (the control plane serves the desk's HLS at `/hls/`, with video on) and published through its reverse proxy, with its `/health` published too: each edge's `/health` asks it.
 
 ## Run an edge
@@ -43,12 +43,12 @@ podman run -d --name weavesignal-edge --network host \
   -e EDGE_ORIGIN=https://station.example \
   -v /etc/weavesignal-edge/tls:/etc/weavesignal-edge/tls:ro \
   -e EDGE_RELAY=127.0.0.1:8000 \
-  forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.0.5
+  forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.1.0
 
 podman run -d --name weavesignal-relay --network host \
   -e RELAY_ORIGIN_HOST=station.example \
   -e RELAY_MOUNTS=/programme.opus -e RELAY_BIND=127.0.0.1 \
-  forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.0.5
+  forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.1.0
 ```
 
 The edge listens on 80 and, with a certificate, 443; it pulls `/hls/` from the station over HTTPS, checking the station's certificate.
@@ -102,7 +102,15 @@ host = "edge-2.edges.example"
 check_url = "http://edge-2.edges.example/health"
 ```
 
-The Compose bundle and the Cloudron package write `control.toml` themselves and have no setting for steering yet: on the Compose bundle, add the lines to the `control` entry under `configs:` in `deploy/compose/compose.yaml` and start the bundle again; the Cloudron package cannot take them.
+The Compose bundle and the Cloudron package write `control.toml` themselves. From 1.1 they take steering as settings, so you do not edit a file: set `STEERING_EDGES` to the edges as TOML inline tables, comma-separated, in single quotes, in `.env` (Compose and the Quadlets) or `/app/data/weavesignal.env` (Cloudron), and restart:
+
+```sh
+STEERING_EDGES='{ pathway = "edge-1", host = "edge-1.edges.example", check_url = "http://edge-1.edges.example/health" }, { pathway = "edge-2", host = "edge-2.edges.example", check_url = "http://edge-2.edges.example/health" }'
+```
+
+The other settings are `STEERING_TTL_S`, `STEERING_CHECK_EVERY_S`, `STEERING_CHECK_TIMEOUT_MS`, `STEERING_DOWN_AFTER` and `STEERING_CLONE_FROM`, with the defaults in [Settings](/docs/reference/settings/); left empty (Cloudron) or unchanged (Compose) they keep them.
+On Cloudron a `[steering]` in `/app/data/station.toml` replaces these lines whole.
+`STEERING_CLONE_FROM` cannot be made empty this way (empty means the default, `.`); a station that wants no clones writes `clone_from = ""` in `station.toml` or `control.toml`.
 
 Viewers are shared between the healthy edges by weight, and each keeps their edge between reloads.
 An edge that fails two checks in a row leaves the order; one passing check brings it back.

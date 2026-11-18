@@ -42,7 +42,7 @@ This writes, under `~/.config/weavesignal/quadlets`:
 
 | Path | What |
 |---|---|
-| `containers/systemd/weavesignal-*.container` | one unit per service: LiveKit, the desk, playout, the listener process, the control plane, the chat, PostgreSQL, and the proxy on a public station |
+| `containers/systemd/weavesignal-*.container` | one unit per service: LiveKit, the desk, playout, the listener process, the control plane, the chat, the ingest (hosts' own studios), PostgreSQL, and the proxy on a public station |
 | `containers/systemd/weavesignal-*.volume` | one unit per volume, named as Compose names them (`weavesignal_postgres-data`), so a station moved from Compose keeps its data |
 | `config/` | the services' settings files, mounted read-only |
 | `systemd/weavesignal.target` | starts every service |

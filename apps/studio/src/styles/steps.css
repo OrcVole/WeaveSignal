@@ -63,7 +63,23 @@ dialog.stepmenu::backdrop { background: var(--scrim); }
 .desk .tiles .empty.seat { grid-column: auto; padding: var(--s-4); text-align: center; align-content: center; gap: var(--s-2); }   /* desk.step-note: the guest's seat, empty at Solo */
 .desk .tiles .empty.seat span { max-width: 21rem; line-height: var(--lh-body); }
 .desk .tiles .empty.join span { max-width: 26rem; line-height: var(--lh-body); text-align: center; }
-.desk .tiles .empty .btn { margin-top: var(--s-2); }
+.desk .tiles .empty > .btn { margin-top: var(--s-2); }   /* the seat's own button, not the buttons of the dialog it opens (that pushed Open in browser 4 px off its link) */
+/* the quiet offer in the guest's seat at Solo, while a host in their own studio has the air: a sentence and an outlined button, no headline */
+.desk .tiles .empty.seat.own .btn.invite { font-size: var(--fs-13); min-height: 2rem; padding: 0 var(--s-3); }
+/* desk.next (ADR-0280; hosts-in-their-own-studios.md section 4.2): the next show's source in the
+   guest's seat at Solo, as the design page draws it: read from the left, top down, dashed as
+   every empty seat is. Its lines are the tile's own (the chip, the meter, a keyed button). */
+.desk .tiles .empty.seat.next { text-align: left; justify-items: start; align-content: start; gap: var(--s-2); padding: var(--s-4); border-style: dashed; min-width: 0; }
+.desk .tiles .empty.seat.next > b { font-size: var(--fs-16); overflow-wrap: anywhere; }
+.desk .tiles .empty.seat.next .row { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; max-width: none; }
+.desk .tiles .empty.seat.next .row .small { max-width: none; font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-label); }
+.desk .tiles .empty.seat.next .hmeter-wrap { width: 100%; }
+.desk .tiles .empty.seat.next .when { max-width: none; color: var(--ink); line-height: var(--lh-body); }
+.desk .tiles .empty.seat.next .when b { font-family: var(--font-mono); font-weight: 600; font-size: inherit; }
+.desk .tiles .empty.seat.next .when[data-hurry] b { font-weight: 700; }   /* the count's last seconds, as on the tile's (desk-b.css); the rule there lost to the line above, so this figure never grew heavier */
+.desk .tiles .empty.seat.next .acts { margin-top: var(--s-1); }
+.desk .tiles .empty.seat.next .btn { margin-top: 0; }
+.desk .tiles .empty.seat.next .btn svg { width: 14px; height: 14px; }
 /* the stage's delay at a step that keeps Dump off, and a tag beside a disabled control */
 .desk .delay:has(.offtag) { grid-template-columns: auto auto auto auto; }
 .desk .statusbar .offtag { margin-left: var(--s-1); }

@@ -938,6 +938,17 @@ impl OnAir {
         Ok(())
     }
 
+    /// Ask playout to shut down so its supervisor starts it again (`playout.restart`, which
+    /// answers first and exits a second later). Listeners keep their mount: the listener process
+    /// holds it. Errors when playout does not answer on its socket.
+    pub async fn restart_playout(&self) -> Result<(), crate::playout::PlayoutError> {
+        self.links
+            .playout
+            .command("playout.restart")
+            .await
+            .map(|_| ())
+    }
+
     async fn automate(&self) -> anyhow::Result<()> {
         let settings = rows::settings(&self.db, self.station).await?;
         // The station's mode, into the studio view and to the desk, whether playout answers or
@@ -1913,6 +1924,43 @@ mod tests {
         url
     }
 
+    /// Issue 17: with a listener connected, the view the desk reads carries the count within a
+    /// poll, by mount, and never "not counted yet" afterwards.
+    #[tokio::test]
+    async fn the_counter_puts_the_listeners_in_the_view_the_desk_reads() {
+        let url = status_server(
+            r#"{"mounts":[{"mount":"/programme.opus","listeners":[{"id":0,"duration":5.0}]},{"mount":"/programme.mp3","listeners":[]}]}"#,
+        )
+        .await;
+        let hub = Hub::new(
+            "Test",
+            crate::studio::Studio::default(),
+            crate::desk::DeskClient::new(None),
+            None,
+            Duration::from_secs(60),
+            crate::carts::CartsLink::new(Default::default(), None),
+        );
+        assert_eq!(hub.view().audience.listeners, None, "before the first look");
+        assert_eq!(hub.view().audience.error, None);
+        spawn_audience_counter(&hub, url, PlayoutClient::new(None));
+        for _ in 0..50 {
+            if hub.view().audience.listeners.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let a = hub.view().audience.clone();
+        assert_eq!(a.listeners, Some(1));
+        assert_eq!(a.error, None);
+        assert_eq!(
+            a.by_mount
+                .iter()
+                .map(|m| (m.mount.as_str(), m.listeners))
+                .collect::<Vec<_>>(),
+            vec![("/programme.opus", 1), ("/programme.mp3", 0)]
+        );
+    }
+
     #[tokio::test]
     async fn looking_at_the_listener_process_says_which_way_it_failed() {
         let ok = status_server(
@@ -1958,6 +2006,7 @@ mod tests {
             linked: true,
             lufs: None,
             lufs_peak: None,
+            source: None,
         };
         let d = crate::desk::DeskStatus {
             people: vec![

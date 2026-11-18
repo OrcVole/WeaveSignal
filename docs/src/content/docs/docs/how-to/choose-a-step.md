@@ -77,6 +77,8 @@ Your tile stays on the stage whether you are on air or off; there is no Not on a
 
 Before anyone holds the presenter's seat (no presenter in the room, and no DJ on air after a handover), the stage reads *You are not in the room yet* and offers **Join with my microphone…**: at Solo, and above it to an admin, a producer or the show's presenter, not to a screener.
 It makes your own link, with no name to type and no role to choose, and shows it with **Open in browser** and **Copy link**: open it in a browser on the same computer, press **Join the studio**, and you are on air.
+Keep that tab open: it carries your voice, and closing it takes you out of the room. To leave on purpose from the desk, press **Leave** on your own tile (two presses).
+While a host in their own studio has the air (1.1), the offer is one quiet line instead, at the head of **Not on air** or, at Solo, in the guest's seat: joining then is for talking to the host or hearing a cue, and it puts you on air beside them.
 
 **At Guests**, **Invite someone…** arrives at the head of Not on air, for a guest or a second presenter.
 The next show's DJ is not among the roles: that invitation comes with Full.

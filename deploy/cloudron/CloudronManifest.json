@@ -5,8 +5,8 @@
   "author": "The WeaveSignal contributors",
   "tagline": "An internet radio and video studio: a live room with callers, the desk, playout, streams and chat",
   "description": "file://DESCRIPTION.md",
-  "version": "1.0.5",
-  "upstreamVersion": "1.0.5",
+  "version": "1.1.0",
+  "upstreamVersion": "1.1.0",
   "website": "https://weavesignal.top",
   "contactEmail": "info@weavesignal.top",
   "packagerName": "The WeaveSignal contributors",
@@ -14,7 +14,7 @@
   "packageUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/deploy/cloudron",
   "documentationUrl": "https://weavesignal.top/docs/how-to/install-on-cloudron/",
   "icon": "file://logo.png",
-  "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.5/deploy/cloudron/logo.png",
+  "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.1.0/deploy/cloudron/logo.png",
   "healthCheckPath": "/health",
   "httpPort": 8000,
   "httpPorts": {
@@ -48,6 +48,12 @@
       "description": "LiveKit's built-in TURN over UDP. Off by default: guests who cannot use the media port use TURN over TLS. Cloudron's own TURN holds 3478, so 3479 or 13478; any free UDP port may be used.",
       "defaultValue": 3479,
       "enabledByDefault": false
+    },
+    "SOURCE_SRT_PORT": {
+      "title": "Hosts' own studios: SRT",
+      "description": "SRT from a host's own software (OBS, vMix, ffmpeg) with a show key: the key id is the stream ID and its secret the passphrase (ADR-0280). Off by default; the ingest listens only while a show key exists. Default 9710; 19710 or 29710 are alternatives, and any free UDP port may be used.",
+      "defaultValue": 9710,
+      "enabledByDefault": false
     }
   },
   "tcpPorts": {
@@ -60,6 +66,12 @@
       "title": "Live room media over TCP",
       "description": "LiveKit's ICE over TCP, a fallback when UDP is blocked. Off by default: TURN over TLS covers the same guests. Default 7881; any free TCP port may be used.",
       "defaultValue": 7881,
+      "enabledByDefault": false
+    },
+    "SOURCE_ICECAST_PORT": {
+      "title": "Hosts' own studios: Icecast",
+      "description": "Icecast sources from a host's own software (BUTT, Mixxx, RadioDJ) with a show key (ADR-0280). Off by default; the ingest listens only while a show key exists. Default 8005; 18005 or 28005 are alternatives, and any free TCP port may be used.",
+      "defaultValue": 8005,
       "enabledByDefault": false
     }
   },
@@ -77,6 +89,23 @@
   "memoryLimit": 2147483648,
   "minBoxVersion": "10.0.0",
   "postInstallMessage": "file://POSTINSTALL.md",
+  "checklist": {
+    "set-up-the-station": {
+      "message": "Set the station up. Open the app's own address with `/setup/` on the end and sign in with `CONTROL_ADMIN_TOKEN` from `/app/data/secrets.env` (open it with the File Manager). Give the station its name, a takedown contact (call-in stays closed until you do), its jurisdiction and its look."
+    },
+    "make-yourself-an-admin": {
+      "message": "Make yourself an admin. In the studio app choose **Use the station key instead**, add yourself under **Settings > Staff**, then sign in as yourself. Give each member of staff an account of their own there."
+    },
+    "choose-who-hears-the-stream": {
+      "message": "Choose who may hear the stream. It is unlisted but open to anyone with its address. To ask for a password, set `LISTENERS_AUTH=on` in `/app/data/weavesignal.env` and restart the app; it then asks for the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`. The player page cannot play a stream that has a password."
+    },
+    "open-the-ports": {
+      "message": "Open the public ports in the server's firewall and in any cloud firewall: the live room's media port (UDP), TURN over TLS, and any optional port you turned on."
+    },
+    "hosts-own-studios": {
+      "message": "Only if hosts will send their shows from their own software: the two ports for it, Icecast (TCP) and SRT (UDP), are off until you turn them on in the app's **Location** settings. Open them in the firewall too. The station listens on them only once a show has a key."
+    }
+  },
   "changelog": "file://CHANGELOG.md",
   "tags": [
     "media",
@@ -86,10 +115,10 @@
     "chat"
   ],
   "mediaLinks": [
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.5/docs/src/assets/screens/reference-desk-window.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.5/docs/src/assets/screens/reference-screener-queue.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.5/docs/src/assets/screens/reference-public-pages-player.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.5/docs/src/assets/screens/reference-calendar-week.png",
-    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.0.5/docs/src/assets/screens/reference-carts-window.png"
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.1.0/docs/src/assets/screens/reference-desk-window.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.1.0/docs/src/assets/screens/reference-screener-queue.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.1.0/docs/src/assets/screens/reference-public-pages-player.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.1.0/docs/src/assets/screens/reference-calendar-week.png",
+    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.1.0/docs/src/assets/screens/reference-carts-window.png"
   ]
 }

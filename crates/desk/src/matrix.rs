@@ -114,15 +114,20 @@ pub fn gate(source: &str, source_role: Role, dest: Dest<'_>) -> Option<Gate> {
                 return None;
             }
             match source_role {
-                Role::Presenter | Role::Dj | Role::Guest | Role::Caller
-                    if role.hears_talkback() =>
+                // A host's own studio is heard as a DJ is: by everyone while on air, and in the
+                // presenters' and DJs' ears on cue (ADR-0280).
+                Role::Presenter | Role::Dj | Role::Guest | Role::Caller | Role::Source
+                    if role.hears_cue() =>
                 {
                     Some(Gate::OnAirOrCue)
                 }
-                Role::Presenter | Role::Dj | Role::Guest => Some(Gate::OnAir),
+                Role::Presenter | Role::Dj | Role::Guest | Role::Source => Some(Gate::OnAir),
                 Role::Caller if role == Role::Screener => Some(Gate::Always),
                 Role::Caller => Some(Gate::OnAir),
                 Role::Screener if role == Role::Caller => Some(Gate::TalkTo),
+                // A host's monitor link hears talk addressed to it, and nothing else of the
+                // staff's talkback (design 4.5).
+                Role::Screener | Role::Producer if role == Role::Source => Some(Gate::TalkTo),
                 Role::Screener | Role::Producer if role.hears_talkback() => Some(Gate::Talk),
                 Role::Screener | Role::Producer => None,
                 Role::Listener => None,
@@ -229,6 +234,61 @@ mod tests {
             let want = role.hears_talkback().then_some(Gate::Talk);
             assert_eq!(gate(p, r, mm(id, *role)), want, "{id}");
         }
+    }
+
+    #[test]
+    fn a_source_is_heard_as_a_dj_is_and_stands_by_at_joining() {
+        let src = ("source-abcd2345", Role::Source);
+        assert_eq!(gate(src.0, src.1, Dest::Programme), Some(Gate::OnAir));
+        for (id, role) in ROOM {
+            let want = if role.hears_talkback() {
+                Gate::OnAirOrCue
+            } else {
+                Gate::OnAir
+            };
+            assert_eq!(gate(src.0, src.1, mm(id, role)), Some(want), "{id}");
+        }
+        assert!(!Switches::at_join(Role::Source).on_air);
+    }
+
+    #[test]
+    fn a_hosts_monitor_hears_the_programme_without_them_the_cue_bus_and_talk_to_them() {
+        // Design 4.5: the mix-minus of a host's own studio, on its monitor link.
+        let me = ("source-abcd2345", Role::Source);
+        let mine = |src: &str, src_role: Role| gate(src, src_role, mm(me.0, me.1));
+        // Everyone who airs is heard while on air, and cued voices on the cue bus.
+        for (id, role) in [ROOM[0], ROOM[1], ROOM[2], ROOM[5]] {
+            assert_eq!(mine(id, role), Some(Gate::OnAirOrCue), "{id}");
+        }
+        // Another host's own studio is heard as a DJ is.
+        assert_eq!(
+            mine("source-other000", Role::Source),
+            Some(Gate::OnAirOrCue)
+        );
+        // Never themselves.
+        assert_eq!(mine(me.0, me.1), None);
+        // The staff's talkback is for presenters; a host hears it only addressed to them.
+        assert_eq!(mine("moira", Role::Screener), Some(Gate::TalkTo));
+        assert_eq!(mine("ailsa", Role::Producer), Some(Gate::TalkTo));
+        let held = Switches {
+            talk: true,
+            ..Switches::default()
+        };
+        assert!(!held.passes(Gate::TalkTo, Some(me.0)), "general talkback");
+        let to_me = Switches {
+            talk_to: Some(me.0.to_owned()),
+            ..Switches::default()
+        };
+        assert!(to_me.passes(Gate::TalkTo, Some(me.0)), "addressed to them");
+        // Cued, off air: in their ear, never in the programme.
+        let cued = Switches {
+            cue: true,
+            ..Switches::default()
+        };
+        assert!(cued.passes(Gate::OnAirOrCue, Some(me.0)));
+        assert!(!cued.passes(Gate::OnAir, None));
+        // The cue bus is theirs, as it is a presenter's; talkback in general is not.
+        assert!(me.1.hears_cue() && !me.1.hears_talkback());
     }
 
     #[test]

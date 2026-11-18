@@ -30,6 +30,29 @@ const WEBHOOK_LABEL: &[u8] = b"weavesignal-control/webhook-secret/v1";
 const DERIVE_LABEL: &[u8] = b"weavesignal-control/api-key-from-station-key/v1";
 // rtmp-out: the key RTMP stream keys are sealed under (ADR-0230).
 const RTMP_LABEL: &[u8] = b"weavesignal-control/rtmp-stream-key/v1";
+// Hosts in their own studios (ADR-0280): a show key's secret, derived; a monitor link's, hashed.
+const SHOW_KEY_LABEL: &[u8] = b"weavesignal-control/show-key-secret/v1";
+const MONITOR_LABEL: &[u8] = b"weavesignal-control/monitor-secret/v1";
+
+/// Base 32 in lower case (RFC 4648's alphabet, no padding): what show keys are written in, so a
+/// key id and a secret survive any software's field and join unambiguously with a hyphen.
+pub fn base32(bytes: &[u8]) -> String {
+    const ABC: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(bytes.len() * 8 / 5 + 1);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for &b in bytes {
+        acc = (acc << 8) | u32::from(b);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            out.push(ABC[((acc >> bits) & 31) as usize] as char);
+        }
+    }
+    if bits > 0 {
+        out.push(ABC[((acc << (5 - bits)) & 31) as usize] as char);
+    }
+    out
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiKey(Vec<u8>);
@@ -93,6 +116,24 @@ impl ApiKey {
     /// enters them again).
     pub fn rtmp_key(&self) -> [u8; 32] {
         self.mac(RTMP_LABEL).finalize().into_bytes().into()
+    }
+
+    /// A show key's secret (ADR-0280): 24 base-32 characters (120 bits), derived from its key id
+    /// and the salt the database keeps, so the database alone cannot give it. The SRT listener
+    /// needs it in plain to answer the handshake, which is why it is derived, not only hashed.
+    pub fn show_key_secret(&self, key_id: &str, salt: &[u8]) -> String {
+        let mut m = self.mac(SHOW_KEY_LABEL);
+        m.update(key_id.as_bytes());
+        m.update(&[0]);
+        m.update(salt);
+        base32(&m.finalize().into_bytes()[..15])
+    }
+
+    /// The stored form of a monitor link's secret.
+    pub fn monitor_hash(&self, secret: &str) -> [u8; 32] {
+        let mut m = self.mac(MONITOR_LABEL);
+        m.update(secret.as_bytes());
+        m.finalize().into_bytes().into()
     }
 
     /// The stored form of a token's secret.
@@ -186,6 +227,29 @@ mod tests {
         );
         assert_eq!(ApiKey::resolve(None, None).unwrap(), None);
         assert_eq!(ApiKey::resolve(None, Some("  ")).unwrap(), None);
+    }
+
+    #[test]
+    fn a_show_keys_secret_follows_its_id_salt_and_key() {
+        let s = key(A).show_key_secret("abcd2345", &[1; 16]);
+        assert_eq!(s.len(), 24);
+        assert!(
+            s.chars()
+                .all(|c| c.is_ascii_lowercase() || ('2'..='7').contains(&c))
+        );
+        assert_eq!(s, key(A).show_key_secret("abcd2345", &[1; 16]));
+        assert_ne!(s, key(A).show_key_secret("abcd2346", &[1; 16]));
+        assert_ne!(s, key(A).show_key_secret("abcd2345", &[2; 16]));
+        assert_ne!(s, key(B).show_key_secret("abcd2345", &[1; 16]));
+        assert_ne!(key(A).monitor_hash(&s), key(A).token_hash(&s));
+    }
+
+    #[test]
+    fn base32_is_rfc_4648_in_lower_case() {
+        assert_eq!(base32(b""), "");
+        assert_eq!(base32(b"f"), "my");
+        assert_eq!(base32(b"foobar"), "mzxw6ytboi");
+        assert_eq!(base32(&[0xff; 5]), "77777777");
     }
 
     #[test]

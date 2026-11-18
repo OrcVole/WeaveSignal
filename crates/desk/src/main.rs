@@ -85,6 +85,12 @@ fn run(config: Config) -> anyhow::Result<()> {
     if let Some(path) = &desk.config().control.socket {
         weavesignal_desk::control::listen(desk.clone(), path)?;
     }
+    // Hosts in their own studios (ADR-0280), from the ingest over loopback.
+    let _sources = weavesignal_desk::sources::Sources::start(
+        &desk,
+        &desk.config().sources,
+        std::env::var(weavesignal_desk::config::SOURCES_PASSWORD_ENV).ok(),
+    );
     let main_loop = glib::MainLoop::new(None, false);
     // The fatal error, with the element it came from, for the last line the desk writes.
     let failed = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));

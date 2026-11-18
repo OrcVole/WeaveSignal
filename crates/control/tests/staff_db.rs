@@ -1031,3 +1031,111 @@ async fn a_hold_names_the_signed_in_admin_not_the_name_typed() {
     assert_eq!(code, StatusCode::CREATED, "{h}");
     assert_eq!(h["placed_by"], "Somebody Else");
 }
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn the_team_directory_names_who_is_on_to_producers_and_admins_and_nothing_else() {
+    let (pool, station) = setup("Directory FM").await;
+    let app = control_plane(&pool, &station).await;
+    let phrase = "a long enough phrase";
+
+    let mut ids = Vec::new();
+    for (username, name, role) in [
+        ("morag", "Morag Campbell", "admin"),
+        ("fraser", "fraser macleod", "presenter"),
+        ("iona", "Iona Ross", "screener"),
+        ("gone", "Calum Gone", "producer"),
+        ("struan", "Struan Reid", "producer"),
+    ] {
+        let (code, a) = send(
+            &app,
+            "POST",
+            "/api/v1/staff",
+            Some(KEY),
+            json!({"username": username, "name": name, "role": role, "password": phrase}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CREATED, "{a}");
+        ids.push(a["id"].as_str().unwrap().to_owned());
+    }
+    // One account is turned off: the directory leaves it out.
+    let (code, _) = send(
+        &app,
+        "PUT",
+        &format!("/api/v1/staff/{}", ids[3]),
+        Some(KEY),
+        json!({"disabled": true}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    let token_of = |s: Value| s["token"].as_str().unwrap().to_owned();
+    let directory = |bearer: Option<String>| {
+        let app = app.clone();
+        async move {
+            send(
+                &app,
+                "GET",
+                "/api/v1/staff/directory",
+                bearer.as_deref(),
+                Value::Null,
+            )
+            .await
+        }
+    };
+
+    // A screener and a presenter may not read the staff list, nor the directory: it is the
+    // producers' and the admins'. The refusal says who may.
+    for who in ["iona", "fraser"] {
+        let session = token_of(sign_in(&app, who, phrase).await.1);
+        let (code, _) = send(&app, "GET", "/api/v1/staff", Some(&session), Value::Null).await;
+        assert_eq!(code, StatusCode::FORBIDDEN);
+        let (code, refused) = directory(Some(session)).await;
+        assert_eq!(code, StatusCode::FORBIDDEN, "{who}: {refused}");
+        assert!(
+            refused["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("producer or an admin")),
+            "{refused}"
+        );
+    }
+
+    // A producer reads it, though not the staff list; so does an admin.
+    let producer = token_of(sign_in(&app, "struan", phrase).await.1);
+    let (code, _) = send(&app, "GET", "/api/v1/staff", Some(&producer), Value::Null).await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let (code, dir) = directory(Some(producer)).await;
+    assert_eq!(code, StatusCode::OK, "{dir}");
+    let names: Vec<&str> = dir["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["name"].as_str().unwrap())
+        .collect();
+    // On accounts only, by name without regard to case.
+    assert_eq!(
+        names,
+        [
+            "fraser macleod",
+            "Iona Ross",
+            "Morag Campbell",
+            "Struan Reid"
+        ]
+    );
+    // Only an id, a name and a role: no username, address or dates.
+    let first = dir["accounts"][0].as_object().unwrap();
+    let mut fields: Vec<&str> = first.keys().map(String::as_str).collect();
+    fields.sort_unstable();
+    assert_eq!(fields, ["id", "name", "role"]);
+    assert_eq!(first["id"], ids[1]);
+    assert_eq!(first["role"], "presenter");
+    let admin = token_of(sign_in(&app, "morag", phrase).await.1);
+    let (code, dir) = directory(Some(admin)).await;
+    assert_eq!(code, StatusCode::OK, "{dir}");
+    assert_eq!(dir["accounts"].as_array().unwrap().len(), 4);
+
+    // The station key reads it too; nobody signed out does.
+    let (code, _) = directory(Some(KEY.to_owned())).await;
+    assert_eq!(code, StatusCode::OK);
+    let (code, _) = directory(None).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+}

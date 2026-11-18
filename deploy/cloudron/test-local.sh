@@ -16,6 +16,7 @@
 #   IMAGE=localhost/weavesignal-cloudron:0.2.0-local  DESK_IMAGE=localhost/weavesignal-desk-dev:m1
 #   HTTP_PORT=27400  LISTEN_PORT=27401  ROOM_PORT=27402  PUBLIC_PORT=27403
 #   MEDIA_PORT=27482 (udp)  TURN_TLS_PORT=27449 (tcp)  MEMORY=<the manifest's memoryLimit>
+#   SOURCE_ICE_PORT=27405 (tcp)  SOURCE_SRT_PORT=27410 (udp): hosts' own studios (1.1), enabled
 #   VIDEO=false  (true: the video path on, ADR-0227: the HLS, the camera check, a guest's camera)
 set -euo pipefail
 
@@ -29,6 +30,8 @@ ROOM_PORT=${ROOM_PORT:-27402}
 PUBLIC_PORT=${PUBLIC_PORT:-27403}
 MEDIA_PORT=${MEDIA_PORT:-27482}
 TURN_TLS_PORT=${TURN_TLS_PORT:-27449}
+SOURCE_ICE_PORT=${SOURCE_ICE_PORT:-27405}
+SOURCE_SRT_PORT=${SOURCE_SRT_PORT:-27410}
 COMPAT=${COMPAT:-true}
 VIDEO=${VIDEO:-false}
 MEMORY=${MEMORY:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["memoryLimit"])' "$here/CloudronManifest.json")}
@@ -49,10 +52,11 @@ down() {
 up() {
     down
     local port
-    for port in "$HTTP_PORT" "$LISTEN_PORT" "$ROOM_PORT" "$PUBLIC_PORT" "$TURN_TLS_PORT"; do
+    for port in "$HTTP_PORT" "$LISTEN_PORT" "$ROOM_PORT" "$PUBLIC_PORT" "$TURN_TLS_PORT" "$SOURCE_ICE_PORT"; do
         ss -Hltn "sport = :$port" | grep -q . && fail "port $port/tcp is in use on this machine; set it"
     done
     ss -Hlun "sport = :$MEDIA_PORT" | grep -q . && fail "port $MEDIA_PORT/udp is in use; set MEDIA_PORT"
+    ss -Hlun "sport = :$SOURCE_SRT_PORT" | grep -q . && fail "port $SOURCE_SRT_PORT/udp is in use; set SOURCE_SRT_PORT"
     rm -rf "$work/certs" "$work/smtp"
     mkdir -p "$work/certs" "$work/smtp/mail"
     openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=weavesignal.test" \
@@ -84,6 +88,7 @@ up() {
         -p "127.0.0.1:$HTTP_PORT:8000" -p "127.0.0.1:$LISTEN_PORT:8001" \
         -p "127.0.0.1:$ROOM_PORT:8002" -p "127.0.0.1:$PUBLIC_PORT:8003" \
         -p "127.0.0.1:$MEDIA_PORT:$MEDIA_PORT/udp" -p "127.0.0.1:$TURN_TLS_PORT:$TURN_TLS_PORT/tcp" \
+        -p "127.0.0.1:$SOURCE_ICE_PORT:$SOURCE_ICE_PORT/tcp" -p "127.0.0.1:$SOURCE_SRT_PORT:$SOURCE_SRT_PORT/udp" \
         -e CLOUDRON=1 -e CLOUDRON_APP_DOMAIN=weavesignal.test -e CLOUDRON_APP_ORIGIN=https://weavesignal.test \
         -e "CLOUDRON_POSTGRESQL_URL=postgres://weavesignal:$pg_password@postgresql:5432/weavesignal" \
         -e CLOUDRON_POSTGRESQL_HOST=postgresql -e CLOUDRON_POSTGRESQL_PORT=5432 \
@@ -95,6 +100,7 @@ up() {
         -e LISTENERS_DOMAIN=weavesignal-listen.weavesignal.test -e ROOM_DOMAIN=weavesignal-room.weavesignal.test \
         -e PUBLIC_DOMAIN=weavesignal-public.weavesignal.test \
         -e "LIVEKIT_MEDIA_PORT=$MEDIA_PORT" -e "TURN_TLS_PORT=$TURN_TLS_PORT" \
+        -e "SOURCE_ICECAST_PORT=$SOURCE_ICE_PORT" -e "SOURCE_SRT_PORT=$SOURCE_SRT_PORT" \
         "$IMAGE" >/dev/null
     # NODE_IP for this run only: the first start writes weavesignal.env, so set it and restart.
     # The start measured below is that restart: a cold start of every process, the database
@@ -289,11 +295,43 @@ PY
         [[ $code == 404 ]] || fail "$base: a missing /assets/ file answered $code, not 404"
     done
     ok "caching: the pages no-cache, $asset kept for long, a missing asset 404, on both domains"
+    # The front page (1.1): a station that still has the name the install gave it (This station)
+    # and whose setup page has never been finished shows the not-set-up page at the app's own
+    # address, still at `/`, and the player on the public domain, which is never changed. Naming
+    # it on the setup page ends it at once (no restart); clearing the name brings it back.
+    app=http://127.0.0.1:$HTTP_PORT
+    title() { curl -fsS --max-time 5 "$1" | grep -o '<title>[^<]*</title>' | head -1; }
+    [[ $(title "$app/") == '<title>Not set up yet</title>' ]] || fail "an unnamed station's own address is not the not-set-up page: $(title "$app/")"
+    [[ $(title "$pub/") == '<title>Listen</title>' ]] || fail "the public domain's / is not the player: $(title "$pub/")"
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$pub/not-set-up/" || true)
+    [[ $code == 404 ]] || fail "the public domain serves /not-set-up/ ($code)"
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$pub/api/v1/front" || true)
+    [[ $code == 404 ]] || fail "the public domain passes /api/v1/front ($code)"
+    curl -fsS -X PUT -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d '{"name":"Test Radio"}' --max-time 5 "$app/api/v1/setup" >/dev/null || fail "the setup page did not take a name"
+    [[ $(title "$app/") == '<title>Listen</title>' ]] || fail "a named station's own address is not the player: $(title "$app/")"
+    curl -fsS -X PUT -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d '{"name":""}' --max-time 5 "$app/api/v1/setup" >/dev/null || fail "the setup page did not give the name back"
+    [[ $(title "$app/") == '<title>Not set up yet</title>' ]] || fail "the name given back did not bring the not-set-up page back"
+    ok "the app's own domain shows the not-set-up page until the station is named (the public domain keeps the player and 404s /not-set-up/)"
     for path in /api/v1/chat/info /api/v1/player /api/v1/station /api/v1/now-playing; do
         code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$pub$path" || true)
         [[ $code == 200 ]] || fail "public $path answered $code, not 200"
     done
     ok "public domain: /api/v1/chat/info, /api/v1/player, /api/v1/station, /api/v1/now-playing answer 200"
+    # nginx passes none of the server's proxy headers to a location that sets its own, so a
+    # location that does must restate the client's address, or every chatter and caller counts
+    # as 127.0.0.1 against the per-address limits (found 2026-11-17). Only the station's and the
+    # public domain's servers (8000, 8003) are checked: the stream and LiveKit keep no such limit.
+    bad=$(podman exec "$p-app" awk '/listen /{skip=1} /listen 80(00|03)[ ;]/{skip=0} /location /{loc=$0; has=0; xff=0} /proxy_set_header/{has=1} /X-Forwarded-For/{xff=1} /^ *}$/{ if (loc!="" && has && !xff && !skip) print loc; loc="" }' /run/weavesignal/nginx.conf)
+    [[ -z $bad ]] || fail "proxy locations that drop the client's address: $bad"
+    ok "every proxy location on the station and public domains passes the client's address"
+    # The studio's chat socket (1.1.0): a socket cannot send the bearer, so on a real Cloudron the
+    # studio opens it on this public domain (the studio's own domain would redirect to the login).
+    # curl stops waiting for frames after --max-time, so only the status line is read.
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 \
+        -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+        -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$pub/api/v1/chat/socket" || true)
+    [[ $code == 101 ]] || fail "a WebSocket upgrade to /api/v1/chat/socket on the public domain answered $code, not 101"
+    ok "public domain: a WebSocket upgrade to /api/v1/chat/socket answers 101 (the studio's chat socket opens here)"
     # Calendar files (ADR-0281): the schedule as .ics, with no bearer.
     headers=$(curl -fsS -D - -o /dev/null --max-time 5 "$pub/api/v1/public/schedule.ics") \
         || fail "public /api/v1/public/schedule.ics did not answer 200"
@@ -319,6 +357,25 @@ PY
     body=$(curl -fsS --max-time 5 "$pub/health") || fail "public /health did not answer 200 without a bearer"
     grep -q '"status":"ok"' <<< "$body" || fail "public /health said $body"
     ok "public domain: /health answers 200 with no bearer ($body)"
+    # The studio's restart of playout (ADR-0289, ⌃R twice): playout shuts down cleanly and the
+    # package's supervisord (autorestart=true) starts it again; the mount keeps answering.
+    playout_pid() { podman exec "$p-app" pgrep -f 'playout/weavesignal.liq' | head -1; }
+    before=$(playout_pid)
+    [[ -n $before ]] || fail "no playout process to restart"
+    answer=$(curl -fsS -X POST -H "Authorization: Bearer $admin" --max-time 5 "http://127.0.0.1:$HTTP_PORT/api/v1/playout/restart") \
+        || fail "POST /api/v1/playout/restart was refused or did not answer"
+    grep -q '"restarting":true' <<< "$answer" || fail "the restart route said $answer"
+    for i in $(seq 1 60); do
+        now=$(playout_pid)
+        [[ -n $now && $now != "$before" ]] && break
+        sleep 1; [[ $i == 60 ]] && fail "playout did not come back as a new process after the studio's restart (was $before)"
+    done
+    for i in $(seq 1 60); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' -u "listener:$lpass" --max-time 3 "$mount" || true)
+        [[ $code == 200 ]] && break
+        sleep 1; [[ $i == 60 ]] && fail "the mount answered $code after playout's restart"
+    done
+    ok "playout restart: the studio's route shut it down and supervisord started it again (pid $before -> $now; the mount answers)"
     # Unlisted by default (ADR-0133): one X-Robots-Tag on every answer, robots.txt disallows all.
     for url in "$pub/" "$pub/join/" "$pub/api/v1/player" "$pub/feeds/no-such-show.xml" "http://127.0.0.1:$HTTP_PORT/api/v1/station"; do
         n=$(curl -s -D - -o /dev/null --max-time 5 "$url" | grep -ci '^x-robots-tag: noindex, nofollow' || true)
@@ -420,6 +477,92 @@ PY
     grep -q '^To: ishbel.tone@weavesignal.test' "$eml" && grep -q '^From: weavesignal.app@weavesignal.test' "$eml" \
         || fail "the sign-in email has the wrong To or From"
     ok "chat sign-in email through msmtp and the addon's SMTP, authenticated: $(grep -m1 '^Subject:' "$eml")"
+}
+
+# Hosts in their own studios (1.1, ADR-0280): the ingest under supervisord, on the two ports the
+# dashboard enables. Before any key it listens for nothing; the ingest's own routes are closed
+# through nginx; with a show on air and a key, ffmpeg as a host's software sends a short MP3 tone
+# over Icecast and AAC in MPEG-TS over SRT, each stands by (STANDBY) and is heard at the desk; a
+# wrong key is refused, and the address the ingest saw is said.
+sources_checks() {
+    local api=http://127.0.0.1:$HTTP_PORT pub=http://127.0.0.1:$PUBLIC_PORT
+    a() { curl -fsS -X "$1" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "$api$2" ${3:+-d "$3"}; }
+    podman logs "$p-app" 2>&1 | grep 'no show key yet: not listening' >/dev/null || fail "the ingest did not reach the control plane, or listens without a key"
+    ok "the ingest runs under supervisord and listens for nothing without a show key"
+    local token code
+    token=$(secret INGEST_TOKEN)
+    [[ ${#token} == 64 ]] || fail "secrets.env has no INGEST_TOKEN"
+    for base in "$api" "$pub"; do
+        code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/v1/internal/sources/config")
+        [[ $code == 404 ]] || fail "the ingest's route through nginx ($base) answered $code, not 404"
+    done
+    ok "the ingest's routes are closed through nginx on the station and public domains (404, with its own bearer)"
+
+    # A show on air now (from ten minutes ago, for an hour), and a key of each kind for it.
+    local air_at
+    air_at="$(TZ=Europe/London date -d "@$(( $(date +%s) - 600 ))" +%Y-%m-%dT%H:%M:%S%:z)[Europe/London]"
+    a PUT /api/v1/shows/steeped '{"name":"Steeped","colour_slot":3}' >/dev/null || fail "no show"
+    # At Full, so the guests of the room test after this are not refused by the show's step.
+    a PUT /api/v1/shows/steeped/step '{"step":"full"}' >/dev/null || fail "the show's step"
+    a PUT /api/v1/shows/steeped/series/1 '{}' >/dev/null || fail "no series"
+    a POST /api/v1/shows/steeped/series/1/episodes '{"count":1}' >/dev/null || fail "no episode"
+    a PATCH /api/v1/shows/steeped/series/1/episodes/1 "{\"air_at\":\"$air_at\",\"minutes\":60}" >/dev/null || fail "the episode's time"
+    local ice srt ice_id ice_pass srt_id srt_secret
+    ice=$(a POST /api/v1/shows/steeped/keys '{"label":"Finlay Grant","hint":"icecast"}') || fail "no Icecast key"
+    srt=$(a POST /api/v1/shows/steeped/keys '{"label":"Heather Douglas","hint":"srt"}') || fail "no SRT key"
+    j() { python3 -c 'import json,sys; v=json.loads(sys.argv[1]);
+for k in sys.argv[2].split("."): v=v[k]
+print(v)' "$1" "$2"; }
+    ice_id=$(j "$ice" key.key_id); ice_pass=$(j "$ice" details.icecast.password)
+    srt_id=$(j "$srt" key.key_id); srt_secret=$(j "$srt" secret)
+    [[ $(j "$ice" details.icecast.port) == "$SOURCE_ICE_PORT" && $(j "$srt" details.srt.port) == "$SOURCE_SRT_PORT" ]] \
+        || fail "a key's details do not give the dashboard's ports: $(j "$ice" details)"
+    ok "a show on air and two keys; their details give the dashboard's ports ($SOURCE_ICE_PORT/tcp, $SOURCE_SRT_PORT/udp)"
+    for i in $(seq 1 30); do
+        podman logs "$p-app" 2>&1 | grep 'listening for SRT sources' >/dev/null && break
+        sleep 0.5; [[ $i == 30 ]] && fail "the ingest did not start listening once a key existed"
+    done
+
+    state() { a GET /api/v1/sources | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin)["sources"] if x["key_id"]==sys.argv[1]]; print(s[0]["state"] if s else "none")' "$1"; }
+    heard() { a GET /api/v1/studio | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin)["sources"] if x["identity"]==sys.argv[1]]; sys.exit(0 if s and s[0].get("lufs") is not None and s[0].get("slot") is not None else 1)' "source-$1"; }
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=f=1000:sample_rate=44100:d=40" -ac 2 -c:a libmp3lame -b:a 128k "$work/tone.mp3"
+    ffmpeg -hide_banner -loglevel error -re -i "$work/tone.mp3" -c:a copy -content_type audio/mpeg -f mp3 \
+        "icecast://source:$ice_pass@127.0.0.1:$SOURCE_ICE_PORT/live" > "$work/ffmpeg-ice.log" 2>&1 &
+    local ff_ice=$!
+    for i in $(seq 1 40); do [[ $(state "$ice_id") == standby ]] && heard "$ice_id" && break
+        sleep 0.5; [[ $i == 40 ]] && { kill "$ff_ice" 2>/dev/null; fail "the Icecast source did not stand by at the desk (state $(state "$ice_id"); $(cat "$work/ffmpeg-ice.log"))"; }
+    done
+    ok "Icecast: an MP3 source stands by (STANDBY) and the desk hears it: $(a GET /api/v1/sources | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin)["sources"] if x["key_id"]==sys.argv[1]][0]; print(s["way"], s["format"], "slot", s.get("slot"))' "$ice_id")"
+
+    if ffmpeg -hide_banner -loglevel error -t 3 -i "$work/tone.mp3" -c:a copy -content_type audio/mpeg -f mp3 \
+        "icecast://source:${ice_id}-wrongwrongwrongwrongwron@127.0.0.1:$SOURCE_ICE_PORT/live" > "$work/ffmpeg-wrong.log" 2>&1; then
+        kill "$ff_ice" 2>/dev/null; fail "a wrong key was taken"
+    fi
+    local refusal seen own
+    refusal=$(a GET /api/v1/shows/steeped/keys | python3 -c 'import json,sys; k=[x for x in json.load(sys.stdin)["keys"] if x["key_id"]==sys.argv[1]][0]; r=k.get("last_refusal") or {}; print(r.get("reason"))' "$ice_id") \
+        || fail "the key list"
+    [[ $refusal == wrong_key ]] || { kill "$ff_ice" 2>/dev/null; fail "the wrong key's refusal: $refusal"; }
+    [[ $(state "$ice_id") == standby ]] || fail "the wrong key disturbed the source standing by"
+    # The address the ingest counted the wrong key against (the API never shows it; the log keeps it).
+    seen=$(podman exec "$p-pg" psql -U weavesignal -d weavesignal -tAc "SELECT address FROM source_log WHERE event = 'refused' ORDER BY at_ms DESC LIMIT 1")
+    own=$(podman inspect "$p-app" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+    ok "a wrong key is refused (wrong_key) and the source standing by is undisturbed; the ingest counted it against $seen (the app's own address is $own: rootless Podman's port forwarder connects from inside the container, so here every host would share it; Cloudron's Docker is not this)"
+
+    ffmpeg -hide_banner -loglevel error -re -t 25 -i "$work/tone.mp3" -c:a aac -b:a 128k -f mpegts \
+        "srt://127.0.0.1:$SOURCE_SRT_PORT?streamid=$srt_id&passphrase=$srt_secret&pbkeylen=16" > "$work/ffmpeg-srt.log" 2>&1 &
+    local ff_srt=$!
+    for i in $(seq 1 40); do [[ $(state "$srt_id") == standby ]] && heard "$srt_id" && break
+        sleep 0.5; [[ $i == 40 ]] && { kill "$ff_ice" "$ff_srt" 2>/dev/null; fail "the SRT source did not stand by at the desk (state $(state "$srt_id"); $(cat "$work/ffmpeg-srt.log"))"; }
+    done
+    ok "SRT: AAC in MPEG-TS with its passphrase stands by and the desk hears it"
+
+    # Both keys ended: their connections close and the desk lets them go.
+    a DELETE "/api/v1/shows/steeped/keys/$ice_id" >/dev/null && a DELETE "/api/v1/shows/steeped/keys/$srt_id" >/dev/null || fail "ending the keys"
+    for i in $(seq 1 30); do [[ $(state "$ice_id") == none && $(state "$srt_id") == none ]] && break
+        sleep 0.5; [[ $i == 30 ]] && fail "ended keys' sources did not go"
+    done
+    kill "$ff_ice" "$ff_srt" 2>/dev/null || true; wait "$ff_ice" "$ff_srt" 2>/dev/null || true
+    ok "ended keys close their connections"
 }
 
 # The video path (ADR-0227). Off: the desk writes no HLS, the player is told there is none, and
@@ -650,7 +793,7 @@ case ${1:-} in
         done
         ;;
     *)
-        up; checks; video_checks; room_test; restart_test; faults
+        up; checks; sources_checks; video_checks; room_test; restart_test; faults
         ;;
 esac
 echo "ok    running: http://127.0.0.1:$HTTP_PORT (public pages http://127.0.0.1:$PUBLIC_PORT; stop with: $0 down)"

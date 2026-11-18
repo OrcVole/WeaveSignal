@@ -35,7 +35,14 @@ pub struct ExpanderSettings {
     pub attack_ms: f32,
     /// How slowly it closes when the level falls.
     pub release_ms: f32,
+    /// How long it stays as open as speech left it after the level falls, before the release
+    /// begins: the last consonant of a word (a `t`, `d`, `p`, `s` or `f` after the vowel) can
+    /// come 100 to 200 ms after the vowel's energy and sits 25 dB or more below it.
+    pub hold_ms: f32,
 }
+
+/// The default hold (issue 16); see [`ExpanderSettings::hold_ms`].
+const HOLD_DEFAULT_MS: f32 = 250.0;
 
 impl Default for ExpanderSettings {
     /// The presenter's expander: −34 dBFS (the live run's 0.02), 1:3 below it, at most 18 dB.
@@ -47,6 +54,7 @@ impl Default for ExpanderSettings {
             range_db: 18.0,
             attack_ms: 1.0,
             release_ms: 150.0,
+            hold_ms: HOLD_DEFAULT_MS,
         }
     }
 }
@@ -68,6 +76,12 @@ impl ExpanderSettings {
         }
         if !(0.1..=100.0).contains(&self.attack_ms) || !(10.0..=5000.0).contains(&self.release_ms) {
             return bad("expander attack_ms must be 0.1 to 100 and release_ms 10 to 5000".into());
+        }
+        if !(0.0..=2000.0).contains(&self.hold_ms) {
+            return bad(format!(
+                "expander hold_ms {} must be 0 to 2000",
+                self.hold_ms
+            ));
         }
         Ok(())
     }
@@ -92,12 +106,18 @@ impl ExpanderSettings {
 /// zero crossings and the gaps between syllables' cycles.
 const DETECTOR_MS: f32 = 50.0;
 
+/// Below this reduction the gate counts as open for speech, and the hold starts again.
+const HELD_OPEN_DB: f32 = 1.0;
+
 pub struct Expander {
     settings: ExpanderSettings,
     channels: usize,
     attack: f32,
     release: f32,
     fall: f32,
+    /// Frames the gate is held open for after speech last held it open.
+    hold_frames: u32,
+    held: u32,
     envelope: f32,
     /// The smoothed reduction, in dB.
     reduction: f32,
@@ -111,6 +131,8 @@ impl Expander {
             attack: coef(settings.attack_ms, RATE),
             release: coef(settings.release_ms, RATE),
             fall: 1.0 - coef(DETECTOR_MS, RATE),
+            hold_frames: (settings.hold_ms * 0.001 * RATE as f32).round() as u32,
+            held: 0,
             envelope: 0.0,
             // Closed at the start: a microphone is quiet until its owner speaks.
             reduction: settings.range_db,
@@ -126,7 +148,15 @@ impl Expander {
         for frame in samples.chunks_exact_mut(self.channels) {
             let peak = frame.iter().fold(0.0f32, |m, v| m.max(v.abs()));
             self.envelope = peak.max(self.envelope * self.fall);
-            let wanted = self.settings.reduction_db(lin_to_db(self.envelope));
+            let mut wanted = self.settings.reduction_db(lin_to_db(self.envelope));
+            // Speech (less than `HELD_OPEN_DB` down) restarts the hold; while it runs the gate
+            // may open further but not close.
+            if wanted < HELD_OPEN_DB {
+                self.held = self.hold_frames;
+            } else if self.held > 0 {
+                self.held -= 1;
+                wanted = wanted.min(self.reduction);
+            }
             // Opening (less reduction) is the attack; closing is the release.
             let k = if wanted < self.reduction {
                 self.attack
@@ -194,6 +224,88 @@ mod tests {
             e.reduction_db() < 1.0,
             "still {:.1} dB down after 10 ms",
             e.reduction_db()
+        );
+    }
+
+    /// A word as a microphone hears it: a vowel, a stop's closure, then the soft burst of a
+    /// final `t` or `d`, 30 dB or more under the vowel (issue 16, "Steeped" heard as "Steep").
+    /// Returns the samples and where the burst is.
+    fn word(vowel_db: f32, closure_ms: f32, burst_db: f32) -> (Vec<f32>, std::ops::Range<usize>) {
+        let ms = |t: f32| (t * 0.001 * RATE as f32) as usize;
+        let mut x = sine(180.0, db_to_lin(vowel_db), 0.25);
+        let burst_from = x.len() / 2 + ms(closure_ms);
+        x.resize(burst_from * 2, 0.0);
+        let mut seed = 12345u32;
+        let burst = ms(25.0);
+        for _ in 0..burst {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let v = ((seed >> 8) as f32 / (1u32 << 23) as f32 - 1.0) * db_to_lin(burst_db);
+            x.extend([v, v]);
+        }
+        // Room tone under the word's end, as the 250 ms after it, for the gate to close in.
+        x.resize(x.len() + ms(250.0) * 2, 0.0);
+        (x, burst_from..burst_from + burst)
+    }
+
+    /// How far down the gate leaves the burst, in dB (RMS before against after).
+    fn burst_loss_db(settings: &ExpanderSettings, closure_ms: f32) -> f32 {
+        let (x, burst) = word(-20.0, closure_ms, -50.0);
+        let mut y = x.clone();
+        Expander::new(settings, 2).process(&mut y);
+        let at = burst.start * 2..burst.end * 2;
+        rms_db(&x[at.clone()]) - rms_db(&y[at])
+    }
+
+    #[test]
+    fn a_words_soft_last_consonant_is_not_gated_away() {
+        // The word ends in a stop: a closure of up to 200 ms, then a burst at -50 dBFS under a -20 dBFS
+        // vowel. Measured on the gate without a hold: 3 dB lost at 120 ms of closure, 9 dB at 200 ms.
+        let none = ExpanderSettings {
+            hold_ms: 0.0,
+            ..ExpanderSettings::default()
+        };
+        let old = burst_loss_db(&none, 200.0);
+        assert!(old > 6.0, "without a hold the burst lost only {old:.1} dB");
+        for closure in [80.0, 160.0, 200.0] {
+            let kept = burst_loss_db(&ExpanderSettings::default(), closure);
+            assert!(
+                kept < 1.5,
+                "{closure} ms of closure: the burst lost {kept:.1} dB"
+            );
+        }
+    }
+
+    #[test]
+    fn the_hold_does_not_let_bleed_back_in_for_long() {
+        // After speech stops the gate closes: the hold plus the release must still take bleed
+        // 12 dB down within 0.8 s (the presenter's echo protection; see the live run's echo).
+        let mut e = Expander::new(&ExpanderSettings::default(), 2);
+        let mut speech = sine(180.0, db_to_lin(-20.0), 0.5);
+        e.process(&mut speech);
+        assert!(e.reduction_db() < 1.0);
+        let mut bleed = sine(440.0, db_to_lin(-50.0), 0.8);
+        e.process(&mut bleed);
+        assert!(
+            e.reduction_db() > 12.0,
+            "only {:.1} dB down 0.8 s after speech",
+            e.reduction_db()
+        );
+    }
+
+    #[test]
+    fn the_hold_is_a_setting_with_a_range() {
+        let s: ExpanderSettings = toml::from_str("hold_ms = 100.0").unwrap();
+        assert_eq!(s.hold_ms, 100.0);
+        assert_eq!(s.release_ms, 150.0, "unset fields default");
+        assert!(s.validate().is_ok());
+        assert!(ExpanderSettings { hold_ms: -1.0, ..s }.validate().is_err());
+        assert!(
+            ExpanderSettings {
+                hold_ms: 2001.0,
+                ..s
+            }
+            .validate()
+            .is_err()
         );
     }
 }

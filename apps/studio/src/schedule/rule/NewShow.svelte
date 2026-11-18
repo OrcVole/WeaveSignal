@@ -7,6 +7,12 @@
   // saved until Make the show; the station then saves the show, makes series 1 and drafts the
   // first episode in one transaction, so there is no half-made show. They are "parts": "step"
   // keeps its one meaning (ADR-0271). The dialog owns the keyboard (keymap rule 5).
+  //
+  // Part 1 also asks where the show comes from (`Comes from`, ADR-0280), on a station of 1.1 for
+  // an admin or a producer: the station's room (the default) or the host's own studio. A show's
+  // source follows from its keys, and the show does not exist until it is made, so the pick is
+  // an intention: Done then offers Set up a host…, which makes the key (the same dialogs as the
+  // show editor's) and the show comes from the host's own studio once there is one.
   import { untrack } from 'svelte';
   import * as api from '../../lib/api.ts';
   import type { IsoDate, RulePreview, ShowSaved, ShowStep } from '../../lib/api.ts';
@@ -21,6 +27,9 @@
   import { dialogKeys } from './keys.ts';
   import { firstState, firstWords, madeInAll, ruleStatus } from './view.ts';
   import { account } from '../../lib/account.svelte.ts';
+  import { mayMakeFirstKey } from '../../lib/account.ts';
+  import { routeAbsent } from '../../lib/hosts.ts';
+  import HostKeyFlow from '../../settings/HostKeyFlow.svelte';
 
   let {
     shows,
@@ -37,6 +46,8 @@
     preview = null,
     saved: firstSaved = null,
     live = true,
+    hosts: seedHosts = null,
+    comes: firstComes = 'room',
     onMade,
     onOpen,
     onDates,
@@ -61,6 +72,11 @@
     preview?: RulePreview | null;
     saved?: ShowSaved | null;
     live?: boolean;
+    /** Whether Comes from is offered, a test's: left out, the station is asked (a station before
+     *  1.1 has no sources, and the sandbox has no hosts). */
+    hosts?: boolean | null;
+    /** Where the show comes from to start with, a test's. */
+    comes?: 'room' | 'push';
     /** The show was made: the week is fetched again. */
     onMade: (saved: ShowSaved) => void | Promise<void>;
     /** Open episode 1: the week moves to it and selects it. */
@@ -71,7 +87,7 @@
   } = $props();
 
   const PARTS = ['The show', 'When it airs', 'Done'] as const;
-  const seed = untrack(() => ({ firstPart, firstName, firstForm, firstSaved, at, today, shows, preview }));
+  const seed = untrack(() => ({ firstPart, firstName, firstForm, firstSaved, at, today, shows, preview, hosts: seedHosts, comes: firstComes }));
 
   /** The next free bank slot: the first of the twelve no show holds, else round again. */
   function nextFree(all: readonly Show[]): number {
@@ -93,6 +109,27 @@
   const free = nextFree(seed.shows);
   let colour = $state(free);
   let step = $state<ShowStep>('solo');
+  /** Comes from: where the show's sound arrives (ADR-0280). */
+  let comes = $state<'room' | 'push'>(seed.comes);
+  /** Whether the station can take a host's own studio, and this window may make the key. */
+  let canHost = $state(seed.hosts ?? false);
+  $effect(() => {
+    if (seed.hosts !== null || !account.loaded) return;
+    if (api.sandboxed() || !mayMakeFirstKey(account.me)) return void (canHost = false);
+    let gone = false;
+    api.listSources().then(
+      () => !gone && (canHost = true),
+      (e) => !gone && (canHost = !routeAbsent(e) && (e as { status?: number } | null)?.status !== 403),
+    );
+    return () => (gone = true);
+  });
+  /** The key's dialogs, which Done opens. */
+  let flow = $state<HostKeyFlow | null>(null);
+  /** A key was made for the new show. */
+  let keyed = $state(false);
+  /** A host sending to a show with callers wants SRT, whose timing the callers' return needs
+   *  (hosts-in-their-own-studios.md section 4.1); Icecast is the simpler start. */
+  const hostWay = $derived<'srt' | 'icecast'>(step === 'callers' || step === 'full' ? 'srt' : 'icecast');
   let form = $state<RuleForm>(firstAnswers());
   /** The block First on and from were taken from, until the person changes the date or asks
    *  for today: it is said under First on, because a date nobody typed is easy to miss (the
@@ -246,6 +283,11 @@
     dialogEl?.close();
   }
 
+  /** Done's Set up a host…: the setup for the show just made, with SRT offered for a show with callers. */
+  function setUpHost() {
+    if (saved) flow?.setup({ show: saved.show.slug, fixed: true, hint: hostWay });
+  }
+
   function seeDates() {
     if (saved) onDates?.(saved);
     dialogEl?.close();
@@ -288,6 +330,18 @@
         <StepList bind:value={step} name="ns-step" describedby="ns-step ns-step-hint" />
         <span id="ns-step-hint" class="hint">How much of the studio this show uses. Start at Solo; move up a step whenever you like, at the top of the studio.</span>
       </div>
+      {#if canHost}
+        <div class="field" data-testid="ns-comes">
+          <span class="lab2" id="ns-comes">Comes from</span>
+          <span class="seg" role="group" aria-labelledby="ns-comes" aria-describedby="ns-comes-hint">
+            <button type="button" aria-pressed={comes === 'room'} onclick={() => (comes = 'room')}>The station’s room</button>
+            <button type="button" aria-pressed={comes === 'push'} onclick={() => (comes = 'push')}>The host’s own studio</button>
+          </span>
+          <span id="ns-comes-hint" class="hint">
+            {#if comes === 'push'}The host sends from their own software with a key that belongs to this show. You make the key when the show is made.{:else}The presenter and guests join the studio, as they do today.{/if}
+          </span>
+        </div>
+      {/if}
       <div class="acts">
         <button type="button" class="btn quiet left" onclick={leave}>Cancel</button>
         <button type="submit" class="btn primary">Next: when it airs</button>
@@ -324,6 +378,12 @@
           <li>It has no dates yet, so nothing is drafted. Give it dates from the Schedule tab.</li>
         {/if}
         <li data-step={step}><b class="ink">{starts.lead}</b> {starts.rest}</li>
+        {#if canHost && comes === 'push' && saved}
+          <li data-testid="ns-host" data-keyed={keyed || undefined}>
+            {#if keyed}<b class="ink">Its host has a key.</b> {saved.show.name} comes from their own studio; they arrive standing by, and go on air at their time.
+            {:else}<b class="ink">It comes from the host’s own studio once a key is made.</b> Until then it is the station’s room. <button type="button" class="btn sm primary hostbtn" onclick={setUpHost}>Set up a host…</button>{/if}
+          </li>
+        {/if}
         <li>Hosts, a description, the card and the presenter’s details are in the show editor.</li>
       </ul>
       {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
@@ -349,4 +409,10 @@
       <button type="button" class="btn primary" autofocus onclick={keepEditing}>Keep editing</button>
     </div>
   </dialog>
+{/if}
+
+{#if saved && canHost && comes === 'push'}
+  <!-- A sibling of the dialog, not inside it: its keys must not reach New show's (rule 5), and
+       the secret's dialog has one way out of its own. -->
+  <HostKeyFlow bind:this={flow} shows={[{ slug: saved.show.slug, name: saved.show.name, holders: [] }]} onChanged={() => { keyed = true; }} />
 {/if}

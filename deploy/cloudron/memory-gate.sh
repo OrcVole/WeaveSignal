@@ -7,7 +7,10 @@
 # 3 tone publishers (a presenter and two guests; a caller's token needs consent, M3) through
 # LiveKit and the desk, LISTENERS listeners through nginx and the listener process, an SSE
 # client on the studio events, and CHAT_SOCKETS chat readers with posters (the chat's own load generator, through nginx on the
-# station domain), repeated until the window ends. The peak is read through one file
+# station domain), repeated until the window ends. With SOURCE_ICE_PORT (test-local.sh's 27405) and
+# SOURCES=1, a host's own studio too (1.1, ADR-0280): ffmpeg sends an MP3 source over Icecast to
+# the ingest for the whole window, standing by at the desk, so the ingest, its decoding worker and
+# the desk's source are in the figure. The peak is read through one file
 # descriptor after a reset (cgroup v2). Test tones only. The real gate runs on a Cloudron.
 #
 # With the app run by `VIDEO=true test-local.sh` and CAMERAS=1, each publisher also sends a
@@ -19,6 +22,7 @@
 #   deploy/cloudron/memory-gate.sh
 #
 # Settings: LOAD_S=300 LISTENERS=50 CHAT_SOCKETS=1000 HTTP_PORT=27400 LISTEN_PORT=27401 CAMERAS=0
+#   SOURCES=1 SOURCE_ICE_PORT=27405
 #   CHAT_LOAD=<repository>/target/release/weavesignal-chat-load  (missing: no chat load, said so)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -28,6 +32,8 @@ LOAD_S=${LOAD_S:-300}
 LISTENERS=${LISTENERS:-50}
 CAMERAS=${CAMERAS:-0}
 CHAT_SOCKETS=${CHAT_SOCKETS:-1000}
+SOURCES=${SOURCES:-1}
+SOURCE_ICE_PORT=${SOURCE_ICE_PORT:-27405}
 HTTP_PORT=${HTTP_PORT:-27400}
 LISTEN_PORT=${LISTEN_PORT:-27401}
 DESK_IMAGE=${DESK_IMAGE:-localhost/weavesignal-desk-dev:m1}
@@ -105,7 +111,29 @@ if [[ -x $CHAT_LOAD ]]; then
 else
   echo "no chat load: $CHAT_LOAD is missing" > "$out/chat-load.txt"
 fi
+# A host's own studio (ADR-0280): a key for a show on air now, and an MP3 source over Icecast.
+source_key=''
+if [[ $SOURCES == 1 ]]; then
+  a() { curl -fsS -X "$1" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "http://127.0.0.1:$HTTP_PORT$2" ${3:+-d "$3"}; }
+  air_at="$(TZ=Europe/London date -d "@$(( $(date +%s) - 600 ))" +%Y-%m-%dT%H:%M:%S%:z)[Europe/London]"
+  a PUT /api/v1/shows/gate-source '{"name":"Gate Source","colour_slot":2}' >/dev/null
+  a PUT /api/v1/shows/gate-source/step '{"step":"full"}' >/dev/null   # the load's guests stay welcome
+  a PUT /api/v1/shows/gate-source/series/1 '{}' >/dev/null
+  a GET /api/v1/shows/gate-source/series/1/episodes/1 >/dev/null 2>&1 || a POST /api/v1/shows/gate-source/series/1/episodes '{"count":1}' >/dev/null
+  a PATCH /api/v1/shows/gate-source/series/1/episodes/1 "{\"air_at\":\"$air_at\",\"minutes\":$(( LOAD_S / 60 + 30 ))}" >/dev/null
+  key=$(a POST /api/v1/shows/gate-source/keys '{"label":"Iona Stewart","hint":"icecast"}')
+  source_key=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["key"]["key_id"])' "$key")
+  pass=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["details"]["icecast"]["password"])' "$key")
+  ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=f=660:sample_rate=44100:d=60" -ac 2 -c:a libmp3lame -b:a 128k "$out/source.mp3"
+  sleep 6   # the ingest asks for its settings every 5 s
+  timeout "$LOAD_S" ffmpeg -hide_banner -loglevel error -re -stream_loop -1 -i "$out/source.mp3" -c:a copy -content_type audio/mpeg -f mp3 \
+    "icecast://source:$pass@127.0.0.1:$SOURCE_ICE_PORT/live" > "$out/source-ffmpeg.txt" 2>&1 &
+fi
 sleep 30   # every service loaded; then the CPU window starts
+if [[ -n $source_key ]]; then
+  curl -fsS -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/sources" \
+    | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin)["sources"] if x["key_id"]==sys.argv[1]]; print("host source:", (s[0]["state"], s[0]["way"], s[0]["format"]) if s else "not connected")' "$source_key" > "$out/source.txt"
+fi
 cpu0_desk=$(desk_cpu); cpu0_app=$(app_cpu); t_cpu0=$(date +%s.%N)
 sleep $((LOAD_S / 2 - 30))
 rss > "$out/rss-mid.txt"
@@ -122,9 +150,10 @@ print(f"cpu over {dt:.0f} s of steady load, cameras {'on' if cams else 'off'}: "
       f"whole app {100 * (a1 - a0) / 1e6 / dt:.0f} % of one core")
 PY
 podman rm -f "$L-eilidh" "$L-morag" "$L-fraser" >/dev/null 2>&1 || true
+[[ -z $source_key ]] || curl -fsS -X DELETE -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/shows/gate-source/keys/$source_key" >/dev/null || true
 wait $sampler || true
 { grep '^oom_kill ' "$cg/memory.events"; rss; } > "$out/after.txt"
 peak=$(tail -1 "$out/samples.tsv" | cut -f3)
 echo "loaded peak ${peak} MiB of $((limit / 1048576)) MiB ($((100 * peak * 1048576 / limit)) %); chat load runs: $(grep -c '^# weavesignal-chat load test' "$out/chat-load.txt" 2>/dev/null || echo 0) (enabled: $chat_runs)"
-cat "$out/idle.txt" "$out/cpu.txt"; tail -3 "$out/samples.tsv"; cat "$out/rss-mid.txt" "$out/after.txt"
+cat "$out/idle.txt" "$out/cpu.txt" "$out/source.txt" 2>/dev/null; tail -3 "$out/samples.tsv"; cat "$out/rss-mid.txt" "$out/after.txt"
 ls -la "$out"/l1.opus "$out/l$LISTENERS.opus" 2>/dev/null; wc -c < "$out/sse.txt"

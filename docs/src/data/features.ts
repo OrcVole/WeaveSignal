@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.0.5:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.1.0:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -59,7 +59,7 @@ export const groups: Group[] = [
       {
         id: 'voice-chain',
         name: 'A voice chain on every presenter',
-        what: 'Each presenter\'s and DJ\'s voice goes through a gate, a compressor, a leveller and a limiter set in the station\'s settings, and every mix has a limiter of its own, so a loud guest cannot clip the programme.',
+        what: 'Each presenter\'s and DJ\'s voice goes through a gate, a compressor, a leveller and a limiter set in the station\'s settings, and every mix has a limiter of its own, so a loud guest cannot clip the programme. The gate holds open for 250 ms, so the soft end of a word is kept.',
         href: '/docs/reference/settings/',
         link: 'Settings',
       },
@@ -69,6 +69,20 @@ export const groups: Group[] = [
         what: 'The browser cancels echo and the desk gates the quiet, so a presenter\'s microphone does not put a guest back into the programme a third of a second late. The documentation says why headphones matter, in words for a guest.',
         href: '/docs/explanation/echo-and-headphones/',
         link: 'Why headphones',
+      },
+      {
+        id: 'own-studios',
+        name: 'Hosts in their own studios',
+        what: 'A host sends their show from their own software (BUTT, Mixxx, OBS, vMix, ffmpeg) over Icecast or SRT, with a key for their show. Their source stands by on the desk, levelled, until it is put on air; outside the show\'s time a connection is a private test.',
+        href: '/docs/how-to/set-up-a-host-in-their-own-studio/',
+        link: 'Set up a host in their own studio',
+      },
+      {
+        id: 'monitor-link',
+        name: 'A monitor link for each host',
+        what: 'A page the host keeps open beside their software: a lamp that says whether listeners hear them, counts on the station\'s clock, the station without their own voice in their headphones, and the few buttons they need, including Go on air and Dump.',
+        href: '/docs/how-to/use-your-monitor-link/',
+        link: 'Use your monitor link',
       },
     ],
   },
@@ -152,7 +166,7 @@ export const groups: Group[] = [
       {
         id: 'restarts',
         name: 'A restart disconnects nobody',
-        what: 'The listener process holds the stream and keeps a cushion for every player. Playout and the desk can stop or restart underneath it: players hear the fallback for a few seconds, then the programme again, and are never disconnected.',
+        what: 'The listener process holds the stream and keeps a cushion for every player. Playout and the desk can stop or restart underneath it (the desk restarts playout on Ctrl+R pressed twice): players hear the fallback for a few seconds, then the programme again, and are never disconnected.',
         href: '/docs/explanation/architecture/#why-the-listener-process-holds-the-mount',
         link: 'Why the listener process holds the mount',
         home: 'The listener process holds the stream, so playout and the desk can restart underneath it and every player stays connected.',
@@ -179,6 +193,13 @@ export const groups: Group[] = [
         what: 'A guest whose voice fails is resubscribed and a failed mix is rebuilt while the programme carries on; only the programme itself and its link to playout can stop the desk.',
         href: '/docs/explanation/architecture/#when-a-part-stops',
         link: 'When a part stops',
+      },
+      {
+        id: 'post',
+        name: 'The schedule hands over at the post',
+        what: 'When a show\'s time comes and its host is standing by, they go on air to the second; a late host is counted in; a DJ already on air keeps the air for a grace, then the schedule hands over. A host whose link drops is covered by automation, their place kept, and they go back on air when the link is steady.',
+        href: '/docs/how-to/set-up-a-host-in-their-own-studio/#what-the-station-does-at-the-shows-post',
+        link: 'What the station does at the post',
       },
     ],
   },
@@ -331,7 +352,7 @@ export const groups: Group[] = [
       {
         id: 'one-installation',
         name: 'One installation, three routes',
-        what: 'The room, the desk, playout, the stream, the chat and the pages in one bundle with one login: a script on a Linux server, a Cloudron package, or Quadlets under systemd. No stack of tools, each with its own idea of who hears whom.',
+        what: 'The room, the desk, playout, the stream, the chat and the pages in one bundle with one login: a script on a Linux server, a Cloudron package, or Quadlets under systemd. No stack of tools, each with its own idea of who hears whom. On Compose and Cloudron the show, its rundown and the banned list are settings, and a station not set up yet says so on its own address.',
         href: '/run/',
         link: 'Run your own station',
         home: 'The room, the desk, playout, the stream, the chat and the pages in one bundle, by a script, a Cloudron package or Quadlets; not a stack of tools with five logins.',
@@ -369,7 +390,7 @@ export const groups: Group[] = [
       {
         id: 'staff',
         name: 'Staff accounts and roles',
-        what: 'Each person signs in with a password or an emailed code, a role says what they may do, and someone who leaves is removed in one place.',
+        what: 'Each person signs in with a password or an emailed code, a role says what they may do, and someone who leaves is removed in one place. A show can be tied to its presenter\'s account.',
         href: '/docs/how-to/add-staff/',
         link: 'Add staff and sign in',
       },
@@ -398,7 +419,7 @@ export const groups: Group[] = [
       {
         id: 'keymap',
         name: 'Every action on a key',
-        what: 'One keymap across the tabs: the digits for the sources, Del Del to dump, F1 to F6 for the carts, F7 for the picture. A key whose feature is not in 1.0.0 says so in a note and does nothing to the room.',
+        what: 'One keymap across the tabs: the digits for the sources, Del Del to dump, F1 to F6 for the carts, F7 for the picture. A key whose feature is not built says so in a note and does nothing to the room.',
         href: '/docs/reference/keymap/',
         link: 'Keymap',
       },
@@ -439,7 +460,7 @@ export const leadFeatures = (): Feature[] => {
   });
 };
 
-// Planned, and not in 1.0.0. Each says what works today instead; the status page is the list.
+// Planned, and not in 1.1. Each says what works today instead; the status page is the list.
 export interface Planned {
   id: string;
   name: string;
@@ -451,10 +472,34 @@ export interface Planned {
 
 export const next: Planned[] = [
   {
+    id: 'pull-and-bridge',
+    name: 'Pulling a host\'s stream, and the studio app as a bridge',
+    what: 'The station opens a host\'s or a partner station\'s stream at the show\'s time, and the studio app carries a host\'s software into the room (ADR-0280).',
+    today: 'In 1.1 a host\'s software pushes to the station over Icecast or SRT with a show key; the station does not fetch a stream, and the studio app does not carry one.',
+    href: '/docs/how-to/set-up-a-host-in-their-own-studio/',
+    link: 'Set up a host in their own studio',
+  },
+  {
+    id: 'listener-delay-split',
+    name: 'The listener delay in two settings',
+    what: 'The listener mount\'s fixed 12 s hold and a player allowance as settings of their own, in place of one estimate (ADR-0289).',
+    today: 'The desk shows the estimate with its parts: the profanity delay, the buffer and about what listeners\' players hold.',
+    href: '/docs/reference/surfaces/desk/#deskclock',
+    link: 'The desk\'s clock',
+  },
+  {
+    id: 'desk-gpu',
+    name: 'A GPU for the Compose desk',
+    what: 'Video encoded on a graphics card, looking first at a host\'s own GPU in their own studio, then at one on the server (ADR-0289; planned for 1.2).',
+    today: 'The Compose bundle\'s desk and the Cloudron package encode video on the CPU (SVT-AV1); NVENC is used only where the desk can reach an NVIDIA GPU.',
+    href: '/docs/reference/desk-video/',
+    link: 'Video at the desk',
+  },
+  {
     id: 'dj-handover',
     name: 'A handover window from the schedule',
     what: 'The desk opens the handover by itself before the post, from the schedule, with the incoming DJ cued and ready (ADR-0231).',
-    today: 'Since 1.0.1 the next DJ joins off air, and one key, ⇧⏎, puts them on air beside the presenter and then takes the presenter off; the presenter starts it when they are ready.',
+    today: 'Since 1.0.1 the next DJ joins off air, and one key, ⇧⏎, puts them on air beside the presenter and then takes the presenter off; the presenter starts it when they are ready. Since 1.1 the schedule hands the air to a host in their own studio at the post, after a grace.',
     href: '/docs/reference/keymap/#desk-tab',
     link: 'The desk\'s keys',
   },

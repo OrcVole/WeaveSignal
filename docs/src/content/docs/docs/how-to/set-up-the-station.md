@@ -3,14 +3,15 @@ title: "Set up the station and its look"
 description: "Use the station's setup page to give it its name, the takedown contact that opens call-in, its jurisdiction, and its own colour, icon and banner on the public pages."
 type: howto
 status: draft
-last_verified: 2026-11-10
+last_verified: 2026-11-17
 sidebar:
   order: 30
 ---
 
-> **From 1.0.1.** Not released yet.
+> **From 1.0.1.**
 
-A new station is called Kettle FM and takes no calls.
+A new station is called *This station* (1.1; earlier installs started as Kettle FM) and takes no calls.
+Until it is named (a station still called *Kettle FM*, the old default, counts as not named while its setup is unfinished), its own address (`/` on the app's own domain on Cloudron, the one address on Compose) shows a short page that says the station is not set up yet and lists the first steps, in place of the player; the page goes as soon as the station has a name or setup is finished, with no restart. The public pages' domain on Cloudron keeps the player.
 Its **setup page** changes that on the running station, with no file to edit and no restart (ADR-0237).
 If you have not installed yet, start with the [install wizard](/docs/install-wizard/): it writes the settings file, the DNS records and the commands, and gives you an answers file for this page.
 
@@ -24,8 +25,11 @@ If you have not installed yet, start with the [install wizard](/docs/install-wiz
 
 Sign in with **the station key**, or as a member of staff whose role is **admin** ([Add staff and sign in](/docs/how-to/add-staff/)).
 
-- Compose and Quadlets: the key is `CONTROL_ADMIN_TOKEN` in the settings file (`deploy/compose/.env`).
-- Cloudron: it is `CONTROL_ADMIN_TOKEN` in `/app/data/secrets.env`, with the app's File Manager.
+- Cloudron: it is `CONTROL_ADMIN_TOKEN` in `/app/data/secrets.env`. Open the app's File Manager and copy the value after the `=`.
+- Linux with Compose or Quadlets: it is `CONTROL_ADMIN_TOKEN` in the settings file `weavesignal.sh` wrote: `deploy/compose/.env`, or the file you gave `--env-file` (the [Quadlets guide](/docs/how-to/run-with-quadlets/) uses `~/.config/weavesignal/station.env`). It is never printed. With Quadlets it is also the Podman secret `weavesignal-control-admin-token`, which `podman secret inspect --showsecret` shows.
+- Any other install: it is the control plane's environment variable `WEAVESIGNAL_CONTROL_ADMIN_TOKEN`, which you or your installer set; it is never in the settings file. If it is not set, set it to a long random string and restart the control plane.
+
+The not-set-up page says the same, beside the step that asks for the key, and shows this address for the studio app to connect to: copy it from the browser's address bar or from the page.
 
 The page shows nothing of the station until you are signed in, and keeps your sign-in only while the tab is open: reload and it asks again. **Sign out** forgets it at once.
 

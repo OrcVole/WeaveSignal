@@ -39,6 +39,20 @@ impl RoomAdmin {
             .await
     }
 
+    /// Take both of a show key's monitor seats out of the key's monitor room (ADR-0280): a key
+    /// that ends takes its monitor link's listeners with it, not only the right to a new token.
+    /// Seats that are not there are not an error.
+    pub async fn remove_monitor(&self, key_id: &str) -> anyhow::Result<()> {
+        let room = weavesignal_proto::monitor_room(&self.room, key_id);
+        let mut failed = None;
+        for seat in weavesignal_proto::monitor_seats(key_id) {
+            if let Err(e) = self.remove_from(&room, &seat).await {
+                failed = Some(e);
+            }
+        }
+        failed.map_or(Ok(()), Err)
+    }
+
     async fn remove_from(&self, room: &str, identity: &str) -> anyhow::Result<()> {
         let url = format!(
             "{}/twirp/livekit.RoomService/RemoveParticipant",
@@ -93,6 +107,19 @@ pub struct Hub {
     /// The record of who is on air (ADR-0153). Held across each write, so two polls, or a
     /// poll and a command, cannot write one after the other out of order.
     callers_on_air: tokio::sync::Mutex<OnAirRecord>,
+    /// Hosts in their own studios (ADR-0280): the ingest's bearer and report, wrong keys.
+    pub sources: Arc<crate::sources::Live>,
+    /// The last Dump the desk took, from any route: the monitor link says DUMPED for a few
+    /// seconds after it (design section 3.7). Kept in memory: it is only ever read seconds later.
+    last_dump: Mutex<Option<DumpRecord>>,
+}
+
+/// A Dump the desk took: when, and how much of the programme listeners lost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DumpRecord {
+    pub at_ms: i64,
+    /// What the profanity delay held when it was dumped, as the last status said.
+    pub lost_ms: u64,
 }
 
 /// What the hub last wrote of who is on air, and why it last failed to.
@@ -137,6 +164,8 @@ impl Hub {
             onair: std::sync::OnceLock::new(),
             zone: Arc::new(crate::zone::StationZone::default()),
             callers_on_air: tokio::sync::Mutex::new(OnAirRecord::default()),
+            sources: Arc::new(crate::sources::Live::from_env()),
+            last_dump: Mutex::new(None),
         })
     }
 
@@ -223,6 +252,11 @@ impl Hub {
     /// The desk's last status, if it answered.
     pub fn desk_status(&self) -> Option<DeskStatus> {
         self.inner.lock().expect("hub lock").desk.clone()
+    }
+
+    /// The last Dump the desk took, if any since this process started.
+    pub fn last_dump(&self) -> Option<DumpRecord> {
+        *self.last_dump.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Ask the desk once and fold the answer in: the people, and the carts sounding (with
@@ -401,10 +435,25 @@ impl Hub {
 
     /// Send the desk a command, then read it back at once so the app sees the change.
     pub async fn command(&self, cmd: &DeskCommand) -> Result<(), DeskError> {
-        if let DeskCommand::OnAir { identity, on: true } = cmd {
+        if let DeskCommand::OnAir {
+            identity, on: true, ..
+        } = cmd
+        {
             self.open_on_air(identity).await;
         }
+        // What a Dump costs listeners is what the delay held before it; read first.
+        let held_ms = matches!(cmd, DeskCommand::Dump).then(|| {
+            self.desk_status()
+                .and_then(|d| d.delay)
+                .map_or(0, |d| u64::from(d.delay_ms))
+        });
         self.desk.send(cmd).await?;
+        if let Some(lost_ms) = held_ms {
+            *self.last_dump.lock().unwrap_or_else(|p| p.into_inner()) = Some(DumpRecord {
+                at_ms: now_ms() as i64,
+                lost_ms,
+            });
+        }
         self.poll_once().await;
         Ok(())
     }

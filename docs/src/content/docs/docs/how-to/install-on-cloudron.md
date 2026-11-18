@@ -54,9 +54,18 @@ Cloudron asks for four domains and the public ports:
 | TURN over TLS | 15349 | Cloudron's own TURN holds 5349 (ADR-0106); any free TCP port |
 | TURN over UDP | off | Cloudron's own TURN holds 3478; 3479 if you turn it on |
 | Live room media over TCP | off | 7881 if you turn it on; TURN over TLS reaches the same guests |
+| Hosts' own studios: Icecast | off | 8005 if you turn it on; TCP, for hosts who send from their own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)) |
+| Hosts' own studios: SRT | off | 9710 if you turn it on; UDP, the same hosts over SRT |
 
 Every port stays a setting you can change later in the app's settings (ADR-0075).
 Open the media port and the TURN port, and any optional port you turn on, in the server's firewall and in any cloud provider's firewall.
+
+The two ports for hosts' own studios are off at install; turn them on in the app's **Location** settings when the station sets up its first host.
+The station then listens on them only while a show key exists, and tells hosts the numbers chosen here.
+A host's software connects to the server directly on these ports, through Cloudron's port mapping rather than its proxy, so the station should count wrong keys by the host's own address.
+This is expected from how Docker maps ports, and has not yet been measured on a Cloudron.
+The ingest listens on IPv4 only unless it is told otherwise, so a host's software connects over IPv4.
+If Cloudron's Docker hands the app a connection from an address of its own, that address is private, and the station counts and logs wrong keys from it but never turns it away, so one host's typing cannot shut out the others.
 
 Install with Cloudron's user management to put the app's own domain behind Cloudron's login.
 `/health` stays open without a login (ADR-0160), and a request with a staff session or the station key as its bearer still reaches the control plane's routes.
@@ -67,14 +76,18 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.0.5 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.0.5
+podman build -t registry.station.example/weavesignal-cloudron:1.1.0 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.1.0
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.
 Push it to a registry the Cloudron can pull from (a private one needs a read-only token in Cloudron's private-registry settings), then install with `--image` and that name.
 
 ## Sign in
+
+Cloudron shows a checklist for the app after installing, and a note with the same first steps: set the station up, make yourself an admin, choose who hears the stream, open the public ports, and, only if hosts will send from their own software, turn on the two source ports in Location.
+
+If you press **Open in Cloudron** and land on a page that says *This station is not set up yet*, that is the app's own domain before the station is named (1.1): it lists these steps, links to the setup page and to the studio app's installers, and goes away once the station has a name of its own or its setup is finished. A 1.0.5 install that updates to 1.1 and was never set up, still called *Kettle FM*, shows it too. It is shown only on the app's own domain; the public pages' domain keeps the player and answers 404 for it.
 
 1. In the studio app, connect to `https://studio.station.example` (the app's own domain).
 2. Choose **Use the station key instead** and give `CONTROL_ADMIN_TOKEN` from `secrets.env` (below).
@@ -96,7 +109,7 @@ The app writes two files in `/app/data` on its first start; open them with Cloud
 
 | File | Holds |
 |---|---|
-| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `CONSENT_CONTACT`, `FEED_BUFFER_S`, `VIDEO`, `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), the internal ports and `LOG_LEVEL` |
+| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `CONSENT_CONTACT`, `FEED_BUFFER_S`, `VIDEO`, `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
 | `secrets.env` | made once (`ICECAST_OUT_PASSWORD` is an empty line for you to fill if you send to another Icecast server): `STATION_ID`, LiveKit's key and secret, the listener source password, `CONTROL_ADMIN_TOKEN`, `LISTENERS_PASSWORD`, and the three keys `CHAT_EMAIL_KEY`, `CONTROL_EMAIL_KEY` and `CONTROL_TOKEN_KEY` |
 
 On every start the package writes each service's own settings from these two files and from Cloudron's environment.
@@ -148,7 +161,7 @@ LiveKit may have found the wrong public address: set `NODE_IP` in `weavesignal.e
 Until the station should be found:
 
 - **Unlisted.** The stream asks no directory to list it (`DIRECTORY_LISTING=false`), and every domain answers `noindex` (`SEARCH_LISTING=false`).
-- **The stream's password.** With `LISTENERS_AUTH=on` (the default) the stream asks for the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`. `off` leaves it open but unlisted.
+- **The stream's password.** With `LISTENERS_AUTH=on` (off unless you set it) the stream asks for the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`. `off` leaves it open but unlisted.
 - The listener domain serves only the mount: it refuses uploads, `icecast.server`'s admin pages and `/status.json`, and drops ICY metadata requests. Its bare address sends a visitor to the player on the public domain (from 1.0.1; 404 when no public domain is set).
 - The room is guarded by short-lived room tokens (ADR-0085), and the public pages' domain serves only the public routes. Cloudron's login covers the app's own domain only.
 

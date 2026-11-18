@@ -84,6 +84,18 @@ async function shot(page, name) {
   log('shot', path);
 }
 
+// The stack prints "up:" once the interface answers; its people join the room a few seconds
+// later. Every step below expects them there, so wait for all of them first.
+const everyone = await until(
+  'people',
+  (v) =>
+    ['eilidh', 'gregor', 'kirsty', 'finlay'].every((id) => src(v, id)?.present) &&
+    ['niall', 'dougal', 'jessie', 'tavish'].every((id) => caller(v, id)?.present),
+  60000,
+);
+check("the stack's people are all in the room", everyone.ms !== null);
+if (everyone.ms === null) process.exit(1);
+
 // ---- the keyboard run, at 1,440 × 900 ----
 const { ctx, page } = await open(1440, 900);
 const k = page.keyboard;

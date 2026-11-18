@@ -950,3 +950,132 @@ async fn the_stream_password_is_written_for_the_start_script_only_where_the_inst
         ["LISTENERS_AUTH=off", "LISTENERS_PASSWORD=kettle-fm-2026"]
     );
 }
+
+/// Whether the front page is the not-set-up page, and the page it names.
+async fn front(app: &Router) -> Option<String> {
+    let (code, headers, _) = raw(app, "GET", "/api/v1/front", None, "text/plain", Vec::new()).await;
+    match code {
+        StatusCode::OK => Some(
+            headers["x-accel-redirect"]
+                .to_str()
+                .expect("a page")
+                .to_owned(),
+        ),
+        StatusCode::NOT_FOUND => None,
+        other => panic!("/api/v1/front answered {other}"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn an_unnamed_station_fronts_the_not_set_up_page_until_it_is_named_or_finished() {
+    let pool = database().await;
+    let id = StationId::new_random();
+    let unnamed = || Opts {
+        file_name: setup::UNNAMED,
+        ..Opts::default()
+    };
+    let p = plane(&pool, id, unnamed()).await;
+    // Before: the station has the name its install gave it and nobody has finished the page.
+    // The route is open (nginx asks it with no bearer) and names the page to serve.
+    assert_eq!(
+        front(&p.app).await.as_deref(),
+        Some("/not-set-up/index.html")
+    );
+    let (_, v) = send(&p.app, "GET", "/api/v1/setup", Some(KEY), Value::Null).await;
+    assert_eq!(v["status"], "pending");
+    assert!(
+        v["missing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m.as_str().unwrap().contains("no name yet")),
+        "{v}"
+    );
+    // A restart changes nothing: setup is still open in the database.
+    let again = plane(&pool, id, unnamed()).await;
+    assert_eq!(
+        front(&again.app).await.as_deref(),
+        Some("/not-set-up/index.html")
+    );
+    // Naming it on the setup page ends it at once, with no restart.
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup",
+        Some(KEY),
+        json!({"name": "Radio Ceilidh"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(front(&p.app).await, None);
+    // Handing the name back to the settings file brings it back.
+    let (code, _) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup",
+        Some(KEY),
+        json!({"name": ""}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert!(front(&p.app).await.is_some());
+    // Finishing the page ends it, whatever the name, and for good: a restart reads that.
+    let (code, v) = send(
+        &p.app,
+        "POST",
+        "/api/v1/setup/finish",
+        Some(KEY),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(front(&p.app).await, None);
+    let restarted = plane(&pool, id, unnamed()).await;
+    assert_eq!(front(&restarted.app).await, None);
+
+    // A station that has a name of its own keeps its player with setup open, even with no
+    // takedown contact: it is running, and a missing contact is not what the page is for.
+    let p = plane(
+        &pool,
+        StationId::new_random(),
+        Opts {
+            file_name: "Radio Ceilidh",
+            file_contact: "",
+            ..Opts::default()
+        },
+    )
+    .await;
+    assert_eq!(front(&p.app).await, None);
+
+    // A 1.0.5 install updating to 1.1 that is still called Kettle FM and never finished its
+    // setup shows the page too, and finishing the page (or naming it) ends it as for any other.
+    let kettle = StationId::new_random();
+    let kettle_fm = || Opts {
+        file_name: "Kettle FM",
+        file_contact: "",
+        ..Opts::default()
+    };
+    let p = plane(&pool, kettle, kettle_fm()).await;
+    assert_eq!(
+        front(&p.app).await.as_deref(),
+        Some("/not-set-up/index.html")
+    );
+    let again = plane(&pool, kettle, kettle_fm()).await;
+    assert_eq!(
+        front(&again.app).await.as_deref(),
+        Some("/not-set-up/index.html")
+    );
+    let (code, v) = send(
+        &p.app,
+        "POST",
+        "/api/v1/setup/finish",
+        Some(KEY),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(front(&p.app).await, None);
+    let restarted = plane(&pool, kettle, kettle_fm()).await;
+    assert_eq!(front(&restarted.app).await, None);
+}

@@ -125,7 +125,7 @@ function tile(body: string, slot: number): string {
 describe('desk B', () => {
   it('draws every registered desk panel under its name, and only registered names', () => {
     // At Full, the studio of 1.0.1: everything but the two panels that belong to a lower step.
-    const lower = ['desk.step-note', 'desk.callers'];
+    const lower = ['desk.step-note', 'desk.next', 'desk.callers'];
     studio.view = view(true);
     const { body } = render(DeskB);
     for (const name of lower) expect(body.includes(`data-panel="${name}"`), name).toBe(false);

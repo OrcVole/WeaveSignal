@@ -8,7 +8,7 @@ sidebar:
   order: 9
 ---
 
-From WeaveSignal 1.0.5 (not yet released) the schedule goes out as a calendar file, and a calendar file comes in as new shows (ADR-0281).
+From WeaveSignal 1.0.5 the schedule goes out as a calendar file, and a calendar file comes in as new shows (ADR-0281).
 A show's [rule](/docs/reference/show-rules/) is already a small part of iCalendar (RFC 5545), so both ways are a translation, not a second model.
 The control plane does all of it; a client sends a file and draws what comes back.
 Every route here is in the generated [API reference](/docs/reference/api/).

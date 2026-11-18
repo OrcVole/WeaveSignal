@@ -38,7 +38,7 @@
 //! which bus is the matrix's rule ([`crate::matrix`]) and the person's switches (on air, mute,
 //! cue, talk), read afresh by every pass; a gate that changes ramps across one block.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak, mpsc};
 use std::time::{Duration, Instant};
@@ -49,7 +49,7 @@ use gstreamer::glib;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use weavesignal_mixer::{
-    Chain, DelayLine, DelayState, InputRing, Limiter, LoudnessMeter, mix_into,
+    Chain, DelayLine, DelayState, InputRing, Limiter, LoudnessMeter, SourceLeveller, mix_into,
 };
 use weavesignal_proto::{Keys, Role, check_identity};
 
@@ -67,6 +67,8 @@ pub const RAW_CAPS: &str = "audio/x-raw,format=S16LE,rate=48000,channels=2,layou
 /// until its limiter.
 pub const MIX_CAPS: &str = "audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved";
 pub const RATE: u32 = 48_000;
+/// Every source's identity begins so (ADR-0280): the ingest cannot take a person's place.
+pub const SOURCE_PREFIX: &str = "source-";
 const CHANNELS: usize = 2;
 
 /// What the desk sends out. Tests turn the network outputs off.
@@ -101,6 +103,43 @@ pub struct Person {
     pub switches: Switches,
     /// When they were seen leaving the room, while they are away.
     pub away_since: Option<Instant>,
+    /// For a host's own studio (ADR-0280): how it came in. `None` for a person in the room.
+    pub source: Option<SourceFacts>,
+    /// A fade of this person's gate, in progress: the schedule moved their On over `fade_ms`
+    /// (ADR-0280). Counted in blocks mixed; any switch pressed after it ends it at once.
+    pub fade: Option<weavesignal_mixer::Fade>,
+}
+
+/// What the ingest says of a host's own studio when it hands it to the desk.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceFacts {
+    /// `icecast` or `srt`.
+    pub way: String,
+    /// What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`).
+    pub format: String,
+    /// The show key's public id.
+    pub key: String,
+    /// The show's slug.
+    pub show: String,
+    /// When the desk took it.
+    pub since: Instant,
+}
+
+/// A host's own studio, as the status reports it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct SourceStatus {
+    pub way: String,
+    pub format: String,
+    pub key: String,
+    pub show: String,
+    /// How long the desk has had it, unbroken.
+    pub connected_ms: u64,
+    /// What the leveller is doing to bring it to the desk's level, in dB.
+    pub leveller_db: f32,
+    /// Its own level over the leveller's window, before the gain; `None` until it sounded.
+    pub level_db: Option<f32>,
+    /// Its monitor link is open: the desk is making its monitor mix (design 4.5).
+    pub monitor: bool,
 }
 
 /// A person, as the status reports them.
@@ -132,6 +171,9 @@ pub struct PersonStatus {
     pub ring_ms: u32,
     /// Their camera has a picture at the desk (video on).
     pub camera: bool,
+    /// A host's own studio (ADR-0280): its way in, format, key, show and leveller.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceStatus>,
 }
 
 /// Whether playout is connected to the programme's SRT listener, and since when.
@@ -197,11 +239,14 @@ struct Input {
     serial: u64,
     /// This input's own key, for its gains on every bus.
     key: u64,
-    /// The pad the voice arrives on, to unlink it.
-    pad: gst::Pad,
+    /// The pad the voice arrives on, to unlink it; `None` for a source, which the ingest hands
+    /// over outside the pipeline.
+    pad: Option<gst::Pad>,
     elements: Vec<gst::Element>,
     ring: Arc<InputRing>,
     chain: Option<Chain>,
+    /// A source's slow gain (ADR-0280), in place of a chain.
+    leveller: Option<SourceLeveller>,
     meter: LoudnessMeter,
     /// This block's samples.
     buf: Vec<f32>,
@@ -396,9 +441,9 @@ pub(crate) enum Join<'a> {
     /// Listens to one person (`producer`): hidden from the room, and heard past the limits
     /// the person's page sets, which let no one else subscribe.
     Input { producer: &'a str },
-    /// Publishes. `only`: the one person who may subscribe (a mix-minus's own); `None`:
-    /// anyone in the room (the programme picture).
-    Output { only: Option<&'a str> },
+    /// Publishes. `only`: who may subscribe (a mix-minus's own person, or a monitor link's two
+    /// seats); `None`: anyone in the room (the programme picture).
+    Output { only: Option<&'a [String]> },
 }
 
 /// The patched signaller's property that limits who may subscribe to a publisher
@@ -510,9 +555,10 @@ pub(crate) fn signal(
     sig.set_property("participant-name", identity);
     match join {
         Join::Input { producer } => sig.set_property("producer-peer-id", producer),
-        Join::Output { only: Some(person) } => {
-            sig.set_property(ALLOWED_SUBSCRIBERS, gst::Array::new([person]))
-        }
+        Join::Output { only: Some(people) } => sig.set_property(
+            ALLOWED_SUBSCRIBERS,
+            gst::Array::new(people.iter().map(String::as_str)),
+        ),
         Join::Output { only: None } => {}
     }
 }
@@ -988,6 +1034,21 @@ impl Desk {
                     late_ms: ring.late_frames * 1000 / u64::from(RATE),
                     ring_ms: (ring.frames as u64 * 1000 / u64::from(RATE)) as u32,
                     camera: cameras.contains(id),
+                    source: p.source.as_ref().map(|f| SourceStatus {
+                        way: f.way.clone(),
+                        format: f.format.clone(),
+                        key: f.key.clone(),
+                        show: f.show.clone(),
+                        connected_ms: f.since.elapsed().as_millis() as u64,
+                        leveller_db: last
+                            .and_then(|i| i.leveller.as_ref())
+                            .map_or(0.0, |l| (l.gain_db() * 10.0).round() / 10.0),
+                        level_db: last
+                            .and_then(|i| i.leveller.as_ref())
+                            .and_then(SourceLeveller::level_db)
+                            .map(|d| (d * 10.0).round() / 10.0),
+                        monitor: st.buses.contains_key(&Bus::MixMinus(id.clone())),
+                    }),
                 }
             })
             .collect()
@@ -1209,6 +1270,9 @@ impl Desk {
                 if let Some(c) = &mut input.chain {
                     c.process(&mut input.buf);
                 }
+                if let Some(l) = &mut input.leveller {
+                    l.process(&mut input.buf);
+                }
                 input.meter.process(&input.buf);
             }
         }
@@ -1217,6 +1281,7 @@ impl Desk {
         let mic_open = people.values().any(|p| {
             p.away_since.is_none()
                 && p.role.can_air()
+                && !p.role.from_ingest()
                 && p.switches.on_air
                 && !p.switches.mute
                 && p.switches.talk_to.is_none()
@@ -1257,10 +1322,14 @@ impl Desk {
                 let open = gate_to_bus(src, p.role, bus, owner_role)
                     .is_some_and(|g| p.switches.passes(g, owner(bus)));
                 let target = if open { 1.0 } else { 0.0 };
+                // A fade (the schedule's move) steps the gain toward its target block by block;
+                // without one the step is the whole way, as the gate always was.
+                let step = p.fade.map_or(1.0, |f| f.step());
                 for input in list {
                     let g = bs.gains.entry(input.key).or_insert(0.0);
-                    mix_into(&mut bs.acc, &input.buf, CHANNELS, *g, target);
-                    *g = target;
+                    let next = weavesignal_mixer::ramp_toward(*g, target, step);
+                    mix_into(&mut bs.acc, &input.buf, CHANNELS, *g, next);
+                    *g = next;
                 }
             }
             // Carts on air reach every bus; cued carts only the presenters' and DJs' ears.
@@ -1268,7 +1337,7 @@ impl Desk {
                 mix_into(&mut bs.acc, a, CHANNELS, 1.0, 1.0);
             }
             if let Some(c) = cart_cue
-                && owner_role.is_some_and(Role::hears_talkback)
+                && owner_role.is_some_and(Role::hears_cue)
             {
                 mix_into(&mut bs.acc, c, CHANNELS, 1.0, 1.0);
             }
@@ -1306,6 +1375,15 @@ impl Desk {
                         o.offer(to_i16(&bs.acc), pts, pool);
                     }
                 }
+            }
+        }
+        // One block has been mixed for every bus: a fade is counted once per block, not once
+        // per bus, so a bus made in its middle ends with it.
+        for p in people.values_mut() {
+            if let Some(f) = &mut p.fade
+                && !f.tick()
+            {
+                p.fade = None;
             }
         }
     }
@@ -1389,17 +1467,15 @@ impl Desk {
         let sink = if self.inner.outputs.mix_minus_to_room {
             let sink = make("livekitwebrtcsink", Some(&name))?;
             let room_identity = format!("{}-mm-{identity}", self.inner.config.desk.identity);
-            let room = self.room_of(identity);
+            let (room, only) = self.return_destination(identity);
             signal(
                 &sink,
                 &self.inner.config.livekit,
                 &room,
                 &room_identity,
-                Join::Output {
-                    only: Some(identity),
-                },
+                Join::Output { only: Some(&only) },
             );
-            tracing::info!(participant = %identity, identity = %room_identity, "mix-minus published to the room");
+            tracing::info!(participant = %identity, identity = %room_identity, %room, "mix-minus published to the room");
             sink
         } else {
             gst::ElementFactory::make("fakesink")
@@ -1458,11 +1534,154 @@ impl Desk {
         Ok(())
     }
 
+    /// Where a person's return is published and who may subscribe to it (ADR-0118): their own
+    /// room (their booth for a caller) and themselves; for a host's own studio, its monitor
+    /// room (design 4.5) and the monitor link's two seats. Worked out here, from who the
+    /// person is, so a return made again after a failure goes to the same place.
+    fn return_destination(&self, identity: &str) -> (String, Vec<String>) {
+        let studio = &self.inner.config.livekit.room;
+        match self.person(identity) {
+            Some(Person {
+                role,
+                source: Some(facts),
+                ..
+            }) if role.from_ingest() => (
+                weavesignal_proto::monitor_room(studio, &facts.key),
+                weavesignal_proto::monitor_seats(&facts.key),
+            ),
+            Some(p) => (
+                p.room.unwrap_or_else(|| studio.clone()),
+                vec![identity.to_owned()],
+            ),
+            None => (studio.clone(), vec![identity.to_owned()]),
+        }
+    }
+
     /// The LiveKit room a person's connections join: their booth, or the studio room.
     fn room_of(&self, identity: &str) -> String {
         self.person(identity)
             .and_then(|p| p.room)
             .unwrap_or_else(|| self.inner.config.livekit.room.clone())
+    }
+
+    /// A host's own studio arrives from the ingest (ADR-0280): at the desk like a person, off
+    /// air (STANDBY), with a slot's keys in the studio, but no mix-minus of its own and nothing
+    /// in the room. Its sound goes into the ring this returns, through the source leveller.
+    /// A source already at the desk under this identity is replaced (the ingest reconnected).
+    pub fn add_source(
+        &self,
+        identity: &str,
+        name: &str,
+        facts: SourceFacts,
+    ) -> Result<Arc<InputRing>> {
+        check_identity(identity, &self.inner.config.desk.identity)?;
+        if !identity.starts_with(SOURCE_PREFIX) {
+            bail!("a source's identity begins `{SOURCE_PREFIX}`, not `{identity}`");
+        }
+        if self.person(identity).is_some() {
+            self.remove_person(identity);
+        }
+        let ring = Arc::new(InputRing::new(CHANNELS, RATE as usize * 2));
+        let input = Input {
+            serial: self.next_serial(),
+            key: self.next_serial(),
+            pad: None,
+            elements: Vec::new(),
+            ring: ring.clone(),
+            chain: None,
+            leveller: Some(SourceLeveller::new(
+                &self.inner.config.sources.leveller,
+                CHANNELS,
+            )),
+            meter: LoudnessMeter::new(CHANNELS),
+            buf: vec![0.0; self.inner.block * CHANNELS],
+        };
+        let mut st = self.lock();
+        st.people.insert(
+            identity.to_owned(),
+            Person {
+                role: Role::Source,
+                room: None,
+                name: name.to_owned(),
+                switches: Switches::at_join(Role::Source),
+                away_since: None,
+                source: Some(facts),
+                fade: None,
+            },
+        );
+        st.inputs.insert(identity.to_owned(), vec![input]);
+        drop(st);
+        tracing::info!(source = %identity, "a host's own studio is at the desk, standing by");
+        Ok(ring)
+    }
+
+    /// Open the monitor mix of the host whose show key is `key_id` (design 4.5, section 10): the
+    /// programme without them, the cue bus and talk addressed to them, as a person's mix-minus
+    /// is made, published in the monitor room `<room>-monitor-<key id>` for the link's two
+    /// seats. It costs a mix and an Opus encoder, so it is made only while someone listens
+    /// ([`crate::room::watch`] asks). `Ok(false)` when that host's studio is not at the desk;
+    /// opening one already open changes nothing. Each block is stamped from its place in the
+    /// mix like every bus's (`mix_block`), never from the clock at encode time.
+    pub fn open_monitor(&self, key_id: &str) -> Result<bool> {
+        let identity = weavesignal_proto::source_wire::identity(key_id);
+        let n = self.next_serial();
+        {
+            let mut st = self.lock();
+            if !st
+                .people
+                .get(&identity)
+                .is_some_and(|p| p.role.from_ingest())
+            {
+                return Ok(false);
+            }
+            let bus = Bus::MixMinus(identity.clone());
+            if st.buses.contains_key(&bus) {
+                return Ok(true);
+            }
+            st.buses.insert(
+                bus,
+                BusState::new(
+                    n,
+                    Limiter::new(&self.inner.config.programme.limiter, CHANNELS),
+                ),
+            );
+        }
+        tracing::info!(source = %identity, "a monitor mix is opened");
+        if let Err(e) = self.attach_return(&identity, n) {
+            self.close_monitor(key_id);
+            return Err(e);
+        }
+        Ok(true)
+    }
+
+    /// Close a host's monitor mix: its bus, encoder and publisher go; the source stays.
+    pub fn close_monitor(&self, key_id: &str) {
+        let identity = weavesignal_proto::source_wire::identity(key_id);
+        let doomed = {
+            let mut st = self.lock();
+            self.take_return(&mut st, &identity, None, false)
+        };
+        if doomed.is_empty() {
+            return;
+        }
+        // Not under the lock: stopping a publisher waits for its threads.
+        stop_and_remove(&self.inner.pipeline, &doomed);
+        self.lock().disown(&doomed);
+        tracing::info!(source = %identity, "a monitor mix is closed");
+    }
+
+    /// The show keys whose monitor mix is open.
+    pub fn monitors(&self) -> BTreeSet<String> {
+        let st = self.lock();
+        st.buses
+            .keys()
+            .filter_map(|b| match b {
+                Bus::MixMinus(id) => st.people.get(id),
+                Bus::Programme => None,
+            })
+            .filter(|p| p.role.from_ingest())
+            .filter_map(|p| p.source.as_ref().map(|f| f.key.clone()))
+            .collect()
     }
 
     /// A person joins: their mix-minus is made (the matrix routes everyone already at the
@@ -1479,6 +1698,9 @@ impl Desk {
         check_identity(identity, &self.inner.config.desk.identity)?;
         if !role.at_desk() {
             bail!("`{identity}` is a {role}: the desk takes no listeners");
+        }
+        if role.from_ingest() {
+            bail!("`{identity}` is a source: sources come from the ingest, never the room");
         }
         if let Some(p) = self.person(identity) {
             if p.role == role && p.room.as_deref() == room {
@@ -1505,6 +1727,8 @@ impl Desk {
                     name: String::new(),
                     switches: Switches::at_join(role),
                     away_since: None,
+                    source: None,
+                    fade: None,
                 },
             );
             st.buses.insert(
@@ -1607,8 +1831,10 @@ impl Desk {
 
     fn stop_inputs(&self, inputs: Vec<Input>) {
         for input in inputs {
-            if let Some(peer) = input.pad.peer() {
-                let _ = input.pad.unlink(&peer);
+            if let Some(pad) = &input.pad
+                && let Some(peer) = pad.peer()
+            {
+                let _ = pad.unlink(&peer);
             }
             stop_and_remove(&self.inner.pipeline, &input.elements);
             self.lock().disown(&input.elements);
@@ -1969,10 +2195,11 @@ impl Desk {
         let mut input = Input {
             serial,
             key: self.next_serial(),
-            pad: pad.clone(),
+            pad: Some(pad.clone()),
             elements: elements.clone(),
             ring,
             chain: (!chain_settings.is_empty()).then(|| Chain::new(&chain_settings, CHANNELS)),
+            leveller: None,
             meter: LoudnessMeter::new(CHANNELS),
             buf: vec![0.0; self.inner.block * CHANNELS],
         };
@@ -2009,6 +2236,8 @@ impl Desk {
         let Some(p) = st.people.get_mut(identity) else {
             return false;
         };
+        // A press ends any fade still running: a person's switch is at once.
+        p.fade = None;
         f(&mut p.switches);
         true
     }
@@ -2020,6 +2249,22 @@ impl Desk {
             tracing::info!(participant = %identity, on_air = on, "on air switched");
         }
         known
+    }
+
+    /// The same, over `fade_ms`: the schedule's move (ADR-0280). The person's gain onto every
+    /// bus rises or falls over that long instead of within one block, counted in blocks mixed.
+    /// A fade no longer than a block is a plain switch. `false` when the desk does not know them.
+    pub fn set_on_air_faded(&self, identity: &str, on: bool, fade_ms: u32) -> bool {
+        let fade = weavesignal_mixer::Fade::new(fade_ms.min(10_000), self.inner.block, RATE);
+        let mut st = self.lock();
+        let Some(p) = st.people.get_mut(identity) else {
+            return false;
+        };
+        p.switches.on_air = on;
+        p.fade = fade;
+        drop(st);
+        tracing::info!(participant = %identity, on_air = on, fade_ms, "on air switched, faded");
+        true
     }
 
     /// Hold or release a person's talkback; `false` when the desk does not know them.
@@ -2270,7 +2515,7 @@ impl DeskSide for Inner {
                     .get(id)
                     .and_then(|v| v.last())
                     .and_then(|i| i.meter.momentary()),
-                may_be_seen: p.role.can_air() && p.role != Role::Caller,
+                may_be_seen: p.role.can_air() && p.role != Role::Caller && !p.role.from_ingest(),
             })
             .collect()
     }

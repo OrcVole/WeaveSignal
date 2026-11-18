@@ -1,0 +1,154 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The monitor link (ADR-0280; hosts-in-their-own-studios.md section 4.5), on the public pages'
+   web.css and the shared tokens. Drawn for a desk (three columns under the lamp, up to 72 rem)
+   and for a phone propped beside a mixer (one column: the lamp, the clock and the controls
+   before everything else). No colour here is new: every one is a token. */
+.page.mon { max-width: 72rem; }
+.mon .main { display: grid; gap: var(--s-4); }
+.mon .top .station { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mon .top .where { font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-2); font-weight: 650; border: 1px solid var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); line-height: 1.6; flex: none; }
+.mon .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: var(--r-pill); overflow: hidden; background: var(--surface); flex: none; }
+.mon .seg button { appearance: none; border: 0; background: transparent; color: var(--ink-2); padding: 0 var(--s-3); cursor: pointer; font-size: var(--fs-14); min-height: var(--target-touch); }
+.mon .seg button + button { border-left: 1px solid var(--axis); }
+.mon .seg button[aria-pressed="true"] { background: var(--surface-3); color: var(--ink); font-weight: 650; }
+.mon .seg button:focus-visible { outline-offset: -3px; border-radius: var(--r-pill); }
+.mon .state.sm { height: 1.5rem; font-size: var(--fs-12); padding: 0 var(--s-2) 0 var(--s-1); }
+.mon .state.sm svg { width: 12px; height: 12px; }
+.mon .state.dashed { border-style: dashed; }
+.mon .card { min-width: 0; }
+.mon .card h2 { font-size: var(--fs-16); }
+.mon .card h3 { font-size: var(--fs-14); }
+
+/* the lamp: the host's own state at the size of the desk's master lamp, one sentence, and the count */
+.mon .lampcard { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s-4) var(--s-5); padding: var(--s-5); }
+.mon .lampcard .status { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s-4) var(--s-5); min-width: 0; }
+.mon .lampcard.is-onair { border-color: var(--live-onair); box-shadow: 0 0 0 1px var(--live-onair), var(--e-1); }
+.mon .lampcard.is-open { border-color: var(--live-open); }
+.mon .lampcard.is-lost { border-color: var(--status-serious); border-style: dashed; }
+.mon .lampcard.is-test, .mon .lampcard.is-notconn, .mon .lampcard.is-away { border-style: dashed; border-color: var(--axis); }
+.mon .lampcard.is-away .status { grid-template-columns: minmax(0, 1fr); }
+.mon .biglamp { display: inline-flex; align-items: center; gap: var(--s-3); height: 4.5rem; padding: 0 var(--s-5); border-radius: var(--r-3); font-size: var(--fs-32); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1; white-space: nowrap; border: 2px solid transparent; justify-self: start; }
+.mon .biglamp svg { width: 1.75rem; height: 1.75rem; flex: none; }
+.mon .biglamp.onair { background: var(--live-onair); color: var(--live-onair-ink); box-shadow: var(--e-2); }
+.mon .biglamp.open { background: var(--live-open); color: var(--live-open-ink); }
+.mon .biglamp.standby, .mon .biglamp.test, .mon .biglamp.notconn { border-color: var(--axis); color: var(--ink-2); }
+.mon .biglamp.test, .mon .biglamp.notconn { border-style: dashed; font-size: var(--fs-24); }
+.mon .biglamp.lost { border-color: var(--status-serious); color: var(--ink); font-size: var(--fs-24); }
+.mon .biglamp.lost svg { color: var(--status-serious); }
+.mon .say { display: grid; gap: var(--s-1); min-width: 0; }
+.mon .say p { font-size: var(--fs-20); line-height: 1.35; color: var(--ink-2); max-width: 36rem; }
+.mon .say p b { color: var(--ink); }
+.mon .say p.then { font-size: var(--fs-16); line-height: var(--lh-label); }
+.mon .cnt { display: grid; justify-items: end; text-align: right; gap: 2px; min-width: 15rem; }
+.mon .cnt b { font-family: var(--font-mono); font-size: var(--fs-56); font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+/* a count's last seconds (14a): amber in the last 30 s, red in the last 10 s, from the status tokens
+   the desk's own readouts use. Large text (56 px), so 3:1 is the floor: critical is 3.56 on Dark's
+   surface, 4.68 on Light's and 3.59 on Night's, warning 9.32, 5.01 and 10.67. The word
+   carries the same meaning without the colour, and the weight rises one step. */
+.mon .cnt[data-hurry] b { font-weight: 700; }   /* the design system's scale: 800 is the on-air lamp's alone */
+.mon .cnt[data-hurry="amber"] b { color: var(--status-warning); }
+.mon .cnt[data-hurry="red"] b { color: var(--status-critical); }
+.mon .cnt .hurry { font-size: var(--fs-14); font-weight: 600; color: var(--ink); line-height: var(--lh-label); }
+.mon .cnt .bar { width: 100%; height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; margin-top: var(--s-1); }
+.mon .cnt .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 200ms linear; }
+
+.mon .mgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); align-items: start; }
+.mon .mcol { display: grid; gap: var(--s-4); min-width: 0; }
+.mon .clockcard { gap: var(--s-1); }
+.mon .clockcard .time { font-family: var(--font-mono); font-size: var(--fs-32); font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+/* your monitor: the chip, the level of what arrives, the volume */
+.mon .lrow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-3); align-items: center; }
+.mon .vol { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-3); align-items: center; font-size: var(--fs-14); color: var(--ink-2); min-height: var(--target-touch); }
+/* the whole bar is the target, 44 px tall; the track and the thumb are drawn from the tokens */
+.mon .vol input[type="range"] { appearance: none; -webkit-appearance: none; width: 100%; height: var(--target-touch); margin: 0; background: transparent; cursor: pointer; --fill: 80%; }
+.mon .vol input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--fill), var(--meter-track) var(--fill)); }
+.mon .vol input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--meter-track); }
+.mon .vol input[type="range"]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+.mon .vol input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 1.5rem; height: 1.5rem; margin-top: calc(3px - 0.75rem); border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--e-1); }
+.mon .vol input[type="range"]::-moz-range-thumb { width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--e-1); }
+.mon .vol input[type="range"]:focus-visible { outline: none; }
+.mon .vol input[type="range"]:focus-visible::-webkit-slider-thumb { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.mon .vol input[type="range"]:focus-visible::-moz-range-thumb { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.mon .talkline { display: flex; gap: var(--s-2); align-items: center; font-weight: 650; }
+
+/* the station hears you */
+.mon .facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-1) var(--s-3); margin: 0; font-size: var(--fs-14); line-height: var(--lh-label); }
+.mon .facts dt { color: var(--ink-2); }
+.mon .facts dd { margin: 0; overflow-wrap: anywhere; }
+.mon .level { position: relative; display: block; }
+.mon .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.mon .checks li { display: flex; gap: var(--s-2); align-items: flex-start; line-height: var(--lh-label); }
+.mon .checks li svg { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--ink-2); }
+.mon .checks li .dot { width: 8px; height: 8px; margin: 7px 5px 0; border-radius: 50%; background: var(--muted); flex: none; }
+.mon .checks li svg.g-good { color: var(--status-good); }
+.mon .checks li svg.g-accent { color: var(--accent); }
+.mon .checks li b, .mon .checks li .small { display: block; }
+
+/* before you, you, after you */
+.mon .nn { list-style: none; margin: 0; padding: 0; display: grid; }
+.mon .nn li { display: grid; grid-template-columns: 6.25rem minmax(0, 1fr); gap: var(--s-2); align-items: center; padding: var(--s-2) 0; border-top: 1px solid var(--hairline); line-height: var(--lh-label); }
+/* the chip sits beside the show where there is room, and under it where there is not */
+.mon .nn .what { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1) var(--s-2); min-width: 0; }
+.mon .nn .what > span:first-child { flex: 1 1 6.5rem; min-width: 0; }
+.mon .nn .what .state { flex: none; }
+.mon .nn li .caps { white-space: nowrap; }
+.mon .nn li:first-child { border-top: 0; padding-top: 0; }
+.mon .nn li:last-child { padding-bottom: 0; }
+.mon .nn li b, .mon .nn li .small { display: block; overflow-wrap: anywhere; }
+.mon .insert { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+.mon .insert svg { width: 20px; height: 20px; margin-top: 2px; color: var(--ink-2); }
+.mon .insert b, .mon .insert .small { display: block; }
+
+/* the controls */
+.mon .ctl:focus { outline: none; }
+.mon .ctl .btn.lit-cue { background: var(--live-cue); color: var(--live-cue-ink); border-color: transparent; }
+.mon .ctl .dump { min-height: 3.5rem; font-size: var(--fs-20); margin-top: var(--s-2); }
+.mon .ctl .dumpsay { display: flex; gap: var(--s-2); align-items: flex-start; line-height: var(--lh-label); }
+.mon .ctl .dumpsay .state { flex: none; }
+/* an off button keeps its look still: no hover, no press */
+.mon .btn[aria-disabled="true"]:hover { background: var(--surface-2); }
+/* an off primary button is not the accent: it takes the plain button's look, as Dump does while off */
+.mon .btn.primary[aria-disabled="true"], .mon .btn.primary[aria-disabled="true"]:hover { background: var(--surface-2); color: var(--ink); border-color: var(--axis); }
+.mon .btn[aria-disabled="true"]:active { transform: none; }
+.mon .ctl .btn[aria-busy="true"] { opacity: 0.7; cursor: progress; }
+
+/* the one question: End my show */
+.mon dialog { border: 1px solid var(--axis); border-radius: var(--r-3); background: var(--surface); color: var(--ink); padding: var(--s-5); width: min(28rem, calc(100vw - 2 * var(--s-4))); box-shadow: var(--e-3); }
+.mon dialog[open] { display: grid; gap: var(--s-3); }
+.mon dialog::backdrop { background: var(--scrim); }
+.mon dialog h2 { font-size: var(--fs-24); }
+.mon dialog .acts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin-top: var(--s-2); }
+
+/* details and help */
+.mon details.card { display: block; padding: 0 var(--s-4); }
+.mon details.card summary { font-weight: 650; color: var(--ink); }
+.mon details.card ul { margin: 0; padding-left: 1.1rem; display: grid; gap: var(--s-2); font-size: var(--fs-14); line-height: var(--lh-label); color: var(--ink-2); }
+.mon details.card ul b { color: var(--ink); }
+
+/* when there is only a sentence to show: opening, refused for now, a link that no longer works */
+.mon .alone { max-width: 32rem; width: 100%; justify-self: center; }
+.mon .alone h1 { font-size: var(--fs-24); }
+
+/* one column: a phone propped beside the mixer, or a narrow window */
+@media (max-width: 61.99rem) {
+  .page.mon { max-width: 32rem; }
+  .mon .lampcard { grid-template-columns: minmax(0, 1fr); padding: var(--s-4); }
+  .mon .lampcard .status { grid-template-columns: minmax(0, 1fr); gap: var(--s-3); }
+  .mon .biglamp { height: 3.75rem; font-size: var(--fs-24); padding: 0 var(--s-4); }
+  .mon .biglamp.test, .mon .biglamp.notconn, .mon .biglamp.lost { font-size: var(--fs-20); }
+  .mon .cnt { justify-items: start; text-align: left; min-width: 0; }
+  .mon .say p { font-size: var(--fs-16); }
+  .mon .mgrid { grid-template-columns: minmax(0, 1fr); }
+  .mon .mcol { display: contents; }
+  .mon [data-panel="monitor.clock"] { order: 1; }
+  .mon [data-panel="monitor.controls"] { order: 2; }
+  .mon [data-panel="monitor.listen"] { order: 3; }
+  .mon [data-panel="monitor.next"] { order: 4; }
+  .mon [data-panel="monitor.insert"] { order: 5; }
+  .mon [data-panel="monitor.source"] { order: 6; }
+  .mon .clockcard { grid-template-columns: auto 1fr; align-items: baseline; column-gap: var(--s-3); }
+  .mon .clockcard .caps { grid-column: 1 / -1; }
+  .mon .seg button { padding: 0 var(--s-2); }
+}

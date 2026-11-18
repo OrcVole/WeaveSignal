@@ -103,7 +103,8 @@
         <p class="help">
           Version {check.previous} is kept from before the last update. If this version misbehaves, roll back to
           it; the studio app restarts, and stops pointing at this version until a newer one is out (it stays
-          here, marked as the one you rolled back from).
+          here, marked as the one you rolled back from). A version older than 1.0.5 does not read 1.0.5's list of
+          stations, so after rolling back to one you sign in again.
         </p>
         <div class="acts">
           <button type="button" class="btn" disabled={busy || !!g.blocked} onclick={rollbackNow}>

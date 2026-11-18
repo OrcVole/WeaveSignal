@@ -3119,6 +3119,10 @@ pub struct DeletedShow {
     /// Its carts' files in the carts' directory, with the cart ids.
     #[serde(skip)]
     pub cart_files: Vec<(Uuid, Option<String>)>,
+    /// The ids of the show's host keys (ADR-0280), which go with it by their foreign key: the
+    /// caller takes each one's monitor seats out of the room and closes its connection.
+    #[serde(skip)]
+    pub key_ids: Vec<String>,
 }
 
 /// The sentence for a show that cannot be deleted because it has aired or is on air. `aired`
@@ -3247,6 +3251,11 @@ pub async fn delete_show(
         .bind(show.id)
         .fetch_one(&mut *tx)
         .await?;
+    // The host keys go with the show too, so their ids are read before they do.
+    let key_ids: Vec<(String,)> = sqlx::query_as("SELECT key_id FROM show_key WHERE show_id = $1")
+        .bind(show.id)
+        .fetch_all(&mut *tx)
+        .await?;
     // The series, episodes, cart banks and carts, and the two change logs, go with the show by
     // their foreign keys.
     sqlx::query("DELETE FROM show WHERE id = $1")
@@ -3265,6 +3274,7 @@ pub async fn delete_show(
         card_files: cards,
         media_files,
         cart_files,
+        key_ids: key_ids.into_iter().map(|(k,)| k).collect(),
     })
 }
 

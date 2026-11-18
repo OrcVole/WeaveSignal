@@ -16,7 +16,7 @@ export interface PanelInfo {
 }
 
 export const DESK_B: readonly PanelInfo[] = [
-  { name: 'desk.clock', what: 'In the left panel. The studio clock: room time with tenths, back-timing to the next hard post, and when listeners hear it, from the listener delay setting (not measured yet).' },
+  { name: 'desk.clock', what: 'In the left panel. The studio clock: room time with tenths, back-timing to the next hard post, and when listeners hear it, from the listener delay setting (not measured yet). With a host in their own studio next (ADR-0280) the line is the schedule’s: the post, the grace with Hold, a late host’s count, or who keeps the air.' },
   { name: 'desk.rundown', what: 'In the left panel. Coming up: the next ten minutes as rows (the post, the handover, the carts they need).' },
   { name: 'desk.playout', what: 'In the left panel. Playout (Liquidsoap): its state chip, the queue, and restart when it is down.' },
   { name: 'desk.stage', what: 'The stage: every source listeners can hear, as tiles, under the lamp and the delay.' },
@@ -24,13 +24,14 @@ export const DESK_B: readonly PanelInfo[] = [
   { name: 'desk.air', what: 'The button beside the lamp: hand the air to automation, or take it back (ADR-0272).' },
   { name: 'desk.end-show', what: 'The air dialog: End show (⌃⇧E), Hand to automation and Take the air back each ask here, ⏎ to confirm and Esc to keep going.' },
   { name: 'desk.delay', what: 'The profanity delay: its length, the arc, DUMPED while it rebuilds, and the two-press dump.' },
-  { name: 'desk.tile.1', what: 'Source 1 as a tile: name, state, R128 meter with its scale, fader, and the four keyed buttons.' },
+  { name: 'desk.tile.1', what: 'Source 1 as a tile: name, state, R128 meter with its scale, fader, and the four keyed buttons. A host’s own studio (ADR-0280) is a tile too: Own studio, the station’s leveller in place of the fader, whether their monitor link is open, how long its link has held, and Disconnect.' },
   { name: 'desk.tile.2', what: 'Source 2.' },
   { name: 'desk.tile.3', what: 'Source 3.' },
   { name: 'desk.tile.4', what: 'Source 4.' },
   { name: 'desk.tile.5', what: 'Source 5.' },
   { name: 'desk.tile.6', what: 'Source 6, playout.' },
   { name: 'desk.step-note', what: 'The guest’s empty seat, at Solo: why the desk is quiet, and the way up a step (ADR-0271).' },
+  { name: 'desk.next', what: 'At Solo, the next show’s source in the guest’s empty seat (ADR-0280): its state, its meter, Cue, and when the schedule brings it on. It has no On key.' },
   { name: 'desk.waiting', what: 'Not on air: the sources that are cued or standing by, with the move rule, and Invite someone…, which makes an invitation. It arrives at the Guests step.' },
   { name: 'desk.invite', what: 'The invitation dialog: a name and a role (a DJ joins off air; a guest or a presenter on air), then the link to send, Copy, and how long it lasts. At Solo it is the DJ’s own microphone link, with Open in browser.' },
   { name: 'desk.audience', what: "In the right panel. Listeners now on the station's stream, by mount, and what they hear (the desk, the dump, the fallback); or why they cannot be counted." },
@@ -94,6 +95,7 @@ export const CALENDAR: readonly PanelInfo[] = [
   { name: 'calendar.rule.summary', what: 'The rule said back as one sentence, and the last date when it ends. In the preview.' },
   { name: 'calendar.rule.preview', what: 'The next dates in small months and as rows, with clashes, and a date skipped or moved: ↑ ↓ move along the rows, S skips or puts back, M moves.' },
   { name: 'calendar.rule.change', what: 'What a changed rule does to episodes, before the save: aired, drafted, moved by hand.' },
+  { name: 'calendar.show-source', what: 'Comes from, in the show editor (ADR-0280): the station’s room or the host’s own studio, with each host’s key and the way to its details.' },
   { name: 'calendar.show-rule', what: 'When it airs, in the show editor: the rule in short, the next date, Change….' },
   { name: 'calendar.show-delete', what: 'Delete show…, from the show editor (ADR-0279): what goes with the show, with its counts, and the two buttons; Keep it is the default. The station refuses a show that has aired.' },
   { name: 'calendar.subscribe', what: 'Subscribe… (ADR-0281): the link to the schedule’s calendar file, or one show’s, on the station’s public address, as webcal and https, with Copy, and Download .ics. A dialog over the Schedule tab.' },
@@ -103,7 +105,7 @@ export const CALENDAR: readonly PanelInfo[] = [
 ];
 
 export const STUDIO: readonly PanelInfo[] = [
-  { name: 'studio.frame', what: "The top bar: the show's step, the tabs with their keys, the link to the station, the theme." },
+  { name: 'studio.frame', what: "The top bar: the show's step, the tabs with their keys, the app's version, the link to the station, the theme." },
   { name: 'studio.step', what: 'The show’s step as four pips and a word, the way to change it, and Show everything (ADR-0271).' },
   { name: 'studio.step.menu', what: 'The four steps for the show named, what changes now, and the confirm: ↑ ↓ move, ⏎ confirms, Esc keeps the step.' },
   { name: 'studio.step.banner', what: 'Says the whole studio is shown for now and that the show’s step still holds; Back to the step (ADR-0274).' },
@@ -138,6 +140,12 @@ export const ACCOUNT: readonly PanelInfo[] = [
   { name: 'settings.staff.off', what: "Turning an account off, confirmed: its sessions end at once." },
   { name: 'settings.staff.password', what: "Setting a member of staff's password." },
   { name: 'settings.staff.email', what: "A member of staff's email address, for signing in by an emailed code." },
+  { name: 'settings.hosts', what: 'Own studios (ADR-0280): each show key, who it is for, how they send and whether they are connected; set up a host, see the details, make a new key, end one, let a key back in.' },
+  { name: 'settings.hosts.rules', what: 'The station’s rules for hosts in their own studios: how early a host may connect, tests outside the slot, the grace and the late count, and the two ports.' },
+  { name: 'settings.hosts.setup', what: 'Setting up a host: the show, who it is for, how they will send.' },
+  { name: 'settings.hosts.details', what: 'A host’s connection details for Icecast and SRT and their monitor link; the secret, shown this once, with Copy on each field and Copy everything as text.' },
+  { name: 'settings.hosts.new-key', what: 'Making a new key, confirmed: the old one ends now, or when the host disconnects.' },
+  { name: 'settings.hosts.end', what: 'Ending a key, confirmed: what stops, and what listeners hear if the host is on air.' },
   { name: 'settings.tokens', what: "API tokens: a named credential for each integration, limited to the scopes chosen, with an end date and revoking; the secret is shown once when it is made (ADR-0195)." },
   { name: 'settings.tokens.make', what: "Making an API token: its name, scopes and end date." },
   { name: 'settings.tokens.secret', what: "A new token's secret, shown this once, with Copy." },

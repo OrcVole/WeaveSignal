@@ -2,6 +2,13 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.1.0]
+
+- **Hosts in their own studios** (ADR-0280): a host sends their show from their own software (BUTT, Mixxx, OBS, vMix, ffmpeg) over Icecast or SRT with a show key; the source stands by on the desk until put on air, the schedule's post hands the air over after a grace, a dropped link is covered by automation, and each host has a monitor link (a web page with their state, their return and the counts). Two new optional ports, both off by default: `SOURCE_ICECAST_PORT` (TCP, 8005) and `SOURCE_SRT_PORT` (UDP, 9710).
+- **A station not set up yet says so**: the app's own domain shows a short page that points to `/setup/` and the studio app, not the player, until the station is named and its setup finished. **A station still called Kettle FM whose setup was never finished shows this page after the update** too: finish its setup (or give it a name) to bring the player back. The post-install checklist lists the first steps.
+- The desk's counts turn amber, then red, in their last seconds; `⌃R` twice restarts playout; the presenter's gate keeps the ends of words (a 250 ms hold).
+- **Migrations 0040 and 0041** (show keys, and each source's place at the post). New settings, all optional: `STUDIO_SHOW`, `STUDIO_LISTENER_DELAY_MS`, `STUDIO_RUNDOWN`, `STUDIO_BANNED` and the `STEERING_*` settings in `/app/data/weavesignal.env`. Tried on a Cloudron install (the test station).
+
 [1.0.5]
 
 - **Calendar files** (ADR-0281): the schedule and each show go out as iCalendar files a listener can subscribe to, and the studio can import a calendar file as new shows. The two calendar routes, `/api/v1/public/schedule.ics` and `/api/v1/public/shows/{show}.ics`, are on the public domain, GET only, with no bearer.

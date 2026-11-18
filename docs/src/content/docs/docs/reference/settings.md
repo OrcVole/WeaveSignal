@@ -27,6 +27,9 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | `WEAVESIGNAL_CONTROL_EMAIL_KEY` | control plane | the secret that keys the hash of staff email addresses and their sign-in codes (ADR-0127): at least 32 characters, for example `openssl rand -hex 32`. Needed only when `[mail]` is on: the control plane then exits at start, naming this variable, when it is missing or shorter. Never in the settings file. A different key finds none of the addresses set under the old one, so keep it with the database's backups. It is separate from the chat's key, and the hashes are labelled apart, so one is never valid as the other. Every install route makes one: `weavesignal.sh` as `CONTROL_EMAIL_KEY` in the settings file, the Quadlets as a Podman secret, the Cloudron package in its `secrets.env` ([Add staff and sign in](/docs/how-to/add-staff/#sign-in-with-an-emailed-code)) |
 | `WEAVESIGNAL_CONTROL_EXTRA` | control plane | a second settings file the control plane adds to its own when it exists, holding only `[studio]` and `[steering]` (from 1.0.1): for installs whose `control.toml` is generated. The Cloudron package sets it to `/app/data/station.toml` ([Set the show](/docs/how-to/set-the-show/)) |
 | `WEAVESIGNAL_CONTROL_TOKEN_KEY` | control plane | the secret that keys API tokens and webhook secrets (ADR-0195): at least 32 characters, for example `openssl rand -hex 32`. Every install route makes one (ADR-0202): `weavesignal.sh` and the Quadlets as `CONTROL_TOKEN_KEY` in the settings file, the Cloudron package in its `secrets.env`. Unset (a station installed before that), a key is derived from the station key (`WEAVESIGNAL_CONTROL_ADMIN_TOKEN`) and the control plane's log says to set one; with neither, tokens and webhooks are off. A different key revokes every token and ends every webhook's signatures, so rotating the station key does the same unless this is set. Never in the settings file; keep it with the database's backups. See [Integrations](/docs/reference/integrations/#the-key) |
+| `WEAVESIGNAL_INGEST_TOKEN` | control plane, ingest | the ingest's bearer for the control plane's internal routes for hosts' own studios (ADR-0280), at least 32 characters; unset, those routes are off. Every install route makes one (`INGEST_TOKEN`) |
+| `WEAVESIGNAL_DESK_SOURCES_PASSWORD` | desk, ingest | the password the ingest sends the desk with each host's source; unset, the desk takes no sources and the ingest does not start. Every install route makes one (`DESK_SOURCES_PASSWORD`) |
+| `WEAVESIGNAL_INGEST_CONTROL`, `WEAVESIGNAL_INGEST_DESK`, `WEAVESIGNAL_INGEST_BIND` | ingest | the control plane's address, the desk's sources listener (`127.0.0.1:7318`), and where the two public listeners bind (`0.0.0.0`; the Compose bundle's loopback unless public) |
 | `WEAVESIGNAL_ICECAST_OUT_PASSWORD` | the listener process | the password of another Icecast server the programme is sent to (ADR-0226). Optional. Never in the playout data: the Compose bundle keeps it in `.env` as `ICECAST_OUT_PASSWORD`, the Quadlets in a Podman secret, the Cloudron package in `secrets.env`. See [The outgoing Icecast source](/docs/reference/playout/#the-outgoing-icecast-source) |
 | `RUST_LOG` | control plane, desk, chat | overrides the log filter |
 
@@ -37,7 +40,7 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | `[station]` | `id` | — | the station's identifier for its whole life (ADR-0047) |
 | | `name` | — | the station's name |
 | `[listen]` | `internal` | `127.0.0.1` | the address internal services bind |
-| `[ports]` | thirteen keys | see [Ports](/docs/reference/ports/) | every listening port (ADR-0075) |
+| `[ports]` | sixteen keys | see [Ports](/docs/reference/ports/) | every listening port (ADR-0075) |
 | `[room]` | `public_url` | `wss://station.example` | LiveKit as browsers reach it, through the proxy: an origin, to which LiveKit's client adds `/rtc` |
 | | `api_key` | `weavesignal` | LiveKit's API key |
 | | `api_url` | `http://127.0.0.1:7880` | LiveKit's server API on this machine, used to drop a caller |
@@ -91,6 +94,20 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | | `webhooks_allow_private` | `false` | let webhooks point at private and loopback addresses (an integration on the station's own network); off, a webhook must be `https` on a public address |
 | `[log]` | `format` | `json` | `json` (one object per line) or `pretty` |
 | | `filter` | `info` | the log filter |
+
+From 1.1 the Compose bundle and the Cloudron package write `[studio]` and `[steering]` from settings of their own, in `.env` and `weavesignal.env`:
+
+| Setting | Key it sets | When empty or unset |
+|---|---|---|
+| `STUDIO_SHOW` | `studio.show` | none set |
+| `STUDIO_LISTENER_DELAY_MS` | `studio.listener_delay_ms` | `13000` |
+| `STUDIO_RUNDOWN`, `STUDIO_BANNED` | `studio.rundown`, `studio.banned` | none |
+| `STEERING_TTL_S`, `STEERING_CHECK_EVERY_S`, `STEERING_CHECK_TIMEOUT_MS`, `STEERING_DOWN_AFTER` | `steering.ttl_s`, `check_every_s`, `check_timeout_ms`, `down_after` | `300`, `5`, `2000`, `2` |
+| `STEERING_CLONE_FROM` | `steering.clone_from` | `.` |
+| `STEERING_EDGES` | `steering.edges` | none: steering is off |
+
+The three lists are TOML inline tables, comma-separated, in single quotes.
+On Cloudron a `[studio]` or `[steering]` in `/app/data/station.toml` replaces the package's whole section ([Set the show](/docs/how-to/set-the-show/)).
 
 A rundown row and a ban look like this:
 
@@ -153,7 +170,7 @@ The presenter's chain, in order:
 
 | Stage | Default |
 |---|---|
-| `expander` (the gate) | 1:3 below −34 dBFS, never more than 18 dB down |
+| `expander` (the gate) | 1:3 below −34 dBFS, never more than 18 dB down; opens in 1 ms, stays open for `hold_ms` (250) after the voice falls, then closes over `release_ms` (150) |
 | `compressor` | 2.5:1 above −14 dBFS |
 | `leveller` | steers toward −25 dBFS of speech, within −6 to +18 dB, 0.5 dB a step |
 | `limiter` | −1 dBFS |

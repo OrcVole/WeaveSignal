@@ -12,7 +12,7 @@ The desktop studio app (the AppImage, `.deb`, `.rpm` or Windows installer) check
 The project's packages read `https://weavesignal.top/updates/latest.json`, on the project's own domain (ADR-0140).
 It never installs anything by itself.
 
-> **Not yet run on a real install.** The feed, its signatures and the update screen are tested; an update and a rollback on an installed copy are [planned](/docs/reference/release-one-status/).
+> **An update has run on a real install:** the Windows studio app updated itself from 1.0.4 to 1.0.5 from the public feed and stayed signed in (16 November 2026). A rollback on an installed copy has not been tried yet ([status](/docs/reference/release-one-status/)).
 > A package built without the project's update key (your own `just package-desktop` without one) never updates itself; **Settings > Updates** then says so.
 
 ## Find and install an update
@@ -59,6 +59,7 @@ If the update fails, the copy kept by an earlier update stays.
 It is refused while a strip is open, like an update.
 The version you left is not announced in the top bar again; Settings still offers it, and a newer one is announced as usual.
 Only one earlier version is kept.
+A version older than 1.0.5 does not read 1.0.5's list of stations, so after rolling back to one you sign in again.
 
 **`.deb`, `.rpm` and Windows.**
 The system's package tools replace these, so the app keeps nothing.

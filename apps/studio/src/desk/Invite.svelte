@@ -10,6 +10,8 @@
   // show's DJ at Full. With `own` it is the Solo DJ's one button instead (ADR-0274): Join with
   // my microphone… makes the signed-in presenter's own link, with no name to type and no role
   // to choose, and opens the dialog on its second page, with Open in browser and Copy link.
+  // While a host in their own studio has the air that button is a quiet one beside Invite
+  // someone… (`beside`): the show is theirs, and the stage does not headline the offer.
   //
   // A dialog owns the keyboard (keymap rule 5): App.svelte keeps the desk's keys out of it by
   // its panel name, so a name typed here never opens a fader. Esc closes it and the browser
@@ -19,7 +21,17 @@
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { stationStep } from '../lib/steps.ts';
 
-  let { own = false }: { /** The Solo DJ's own microphone link, in place of the dialog's first page. */ own?: boolean } = $props();
+  let {
+    own = false,
+    beside = undefined,
+  }: {
+    /** The Solo DJ's own microphone link, in place of the dialog's first page. */
+    own?: boolean;
+    /** With `own`, while a host in their own studio has the air: the quiet button of the Not on
+     *  air row, not the stage's filled one. The id of the line beside it, which says what joining
+     *  is for and that it puts you on air. */
+    beside?: string;
+  } = $props();
 
   /** The roles the station's step lets the desk invite; the first is the one picked. */
   const roles = $derived(rolesAt(stationStep(studio.view)));
@@ -89,7 +101,7 @@
   }
 
   async function openLink() {
-    copied = (await openInBrowser(url)) ? 'Opened in your browser. Allow the microphone if it asks, then press Join the studio.' : OWN_LINK.notOpened;
+    copied = (await openInBrowser(url)) ? OWN_LINK.opened : OWN_LINK.notOpened;
   }
 
   async function copy() {
@@ -107,10 +119,16 @@
 </script>
 
 {#if own}
-  <button type="button" class="btn primary" aria-haspopup="dialog" disabled={busy} aria-busy={busy || undefined} aria-describedby={errors.form ? 'inv-own-err' : undefined} onclick={openOwn}
-    >{busy ? 'Making your link…' : OWN_LINK.button}</button
+  <button
+    type="button"
+    class="btn {beside ? 'quiet invite' : 'primary'}"
+    aria-haspopup="dialog"
+    disabled={busy}
+    aria-busy={busy || undefined}
+    aria-describedby={[beside, errors.form ? 'inv-own-err' : ''].filter(Boolean).join(' ') || undefined}
+    onclick={openOwn}>{busy ? 'Making your link…' : OWN_LINK.button}</button
   >
-  {#if errors.form && !made}<p id="inv-own-err" class="err own-err" role="alert">{errors.form}</p>{/if}
+  {#if errors.form && !made}<p id="inv-own-err" class="err own-err" class:beside={!!beside} role="alert">{errors.form}</p>{/if}
 {:else}
   <button type="button" class="btn quiet invite" aria-haspopup="dialog" onclick={open}>Invite someone…</button>
 {/if}
@@ -120,7 +138,7 @@
   {#if made && own}
     <div class="made">
       <h2 id="inv-h" data-panel-title>{OWN_LINK.title}</h2>
-      <p class="lede">{OWN_LINK.lede}</p>
+      <p class="lede">{studio.view?.mode === 'auto' ? OWN_LINK.ledeAuto : OWN_LINK.lede}</p>
       <div class="link">
         <input id="inv-link" type="text" readonly value={url} aria-label="Your microphone link" onfocus={(e) => e.currentTarget.select()} />
         <button id="inv-open" type="button" class="btn primary" onclick={openLink}>{OWN_LINK.open}</button>
@@ -224,6 +242,8 @@
     letter-spacing: 0;
     text-transform: none;
     font-weight: 400;
+    /* Its button is drawn in the Not on air head or, at Solo, in a seat whose words are centred: the dialog reads from the start. */
+    text-align: start;
   }
   /* Lighter than a settings dialog's: the lamp and the tiles stay readable behind it. */
   dialog::backdrop {
@@ -301,6 +321,16 @@
   .own-err {
     max-width: 26rem;
     text-align: left;
+  }
+  /* In the Not on air head, a row of capitals: the refusal takes a line of its own under the
+     row, in the sentence's own case. */
+  .own-err.beside {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 400;
   }
   .err {
     color: var(--ink);

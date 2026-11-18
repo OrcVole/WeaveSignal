@@ -13,6 +13,7 @@
 //! | `POST /api/v1/desk/commands` | a desk switch: `on_air`, `mute`, `cue`, `talk`, `talk_to`; or `dump` the profanity delay |
 //! | `POST /api/v1/show/end` | End show: everyone off air, the carts faded, then the air to automation once the profanity delay has played out (ADR-0272) |
 //! | `POST /api/v1/playout/mode` | hand the air to automation (`auto`) or take it back (`live`) without ending anything (ADR-0272) |
+//! | `POST /api/v1/playout/restart` | ask playout to shut down so its supervisor starts it again: the studio's `⌃R ⌃R`; any staff member's, like the mode |
 //! | `POST /api/v1/screener/commands` | `screen`, `send`, `back`, `decline`, `notes`, `release`, `drop` |
 //! | `POST /api/v1/passes/end` | end anyone's pass: off air, out of the room, no new tokens, across a restart (ADR-0119) |
 //! | `POST /api/v1/chat/modes` | a chat mode (`slow`, `hold_new`, `links_trusted`) or influx, with its undo |
@@ -97,6 +98,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/desk/commands", post(desk_command))
         .route("/api/v1/show/end", post(end_show))
         .route("/api/v1/playout/mode", post(set_mode))
+        .route("/api/v1/playout/restart", post(restart_playout))
         .route("/api/v1/screener/commands", post(screener_command))
         .route("/api/v1/passes/end", post(end_pass))
         .route("/api/v1/chat/modes", post(chat_modes))
@@ -157,6 +159,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(crate::rtmp::routes())
         // The beginner steps (ADR-0271): a show's step.
         .merge(crate::steps::routes())
+        // Hosts in their own studios (ADR-0280): show keys, sources, the ingest's routes.
+        .merge(crate::sources::routes())
+        // The post's rule: hold a handover, go on air now, not yet.
+        .merge(crate::post::routes())
+        // The monitor link's routes (ADR-0280): a host's view and its room token.
+        .merge(crate::monitor::routes())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -333,6 +341,14 @@ async fn room_token(
     };
     if let Some(r) = refused {
         return r;
+    }
+    // A host's own studio reaches the desk through the ingest with a show key (ADR-0280), never
+    // through the room: no token is made for it.
+    if req.role.from_ingest() {
+        return problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "a `source` comes from a host's own software with a show key, not through the room",
+        );
     }
     let Some(room) = &state.room else {
         return problem(
@@ -570,6 +586,7 @@ async fn end_pass(
             DeskCommand::OnAir {
                 identity: identity.clone(),
                 on: false,
+                fade_ms: None,
             },
             DeskCommand::Cue {
                 identity: identity.clone(),
@@ -589,7 +606,7 @@ async fn end_pass(
     Json(state.view_for(&actor)).into_response()
 }
 
-fn desk_problem(e: &DeskError) -> Response {
+pub(crate) fn desk_problem(e: &DeskError) -> Response {
     let code = match e {
         DeskError::NotConfigured | DeskError::Unreachable { .. } => StatusCode::SERVICE_UNAVAILABLE,
         DeskError::Refused(_) | DeskError::Rejected { .. } => StatusCode::CONFLICT,
@@ -624,16 +641,22 @@ fn studio_problem(e: &StudioError) -> Response {
 async fn desk_command(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(cmd): Json<DeskCommand>,
+    Json(mut cmd): Json<DeskCommand>,
 ) -> Response {
     let actor = match state.check(&headers, crate::staff::Need::OnAir) {
         Ok(a) => a,
         Err(r) => return r,
     };
+    // A person's press is at once: a fade is the schedule's, asked for inside the control plane.
+    if let DeskCommand::OnAir { fade_ms, .. } = &mut cmd {
+        *fade_ms = None;
+    }
     // A caller goes on air or in cue only with their consent to record on file, however the
     // presenter takes them (the screener's send, or R on slot 4, ADR-0098).
-    if let DeskCommand::OnAir { identity, on: true } | DeskCommand::Cue { identity, on: true } =
-        &cmd
+    if let DeskCommand::OnAir {
+        identity, on: true, ..
+    }
+    | DeskCommand::Cue { identity, on: true } = &cmd
     {
         let role = state
             .hub
@@ -684,6 +707,9 @@ pub struct EndShowResult {
     /// station is switched; `null` this station has no playout layer to hand the air to, so
     /// everyone is off air and nothing more happened.
     pub automation_in_ms: Option<u64>,
+    /// The next host's name when they were standing by and the air passed to them (with
+    /// `automation_in_ms` null: nothing went to automation); absent otherwise.
+    pub passed_to: Option<String>,
 }
 
 /// How long past the profanity delay's last held second automation waits, so the delay's tail
@@ -696,7 +722,7 @@ const END_SHOW_GRACE_MS: u64 = 1_000;
     operation_id = "end_show",
     tag = "desk",
     summary = "End the show",
-    description = "Takes everyone off air (presenters, DJs, guests, callers; callers stay in the room and the queue), fades every cart, then hands the air to automation by setting the station's mode to `auto`. The switch waits for the profanity delay to play out, so the last words are heard; `automation_in_ms` says how long. If somebody has gone back on air by then the switch is skipped, and the studio gets a notice saying why. With no desk answering nothing is on air to take off, and the air still goes to automation. With no playout layer (`automation_in_ms` null) there is nothing to hand it to. Any staff member's, like the desk's own switches.",
+    description = "Takes everyone off air (presenters, DJs, guests, callers; callers stay in the room and the queue), fades every cart, then hands the air to automation by setting the station's mode to `auto`. When the next host's source is standing by (steady, its show next or on air by the schedule) the air passes to them instead, as a handover's two steps: they go on air as the others go off, nothing goes to automation, and `passed_to` names them. The switch waits for the profanity delay to play out, so the last words are heard; `automation_in_ms` says how long. If somebody has gone back on air by then the switch is skipped, and the studio gets a notice saying why. With no desk answering nothing is on air to take off, and the air still goes to automation. With no playout layer (`automation_in_ms` null) there is nothing to hand it to. Any staff member's, like the desk's own switches.",
     responses(
         (status = 200, description = "What was done, and the new studio view.", body = EndShowResult),
         (status = 401, response = crate::openapi::Unauthorized),
@@ -709,29 +735,89 @@ async fn end_show(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Res
     if let Some(r) = on_air_refusal(&state, &headers) {
         return r;
     }
-    let on_air: Vec<String> = state
+    match end_show_run(&state, None, "End show").await {
+        Ok(done) => Json(done).into_response(),
+        Err(r) => r,
+    }
+}
+
+/// End show, for everyone or, from a host's monitor link, for one source (`only`): the one path.
+///
+/// For everyone, everyone on air is taken off. For `only`, that source ends its own show: when
+/// nobody else presents, that is the same as ending the show (the guests and callers on air go
+/// with it, the carts fade, and the air passes to the next host standing by, or to automation);
+/// when another presenter is on air, only the source leaves, and that presenter keeps the air
+/// (nothing is passed on and nothing goes to automation). `by` is who is written down.
+#[allow(clippy::result_large_err)] // the refusal itself, as the handlers send it
+pub(crate) async fn end_show_run(
+    state: &AppState,
+    only: Option<&str>,
+    by: &str,
+) -> Result<EndShowResult, Response> {
+    let desk_people = state
         .hub
         .desk_status()
-        .map(|d| {
-            d.people
-                .into_iter()
-                .filter(|p| p.on_air)
-                .map(|p| p.identity)
-                .collect()
-        })
+        .map(|d| d.people)
         .unwrap_or_default();
-    for identity in &on_air {
+    let mut on_air: Vec<String> = desk_people
+        .iter()
+        .filter(|p| p.on_air)
+        .map(|p| p.identity.clone())
+        .collect();
+    let mut alone = true;
+    if let Some(me) = only {
+        let others_present = desk_people.iter().any(|p| {
+            p.on_air
+                && p.identity != me
+                && matches!(p.role, Role::Presenter | Role::Dj | Role::Source)
+        });
+        if others_present {
+            alone = false;
+            on_air.retain(|i| i == me);
+        }
+    }
+    // The next host, if they are standing by, takes the air as this one leaves (ADR-0280): the
+    // handover's two steps, not a gap and automation (design section 3.8).
+    let mut passed_to: Option<String> = None;
+    if alone && let Some((ready, settings, set_live)) = crate::post::ready_for_end_show(state).await
+    {
+        let takeoff: Vec<String> = on_air
+            .iter()
+            .filter(|i| **i != ready.identity)
+            .cloned()
+            .collect();
+        match crate::post::bring_on(
+            state,
+            &ready.subject,
+            &ready.identity,
+            ready.show,
+            weavesignal_model::post::Cause::EndShow,
+            &takeoff,
+            set_live,
+            settings.fade_ms,
+            by,
+        )
+        .await
+        {
+            Ok(()) => passed_to = Some(ready.name),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "End show could not pass the air to the next host; the air goes to automation")
+            }
+        }
+    }
+    for identity in on_air.iter().filter(|_| passed_to.is_none()) {
         let cmd = DeskCommand::OnAir {
             identity: identity.clone(),
             on: false,
+            fade_ms: None,
         };
         if let Err(e) = state.hub.command(&cmd).await {
-            return desk_problem(&e);
+            return Err(desk_problem(&e));
         }
     }
     // A bed or a sweeper must not carry on over a show that has ended. A desk without a cart
-    // wall has nothing to fade.
-    if let Err(e) = state.hub.cart_command(&CartCommand::FadeAll).await {
+    // wall has nothing to fade. (Not while another presenter's show goes on.)
+    if alone && let Err(e) = state.hub.cart_command(&CartCommand::FadeAll).await {
         tracing::debug!(error = %e, "End show: no carts faded");
     }
     let hold_ms = state
@@ -741,6 +827,9 @@ async fn end_show(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Res
         .map_or(0, |d| u64::from(d.delay_ms));
     let automation_in_ms = match state.hub.onair.get().cloned() {
         None => None,
+        // The air passed to the next host: nothing goes to automation. Another presenter still
+        // on air keeps it.
+        Some(_) if passed_to.is_some() || !alone => None,
         Some(_)
             if state.hub.read_studio(|s| s.station_mode())
                 == Some(crate::desk::StationMode::Auto) =>
@@ -761,14 +850,15 @@ async fn end_show(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Res
     tracing::info!(
         off_air = on_air.len(),
         ?automation_in_ms,
+        %by,
         "the show was ended"
     );
-    Json(EndShowResult {
+    Ok(EndShowResult {
         view: (*state.hub.view()).clone(),
         off_air: on_air.len() as u32,
         automation_in_ms,
+        passed_to,
     })
-    .into_response()
 }
 
 /// The body of `POST /api/v1/playout/mode`.
@@ -817,6 +907,62 @@ async fn set_mode(
             problem(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("the database refused: {e}"),
+            )
+        }
+    }
+}
+
+/// The answer to `POST /api/v1/playout/restart`.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PlayoutRestarting {
+    /// Playout took the command and is shutting down; its supervisor starts it again.
+    pub restarting: bool,
+    /// What the studio says.
+    pub words: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/playout/restart",
+    operation_id = "restart_playout",
+    tag = "playout",
+    summary = "Restart playout",
+    description = "Asks playout (Liquidsoap) to shut down so that its supervisor, which every install has (Compose's restart policy, the Quadlet's `Restart=always`, the Cloudron app's supervisord), starts it again: the studio's `⌃R` pressed twice. Listeners keep their stream: the listener process holds the mount and plays its fallback until playout is back, about five seconds. Any staff member's, as the station's mode is (it changes what is on air, so a window that is preparing a show is refused with 409); an API token never reaches it. 502 when playout does not answer on its socket (it is already down, and its supervisor is starting it); 503 when the station has no playout layer.",
+    responses(
+        (status = 200, description = "Playout took the command.", body = PlayoutRestarting),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 502, description = "Playout did not answer on its socket.", body = crate::openapi::Problem),
+        (status = 503, response = crate::openapi::Unavailable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn restart_playout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let actor = match state.check(&headers, crate::staff::Need::OnAir) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let Some(onair) = state.hub.onair.get() else {
+        return problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "this station has no playout layer to restart",
+        );
+    };
+    match onair.restart_playout().await {
+        Ok(()) => {
+            tracing::info!(by = %actor.label(), "playout was asked to restart");
+            Json(PlayoutRestarting {
+                restarting: true,
+                words: "Playout is restarting. Listeners hear the fallback for a few seconds."
+                    .into(),
+            })
+            .into_response()
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "playout would not restart");
+            problem(
+                StatusCode::BAD_GATEWAY,
+                "Playout did not answer. If it is stopped, the server's supervisor is starting it; if it stays down, restart the playout container or service on the server.",
             )
         }
     }
@@ -928,6 +1074,7 @@ async fn screener_command(
                 DeskCommand::OnAir {
                     identity: identity.clone(),
                     on: false,
+                    fade_ms: None,
                 },
                 DeskCommand::Cue {
                     identity: identity.clone(),
@@ -1478,6 +1625,7 @@ async fn station(State(state): State<Arc<AppState>>) -> Json<Station> {
     desk_command,
     end_show,
     set_mode,
+    restart_playout,
     screener_command,
     end_pass,
     chat_modes,
@@ -2007,6 +2155,7 @@ mod tests {
             ),
             ("/api/v1/show/end", serde_json::json!({})),
             ("/api/v1/playout/mode", serde_json::json!({"mode": "auto"})),
+            ("/api/v1/playout/restart", serde_json::json!({})),
             (
                 "/api/v1/carts/commands",
                 serde_json::json!({"op": "fade_all"}),
@@ -2116,6 +2265,27 @@ mod tests {
             let (code, _) = post_json(app.clone(), "/api/v1/playout/mode", Some(ADMIN), bad).await;
             assert!(code.is_client_error(), "{code}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_restart_route_is_staffs_and_needs_the_playout_layer() {
+        let (app, _) = app();
+        let (code, _) = post_json(
+            app.clone(),
+            "/api/v1/playout/restart",
+            None,
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+        let (code, body) = post_json(
+            app.clone(),
+            "/api/v1/playout/restart",
+            Some(ADMIN),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     }
 
     #[tokio::test]
@@ -3429,6 +3599,16 @@ mod tests {
             (Some(21_000), Some(false)),
             "the 13 s setting plus the desk's 8 s profanity delay, labelled as a setting (ADR-0103, ADR-0165)"
         );
+        assert_eq!(
+            (
+                v["listener_delay"]["basis"].as_str(),
+                v["listener_delay"]["read_ms"].as_u64(),
+                v["listener_delay"]["set_ms"].as_u64(),
+            ),
+            (Some("estimate"), Some(8_000), Some(13_000)),
+            "the figure says what is read (the desk's delay) and what is set (issue 17)"
+        );
+        assert_eq!(v["audience"]["scope"], "origin");
         let src = &v["sources"][0];
         assert_eq!(
             (src["slot"].as_u64(), src["name"].as_str()),

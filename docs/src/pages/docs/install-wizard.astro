@@ -148,6 +148,16 @@ import { PRESETS } from '../../../../packages/wizard/presets.ts';
             <input id="w-icetcp" name="iceTcpPort" type="text" inputmode="numeric" value="0" aria-describedby="w-iceTcpPort-err" />
             <p class="err" id="w-iceTcpPort-err" hidden></p>
           </div>
+          <div class="q">
+            <label for="w-srcice">Hosts’ own studios, Icecast TCP port (0 is off, 8005 is usual)</label>
+            <input id="w-srcice" name="sourceIcecastPort" type="text" inputmode="numeric" value="0" aria-describedby="w-sourceIcecastPort-err" />
+            <p class="err" id="w-sourceIcecastPort-err" hidden></p>
+          </div>
+          <div class="q">
+            <label for="w-srcsrt">Hosts’ own studios, SRT UDP port (0 is off, 9710 is usual)</label>
+            <input id="w-srcsrt" name="sourceSrtPort" type="text" inputmode="numeric" value="0" aria-describedby="w-sourceSrtPort-err" />
+            <p class="err" id="w-sourceSrtPort-err" hidden></p>
+          </div>
         </div>
         <div class="q">
           <label for="w-nodeip">The server’s public IPv4 address (optional)</label>
@@ -273,6 +283,8 @@ import { PRESETS } from '../../../../packages/wizard/presets.ts';
       turnTlsPort: port('turnTlsPort'),
       turnUdpPort: port('turnUdpPort'),
       iceTcpPort: port('iceTcpPort'),
+      sourceIcecastPort: port('sourceIcecastPort'),
+      sourceSrtPort: port('sourceSrtPort'),
       accent: text('accent'),
     };
   }
@@ -451,7 +463,7 @@ import { PRESETS } from '../../../../packages/wizard/presets.ts';
   }
 
   const LABELS: Partial<Record<Field, string>> = {
-    name: 'Station name', contact: 'Takedown contact', domain: 'The station’s name on the internet', acmeEmail: 'Email for certificate notices', studioDomain: 'The studio', publicDomain: 'Public pages', listenDomain: 'Listener stream', roomDomain: 'Live room', mail: 'Sign-in codes by email', mailFrom: 'Sender address', mediaPort: 'Live room media port', turnTlsPort: 'TURN over TLS port', turnUdpPort: 'TURN over UDP port', iceTcpPort: 'Media over TCP port', nodeIp: 'The server’s public IPv4 address', accent: 'Accent colour', jurisdiction: 'Jurisdiction',
+    name: 'Station name', contact: 'Takedown contact', domain: 'The station’s name on the internet', acmeEmail: 'Email for certificate notices', studioDomain: 'The studio', publicDomain: 'Public pages', listenDomain: 'Listener stream', roomDomain: 'Live room', mail: 'Sign-in codes by email', mailFrom: 'Sender address', mediaPort: 'Live room media port', turnTlsPort: 'TURN over TLS port', turnUdpPort: 'TURN over UDP port', iceTcpPort: 'Media over TCP port', sourceIcecastPort: 'Hosts’ Icecast port', sourceSrtPort: 'Hosts’ SRT port', nodeIp: 'The server’s public IPv4 address', accent: 'Accent colour', jurisdiction: 'Jurisdiction',
   };
   function renderWaiting(found: { field: Field; message: string }[]) {
     const items = found.map((p) => {

@@ -4,7 +4,7 @@
 // acts, what it says after, and that the desk draws the button and the one dialog.
 import { render } from 'svelte/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { airPlan, endShowNote, modeButton, modeNote, modeRefusal, needsConfirm } from './lib/air.ts';
+import { AUTOMATION_PLAYS, airPlan, endShowNote, modeButton, modeNote, modeRefusal, needsConfirm } from './lib/air.ts';
 import type { EndShowResult, Source, View } from './lib/api.ts';
 import { NO_SHOW } from './lib/steps.ts';
 import DeskB from './desk/DeskB.svelte';
@@ -110,6 +110,67 @@ describe('the control for automation', () => {
     const down = view();
     down.desk.reachable = false;
     expect(modeRefusal(down)).toBeNull();
+  });
+});
+
+describe('what automation is, said in one sentence wherever it is named', () => {
+  beforeEach(() => {
+    studio.airAsk = null;
+  });
+
+  it('gives a concrete example of what automation plays, in playout’s own order', () => {
+    // The log first, with what a station puts in it; then the fallback files; then the loop.
+    const [log, fallback, loop] = ['the log', 'fallback files', 'the loop WeaveSignal ships'].map((w) => AUTOMATION_PLAYS.indexOf(w));
+    expect(log).toBeGreaterThan(0);
+    expect(fallback).toBeGreaterThan(log);
+    expect(loop).toBeGreaterThan(fallback);
+    expect(AUTOMATION_PLAYS).toContain('the station playing by itself');
+    expect(AUTOMATION_PLAYS).toContain('idents, stingers or adverts');
+  });
+
+  it('is in the dialog wherever the ask gives automation the air, and nowhere else', () => {
+    expect(airPlan('auto', view()).about).toBe(AUTOMATION_PLAYS);
+    expect(airPlan('end', view()).about).toBe(AUTOMATION_PLAYS);
+    expect(airPlan('end', view({ mode: 'auto' })).about).toBe(AUTOMATION_PLAYS);
+    // No automation on this station; and taking the air back gives automation nothing.
+    expect(airPlan('end', view({ mode: null })).about).toBeNull();
+    expect(airPlan('live', view({ mode: 'auto' })).about).toBeNull();
+  });
+
+  it('is not in End show’s dialog when the air passes to the next host instead', () => {
+    // Only what `endsTo` reads of the post: a source standing by for the next show.
+    const post = { show: { name: 'Steeped' }, state: 'standing_by', standing_since_ms: Date.UTC(2026, 10, 11, 11, 58), source_name: 'Finlay Grant' } as unknown as NonNullable<View['post']>;
+    const p = airPlan('end', view({ post }));
+    expect(p.lines.join(' ')).toContain('Nothing goes to automation');
+    expect(p.about).toBeNull();
+  });
+
+  it('the dialog draws it under what the press does, for End show and for Hand to automation', () => {
+    for (const ask of ['end', 'auto'] as const) {
+      studio.view = view();
+      studio.airAsk = ask;
+      const body = render(DeskB).body;
+      const dialog = body.slice(body.indexOf('<dialog data-panel="desk.end-show"'), body.indexOf('</dialog>'));
+      expect(dialog, ask).toContain(`data-testid="air-about">${AUTOMATION_PLAYS}</p>`);
+      expect(dialog.indexOf('data-testid="air-about"'), ask).toBeGreaterThan(dialog.indexOf('</ul>'));
+      expect(dialog.indexOf('data-testid="air-about"'), ask).toBeLessThan(dialog.indexOf('class="acts'));
+    }
+    studio.view = view({ mode: 'auto' });
+    studio.airAsk = 'live';
+    expect(render(DeskB).body).not.toContain('data-testid="air-about"');
+  });
+
+  it('the AUTO lamp’s tooltip keeps the word’s own sentence and adds it', () => {
+    studio.view = view({ mode: 'auto' });
+    const body = render(DeskB).body;
+    const lamp = body.slice(body.indexOf('data-panel="desk.lamp"'), body.indexOf('data-panel="desk.air"'));
+    expect(lamp).toContain('Automation is playing the log and the desk never reaches listeners;');
+    expect(lamp).toContain(`<span class="st-tip-more`);
+    expect(lamp).toContain(`>${AUTOMATION_PLAYS}</span>`);
+    // No other lamp carries it.
+    studio.view = view();
+    const live = render(DeskB).body;
+    expect(live.slice(live.indexOf('data-panel="desk.lamp"'), live.indexOf('data-panel="desk.air"'))).not.toContain(AUTOMATION_PLAYS);
   });
 });
 

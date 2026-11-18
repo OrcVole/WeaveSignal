@@ -10,6 +10,9 @@
 #   2. the nginx configuration it writes: the public domain passes the three branding routes
 #      for reading only and answers 404 for the setup page and its routes.
 #
+# The front page (1.1) is checked in the same configuration: the app's own domain's `/` asks the
+# control plane, the public domain's does not.
+#
 # `just wizard-check` runs it. The package's own test (deploy/cloudron/test-local.sh) runs the
 # real image.
 set -euo pipefail
@@ -71,7 +74,7 @@ pass "without a setup.env, weavesignal.env decides"
 conf=$( set -euo pipefail
   run=/run/weavesignal CONTROL_PORT=7310 CHAT_PORT=7311 LISTENERS_PORT=7312 LIVEKIT_HTTP_PORT=7880
   stream_locations='' listener_root='' pub_noindex='' pub_never='' pub_robots='x'
-  eval "$(sed -n "/^chat_public=/p;/^control_public=/p;/^branding_public=/p;/^calendar_public=/p" "$start")"
+  eval "$(sed -n "/^chat_public=/p;/^control_public=/p;/^branding_public=/p;/^monitor_public=/p;/^calendar_public=/p" "$start")"
   eval "$(sed -n '/^cat > "\$run\/nginx.conf" <<NGINX$/,/^NGINX$/p' "$start" | sed '1s/.*/cat <<NGINX/')" )
 public=$(sed -n '/listen 8003;/,$p' <<<"$conf")
 studio=$(sed -n '/listen 8000 default_server;/,/listen 8001;/p' <<<"$conf")
@@ -93,6 +96,31 @@ re='^/api/v1/branding(/icon|/banner)?$'
 for p in /api/v1/branding /api/v1/branding/icon /api/v1/branding/banner; do [[ $p =~ $re ]] || fail "$p is not passed"; done
 for p in /api/v1/branding/accent /api/v1/setup /api/v1/setup/finish /api/v1/branding/icon/x /api/v1/brandingx; do [[ $p =~ $re ]] && fail "$p is passed on the public domain"; done
 pass "nothing but the three branding routes matches"
+# The monitor link's routes (ADR-0280): passed without Cloudron's login, the bearer being the
+# link's own secret, with the client's address and the host restated (a location that sets one
+# proxy_set_header sends none of the server's).
+grep -q 'location ~ \^/api/v1/monitor(/(token|events|go|not-yet|cue|handover|end-show|dump))?\$ {' <<<"$public" || fail "the public domain does not pass the monitor link's routes"
+blk=$(sed -n '/location ~ \^\/api\/v1\/monitor/,/^        }/p' <<<"$public")
+grep -q 'proxy_set_header X-Forwarded-For \$remote_addr;' <<<"$blk" && grep -q 'proxy_set_header Host \$host;' <<<"$blk" || fail "the monitor link's location does not restate the client's address and the host"
+grep -q 'limit_except GET POST { deny all; }' <<<"$blk" || fail "the monitor link's routes take more than GET and POST"
+re='^/api/v1/monitor(/(token|events|go|not-yet|cue|handover|end-show|dump))?$'
+for p in /api/v1/monitor /api/v1/monitor/token /api/v1/monitor/events /api/v1/monitor/go /api/v1/monitor/not-yet /api/v1/monitor/cue /api/v1/monitor/handover /api/v1/monitor/end-show /api/v1/monitor/dump; do [[ $p =~ $re ]] || fail "$p is not passed"; done
+for p in /api/v1/monitor/hold /api/v1/monitor/go/x /api/v1/monitorx /api/v1/monitor/token/x /api/v1/internal/sources/admit; do [[ $p =~ $re ]] && fail "$p is passed on the public domain"; done
+grep -q 'location ~ \^/(join|echo-test|monitor)(/|\$) {' <<<"$public" || fail "the public domain does not serve the monitor page"
+grep -q 'location /api/v1/internal/ { return 404; }' <<<"$studio" || fail "the internal routes are not closed on the studio domain"
+pass "the public domain passes the monitor link's routes (view, token, events, the six controls) and its page, restating the client's address; nothing else under /api/v1/monitor"
+# The front page (1.1): the app's own domain asks the control plane whether the station is set up,
+# and keeps the player when the answer is 404 or there is none; the public domain never asks and
+# never serves the notice page.
+blk=$(sed -n '/location = \/ {/,/^        }/p' <<<"$studio")
+grep -q 'proxy_pass http://127.0.0.1:7310/api/v1/front;' <<<"$blk" || fail "the studio domain's / does not ask /api/v1/front"
+grep -q 'proxy_intercept_errors on;' <<<"$blk" && grep -q 'error_page 404 502 503 504 = @player;' <<<"$blk" || fail "the studio domain's / keeps no player for a 404 or a silent control plane"
+grep -q 'location @player { expires epoch; try_files /index.html =404; }' <<<"$studio" || fail "the studio domain has no player to fall back to"
+grep -q '/api/v1/front' <<<"$public" && fail "the public domain asks whether the station is set up"
+grep -q 'location = / {' <<<"$public" && fail "the public domain's / is not the plain player"
+grep -q 'location ~ \^/not-set-up(/|\$) { return 404; }' <<<"$public" || fail "the public domain serves the not-set-up page"
+grep -q 'not-set-up' <<<"$studio" && grep -q 'location ~ \^/not-set-up' <<<"$studio" && fail "the studio domain blocks the not-set-up page"
+pass "the app's own domain's / asks the control plane (the player stays on a 404 or no answer); the public domain's / is the player and its /not-set-up/ is 404"
 grep -q 'location /api/ {' <<<"$studio" && grep -q 'try_files' <<<"$studio" || fail "the studio domain lost its routes"
 grep -q '/setup' <<<"$studio" && fail "the studio domain blocks the setup page"
 pass "the app's own domain serves the setup page and its routes"

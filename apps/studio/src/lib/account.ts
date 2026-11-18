@@ -32,6 +32,13 @@ export function mayDeleteShow(me: Me | null | undefined): boolean {
   return !!me && (me.kind === 'station' || me.role === 'admin' || me.role === 'producer');
 }
 
+/** An admin, a producer or the station key may make a key for a show that has no presenter
+ *  account yet, such as one just made in New show (ADR-0280); a presenter may only for a show
+ *  that is theirs, and the station refuses the rest. */
+export function mayMakeFirstKey(me: Me | null | undefined): boolean {
+  return !!me && (me.kind === 'station' || me.role === 'admin' || me.role === 'producer');
+}
+
 /** An admin, a producer or the station key may import a calendar file into new shows
  *  (ADR-0281); a presenter and a screener may not, and the station refuses them anyway. */
 export function mayImportCalendar(me: Me | null | undefined): boolean {

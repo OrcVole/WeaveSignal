@@ -11,7 +11,7 @@ sidebar:
 HLS content steering lets a station tell each viewer's player which copy of its video to fetch: which edge, or a CDN, and what to try when one fails (ADR-0051).
 The control plane serves the steering manifest; the player asks for it again every few minutes, and moves on its own when an edge stops answering.
 Steering is off until edges are configured.
-The Compose bundle and the Cloudron package write `control.toml` from their own settings, which have no steering keys yet; on the Compose bundle, add `[steering]` to the `control` entry under `configs:` in `deploy/compose/compose.yaml`.
+The Compose bundle and the Cloudron package write `control.toml` from their own settings; from 1.1 those have steering lines (`STEERING_TTL_S`, `STEERING_CHECK_EVERY_S`, `STEERING_CHECK_TIMEOUT_MS`, `STEERING_DOWN_AFTER`, `STEERING_CLONE_FROM` and `STEERING_EDGES`, the edges as TOML inline tables), set in `.env` or `weavesignal.env` ([Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)).
 
 The station's multivariant playlists, `/hls/live.m3u8` and `/hls/audio.m3u8`, carry the line players need, added as they are served while at least one edge is set (ADR-0159):
 

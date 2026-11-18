@@ -267,6 +267,7 @@ async fn a_token_never_reaches_an_admin_route_whatever_its_scopes() {
     let (_, secret) = token(&p, &all, None);
     for (m, u) in [
         ("GET", "/api/v1/staff"),
+        ("GET", "/api/v1/staff/directory"),
         ("POST", "/api/v1/staff"),
         ("GET", "/api/v1/tokens"),
         ("POST", "/api/v1/tokens"),
@@ -602,6 +603,10 @@ fn announce(p: &Plane, on_air: &str, title: &str) -> Arc<OnAir> {
 }
 
 fn with_onair(p: &Plane) {
+    with_onair_at(p, None);
+}
+
+fn with_onair_at(p: &Plane, playout_socket: Option<&std::path::Path>) {
     // A playout layer that is not running: nothing polls, and `announce` drives it.
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://nobody@127.0.0.1:1/none")
@@ -610,7 +615,7 @@ fn with_onair(p: &Plane) {
         p.station.id,
         pool,
         Links {
-            playout: PlayoutClient::new(None),
+            playout: PlayoutClient::new(playout_socket),
             listeners: PlayoutClient::new(None),
             status_url: String::new(),
             library_dir: "/nonexistent".into(),
@@ -769,4 +774,65 @@ async fn changes_at_the_station_become_events() {
             .await
             .is_err()
     );
+}
+
+/// A stand-in for playout's socket: answers each command with `answer` and the `END` line, and
+/// sends every command it was given down the channel.
+fn fake_playout(
+    path: &std::path::Path,
+    answer: &'static str,
+) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let listener = tokio::net::UnixListener::bind(path).unwrap();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let (r, mut w) = stream.into_split();
+                let mut lines = BufReader::new(r).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if line == "quit" {
+                        return;
+                    }
+                    let _ = tx.send(line);
+                    let _ = w.write_all(format!("{answer}\nEND\n").as_bytes()).await;
+                }
+            });
+        }
+    });
+    rx
+}
+
+#[tokio::test]
+async fn restarting_playout_sends_it_one_command_and_never_for_a_token() {
+    let dir = std::env::temp_dir().join(format!("ws-restart-{}", Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("playout.sock");
+    let mut got = fake_playout(&sock, "Playout is restarting.");
+    let p = plane(config(), true);
+    with_onair_at(&p, Some(&sock));
+    // No bearer: refused before anything reaches playout.
+    let (code, _) = status(&p.app, "POST", "/api/v1/playout/restart", None).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+    // A token never reaches it, whatever its scopes.
+    let (_, secret) = token(&p, &["desk:control", "carts:write"], None);
+    let (code, _) = status(&p.app, "POST", "/api/v1/playout/restart", Some(&secret)).await;
+    assert!(!passed(code), "{code}");
+    assert!(got.try_recv().is_err(), "a refused request reached playout");
+    // The station key may: playout is asked once, in its own words.
+    let (code, v) = status(&p.app, "POST", "/api/v1/playout/restart", Some(KEY)).await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["restarting"], true);
+    assert_eq!(got.recv().await.as_deref(), Some("playout.restart"));
+    assert!(got.try_recv().is_err());
+    // Playout not answering on its socket is a 502 in words, not a hang.
+    std::fs::remove_file(&sock).unwrap();
+    let (code, v) = status(&p.app, "POST", "/api/v1/playout/restart", Some(KEY)).await;
+    assert_eq!(code, StatusCode::BAD_GATEWAY, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("supervisor"), "{v}");
+    let _ = std::fs::remove_dir_all(dir);
 }

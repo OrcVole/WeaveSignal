@@ -25,7 +25,7 @@ For everyday settings you do not need any of this: [Configure the station and th
 Open the Cloudron dashboard and choose the WeaveSignal app.
 
 1. **Log.** Press **Logs**. Every part of the station writes here: the desk, playout, the chat. A setting the station cannot read is named in it.
-2. **Files.** Press **File Manager** and open `/app/data/`. The station's settings are in `weavesignal.env`; a show set by file is in `station.toml`; the secrets the station made for itself, such as the station key, are in `secrets.env`. After a change, restart the app.
+2. **Files.** Press **File Manager** and open `/app/data/`. The station's settings are in `weavesignal.env`; the show, the rundown and steering are lines in it too (`STUDIO_*`, `STEERING_*`), or a file, `station.toml`; the secrets the station made for itself, such as the station key, are in `secrets.env`. After a change, restart the app.
 3. **Terminal.** Press **Terminal** for a command line inside the app. Read files there; change them in the File Manager.
 
 The studio's own address (the one with `/setup/`) is behind Cloudron's login; the public pages are not.

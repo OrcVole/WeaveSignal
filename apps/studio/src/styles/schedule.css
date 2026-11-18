@@ -17,7 +17,14 @@
 .schedule .toolbar .btn { min-height: 2rem; }
 .schedule .toolbar .tz { font-size: var(--fs-13); color: var(--muted); white-space: nowrap; }
 .schedule .toolbar .legend { display: flex; gap: var(--s-3); align-items: center; font-size: var(--fs-12); color: var(--ink-2); margin-left: auto; flex-wrap: wrap; }
-.schedule .toolbar .legend span { display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; }
+.schedule .toolbar .legend .li { position: relative; display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; }
+/* The legend gives way before it wraps (issue 28; schedule/legendFit.ts sets data-fit): its words, then shorter words, then
+   the glyphs alone. The full words are kept for a screen reader in every form, clipped as .sr-only is. */
+.schedule .toolbar .legend .short { display: none; }
+.schedule .toolbar .legend[data-fit='short'] .short { display: inline; }
+.schedule .toolbar .legend[data-fit='short'] .full:not(.same), .schedule .toolbar .legend[data-fit='glyphs'] .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.schedule .toolbar .legend[data-fit='glyphs'] .short { display: none; }
+.schedule .toolbar .legend[data-fit='glyphs'] .li { padding: var(--s-1); margin: calc(-1 * var(--s-1)); }
 .schedule .toolbar .legend svg { width: 12px; height: 12px; }
 .schedule .toolbar .legend .past { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--axis); background: var(--surface-2); opacity: 0.6; border-radius: 2px; }
 .schedule .toolbar .load { font-size: var(--fs-13); color: var(--muted); }

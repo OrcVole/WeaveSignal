@@ -398,6 +398,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
+# One second of tone in each format a host's software may send (MP3, AAC, Ogg Opus and Vorbis, chained,
+# Ogg FLAC, FLAC, MPEG-TS with AAC or MP2), made with ffmpeg for the ingest's decoder tests.
+[[annotations]]
+path = ["crates/ingest/tests/fixtures/*"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
 # Spike 01's harness, results and the talk-show fixture's scripts (spike/): measurements and
 # test fixtures, our own, AGPL-3.0-only as the code is. A file's own header wins (closest).
 [[annotations]]

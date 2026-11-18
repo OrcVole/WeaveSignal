@@ -117,7 +117,7 @@ RUN --mount=type=cache,target=/opt/cargo/registry \
          install -D -m 0644 /stage/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgst$p.so /out/gst/libgst$p.so; \
        done
 
-# The desk, the control plane and the chat (M6).
+# The desk, the control plane and the chat (M6); then the ingest.
 WORKDIR /src/weavesignal
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
@@ -125,6 +125,12 @@ COPY crates crates
 COPY packages/ui/avatars/manifest.json packages/ui/avatars/manifest.json
 COPY apps/studio/src-tauri/Cargo.toml apps/studio/src-tauri/Cargo.toml
 RUN mkdir -p apps/studio/src-tauri/src && echo 'fn main() {}' > apps/studio/src-tauri/src/main.rs
+# The target cache below is shared by every build on this machine, whichever worktree it comes
+# from, and cargo trusts a cached crate whose sources look older than it. COPY keeps the files'
+# times, so another branch's newer build could stand in for this one's crates: a failure to
+# compile at best, another branch's code in the image at worst (2026-11-16). Touching what was
+# copied makes our own crates always build from these sources; registry crates stay cached.
+RUN find Cargo.toml Cargo.lock crates apps packages -type f -exec touch {} +
 RUN --mount=type=cache,target=/opt/cargo/registry \
     --mount=type=cache,target=/src/weavesignal/target \
     cargo build --release --locked -p weavesignal-desk -p weavesignal-control -p weavesignal-chat \
@@ -132,6 +138,12 @@ RUN --mount=type=cache,target=/opt/cargo/registry \
     && install -D -m 0755 target/release/weavesignal-desk /out/bin/weavesignal-desk \
     && install -D -m 0755 target/release/weavesignal-control /out/bin/weavesignal-control \
     && install -D -m 0755 target/release/weavesignal-chat /out/bin/weavesignal-chat
+# The ingest (ADR-0280): hosts' own studios over Icecast and SRT. Built on its own, so srt-tokio's
+# features of tokio are not unified into the three binaries above.
+RUN --mount=type=cache,target=/opt/cargo/registry \
+    --mount=type=cache,target=/src/weavesignal/target \
+    cargo build --release --locked -p weavesignal-ingest --bin weavesignal-ingest \
+    && install -D -m 0755 target/release/weavesignal-ingest /out/bin/weavesignal-ingest
 
 ########################################################################
 FROM ${BASE}
@@ -202,14 +214,14 @@ RUN mkdir -p /app/code/liq-cache \
          LIQ_CACHE_USER_DIR=/app/code/liq-cache liquidsoap --cache-only /app/code/playout/$s.liq; \
        done \
     && chmod 0755 /app/code/liq-cache && chmod 0444 /app/code/liq-cache/*
-COPY deploy/cloudron/start.sh deploy/cloudron/supervisord.conf /app/code/
+COPY deploy/cloudron/start.sh deploy/cloudron/station-sections.sh deploy/cloudron/supervisord.conf /app/code/
 COPY --from=web /src/apps/web/dist /app/code/www
 # The placeholder cart pack (ADR-0020), loaded as the demo banks when a station has none.
 COPY assets/carts-demo /app/code/carts-demo
 # The default loop (ADR-0130, CC0-1.0): playout and the listener process play it while the
 # fallback folder holds nothing, so a new station is never silent.
 COPY assets/default-loop/default-loop.flac /app/code/default-loop/default-loop.flac
-RUN chmod 0755 /app/code/start.sh
+RUN chmod 0755 /app/code/start.sh /app/code/station-sections.sh
 
 LABEL org.opencontainers.image.title="weavesignal-cloudron" \
       org.opencontainers.image.description="WeaveSignal release one as one Cloudron app: control plane, chat, desk, Liquidsoap 2.5 playout and listener process, LiveKit with TURN, public pages" \

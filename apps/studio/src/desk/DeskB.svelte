@@ -16,17 +16,27 @@
   // While this window is preparing (ADR-0276) the desk is the live show to follow: every panel
   // stays where it is and keeps its states, and every control that changes the air is disabled,
   // with the reason in its tooltip. Invitations and the step stay, as the station leaves them.
+  //
+  // The post's rule (ADR-0280; hosts-in-their-own-studios.md sections 3.4 to 3.6, 4.2 and 8) is
+  // the station's, and the desk says what it is doing: the clock's post line counts the grace
+  // with Hold, or says who keeps the air; the rundown has a row for the show whose post it is;
+  // a late host is counted on air; a source whose link is lost keeps its tile on the stage; and
+  // End show says where the air goes. A grace running is offered in the toast (On air on the
+  // handover's key, Not now), and at Solo the next show's source has the guest's empty seat
+  // (`desk.next`). The rules are in `lib/post.ts`.
   import { onMount } from 'svelte';
   import Tile from './Tile.svelte';
+  import Hurry from './Hurry.svelte';
   import AirControl from './AirControl.svelte';
   import Cameras from './Cameras.svelte';
   import SlateStill from './SlateStill.svelte';
   import type { Notice } from '../lib/api.ts';
-  import { CHIP, isOpen, listenersHear, masterLamp } from '../../../../packages/ui/states.ts';
+  import { CHIP, isOpen, listenersHear, masterLamp, sourceChip } from '../../../../packages/ui/states.ts';
   import StateChip from '../../../../packages/ui/StateChip.svelte';
   import { slotKeys } from '../../../../packages/ui/keymap.ts';
   import { look, studio, stationNow } from '../lib/studio.svelte.ts';
-  import { run, readyCaller } from '../lib/actions.ts';
+  import { deskToastNow, dismissGrace, dismissLost, holdPost, notYet, run, readyCaller } from '../lib/actions.ts';
+  import { arrivals, countPct, countWords, endsToWords, goNow, graceToast, handNext, heldBy, hurry, keptPlace, keptSub, lateCount, lateToast, lostToast, mayHold, nextCard, ownStudiosLost, postLine, postRow, withKept, withoutNext } from '../lib/post.ts';
   import { account } from '../lib/account.svelte.ts';
   import { sandboxed } from '../lib/api.ts';
   import { chat, startChat } from '../lib/chat.svelte.ts';
@@ -45,11 +55,15 @@
     stepNoteShown,
     type Part,
   } from '../lib/steps.ts';
-  import { atToday, delayParts, delayWords, dur, firstName, hm, hms, listenerDelayMs } from '../lib/format.ts';
+  import { atToday, delayLine, delayParts, delayWords, dur, firstName, hm, hms, listenerDelayMs, meterPct, signed } from '../lib/format.ts';
+  import { arrival, arrivalWords, ownStudiosWords, tileLink } from '../lib/hosts.ts';
+  import { sched } from '../lib/schedule.svelte.ts';
+  import { setup } from '../lib/wizard.svelte.ts';
   import { bankAt, bankOwner, cartAt, cartNow } from '../../../../packages/ui/carts.ts';
   import { audienceWords, cdnWarning } from '../lib/audience.ts';
   import { HANDOVER_KEY, handoverButton, handoverStep } from '../lib/handover.ts';
   import Invite from './Invite.svelte';
+  import { OWN_LINK, airHost, ownLinkBeside } from '../lib/invite.ts';
   import { preparing } from '../lib/prepare.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
 
@@ -78,7 +92,9 @@
   /** The listener delay: read live where it can be, the setting for the rest (ADR-0103, ADR-0272). */
   const LISTENER_DELAY_MS = $derived(listenerDelayMs(v?.listener_delay));
   const behind = $derived(delayWords(v?.listener_delay));
-  /** What of the estimate is read live and what is a setting (ADR-0272). */
+  /** The clock's own line states the figure once (issue 17; the look's review, finding 3). */
+  const behindLong = $derived(delayLine(v?.listener_delay));
+  /** What the estimate is made of, in plain words, on the one line under it (ADR-0272, ADR-0289). */
   const delayDetail = $derived(delayParts(v?.listener_delay));
   const now = $derived(stationNow());
   const playout = $derived(v?.desk.playout ?? { connected: false, for_ms: null });
@@ -90,22 +106,48 @@
   const heard = $derived(up && listenersHear(playout.connected, mode));
   const sources = $derived(v?.sources ?? []);
   // At Solo nothing moves: every tile stays on the stage and the Not on air row is not drawn.
-  const placed = $derived(stageOf(sources, lk));
+  /** A host's own studio whose link is lost: its place is kept, and its tile stays on the stage. */
+  const kept = $derived(keptPlace(v, studio.sourceSlots));
+  /** At Solo the next show's source is one compact card in the guest's empty seat (`desk.next`;
+   *  design section 4.2): Solo has no Not on air row, and that host is no part of this show's
+   *  step. It has no On key: at Solo the air passes by End show or by the schedule. */
+  const next = $derived(lk === 'solo' ? nextCard(v, tileLink) : null);
+  const placed = $derived(withoutNext(withKept(stageOf(sources, lk), kept), next?.source ?? null));
   const onStage = $derived(placed.stage);
   const offStage = $derived(placed.waiting);
   /** The Solo stage offers the DJ their own microphone link until a presenter is in the room. */
   // Not in a preparing window: that link joins on air, which is not a preparing window's to do.
   const ownLink = $derived(!prep && !!v?.desk.reachable && needsOwnLink(sources, lk, !!v?.step?.may_change, !account.me || account.me.kind === 'staff'));
+  /** A host in their own studio has the air (on air, or their place kept while their link is
+   *  lost): the show is theirs, so the stage does not headline *You are not in the room yet* with
+   *  its filled button. The offer is one quiet line beside Invite someone…, with words for this
+   *  case; at Solo, which has no Not on air row, the same line takes the guest's seat. */
+  const host = $derived(ownLink ? airHost(sources, kept) : null);
+  const ownBeside = $derived(host ? ownLinkBeside(host, v?.mode) : null);
+  /** The stage's headline offer: an empty studio waiting for its presenter. */
+  const ownHead = $derived(ownLink && !host);
   /** The callers waiting on the desk, at the Callers step. */
   const queue = $derived(deskCallers(v));
   const openCount = $derived(sources.filter(isOpen).length);
   /** The handover button (ADR-0074): what ⇧⏎ does next, worked out once for the DJ's tile and
    *  the rundown's row, so the key and its buttons never differ. Null with nothing to press. */
-  const handover = $derived(v && shown('handover', lk) ? handoverButton(handoverStep(sources, v.seats.presenter, studio.handoverTo)) : null);
+  /** A host's own studio standing by after its post with nobody presenting: one press of ⇧⏎
+   *  puts it on air, and the station counts it on by itself (the late count) unless told Not yet. */
+  const go = $derived(goNow(v));
+  /** The late count the station runs, whether or not the press is offered. */
+  const counted = $derived(lateCount(v));
+  /** The next show's source standing by while someone presents: the handover's key picks it first. */
+  const nextUp = $derived(handNext(v));
+  const handover = $derived(v && shown('handover', lk) ? handoverButton(handoverStep(sources, v.seats.presenter, studio.handoverTo, go, nextUp)) : null);
+  /** Someone presenting is on air, as the station counts them. */
+  const othersOnAir = $derived(!!v?.post?.holders.length);
   const lamp = $derived(
     masterLamp({ deskReachable: !!v?.desk.reachable, playoutConnected: playout.connected, anyOnAir: openCount > 0, mode }),
   );
-  const peopleIn = $derived(sources.filter((s) => s.present).length + (v?.callers.filter((c) => c.present && c.slot === null).length ?? 0));
+  // A host's own studio is at the desk and not in the room (ADR-0280): it is counted on its own.
+  const peopleIn = $derived(sources.filter((s) => s.present && s.role !== 'source').length + (v?.callers.filter((c) => c.present && c.slot === null).length ?? 0));
+  /** The foot's Own studios item: what is connected, or nothing to say. */
+  const ownStudios = $derived(ownStudiosLost(ownStudiosWords(sources), kept));
 
   // ---- the cart glance: the current bank's top row, F1 to F6 (the wall's 1 to 6) ----
   const glanceBank = $derived(bankAt(studio.catalogue, studio.bank));
@@ -122,14 +164,29 @@
   const rundown = $derived(
     (v?.show.rundown ?? []).map((r) => ({ ...r, ms: atToday(r.at, now, studio.zone) })).sort((a, b) => a.ms - b.ms),
   );
-  const post = $derived(rundown.find((r) => r.hard_post && r.ms > now) ?? null);
+  const hardPost = $derived(rundown.find((r) => r.hard_post && r.ms > now) ?? null);
+  /** The schedule's own line (ADR-0280): the next show's post, the grace, the late count, a held
+   *  handover, or who keeps the air. Before the post, the nearer of it and the rundown's hard
+   *  post has the line. */
+  const line = $derived.by(() => {
+    const l = postLine(v?.post, now);
+    return l?.kind === 'post' && hardPost && hardPost.ms < l.at_ms ? null : l;
+  });
+  const post = $derived(line ? null : hardPost);
+  const count = $derived(line?.kind === 'count' ? { is: line.why, ...countWords(line), left: Math.max(0, line.at_ms - now), pct: countPct(line, now) } : null);
+  const canHold = $derived(mayHold(account.me));
+  const holding = $derived(!!studio.holdAsked);
+  /** The rundown's row for the show whose post it is: where it comes from and how it stands. */
+  const showRow = $derived(postRow(v, now));
   const postFrom = $derived.by(() => {
     if (!post) return 0;
     const before = rundown.filter((r) => r.ms < post.ms && r.ms <= now).at(-1);
     return before?.ms ?? post.ms - 10 * 60_000;
   });
   const left = $derived(post ? post.ms - now : 0);
-  const coming = $derived(rundown.filter((r, i) => r.ms > now || rundown[i + 1]?.ms > now).slice(0, 5));
+  const coming = $derived(rundown.filter((r, i) => r.ms > now || rundown[i + 1]?.ms > now).slice(0, showRow ? 4 : 5));
+  /** Where the schedule's row sits among the rundown's: by its time. */
+  const showRowAt = $derived(showRow ? coming.filter((r) => r.ms < showRow.at_ms).length : -1);
   const current = $derived(rundown.filter((r) => r.ms <= now).at(-1) ?? null);
 
   // ---- the toast slot: one toast, most urgent first ----
@@ -138,17 +195,31 @@
     tone: 'good' | 'warning' | 'serious' | 'plain';
     glyph: string;
     title: string;
+    /** A title whose end moves every second (a count): the words before it, the moving figure,
+     *  drawn for the eye alone, and what a screen reader is told in its place, once. */
+    count?: { lead: string; tick: string; said: string; left_ms: number };
     msg: string;
-    /** `air`: the action changes what is on air, so a preparing window does not offer it. */
-    acts: { label: string; keys: string[]; primary?: boolean; air?: boolean; go: () => void }[];
+    /** `air`: the action changes what is on air, so a preparing window does not offer it.
+     *  `off`: the action is drawn and cannot act yet; the reason is its tooltip. */
+    acts: { label: string; keys: string[]; primary?: boolean; air?: boolean; off?: string; go: () => void }[];
   };
   const caller = $derived(readyCaller());
   const degradedOnAir = $derived(sources.find((s) => s.on_air && (!s.present || !s.linked)) ?? null);
+  /** A host's own studio that has just arrived standing by, until it is cued, aired or dismissed. */
+  const arrived = $derived(arrival(arrivals(v), studio.toldSources));
   const lastNotice: Notice | null = $derived(
     v?.notices
       .filter((n) => n.surface === 'desk' && !studio.dismissed.includes(n.id) && now - n.at_ms < 20_000 && n.kind !== 'caller.ready')
       .at(-1) ?? null,
   );
+  /** A lost link that automation covers, and the late count: the two toasts the post's rule adds. */
+  const lost = $derived(lostToast(v, studio.lostDismissed));
+  const late = $derived(lateToast(v, now));
+  /** The grace's offer: the handover's key brings the next host on now, where the handover is on. */
+  const gracePress = $derived(!prep && handover?.kind === 'on' && (handover.dj === nextUp?.identity || handover.dj === v?.post?.source) && !off('handover'));
+  const grace = $derived(graceToast(v, now, studio.graceDismissed, gracePress));
+  /** Which toast with an answer is on screen: the same rule Esc answers by. */
+  const kind = $derived(deskToastNow());
   const anyToast: Toast | null = $derived.by(() => {
     if (studio.offNote) {
       return {
@@ -165,16 +236,30 @@
     if (studio.note) {
       return { tone: studio.note.tone, glyph: 'g-good', title: studio.note.title, msg: studio.note.message, acts: [] };
     }
-    if (v?.desk.reachable && !playout.connected) {
+    if (kind === 'playout') {
       return {
         tone: 'serious',
         glyph: 'g-playout',
         title: 'Playout down · room alive',
         msg: `${playout.for_ms === null ? 'Liquidsoap has not connected to the desk.' : `SRT to Liquidsoap dropped ${dur(playout.for_ms)} ago.`} Listeners hear nothing of the room; the room keeps talking and its sources say OPEN.`,
-        acts: [{ label: 'Restart playout', keys: ['⌃R'], primary: true, air: true, go: () => run({ type: 'restart-playout' }) }],
+        acts: [{ label: 'Restart playout', keys: ['⌃R', '⌃R'], primary: true, air: true, go: () => run({ type: 'restart-playout' }) }],
       };
     }
-    if (caller) {
+    if (kind === 'lost' && lost && kept) {
+      // A link lost on air, once automation covers (design sections 3.6 and 8). Off air is the
+      // strip's own On key, which lets the place go at once. Dismiss keeps the place.
+      return {
+        tone: 'serious',
+        glyph: 'g-link-degraded',
+        title: lost.title,
+        msg: lost.message,
+        acts: [
+          { label: 'Off air', keys: [slotKeys(kept.slot).on], air: true, go: () => run({ type: 'on', slot: kept.slot }) },
+          { label: 'Dismiss', keys: ['Esc'], go: dismissLost },
+        ],
+      };
+    }
+    if (kind === 'caller' && caller) {
       const n = caller.caller?.name_on_air || firstName(caller.name, caller.identity);
       const k = slotKeys(caller.slot);
       return {
@@ -188,7 +273,7 @@
         ],
       };
     }
-    if (degradedOnAir) {
+    if (kind === 'degraded' && degradedOnAir) {
       const n = firstName(degradedOnAir.name, degradedOnAir.identity);
       const k = slotKeys(degradedOnAir.slot);
       return {
@@ -204,12 +289,62 @@
         ],
       };
     }
+    if (kind === 'grace' && grace) {
+      // A grace running (design sections 3.4 and 8). On air is the handover's key and brings the
+      // next host on now, as the handover does; Not now only puts the offer away: the grace
+      // runs on, and the schedule still hands over at its end.
+      return {
+        tone: 'warning',
+        glyph: 'g-delay',
+        title: grace.title,
+        count: { lead: grace.lead, tick: grace.tick, said: grace.said, left_ms: grace.left_ms },
+        msg: grace.message,
+        acts: [
+          ...(gracePress ? [{ label: 'On air', keys: [HANDOVER_KEY], primary: true, air: true, go: () => void run({ type: 'handover' }) }] : []),
+          { label: 'Not now', keys: ['Esc'], go: dismissGrace },
+        ],
+      };
+    }
+    if (kind === 'late' && late) {
+      // A late host's count (design sections 3.5 and 8). On air is the handover's key, so it is
+      // offered where the handover is on (Full); Esc stops the count.
+      return {
+        tone: 'plain',
+        glyph: 'g-delay',
+        title: late.title,
+        count: { lead: late.lead, tick: late.tick, said: late.said, left_ms: late.left_ms },
+        msg: late.message,
+        acts: [
+          ...(handover?.kind === 'go' && !off('handover') ? [{ label: 'On air', keys: [HANDOVER_KEY], primary: true, air: true, go: () => void run({ type: 'handover' }) }] : []),
+          // Not yet, as on the tile: it stops the count (the operator, 2026-11-16: Not now dismisses an
+          // offer, Not yet stops a count).
+          { label: 'Not yet', keys: ['Esc'], air: true, go: () => void run({ type: 'escape' }) },
+        ],
+      };
+    }
+    if (kind === 'arrived' && arrived) {
+      // A host's own studio has connected in its slot (ADR-0280, design section 3.2): said once,
+      // with Cue on the tile's own key. The least urgent toast with an answer.
+      const k = slotKeys(arrived.slot);
+      const w = arrivalWords(arrived, v?.step.next ?? null, [...sched.shows, ...setup.shows].find((x) => x.slug === arrived.source?.show)?.name ?? '', studio.zone || sched.zone);
+      return {
+        tone: 'plain',
+        glyph: 'g-disc',
+        title: w.title,
+        msg: w.message,
+        acts: [
+          { label: 'Cue', keys: [k.cue], primary: true, air: true, go: () => run({ type: 'cue', slot: arrived.slot }) },
+          { label: 'Dismiss', keys: ['Esc'], go: () => run({ type: 'escape' }) },
+        ],
+      };
+    }
     if (lastNotice) return { tone: lastNotice.tone, glyph: 'g-good', title: lastNotice.title, msg: lastNotice.message, acts: [] };
     return null;
   });
   const toast: Toast | null = $derived.by(() => {
     const t = anyToast;
-    // A preparing window reads the toast and is offered none of its on-air answers.
+    // A preparing window reads the toast and is offered none of its on-air answers. An answer
+    // that is this window's own (Dismiss, Not now) stays where no other answer changes the air.
     return t && prep ? { ...t, acts: t.acts.some((a) => a.air) ? [] : t.acts } : t;
   });
 
@@ -253,20 +388,53 @@
     <div class="col left">
       <section class="panel clock" data-panel="desk.clock" aria-label="Studio clock">
         <div class="time num" data-panel-title>{hms(now)}<small>.{tenth}</small></div>
-        {#if post}
+        {#if count}
+          <!-- The schedule's own count (design section 4.2): the grace, with Hold for an admin or a
+               producer, or a late host's count. Amber in its last 30 seconds and red in its last 10,
+               as every count on the desk is (14a), with the count's mark before a heavier figure. -->
+          {@const h = hurry(count.left)}
+          <div class="post" class:grace={count.is === 'grace'} data-post={count.is}>
+            <span class="name">{count.name}</span><span class="left num" data-hurry={h?.level}><Hurry {h} />−{dur(count.left)}{#if h}<span class="sr-only"> {h.word}.</span>{/if}</span>
+            <div class="bar"><i style:width="{count.pct}%"></i></div>
+            <span class="why">{count.by}</span>
+            {#if count.is === 'grace' && canHold}
+              <button type="button" class="btn sm hold" disabled={holding} title="Stops the count for this handover. It is then by a press only." onclick={() => holdPost(true)}>Hold</button>
+            {/if}
+          </div>
+        {:else if line?.kind === 'held'}
+          <div class="post held" data-post="held">
+            <span class="name">Handover held by {heldBy(line.by, account.me)}</span>
+            <span class="why">a press only</span>
+            {#if canHold}
+              <button type="button" class="btn sm hold" disabled={holding} title="Lets the schedule count again, from where the post and the next host’s standing by put it." onclick={() => holdPost(false)}>Let it run</button>
+            {/if}
+          </div>
+        {:else if line?.kind === 'words'}
+          <div class="post says" data-post="words"><span class="name">{line.text}</span></div>
+        {:else if line?.kind === 'post'}
+          {@const left = Math.max(0, line.at_ms - now)}
+          {@const h = hurry(left)}
+          <div class="post" data-post="post">
+            <span class="name">{line.name} · the post {hms(line.at_ms)}</span><span class="left num" data-hurry={h?.level}><Hurry {h} />−{dur(left)}{#if h}<span class="sr-only"> {h.word}.</span>{/if}</span>
+            <div class="bar"><i style:width="{Math.min(100, Math.max(0, 100 - (left / (10 * 60_000)) * 100))}%"></i></div>
+          </div>
+        {:else if post}
+          {@const h = hurry(left)}
           <div class="post">
             <span class="name">{post.title} · hard post {post.at.length === 5 ? `${post.at}:00` : post.at}</span><span
               class="left num"
-              class:soon={left < 10_000}>−{dur(left)}</span
+              data-hurry={h?.level}><Hurry {h} />−{dur(left)}{#if h}<span class="sr-only"> {h.word}.</span>{/if}</span
             >
             <div class="bar"><i style:width="{Math.min(100, ((now - postFrom) / (post.ms - postFrom)) * 100)}%"></i></div>
           </div>
         {:else}
           <div class="post"><span class="name">No hard post ahead</span></div>
         {/if}
-        <div class="listen" title={delayDetail || undefined}>
+        <!-- The listener delay, once: the figure on this line, its parts on the line under it and
+             nowhere else (no tooltip repeats them), in words a presenter reads on air. -->
+        <div class="listen">
           <svg aria-hidden="true" style="width:12px;height:12px;vertical-align:-1px"><use href="#g-delay" /></svg>
-          Listeners hear <b class="num">{hms(now - LISTENER_DELAY_MS)}</b> · {behind}
+          Listeners hear <b class="num">{hms(now - LISTENER_DELAY_MS)}</b> · {behindLong}
           {#if delayDetail}<span class="small" data-testid="delay-detail">{delayDetail}</span>{/if}
         </div>
       </section>
@@ -277,7 +445,31 @@
           <span class="spacer"></span><span class="small">{v?.show.title || 'No show set'}</span>
         </div>
         <div class="rundown">
-          {#each coming as r (r.at + r.title)}
+          {#snippet scheduleRow()}
+            {#if showRow}
+              <!-- The show whose post it is (design section 4.2): where it comes from, how its source
+                   stands, and the handover's button while there is a press to make for it. -->
+              {@const hand = handover && handover.dj === showRow.identity ? handover : null}
+              <!-- The chip sits under the words, as the handover's button does: beside them it would
+                   cut the show's name and where it comes from at this column's width. -->
+              <div class="row hand" class:now={showRow.now} data-testid="post-row">
+                <span class="at num">{hm(showRow.at_ms)}</span>
+                <span class="what"><b>{showRow.title}</b>{#if showRow.detail}<span>{showRow.detail}</span>{/if}</span>
+                {#if hand || showRow.chip}
+                  <span class="handrow">
+                    {#if showRow.chip}<StateChip chip={showRow.chip} sm />{/if}
+                    {#if hand}
+                      <button type="button" class="btn" data-handover={hand.kind} aria-disabled={off('handover') || undefined} disabled={prep} title={prepWhy ?? (off('handover') ? `The handover is off at ${STEP_WORD[step]}. It comes on at Full.` : hand.then)} onclick={() => !off('handover') && run({ type: 'handover' })}
+                        >{hand.label} <kbd>{HANDOVER_KEY}</kbd></button
+                      >
+                    {/if}
+                  </span>
+                {/if}
+              </div>
+            {/if}
+          {/snippet}
+          {#each coming as r, i (r.at + r.title)}
+            {#if i === showRowAt}{@render scheduleRow()}{/if}
             <!-- The handover's row (its key is ⇧⏎) carries the button while there is a DJ to press it for. -->
             {@const hand = r.key === HANDOVER_KEY && handover ? handover : null}
             <div class="row" class:now={r === current} class:hand={!!hand}>
@@ -297,10 +489,13 @@
               {/if}
             </div>
           {:else}
-            <div class="row"><span class="at num">—</span><span class="what"><b>Nothing scheduled</b><span>nothing in <code>studio.rundown</code></span></span><span></span></div>
+            {#if !showRow}
+              <div class="row"><span class="at num">—</span><span class="what"><b>Nothing scheduled</b><span>nothing in <code>studio.rundown</code></span></span><span></span></div>
+            {/if}
           {/each}
+          {#if showRowAt >= coming.length}{@render scheduleRow()}{/if}
         </div>
-        <div class="small"><span class="proposal">setting</span> rows from <code>studio.rundown</code>; the schedule does not fill this yet</div>
+        <div class="small"><span class="proposal">setting</span> rows from <code>studio.rundown</code>; {showRow ? 'the schedule adds the next show’s post' : 'the schedule does not fill this yet'}</div>
       </section>
 
       <section class="panel playout" data-panel="desk.playout" aria-label="Playout">
@@ -338,7 +533,7 @@
           <div class="extra">Listeners hear nothing of the room. Restart playout to bring them back.</div>
           <div class="acts">
             <button type="button" class="btn primary" disabled={prep} title={prepWhy} onclick={() => run({ type: 'restart-playout' })}
-              >Restart playout <kbd>⌃R</kbd></button
+              >Restart playout <kbd>⌃R</kbd><kbd>⌃R</kbd></button
             >
           </div>
         {/if}
@@ -353,6 +548,9 @@
           <h1 data-panel-title>{v?.show.title || 'No show set'}</h1>
           {#if sub}
             <div class="sub">{sub}</div>
+          {:else if auto && keptSub(kept)}
+            <!-- Automation covers a lost link (ADR-0280): whose place is kept, and until when. -->
+            <div class="sub" data-testid="kept-sub"><b>Automation holds the air</b> · {keptSub(kept)}</div>
           {:else if auto}
             <div class="sub"><b>Automation holds the air</b> · {openCount} open to the room · listeners hear the log, {behind}</div>
           {:else if up}
@@ -391,10 +589,8 @@
               <span class="small">nothing is delayed</span>
             {:else if delay.rebuilding && delay.dumps > 0}
               <StateChip chip={CHIP.dumped} data-panel-title />
-              <span class="small"
-                >rebuilding {secs(delay.delay_ms)} s{#if delay.dumped_at_ms !== null}&nbsp;· {hms(delay.dumped_at_ms)}{/if} · listeners
-                now {secs(delay.delay_ms)} s behind</span
-              >
+              <!-- What the delay holds, not where listeners are: the stage's own line says that, once. -->
+              <span class="small">rebuilding · {secs(delay.delay_ms)} s held{#if delay.dumped_at_ms !== null}&nbsp;· {hms(delay.dumped_at_ms)}{/if}</span>
             {:else if delay.rebuilding}
               <StateChip chip={CHIP.delay} word="Delay building" data-panel-title />
               <span class="small">{secs(delay.delay_ms)} of {secs(delay.target_ms)} s held · Dump throws it away</span>
@@ -403,7 +599,7 @@
               <span class="state hollow hollow-accent" data-panel-title
                 ><svg class="g-accent" aria-hidden="true"><use href="#g-delay" /></svg>Delay {secs(delay.target_ms)} s</span
               >
-              <span class="small">full · listeners {secs(delay.delay_ms)} s behind</span>
+              <span class="small">full · {secs(delay.delay_ms)} s held</span>
             {/if}
           </div>
           <button
@@ -423,9 +619,12 @@
           <!-- The delay keeps running below Callers (ADR-0274); only its figure and Dump are out of sight. -->
           <span></span>
         {/if}
-        <!-- End show belongs to every step, Solo included; the Screener button comes with Full. -->
+        <!-- End show belongs to every step, Solo included; the Screener button comes with Full.
+             End show is drawn as Hand to automation is, outlined at 13 px with its key cap (the
+             look's review, question 7): of the two ways off the air, the proper one to end a show
+             must not look the quieter. Screener stays quiet: it only changes the tab. -->
         <div class="acts">
-          <button type="button" class="btn quiet" disabled={prep} title={prepWhy} onclick={() => run({ type: 'end-show' })}>End show <kbd>⌃⇧E</kbd></button>
+          <button type="button" class="btn quiet outline" data-testid="end-show" disabled={prep} title={prepWhy ?? endsToWords(v) ?? undefined} onclick={() => run({ type: 'end-show' })}>End show <kbd>⌃⇧E</kbd></button>
           {#if shown('screener-button', lk)}
             <button type="button" class="btn quiet" onclick={() => run({ type: 'tab', tab: 'screener' })}
               >Screener <kbd>⌃2</kbd></button
@@ -435,18 +634,18 @@
       </header>
 
       <div class="tiles">
-        {#if ownLink}
+        {#if ownHead}
           <!-- Before the DJ has joined (ADR-0274): one button, no name to type and no role to choose. -->
           <div class="empty join" data-testid="own-link">
             <b>You are not in the room yet</b>
-            <span>Your voice reaches the desk from a browser tab on this computer. Open your microphone link, press Join the studio, and you are on air.</span>
+            <span>{auto ? OWN_LINK.stageAuto : OWN_LINK.stage}</span>
             <Invite own />
           </div>
         {/if}
         {#each onStage as s (s.identity)}
-          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} />
+          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} kept={kept?.identity === s.identity ? kept : null} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} {othersOnAir} />
         {:else}
-          {#if !ownLink}
+          {#if !ownHead}
             <!-- Says why the stage is empty and what to do (the operator's 1.0.2 run: "Nobody is
                  open" told them neither, and a number key on an empty strip did nothing). -->
             <div class="empty" data-testid="stage-empty">
@@ -455,7 +654,7 @@
                 <span>{v?.desk.error ?? 'Waiting for the control plane.'}</span>
               {:else if offStage.length}
                 <b>Nobody is on air</b>
-                <span>{offStage.length === 1 ? `${offStage[0].name} has joined and waits` : `${offStage.length} people have joined and wait`} under <b>Not on air</b>, below. Press their number, 1 to 5, to put them on air.</span>
+                <span>{offStage.length === 1 ? (offStage[0].role === 'source' ? `${offStage[0].name} is standing by from their own studio` : `${offStage[0].name} has joined and waits`) : `${offStage.length} people have joined and wait`} under <b>Not on air</b>, below. Press their number, 1 to 5, to put them on air.</span>
               {:else}
                 <b>Nobody is in the room yet</b>
                 <span>People appear here when they join: send a guest an invitation, or join yourself with your own microphone link. Then press their number, 1 to 5, to put them on air.</span>
@@ -465,7 +664,54 @@
             </div>
           {/if}
         {/each}
-        {#if stepNoteShown(lk) && !ownLink && v?.desk.reachable}
+        {#if next}
+          <!-- The next show's source, in the guest's empty seat at Solo (design section 4.2): its
+               name and state, its meter, Cue on its strip's own key, and when the schedule
+               brings it on. No On: at Solo the air passes by End show or by the schedule. -->
+          {@const ns = next.source}
+          {@const nk = slotKeys(ns.slot)}
+          {@const nfirst = firstName(ns.name, ns.identity)}
+          <section class="empty seat next" data-panel="desk.next" aria-label="Next: {next.title}">
+            <span class="caps">Next</span>
+            <b data-panel-title>{next.title}</b>
+            <span class="row">
+              <StateChip chip={sourceChip({ on_air: false, mute: ns.mute, cue: ns.cue, ready: false }, up, mode)} />
+              <span class="small">{next.link}</span>
+            </span>
+            <div class="hmeter-wrap">
+              <div class="hmeter" role="img" aria-label={ns.lufs === null ? 'No level' : `Short-term ${signed(ns.lufs)} LUFS, target −23`}>
+                <div class="fill" style:width="{meterPct(ns.lufs)}%"></div>
+                {#if ns.lufs !== null && ns.lufs > -22}<div class="over" style:left="{meterPct(-23)}%" style:width="{meterPct(ns.lufs) - meterPct(-23)}%"></div>{/if}
+                {#if ns.lufs_peak !== null}<div class="peak" style:left="{meterPct(ns.lufs_peak)}%"></div>{/if}
+                <div class="target" style:left="{meterPct(-23)}%"></div>
+              </div>
+            </div>
+            {#if next.count}
+              <!-- The late count (design section 3.5): Not yet stops it, a button and no key. -->
+              {@const nh = hurry(next.count.at_ms - now)}
+              <span class="when" data-testid="next-when" data-hurry={nh?.level}>On air in <Hurry h={nh} /><b class="num">{dur(next.count.at_ms - now)}</b> · {next.words}{#if nh}<span class="sr-only"> {nh.word}.</span>{/if}</span>
+            {:else}
+              <span class="when" data-testid="next-when">{next.words}</span>
+            {/if}
+            <span class="row acts">
+              <button type="button" class="btn" class:lit-cue={ns.cue} aria-pressed={ns.cue} disabled={prep} title={prepWhy ?? `${nfirst} in your headphones; listeners do not hear them.`} onclick={() => run({ type: 'cue', slot: ns.slot })}
+                ><svg aria-hidden="true"><use href="#g-cue" /></svg> Cue {nfirst} <kbd>{nk.cue}</kbd></button
+              >
+              {#if next.count}
+                <button type="button" class="btn" disabled={prep} title={prepWhy ?? 'Stops the count. They stay standing by, and go on air by their own press.'} onclick={() => next.count && notYet(next.count.key)}>Not yet</button>
+              {/if}
+            </span>
+          </section>
+        {/if}
+        {#if ownBeside && !shown('waiting', lk)}
+          <!-- Solo has no Not on air row: while a host in their own studio has the air, the quiet
+               offer takes the guest's seat. No headline and no filled button: the show is theirs. -->
+          <div class="empty seat own" data-testid="own-link">
+            <span id="own-beside">{ownBeside}</span>
+            <Invite own beside="own-beside" />
+          </div>
+        {/if}
+        {#if stepNoteShown(lk) && !next && !ownLink && v?.desk.reachable}
           <!-- The guest's seat, empty at Solo: it says once why the desk is quiet, and offers the way up. -->
           <div class="empty seat" data-panel="desk.step-note">
             <b data-panel-title>Just you on this show</b>
@@ -480,16 +726,21 @@
 
       {#if shown('waiting', lk)}
         <div class="waiting" data-panel="desk.waiting">
-          <div class="wh">
-            <span data-panel-title>Not on air</span><span class="rule"
-              >a source moves between the stage and this row only on its own On key · the stage keeps slot order · cue,
-              talk and mute never move it · its keys never change · while playout is down the stage does not change: its
-              sources say OPEN (ADR-0062)</span
-            >
+          <div class="wh" class:has-own={!!ownBeside}>
+            <span data-panel-title>Not on air</span>{#if ownBeside}
+              <!-- A host in their own studio has the air: joining is offered here, quietly, beside
+                   Invite someone…, and the row's own note steps aside for it. -->
+              <span class="own" id="own-beside" data-testid="own-link">{ownBeside}</span>
+              <Invite own beside="own-beside" />
+            {:else}<span class="rule"
+                >a source moves between the stage and this row only on its own On key · the stage keeps slot order · cue,
+                talk and mute never move it · its keys never change · while playout is down the stage does not change: its
+                sources say OPEN (ADR-0062)</span
+              >{/if}
             {#if off('invite')}<span class="offtag">invitations {tag}</span>{:else}<Invite />{/if}
           </div>
           {#each offStage as s (s.identity)}
-            <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} />
+            <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} />
           {/each}
           <Tile source={null} slot={6} playoutUp={up} playoutForMs={playout.for_ms} {mode} />
         </div>
@@ -684,15 +935,21 @@
           </div>
         </section>
         {#if toast}
-          <div class="toast {toast.tone}" data-panel="desk.toast" role={toast.tone === 'good' || toast.tone === 'plain' ? 'status' : 'alert'}>
+          <!-- A toast with a count keeps its own glyph, the clock, in the count's last seconds: it
+               takes the level's colour, and the stripe stops at the warning colour. A count that
+               runs out is going to plan, so the toast never takes a critical alert's look. -->
+          {@const th = toast.count ? hurry(toast.count.left_ms) : null}
+          <div class="toast {toast.tone}" data-panel="desk.toast" data-hurry={th?.level} role={toast.tone === 'good' || toast.tone === 'plain' ? 'status' : 'alert'}>
             <div class="stripe"></div>
             <div class="body">
-              <svg aria-hidden="true"><use href="#{toast.glyph}" /></svg><span class="title" data-panel-title>{toast.title}</span>
+              <svg aria-hidden="true"><use href="#{toast.glyph}" /></svg><span class="title" data-panel-title
+                >{#if toast.count}{toast.count.lead} <span aria-hidden="true">{toast.count.tick}</span><span class="sr-only">{toast.count.said}</span>{#if th}<span class="sr-only"> {th.word}.</span>{/if}{:else}{toast.title}{/if}</span
+              >
               <span class="msg">{toast.msg}</span>
               {#if toast.acts.length}
                 <span class="acts">
                   {#each toast.acts as a (a.label)}
-                    <button type="button" class="btn" class:primary={a.primary} onclick={a.go}
+                    <button type="button" class="btn" class:primary={a.primary} aria-disabled={a.off ? 'true' : undefined} title={a.off} onclick={a.go}
                       >{a.label}
                       {#each a.keys as k, i (i)}<kbd>{k}</kbd>{/each}</button
                     >
@@ -712,6 +969,13 @@
         ><use href={v?.desk.reachable ? '#g-good' : '#g-fault'} /></svg
       >Room <b>LiveKit</b> · {peopleIn} in</span
     >
+    {#if ownStudios}
+      <!-- Hosts in their own studios (ADR-0280): what is connected. Not listening is Settings'
+           to say; the studio's view does not carry it. -->
+      <span class="item" data-testid="own-studios"
+        >{#if kept && !kept.back}<svg class="g-serious" aria-hidden="true"><use href="#g-link-degraded" /></svg>{:else}<svg aria-hidden="true"><use href="#g-disc" /></svg>{/if}Own studios <b>{ownStudios}</b></span
+      >
+    {/if}
     {#if up}
       <span class="item"><svg class="g-good" aria-hidden="true"><use href="#g-good" /></svg>To playout <b>SRT connected</b></span>
     {:else}
@@ -724,7 +988,7 @@
           style="min-height:1.5rem;padding:0 var(--s-1)"
           disabled={prep}
           title={prepWhy}
-          onclick={() => run({ type: 'restart-playout' })}>Restart <kbd>⌃R</kbd></button
+          onclick={() => run({ type: 'restart-playout' })}>Restart <kbd>⌃R</kbd><kbd>⌃R</kbd></button
         ></span
       >
     {/if}

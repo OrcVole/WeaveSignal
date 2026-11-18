@@ -156,7 +156,7 @@ const ME: Me = {
   preparing: false,
 };
 /** The routes a real station refuses a preparing window (ADR-0276): what changes the air. */
-const ON_AIR_ROUTES = ['/api/v1/desk/commands', '/api/v1/screener/commands', '/api/v1/carts/commands', '/api/v1/passes/end', '/api/v1/show/end', '/api/v1/playout/mode'];
+const ON_AIR_ROUTES = ['/api/v1/desk/commands', '/api/v1/screener/commands', '/api/v1/carts/commands', '/api/v1/passes/end', '/api/v1/show/end', '/api/v1/playout/mode', '/api/v1/playout/restart'];
 
 const NOT_HERE = 'Not in the sandbox: this part needs a real station (weavesignal.top/run/ says how to run one)';
 const NO_CHAT = 'The live chat is not in the sandbox; on a real station listeners chat from the player page';
@@ -239,6 +239,10 @@ export const sandboxFetch: typeof fetch = async (input, init) => {
       push();
     }, wait + 1000);
     return json(200, { view: station.view(now), off_air: onAir.length, automation_in_ms: wait + 1000 });
+  }
+  if (method === 'POST' && path === '/api/v1/playout/restart') {
+    // The sandbox's playout is a script: nothing restarts, and the answer says so.
+    return json(200, { restarting: true, words: 'Playout is restarting (the sandbox only pretends). On a real station listeners hear the fallback for a few seconds.' });
   }
   if (method === 'POST' && path === '/api/v1/playout/mode') {
     const b = (await body(init)) as { mode?: unknown };

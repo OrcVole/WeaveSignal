@@ -17,7 +17,7 @@ You use two windows: the **studio app**, which shows the desk and takes your key
 1. Put on headphones, never speakers, so nobody hears themselves echo back on air.
 2. Open the studio app and sign in. It opens on the **Desk** tab.
 3. Join with your voice:
-   - press **Join with my microphone…** on the empty stage, then **Open in browser**;
+   - press **Join with my microphone…** on the empty stage, then **Open in browser**, and keep that tab open: it carries your voice;
    - or open the invitation link the station sent you, in a browser.
 4. On the page, press **Join the studio**, and allow the microphone when the browser asks.
 

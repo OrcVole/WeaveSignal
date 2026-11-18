@@ -30,6 +30,22 @@ The invitation page for a guest, and the echo test:
 
 ![The echo test page with its Start the echo test button.](../../../../assets/screens/reference-public-pages-echo-test.png)
 
+### The monitor link
+
+The same build holds the **monitor link** (`/monitor/#<secret>`), the page a host in their own studio keeps open beside their software (ADR-0280; [Use your monitor link](/docs/how-to/use-your-monitor-link/)).
+
+- **The secret** rides after the `#` and is sent only as a bearer, so no address the server logs holds it. The page carries its own `noindex`.
+- **The view** comes from `GET /api/v1/monitor/events` every second. The lamp is drawn from its `state` alone; every sentence is the station's as sent. After 3.5 s without a view the page says *This page has lost the station* and shows no lamp, chip or control until one arrives.
+- **Every time and count** is on the station's clock, kept from `station.now_ms` in each view against the page's steady time (`performance.now()`), never the device's clock.
+- **A count's last seconds**: every count the page shows (the post, a late start's *On air in*, the grace, the place kept, a show's start) is amber from 30 s and red from 10 s, by the figure shown (`0:30` is the first amber, `0:10` the first red). The status tokens are the desk's own (`--status-warning`, `--status-critical`); the figure is large text, 3:1 or better in Dark, Light and Night (3.56 at the lowest, Dark's red). The words *Last 30 seconds* and *Last 10 seconds* go with the colour (no new glyph or state), and the figure's weight rises one step.
+- **Start listening** is off in look and in behaviour (`aria-disabled`, still reachable by Tab, with its reason in words beside it and tied to it) while nothing can play: the page has lost the station, the host's state is `link_lost`, or it is not `standby`, `on_air` or `open` (`test`, `not_connected`). Standing by it is on even before the desk has made the mix, because the press is what asks for it.
+- **The sound** is the host's monitor room, joined listen only with a token from `POST /api/v1/monitor/token` when **Start listening** is pressed; a direct connection first, then the relay, as on the invitation page. Each attempt is given the room client's own time and 8 s more (20 s direct, 28 s through the relay), then counted as failed, so the page never stays on *Connecting*.
+- **The listeners' stream** plays on the page, from the player's own address (`/api/v1/player`), only while the view says `state` is `standby` or `open` and `monitor_has_programme` is false (nobody else on air at the desk, or automation holds the air); in `open` the words say it is the station's output and that the room's voices are not in it, and no level bar is drawn beside it: the desk's mix is then silent. It starts inside the press of **Start listening**, stops within one view of any change, and when views stop arriving. The page needs the player's `stream_url` under its `media-src`, as the player page does.
+- **The controls** are the routes' own (`go`, `not-yet`, `cue`, `handover`, `end-show`, `dump`); a refusal's words are printed as sent. Dump is two presses within 3 s, End my show asks once, and no single key does anything. A press that is not answered within 8 s is given up, and the page says *The station did not answer. Look at the lamp before you press again.*
+- **The look** follows the device's light or dark setting, with a **Night** switch (ADR-0270); in Night the station's own accent colour is not applied.
+
+It is driven by `just test-monitor-page` against a stand-in station (Chromium; no real room), which also opens the build a station serves once, with the real room client against a room that is not there.
+
 From 1.0.1 the same build holds the station's **setup page** (`/setup/`), for its admin only: it shows nothing until someone signs in with the station key or as an admin, and it is never listed ([Set up the station and its look](/docs/how-to/set-up-the-station/)).
 The three public pages take the station's accent colour, icon and banner when it has set them ([The station's look](/docs/reference/branding/)).
 

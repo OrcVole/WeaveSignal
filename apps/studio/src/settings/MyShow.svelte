@@ -4,13 +4,15 @@
   // Settings > Your show (ADR-0218): the show tied to the signed-in account, as the setup
   // wizard left it, with the wizard to run again; or the invitation to set one up. Drawn for
   // a member of staff signed in as themselves; the station key has no account to tie a show
-  // to. Panel name `settings.my-show` (ADR-0070).
+  // to. Panel name `settings.my-show` (ADR-0070). Under the show's facts is Broadcast from your
+  // own software (ADR-0280): the presenter's own key for the show, as ShowSource draws it.
   import { onMount, untrack } from 'svelte';
   import type { Me } from '../lib/api.ts';
   import type { Show } from '../lib/schedule.ts';
   import { loadShows, mine, openSetup, setup } from '../lib/wizard.svelte.ts';
   import { myShow } from '../lib/wizard.ts';
   import { shortOfSlot } from '../schedule/rule/form.ts';
+  import ShowSource from './ShowSource.svelte';
 
   let { me, initial = null }: { me: Me; initial?: Show[] | null } = $props();
 
@@ -70,6 +72,11 @@
     <div class="acts">
       <button type="button" class="btn" onclick={openSetup}>Change…</button>
     </div>
+    <!-- Broadcast from your own software (ADR-0280): the presenter's own key for their show.
+         Not drawn from a test's seeded shows, which have no station to ask. -->
+    {#if seed === null}
+      {#key show.slug}<ShowSource slug={show.slug} name={show.name} as="block" who={{ label: show.presenter || me.account?.name || '', staffId: me.account?.id ?? null }} />{/key}
+    {/if}
   {:else}
     <p class="help">
       You have not set up a show yet. Three short parts, then done: your on-air name and takedown contact, your show, and when it is on.

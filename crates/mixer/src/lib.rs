@@ -16,10 +16,14 @@
 //! - [`Chain`]: expander, compressor, make-up gain with the leveller, limiter: a
 //!   participant's input chain, set per role in the desk's settings.
 //! - [`LoudnessMeter`]: EBU R128 short-term and momentary loudness, for the desk's meters.
+//! - [`SourceLeveller`]: the slow ±12 dB gain on a host's own studio (ADR-0280), measured over
+//!   ten seconds and frozen in silence.
 //! - [`InputRing`]: where a voice's receiving thread leaves decoded audio for the mixing pass.
 //! - [`DelayLine`]: the profanity delay, with its dump and rebuild.
 //! - [`CartFeed`] and [`CartPlayer`]: a cart as a source of the pass, with its gain, its stop
 //!   fade and a bed's duck under an open microphone (ADR-0117).
+//! - [`Fade`] and [`ramp_toward`]: a voice's gate over seconds instead of one block, for the
+//!   schedule's moves (ADR-0280).
 //! - [`mix_into`]: one voice added into a bus with a gain ramped across the block.
 
 mod cart;
@@ -27,10 +31,12 @@ mod chain;
 mod compressor;
 mod delay;
 mod expander;
+mod fade;
 mod leveller;
 mod limiter;
 mod loudness;
 mod ring;
+mod source_leveller;
 mod telephone;
 
 pub use cart::{CartFeed, CartPlayer, DUCK_DB, DUCK_MS, Pulled, STOP_FADE_MS};
@@ -38,10 +44,12 @@ pub use chain::{Chain, ChainSettings};
 pub use compressor::{Compressor, CompressorSettings};
 pub use delay::{DelayLine, DelaySettings, DelayState};
 pub use expander::{Expander, ExpanderSettings};
+pub use fade::{Fade, ramp_toward};
 pub use leveller::{Leveller, LevellerSettings};
 pub use limiter::{Limiter, LimiterSettings};
 pub use loudness::{FLOOR_LUFS, Loudness, LoudnessMeter};
 pub use ring::{InputRing, RingStats};
+pub use source_leveller::{SourceLeveller, SourceLevellerSettings};
 pub use telephone::{Telephone, TelephoneSettings};
 
 /// The sample rate everything at the desk runs at.

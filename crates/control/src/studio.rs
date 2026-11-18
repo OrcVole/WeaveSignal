@@ -269,7 +269,16 @@ pub struct Studio {
     /// The picture mode the desk had before the slate was held below Full (the desk's
     /// `desk.picture` mode as it reports it), to put back when the step returns to Full.
     held_picture: Option<serde_json::Value>,
+    /// Slots promised to a host's own studio as the ingest admitted it (ADR-0280), until the
+    /// desk reports it there: identity to (slot, until when).
+    reserved: BTreeMap<String, (usize, u64)>,
+    /// The next handover as the post's rule last worked it out (ADR-0280); `None` before the
+    /// first look and when there is nothing to say.
+    post: Option<weavesignal_model::post::PostView>,
 }
+
+/// How long a slot promised to an admitted source waits for the desk to report it.
+pub const SLOT_RESERVED_MS: u64 = 30_000;
 
 /// How long a dropped caller is not taken back from the desk's list, whatever it says (its
 /// status can be a poll behind the removal).
@@ -307,6 +316,10 @@ pub struct View {
     /// The playout setting the control plane holds playout to; `None` until it has been read
     /// (and on a station without the playout layer).
     pub mode: Option<StationMode>,
+    /// The next handover (ADR-0280): the show whose post it is, its host's source and the clocks of
+    /// the post's rule (the grace, the late count), who holds it, a lost link and its place kept.
+    /// Absent when there is no handover to show.
+    pub post: Option<weavesignal_model::post::PostView>,
 }
 
 /// How many listeners one mount of the listener process has now.
@@ -331,6 +344,29 @@ pub struct AudienceView {
     /// The station has edges or a CDN configured: steering has a pathway beside the origin, or
     /// `join.hls_url` points the player at another address.
     pub edges: bool,
+    /// What the count covers (issue 17): always `origin` today, the listeners connected to this
+    /// station's own listener process, every mount together. Not counted: listeners on an edge
+    /// or a CDN (an edge's relay is one connection here, so with `edges` true the figure is a
+    /// floor), and video viewers on HLS.
+    pub scope: AudienceScope,
+}
+
+/// What an audience count covers.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AudienceScope {
+    /// The station's own listener process, every mount; edges and HLS not added.
+    Origin,
+}
+
+/// Whether the listener delay is a measurement of the whole path or an estimate.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DelayBasis {
+    /// Part of the figure is a setting (`set_ms`): the stream's own hold and a player's buffer.
+    Estimate,
+    /// The whole path was measured end to end and `set_ms` is 0. Nothing produces this yet.
+    Measured,
 }
 
 /// The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read
@@ -358,6 +394,14 @@ pub struct ListenerDelay {
     /// The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own
     /// hold, playout and a listener's player. Never read.
     pub rest_ms: u64,
+    /// `estimate` while `set_ms` is not 0; `measured` only when the whole path was measured
+    /// (issue 17). The same fact as `measured`, as a word a client can show.
+    pub basis: DelayBasis,
+    /// The part of `ms` that is read live now: `desk_ms` plus `process_ms` (the latter 0 while
+    /// the listener process does not answer).
+    pub read_ms: u64,
+    /// The part of `ms` that is a setting and never read: the same as `rest_ms`.
+    pub set_ms: u64,
 }
 
 /// What the `studio.listener_delay_ms` setting is taken to include of the listener process's
@@ -568,6 +612,9 @@ fn preferred(role: Role) -> &'static [usize] {
         Role::Guest => &[2, 3, 1, 4, 5],
         Role::Caller => &[4, 3, 2, 5, 1],
         Role::Dj => &[5, 1, 2, 3, 4],
+        // A host's own studio (ADR-0284's extension of ADR-0096): the DJ's slot, then 1, 2, 3;
+        // never 4, the caller's.
+        Role::Source => &[5, 1, 2, 3],
         Role::Screener | Role::Producer | Role::Listener => &[],
     }
 }
@@ -602,6 +649,15 @@ impl Studio {
     /// The station's mode, as the playout settings say. Returns whether it changed.
     pub fn set_station_mode(&mut self, mode: StationMode) -> bool {
         self.mode.replace(mode) != Some(mode)
+    }
+
+    /// The post's rule's view of the next handover; returns whether it changed.
+    pub fn set_post(&mut self, post: Option<weavesignal_model::post::PostView>) -> bool {
+        if self.post == post {
+            return false;
+        }
+        self.post = post;
+        true
     }
 
     /// The station's mode; `None` until the settings have been read.
@@ -931,9 +987,19 @@ impl Studio {
                 *slot = None;
             }
         }
-        // ...and seat newcomers by the rule above, in the desk's order.
+        // ...and seat newcomers by the rule above, in the desk's order; a slot promised to an
+        // admitted source is kept for it, and given to it first.
+        self.reserved.retain(|_, (_, until)| now < *until);
         for p in &desk.people {
             if self.slots.iter().flatten().any(|id| *id == p.identity) {
+                self.reserved.remove(&p.identity);
+                continue;
+            }
+            if let Some(&(n, _)) = self.reserved.get(&p.identity)
+                && self.slots[n - 1].is_none()
+            {
+                self.slots[n - 1] = Some(p.identity.clone());
+                self.reserved.remove(&p.identity);
                 continue;
             }
             let eligible = match p.role {
@@ -951,9 +1017,14 @@ impl Studio {
             if !eligible {
                 continue;
             }
+            let promised = |n: usize| {
+                self.reserved
+                    .iter()
+                    .any(|(id, (r, _))| *r == n && *id != p.identity)
+            };
             if let Some(&n) = preferred(p.role)
                 .iter()
-                .find(|&&n| self.slots[n - 1].is_none())
+                .find(|&&n| self.slots[n - 1].is_none() && !promised(n))
             {
                 self.slots[n - 1] = Some(p.identity.clone());
             }
@@ -975,6 +1046,43 @@ impl Studio {
                 },
             );
         }
+    }
+
+    /// The slot a host's own studio would take now (5, then 1, 2, 3), promised to it until
+    /// [`SLOT_RESERVED_MS`] from `now`; `None` when every one is taken or promised.
+    pub fn reserve_source_slot(&mut self, identity: &str, now: u64) -> Option<usize> {
+        self.reserved.retain(|_, (_, until)| now < *until);
+        if let Some(n) = self.slot_of(identity) {
+            return Some(n);
+        }
+        let n = match self.reserved.get(identity) {
+            Some(&(n, _)) => n,
+            None => *preferred(Role::Source).iter().find(|&&n| {
+                self.slots[n - 1].is_none() && !self.reserved.values().any(|(r, _)| *r == n)
+            })?,
+        };
+        self.reserved
+            .insert(identity.to_owned(), (n, now + SLOT_RESERVED_MS));
+        Some(n)
+    }
+
+    /// The slot a host's own studio would take now, without promising it.
+    pub fn free_source_slot(&self, identity: &str, now: u64) -> Option<usize> {
+        if let Some(n) = self.slot_of(identity) {
+            return Some(n);
+        }
+        if let Some(&(n, until)) = self.reserved.get(identity)
+            && now < until
+        {
+            return Some(n);
+        }
+        preferred(Role::Source).iter().copied().find(|&n| {
+            self.slots[n - 1].is_none()
+                && !self
+                    .reserved
+                    .iter()
+                    .any(|(id, (r, until))| *r == n && id != identity && now < *until)
+        })
     }
 
     pub fn slot_of(&self, id: &str) -> Option<usize> {
@@ -1227,6 +1335,9 @@ impl Studio {
             desk_ms,
             process_ms,
             rest_ms,
+            basis: DelayBasis::Estimate,
+            read_ms: desk_ms + process_ms.unwrap_or(0),
+            set_ms: rest_ms,
         }
     }
 
@@ -1377,9 +1488,11 @@ impl Studio {
                 by_mount: self.mounts.clone(),
                 error: self.audience_error.clone(),
                 edges: self.edges,
+                scope: AudienceScope::Origin,
             },
             step: self.step.view.clone(),
             mode: self.mode,
+            post: self.post.clone(),
         }
     }
 }
@@ -1429,7 +1542,8 @@ mod tests {
                 listeners: None,
                 by_mount: vec![],
                 error: None,
-                edges: false
+                edges: false,
+                scope: AudienceScope::Origin
             }
         );
         let counted = vec![mount("/programme.mp3", 112), mount("/programme.opus", 500)];
@@ -1449,7 +1563,8 @@ mod tests {
                 listeners: Some(612),
                 by_mount: vec![mount("/programme.opus", 500), mount("/programme.mp3", 112)],
                 error: None,
-                edges: true
+                edges: true,
+                scope: AudienceScope::Origin
             },
             "the total adds the mounts, the busiest first"
         );
@@ -1471,7 +1586,8 @@ mod tests {
                 "listeners": null,
                 "by_mount": [],
                 "error": "the listener process does not answer",
-                "edges": true
+                "edges": true,
+                "scope": "origin"
             })
         );
         // A count wipes the reason.
@@ -1499,7 +1615,10 @@ mod tests {
                 measured: false,
                 desk_ms: 8_000,
                 process_ms: None,
-                rest_ms: 13_000
+                rest_ms: 13_000,
+                basis: DelayBasis::Estimate,
+                read_ms: 8_000,
+                set_ms: 13_000
             }
         );
         // Its buffer read: it replaces the 0.5 s the setting is taken to hold, once.
@@ -1521,6 +1640,18 @@ mod tests {
             !read.measured,
             "the mount's hold and the player are never read"
         );
+        assert_eq!(read.basis, DelayBasis::Estimate);
+        assert_eq!(read.read_ms, 8_000 + 3_600);
+        assert_eq!(read.set_ms, read.rest_ms);
+        assert_eq!(
+            read.ms,
+            read.read_ms + read.set_ms,
+            "read and set make the whole"
+        );
+        let json = serde_json::to_value(read).unwrap();
+        assert_eq!(json["basis"], "estimate");
+        assert_eq!(json["read_ms"], 11_600);
+        assert_eq!(json["set_ms"], 12_500);
         // No desk: no profanity delay.
         assert_eq!(s.listener_delay(None).desk_ms, 0);
         assert!(s.set_feed_buffer(None));
@@ -1565,6 +1696,7 @@ mod tests {
             linked: true,
             lufs: None,
             lufs_peak: None,
+            source: None,
         }
     }
 
@@ -1636,6 +1768,52 @@ mod tests {
         let v = s.view("Kettle FM", Some(&room), None, 2);
         assert_eq!(v.seats.presenter.as_deref(), Some("eilidh"));
         assert_eq!(v.seats.screener.as_deref(), Some("moira"));
+    }
+
+    #[test]
+    fn a_source_takes_the_slot_it_was_promised_and_others_go_round_it() {
+        let mut s = Studio::new("", vec![]);
+        // Admitted: slot 5, the DJ's, is promised to Finlay's studio.
+        assert_eq!(s.reserve_source_slot("source-finlay01", 0), Some(5));
+        // A DJ joins the room before the desk reports the source: slot 5 is kept for it.
+        s.sync(&desk(vec![person("eilidh", Role::Dj)]), 100);
+        assert_eq!(s.slot_of("eilidh"), Some(1));
+        s.sync(
+            &desk(vec![
+                person("eilidh", Role::Dj),
+                person("source-finlay01", Role::Source),
+            ]),
+            200,
+        );
+        assert_eq!(s.slot_of("source-finlay01"), Some(5));
+        // A second source goes to the next of 1, 2, 3 that is free.
+        assert_eq!(s.reserve_source_slot("source-heathe02", 300), Some(2));
+        // A promise not kept lapses.
+        s.sync(
+            &desk(vec![
+                person("eilidh", Role::Dj),
+                person("source-finlay01", Role::Source),
+            ]),
+            300 + SLOT_RESERVED_MS,
+        );
+        assert_eq!(
+            s.reserve_source_slot("source-other003", 300 + SLOT_RESERVED_MS),
+            Some(2)
+        );
+        // Never slot 4, the caller's: with 1, 2, 3 and 5 taken there is no place.
+        s.sync(
+            &desk(vec![
+                person("eilidh", Role::Dj),
+                person("source-finlay01", Role::Source),
+                person("source-other003", Role::Source),
+                person("gregor", Role::Guest),
+            ]),
+            400 + SLOT_RESERVED_MS,
+        );
+        assert_eq!(
+            s.reserve_source_slot("source-late0004", 500 + SLOT_RESERVED_MS),
+            None
+        );
     }
 
     #[test]

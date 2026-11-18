@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, and **1.0.5** on 2026-11-16, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, and **1.1.0** on 2026-11-18, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -32,9 +32,9 @@ Where a page says **planned**, the feature is not in release one; [Not in releas
 
 | Part | What is left out |
 |---|---|
-| **M2**, the rest | a 30-minute show driven from the keyboard alone; the webview tests on Debian and the GNOME runtime; the studio app joining the room itself (ADR-0013); the Chat tab (`⌃4`) (the chat is on the Screener tab; from 1.0.2 the desk's Chat panel has it to read); a fader on the desk's tiles, and a camera picture in them; the desk's rundown and show heading from the schedule, and the banned list from the moderation log, which are still settings; a listener delay read from end to end, which is still partly a setting (the parts that can be read are read, from 1.0.2); a screen for webhooks (they are made through the API) |
+| **M2**, the rest | a 30-minute show driven from the keyboard alone; the webview tests on Debian and the GNOME runtime; the studio app joining the room itself (ADR-0013); the Chat tab (`⌃4`) (the chat is on the Screener tab, and from 1.1 `⌃4` opens its Room lane; from 1.0.2 the desk's Chat panel has it to read); a fader on the desk's tiles, and a camera picture in them; the desk's rundown and show heading from the schedule, and the banned list from the moderation log, which are still settings; a listener delay read from end to end, which is still partly a setting (the parts that can be read are read, from 1.0.2); a screen for webhooks (they are made through the API) |
 | **M3**, the rest | a join from a GrapheneOS phone over a real network; WHIP for remote DJs; in 1.0.0, the DJ overlap handover (`⇧⏎` showed a note; built since, below) |
-| **M4**, the rest | what playout does differently with a pre-recorded episode; studios on shows; in the studio app, restart playout (`⌃R`), restart the encoder, the backup stream, playout as slot 6, playout's queue and hard posts, and the listener server's health and the logger on the desk; the screener's listener count |
+| **M4**, the rest | what playout does differently with a pre-recorded episode; studios on shows; in the studio app, restart playout (`⌃R`, built in 1.1 as two presses), restart the encoder and the backup stream (neither is a key from 1.1), playout as slot 6, playout's queue and hard posts, and the listener server's health and the logger on the desk; the screener's listener count |
 | **M5**, the rest | Safari's Opus in fMP4 measured on a device; the GPU in the Compose bundle; a still per episode and the slide schedule (a still per show is built); video for callers |
 | **M7**, the rest | an edge on another network, with join time and failover in a real hls.js player; steering through Bunny tried against Bunny itself; the hours-long real-network soak of `icecast.server` against Icecast 2.5.0, which decides the listener server (ADR-0011) |
 | **M8**, the rest | a step that publishes an episode's words before it airs; opening an episode's recording and publishing it as a podcast episode from the studio app (files are attached through the API); an episode marked as aired by itself (only **On air now** does it) |
@@ -105,6 +105,22 @@ Released in 1.0.5 (2026-11-16):
 | **The public JSON routes on Cloudron** (ADR-0282) | `/api/v1/public/station`, `/schedule` and `/episodes` (and the calendar files) answer on a Cloudron station's public domain, GET only, as on the Compose edge |
 | **A window that fits a small screen** | the studio app opens maximised where a screen is small (a 1366 by 768 laptop holds it), and the root text no longer jumps on large screens (ADR-0286) |
 
+Released in 1.1.0 (2026-11-18):
+
+| Part | What it brings |
+|---|---|
+| **Hosts in their own studios** (ADR-0280, ADR-0284) | a host sends their show from their own software over Icecast (MP3, AAC, Opus, Vorbis, FLAC) or SRT (encrypted with the key), with a show key made in **Settings › Own studios**; outside the show's time it is a private test, in it the source stands by on the desk, levelled, until put on air; the station keeps the addresses of connections 30 days. Two ports, off until set: `SOURCE_ICECAST_PORT` and `SOURCE_SRT_PORT` ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)) |
+| **The schedule hands over at the post** | with automation holding the air, the next host standing by goes on air at the post, to the second; a late host is counted in; a DJ on air keeps the air for a grace, then the schedule hands over (a producer or an admin can hold it); a lost link is covered by automation, its place kept and returned to; the moves cross over in 2 s |
+| **The monitor link** | a page for each host, opened by a link that carries its secret: a lamp with the station's sentence, counts on the station's clock, the station without the host's own voice (also while the host stands by or is OPEN), and Go on air now, Not yet, Cue, the handover, End my show and Dump ([Use your monitor link](/docs/how-to/use-your-monitor-link/)) |
+| **The desk's counts and a quieter join** | every count turns amber in its last 30 seconds and red in its last 10; **Leave** on your own tile; **Hand to automation** as wide as the lamp; the join offer is one quiet line while a host has the air; the listener delay shown as its parts, with the audience's scope (issue 17) |
+| **Keys** (ADR-0289, issue 9) | `⌃R` twice restarts playout (`POST /api/v1/playout/restart`); `⌃4` opens the Screener's Room lane; `⌃⇧R` and `⌃⇧B` are no longer keys ([The keymap](/docs/reference/keymap/)) |
+| **A show's presenter and Comes from** | the show editor's **Staff account** picks the member of staff who presents a show, from `GET /api/v1/staff/directory` (a producer's and an admin's); **New show** asks **Comes from**: the room, or the host's own studio |
+| **The show, the rundown, the banned list and steering as settings** (issue 5) | `STUDIO_*` and `STEERING_*` in `.env` and `weavesignal.env`, so the Compose bundle and the Cloudron package no longer need a file for them ([Set the show, the rundown and the banned list](/docs/how-to/set-the-show/)) |
+| **The presenter's gate keeps the end of a word** (issue 16) | the expander holds open for 250 ms (`hold_ms`, 0 to 2000) after the voice falls |
+| **A station not set up yet says so** | on its own address the station shows a short page pointing to `/setup/` and the studio app, not the player, until it is named and its setup finished; a station still called Kettle FM whose setup was never finished shows it after the update |
+
+Not in 1.1: the station pulling a host's or a partner's stream, the studio app as a bridge (release two), the listener delay as two settings, and a GPU for the Compose desk (1.2, ADR-0289).
+
 ## Decisions that changed release one
 
 | Decision | What it changed |
@@ -123,7 +139,7 @@ Released in 1.0.5 (2026-11-16):
 | `weavesignal.sh` refuses `podman-compose`: it ignores the top-level `configs` that carry every service's settings | Use Docker Compose, or Podman with the docker-compose provider ([Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/)) |
 | Firefox for Android cannot use the microphone until Android allows it | In Android's settings, allow Firefox's microphone permission; the call page says when the microphone was refused |
 | The station's own player following content steering to an edge has not been tried in a browser: 1.0.1's CSP allows the edges' hosts (1.0.0's allowed only the station and `join.hls_url`) | Try it against your edges before relying on it, or point `join.hls_url` at one CDN address ([Put Bunny in front of the station](/docs/how-to/use-bunny/#send-viewers-to-bunny)) |
-| The desk's show heading, rundown and banned list come from `[studio]`, which the Compose bundle cannot set: it writes the control plane's settings without that section, and has no place for the station's own file | On Compose the desk says *No show set*. On Cloudron (from 1.0.1) put them in `/app/data/station.toml`; with the Quadlets, edit the generated file ([Set the show, the rundown and the banned list](/docs/how-to/set-the-show/)) |
+| In 1.0.5 the desk's show heading, rundown and banned list come from `[studio]`, which the Compose bundle cannot set: it writes the control plane's settings without that section, and has no place for the station's own file | From 1.1 the Compose bundle and the Cloudron package take them from `STUDIO_*` lines, and steering from `STEERING_*` ([Set the show, the rundown and the banned list](/docs/how-to/set-the-show/)). In 1.0.5 on Compose the desk says *No show set*; on Cloudron (from 1.0.1) put them in `/app/data/station.toml`; with the Quadlets, edit the generated file |
 | The studio app's Linux webview has no WebRTC | Presenters and guests join the room from a browser; the studio app drives the desk |
 | The Windows installer is unsigned | Edge holds the download and SmartScreen may stop it the first time; run on Windows 11 on 2026-11-15 ([Install the studio app on Windows](/docs/how-to/install-studio-windows/)) |
 | The Cloudron package 1.0.0 runs with Cloudron's soft limit of 1,024 open files, so its listener stream takes fewer than 1,024 listeners | Update to 1.0.1, which raises it to 65,536 ([Open files and large audiences](/docs/how-to/install-on-cloudron/#open-files-and-large-audiences)) |

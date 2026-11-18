@@ -7,6 +7,11 @@
   // ADR-0270), over the surface of the tab. One keyboard handler for every surface, from the
   // keymap (ADR-0063); the key of a part the step hides does nothing, and says so once.
   //
+  // The frame's spare room, between the tabs and who is signed in, says the studio app's version
+  // (the operator, 2026-11-17), and the station's beside it when the two differ (lib/version.ts).
+  // It is words in the frame's own quiet ink, not a control, and it takes only room nobody else
+  // wants: the name goes first, then the number, before it would push anything to a second row.
+  //
   // A staff window is Live or Preparing (ADR-0276): the control beside who is signed in, and,
   // while preparing, a band under the frame on the tabs that drive the air (Desk, Screener,
   // Carts). A preparing window's keys change nothing on air; the band answers instead.
@@ -27,6 +32,9 @@
   import SessionEnded from './lib/SessionEnded.svelte';
   import ShowWizard from './settings/ShowWizard.svelte';
   import Schedule from './schedule/Schedule.svelte';
+  import Tip from '../../../packages/ui/Tip.svelte';
+  import { APP_VERSION } from './appVersion.ts';
+  import { rereadNow, versionLabel } from './lib/version.ts';
   import { base, follow, noteStation, packaged, sandboxed, savedStation, stationVersion } from './lib/api.ts';
   import { onLeave } from './lib/reset.ts';
   import { hereRow, onBeforeLeave, settleArrival, stations } from './lib/stations.svelte.ts';
@@ -46,12 +54,12 @@
   import { PANELS } from '../../../packages/ui/panels.ts';
   import { ARM_MS, KeyEngine, type Tab } from '../../../packages/ui/keymap.ts';
 
-  // A tab keeps its number at every step: ⌃1 Desk, ⌃3 Carts, ⌃5 Schedule.
+  // A tab keeps its number at every step: ⌃1 Desk, ⌃3 Carts, ⌃5 Schedule. ⌃4 has no tab: it
+  // opens the Room lane of the Screener tab (a Chat tab may take it back later).
   const TABS: { tab: Tab; n: number; label: string; built: boolean }[] = [
     { tab: 'desk', n: 1, label: 'Desk', built: true },
     { tab: 'screener', n: 2, label: 'Screener', built: true },
     { tab: 'carts', n: 3, label: 'Carts', built: true },
-    { tab: 'chat', n: 4, label: 'Chat', built: false },
     { tab: 'schedule', n: 5, label: 'Schedule', built: true },
   ];
   /** The station's step: what is switched on. */
@@ -190,13 +198,33 @@
   /** One row for the frame, two for the sandbox's guide, one for each band, then the surface. */
   const rows = $derived(`${'auto '.repeat(1 + (sandboxed() ? 2 : 0) + (studio.showAll ? 1 : 0) + (prepBand ? 1 : 0))}minmax(0, 1fr)`);
 
+  /** The frame's version: the app's own, and the station's beside it when they differ. */
+  const ver = $derived(versionLabel(APP_VERSION, studio.stationVersion));
+  let verEl = $state<HTMLElement | null>(null);
+
+  // The station's version is read once at the start (in the packaged app with the arrival below,
+  // which needs it too; in a browser when the page opens), and again when the link comes back
+  // after a while, which is when a station that was updated says so. An answer that cannot be
+  // read leaves what was known.
+  let versionReadAt = 0;
+  function readVersion(): Promise<string | null> {
+    versionReadAt = Date.now();
+    return stationVersion().then((v) => {
+      if (v !== null) studio.stationVersion = v;
+      return v;
+    });
+  }
+  $effect(() => {
+    if (studio.link === 'live' && rereadNow(versionReadAt, Date.now())) void readVersion();
+  });
+
   // Once the station has said who the window is (ADR-0285): the list is told what the window
   // sees here, and after a switch the toast slot says where the window is. Once a page.
   let arrived = false;
   $effect(() => {
     if (arrived || !account.loaded || !packaged() || !savedStation()) return;
     arrived = true;
-    void stationVersion().then(settleArrival);
+    void readVersion().then(settleArrival);
   });
   // The station's own name, when the view brings one the list does not have yet.
   $effect(() => {
@@ -220,6 +248,9 @@
       .then(() => (isAdmin(account.me) ? setupState() : null))
       .then((s) => (studio.setupPending = s && s.status === 'pending' ? s.missing : null))
       .catch(() => {});
+    // The station's version for the frame; the packaged app reads it with its arrival, and the
+    // sandbox has no station to ask.
+    if (!packaged() && !sandboxed()) void readVersion();
     // The station's time zone, so the rundown's times are the station's (issue 10).
     void stationZone()
       .then((z) => (studio.zone = z.zone))
@@ -306,7 +337,21 @@
         onclick={() => (studio.settings = true)}>Settings</button
       >
     </nav>
-    <span class="spacer"></span>
+    <!-- The spare room says the app's version, and gives it up before anything wraps: the
+         spacer is a container with no width of its own, and the words are drawn only as far
+         as it has room (the styles below). Not a control: a word with its tooltip, as a state
+         word has, so it takes a tab stop. -->
+    <span class="spacer">
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <span bind:this={verEl} class="ver st-trigger" class:differs={!!ver.station} data-testid="app-version" aria-describedby="ver-tip" tabindex="0"
+        ><span class="name">WeaveSignal&nbsp;</span><span class="v">v</span>{ver.app}{#if ver.station}<span class="stn">{' '}· station {ver.station}</span><span class="neq">{' '}≠ {ver.stationShort}</span>{/if}</span
+      >
+    </span>
+    <Tip id="ver-tip" anchor={verEl} delay={0}>
+      {#each ver.tip as line (line)}
+        <span>{line}</span>{' '}
+      {/each}
+    </Tip>
     {#if studio.setupPending}
       <!-- The setup page is the station's web page: the address to open in a browser (ADR-0267). -->
       <button type="button" class="update-nag" onclick={setupNotice} title={`Still to set: ${studio.setupPending.join(', ')}`}
@@ -479,8 +524,87 @@
     color: var(--muted);
     cursor: not-allowed;
   }
+  /* The spacer's width is what the rest of the frame leaves, never its own words' (inline-size
+     containment), so the version cannot push a control to a second row. */
   .spacer {
     flex: 1;
+    min-width: 0;
+    container-type: inline-size;
+    display: flex;
+    justify-content: center;
+  }
+  /* The app's version: the frame's own quiet ink (muted ink fails on this surface at 13 px, design
+     system section 5). Drawn only as far as the spare room goes, and whole or not at all:
+       under 3.5 rem   nothing
+       from 3.5 rem    v1.1.0
+       from 8.25 rem   WeaveSignal 1.1.0
+     A station on another version is said beside it, the difference in the ink:
+       from 3.5 rem    v1.1.0, in the ink (the tooltip says the rest)
+       from 6 rem      1.1.0 ≠ 1.0.5
+       from 8.75 rem   v1.1.0 · station 1.0.5
+       from 13.25 rem  WeaveSignal 1.1.0 · station 1.0.5
+     At 1,440 px a member of staff's frame leaves about 110 px, so they read v1.1.0. The widths
+     hold a version as long as 1.10.10. */
+  .ver {
+    display: none;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+    border-radius: var(--r-1);
+  }
+  .ver .name,
+  .ver .stn,
+  .ver .neq {
+    display: none;
+  }
+  .ver .stn,
+  .ver .neq,
+  .ver.differs {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  @container (min-width: 3.5rem) {
+    .ver {
+      display: block;
+    }
+  }
+  @container (min-width: 6rem) {
+    .ver.differs {
+      color: inherit;
+      font-weight: inherit;
+    }
+    .ver.differs .neq {
+      display: inline;
+    }
+    .ver.differs .v {
+      display: none;
+    }
+  }
+  @container (min-width: 8.25rem) {
+    .ver:not(.differs) .name {
+      display: inline;
+    }
+    .ver:not(.differs) .v {
+      display: none;
+    }
+  }
+  @container (min-width: 8.75rem) {
+    .ver.differs .stn,
+    .ver.differs .v {
+      display: inline;
+    }
+    .ver.differs .neq {
+      display: none;
+    }
+  }
+  @container (min-width: 13.25rem) {
+    .ver.differs .name {
+      display: inline;
+    }
+    .ver.differs .v {
+      display: none;
+    }
   }
   .update-nag {
     appearance: none;

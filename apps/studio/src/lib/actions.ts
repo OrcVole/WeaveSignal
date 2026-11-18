@@ -6,9 +6,9 @@
 import { onStationChange } from './reset.ts';
 import { tick } from 'svelte';
 import * as api from './api.ts';
-import { cartKey, type Action } from '../../../../packages/ui/keymap.ts';
+import { ARM_MS, cartKey, type Action } from '../../../../packages/ui/keymap.ts';
 import { cartAt, cartNow, moveSlot } from '../../../../packages/ui/carts.ts';
-import { say, setBank, stationNow, studio, takeView } from './studio.svelte.ts';
+import { look, say, setBank, stationNow, studio, takeView } from './studio.svelte.ts';
 import { deskCallers, offNote, stationStep, type OffPart } from './steps.ts';
 import { changesAir } from './prepare.ts';
 import { followStation, nudge, preparing } from './prepare.svelte.ts';
@@ -16,17 +16,15 @@ import { closeOpen, keyView, step as stepView, today, type Closed } from './sche
 import { openStations } from './stations.svelte.ts';
 import { firstName } from './format.ts';
 import { handoverStep } from './handover.ts';
+import { account } from './account.svelte.ts';
+import { isMine, leaveWords } from './invite.ts';
+import { arrival, talkOffWhy } from './hosts.ts';
+import { arrivals, deskToastKind, goNow, graceToast, handNext, lateCount, keptPlace, lateToast, letGoWords, lostId, lostToast, nextSource, whose, withoutLetGo, type DeskToastKind } from './post.ts';
 import { endShowNote, modeNote, modeRefusal, needsConfirm, type AirAsk } from './air.ts';
 import { chat, chatSay, entries, mod, needsEntry, noteMyHide, roomLine, studioMsg, type SorPicture, type SorTarget } from './chat.svelte.ts';
 import { TIMEOUT_MIN, reasonLabel, sorReasonOf, sorReasonsFor, step, type Entry } from './chatModel.ts';
 import type { Msg, Reason } from '../../../../packages/ui/chat.ts';
 import type { SorThen } from '../../../../packages/ui/keymap.ts';
-
-const NOT_BUILT: Partial<Record<Action['type'], [string, string]>> = {
-  'restart-playout': ['Restart is not wired yet', 'Restart Liquidsoap from the server for now; ⌃R will do it from here.'],
-  'restart-encoder': ['Not wired yet', 'The encoder cannot be restarted from here yet; restart the listener process on the server.'],
-  'backup-stream': ['Not wired yet', 'Switching listeners to a backup stream is not built yet.'],
-};
 
 /** A cart's key, its button, the desk's glance and F1 to F6 all come here: fire the cart in
  *  that slot of the current bank, or fade it if it is sounding (keymap section 4). With `cue`
@@ -64,6 +62,7 @@ const heldTalk = new Map<string, { me: string; to: string }>();
 onStationChange('actions', () => {
   heldTalk.clear();
   returnFocus = null;
+  lettingGo = null;
 });
 
 /** The talk keys this window holds open, by key (a test's). */
@@ -93,7 +92,10 @@ function sourceAt(slot: number) {
 function name(identity: string): string {
   const v = studio.view;
   const p = v?.sources.find((s) => s.identity === identity) ?? v?.callers.find((c) => c.identity === identity);
-  return p ? firstName(p.name, identity) : identity;
+  if (p) return firstName(p.name, identity);
+  // A host's own studio whose link is lost has left the view; its kept place has its name.
+  const kept = keptPlace(v, studio.sourceSlots);
+  return kept?.identity === identity ? firstName(kept.name, identity) : identity;
 }
 
 async function send(p: Promise<api.View>): Promise<boolean> {
@@ -139,6 +141,115 @@ export function readyCaller() {
   return v?.sources.find((s) => s.role === 'caller' && s.caller?.sent && !s.caller.taken && !s.on_air && !s.cue) ?? null;
 }
 
+/** Which of the desk's toasts with an answer is on screen now, the most urgent first: the
+ *  toast slot draws it and Esc answers it, by this one rule. */
+export function deskToastNow(): DeskToastKind | null {
+  const v = studio.view;
+  if (!v) return null;
+  return deskToastKind({
+    playoutDown: v.desk.reachable && !v.desk.playout.connected,
+    lost: !!lostToast(v, studio.lostDismissed),
+    caller: !!readyCaller(),
+    degraded: v.sources.some((s) => s.on_air && (!s.present || !s.linked)),
+    grace: !!graceToast(v, stationNow(), studio.graceDismissed),
+    late: !!lateToast(v, stationNow()),
+    arrived: !!arrival(arrivals(v), studio.toldSources),
+  });
+}
+
+// ---- the post's rule, from the desk (ADR-0280): Hold, Go on air now, Not yet ----
+
+/** Hold on the clock's post line, or Let it run: for an admin or a producer, a button and no
+ *  key. The station answers without a view and the view follows within a second, so the button
+ *  waits for it: a second press would undo the first. */
+export async function holdPost(on: boolean): Promise<void> {
+  if (studio.holdAsked) return;
+  studio.holdAsked = { was: studio.view?.post?.held_by ?? null, at: Date.now() };
+  try {
+    await (on ? api.holdPost() : api.releasePost());
+  } catch (e) {
+    studio.holdAsked = null;
+    refused(e);
+  }
+}
+
+/** Go on air now: the source standing by takes the air from automation at once. The handover's
+ *  key and its buttons come here. */
+export async function goOnAir(key: string, who: string): Promise<void> {
+  if (preparing()) return nudge();
+  try {
+    await api.sourceGo(key);
+    say('good', `${who} is on air`, 'By a press: the air is taken back from automation.');
+  } catch (e) {
+    refused(e);
+  }
+}
+
+/** Not yet: the late count stops, and the source goes on air by a press. The count leaves the
+ *  desk at once; the station's next view confirms it. */
+export async function notYet(key: string): Promise<void> {
+  if (preparing()) return nudge();
+  const who = lateCount(studio.view)?.source ?? goNow(studio.view)?.source ?? null;
+  try {
+    await api.sourceNotYet(key);
+    if (studio.view?.post) studio.view = { ...studio.view, post: { ...studio.view.post, late_ends_ms: null, on_air_at_ms: null } };
+    say('good', 'The count is stopped', `${who ? firstName(who.name, who.identity) : 'The host'} stays standing by. To put them on air, press ⇧⏎ at Full, or take the air back and press their On key.`, 8000);
+  } catch (e) {
+    refused(e);
+  }
+}
+
+/** Dismiss on the lost-link toast: the place stays kept, and the tile goes on saying so. */
+export function dismissLost(): void {
+  const t = lostToast(studio.view, studio.lostDismissed);
+  if (t) studio.lostDismissed = [...studio.lostDismissed, t.id];
+}
+
+/** Not now on the grace's toast: the offer goes and nothing is sent. The grace runs on, the
+ *  clock goes on counting it, and the schedule still hands over at its end. */
+export function dismissGrace(): void {
+  const t = graceToast(studio.view, stationNow(), studio.graceDismissed);
+  if (t) studio.graceDismissed = [...studio.graceDismissed, t.id];
+}
+
+/** The key whose Off air is on its way to the station: a second press waits for the first. */
+let lettingGo: string | null = null;
+
+/** Off air on a kept place (design section 3.6): the toast's button, and the kept tile's own On
+ *  key. The station lets the place go at once, and says whether automation took the air with
+ *  it. Its answer has no view, so the place leaves this window's at once: the tile goes, and a
+ *  second press is not sent to be refused. */
+export async function offAirKept(key: string): Promise<void> {
+  if (preparing()) return nudge();
+  if (lettingGo === key) return;
+  const before = studio.view;
+  const lost = before?.post?.link_lost;
+  lettingGo = key;
+  try {
+    const r = await api.sourceOffAir(key);
+    // The station's view follows within a second. Until it does, this window reads every view
+    // without the place (`withoutLetGo`): the tile and the rundown's row go at once, and stay gone.
+    const v = studio.view;
+    const now = v?.post?.link_lost;
+    if (v && now?.key_id === key) {
+      studio.letGo = [...studio.letGo, lostId(now)];
+      studio.view = withoutLetGo(v, studio.letGo);
+    }
+    const w = letGoWords(lost?.key_id === key ? lost.name : 'The host', !!r.covered, before);
+    say('good', w.title, w.message, 10000);
+  } catch (e) {
+    refused(e);
+  } finally {
+    lettingGo = null;
+  }
+}
+
+/** The kept place on a strip, when the strip's own source has left the desk. */
+function keptAt(slot: number) {
+  const k = keptPlace(studio.view, studio.sourceSlots);
+  return k && !k.back && k.slot === slot ? k : null;
+}
+
 /** How long a hidden part's note stays in the toast slot. */
 const OFF_NOTE_MS = 12_000;
 
@@ -181,13 +292,26 @@ export async function run(a: Action): Promise<void> {
   }
   switch (a.type) {
     case 'tab':
-      if (a.tab === 'desk' || a.tab === 'screener' || a.tab === 'carts' || a.tab === 'schedule') {
+      // ⌃4 is the Room: the chat is moderated on the Screener tab, so the key opens that tab and
+      // puts the focus in the Room lane. A Chat tab of its own may take the key back later.
+      if (a.tab === 'chat') {
+        studio.tab = 'screener';
+        if (typeof document !== 'undefined') {
+          document.documentElement.dataset.surface = 'screener';
+          await focusRoom();
+        }
+      } else {
         studio.tab = a.tab;
-        document.documentElement.dataset.surface = a.tab;
-      } else say('good', 'Not in this build', `The ${a.tab} tab is not in this build yet.`);
+        if (typeof document !== 'undefined') document.documentElement.dataset.surface = a.tab;
+      }
       return;
     case 'arm':
       studio.armed = { what: a.what, at: now, identity: a.identity };
+      // ⌃R has no button on a healthy station to show the armed state, so the first press says
+      // what the second does, for as long as it stays armed.
+      if (a.what === 'restart-playout') {
+        say('good', 'Restart playout?', 'Press ⌃R again within 3 seconds to restart it. Listeners hear the fallback for a few seconds. Esc cancels.', ARM_MS);
+      }
       if (a.what === 'ban') {
         const t = messageTarget();
         chat.banAt = t && 'line' in t ? 'room' : 'needs';
@@ -215,6 +339,16 @@ export async function run(a: Action): Promise<void> {
         chat.toast = null;
         return;
       }
+      // A host's lost link, a grace or a late count (ADR-0280), when it is the toast on screen:
+      // Dismiss keeps the place and Not now only puts the offer away, both this window's own;
+      // Not yet stops the station's count, which is not a preparing window's to do.
+      if (studio.tab === 'desk') {
+        const kind = deskToastNow();
+        if (kind === 'lost') return dismissLost();
+        if (kind === 'grace') return dismissGrace();
+        const late = kind === 'late' && !prep ? lateToast(v, stationNow()) : null;
+        if (late) return notYet(late.key);
+      }
       // Esc's two sends (decline the caller who is ready, clear the cues) are not a preparing
       // window's to make; it still dismisses what is this window's own.
       if (studio.tab === 'desk' && !prep) {
@@ -228,6 +362,14 @@ export async function run(a: Action): Promise<void> {
       if (studio.tab === 'carts' && !prep && v?.carts.sounding.some((s) => s.cue && !s.stopping)) {
         await send(api.carts({ op: 'clear_cue' }));
         return;
+      }
+      // A host's own studio that has just arrived standing by (ADR-0280): told, and dismissed.
+      if (studio.tab === 'desk') {
+        const came = arrival(arrivals(v), studio.toldSources);
+        if (came) {
+          studio.toldSources = [...studio.toldSources, came.identity];
+          return;
+        }
       }
       // On the Schedule tab Esc is ‹ Shows: it closes what the editor column holds and clears
       // the selection, unless an editor holds changes that are not saved (the tab then says so).
@@ -258,8 +400,26 @@ export async function run(a: Action): Promise<void> {
       // the view that comes back no longer has them.
       studio.armed = null;
       const who = name(a.identity);
+      const mine = isMine(a.identity, account.me);
       if (await send(api.endPass({ identity: a.identity }))) {
-        say('good', 'Pass ended', `${who} is out of the room and their link no longer works. Send a new invitation if they are to come back.`);
+        if (mine) {
+          const w = leaveWords(studio.view, account.me?.kind === 'staff', look());
+          say('good', w.title, w.message);
+        }
+        else say('good', 'Pass ended', `${who} is out of the room and their link no longer works. Send a new invitation if they are to come back.`);
+      }
+      return;
+    }
+    case 'disconnect': {
+      // A host's own studio (ADR-0280): the name is taken before the send, because the tile
+      // leaves with the connection. The view follows by itself, as the desk reports it gone.
+      studio.armed = null;
+      const who = name(a.identity);
+      try {
+        await api.disconnectSource(a.key);
+        say('good', `${who} is disconnected`, 'Their key is turned away for the rest of today’s show, so software that reconnects by itself stays out. Let them back in, or end the key, in Settings › Own studios.');
+      } catch (e) {
+        refused(e);
       }
       return;
     }
@@ -291,33 +451,54 @@ export async function run(a: Action): Promise<void> {
       await send(api.desk({ op: 'dump' }));
       return;
     }
+    case 'restart-playout': {
+      // ⌃R twice, or the Restart button where playout is down. The station asks playout to shut
+      // down and its supervisor starts it again; the view then shows the link coming back.
+      studio.armed = null;
+      try {
+        const r = await api.restartPlayout();
+        say('good', 'Playout is restarting', r.words);
+      } catch (e) {
+        refused(e);
+      }
+      return;
+    }
     case 'influx':
       studio.armed = null;
       if (v) await send(api.chat({ op: 'influx', on: !v.chat.influx }));
       return;
     case 'handover': {
       if (!v) return;
-      const step = handoverStep(v.sources, v.seats.presenter, studio.handoverTo);
+      const step = handoverStep(v.sources, v.seats.presenter, studio.handoverTo, goNow(v), handNext(v));
+      // A host's own studio standing by with nobody presenting (ADR-0280): one press.
+      if (step.kind === 'go') {
+        studio.handoverTo = null;
+        return goOnAir(step.key, firstName(step.dj.name, step.dj.identity));
+      }
       if (step.kind === 'none') {
         studio.handoverTo = null;
         return void say('good', 'No DJ to hand over to', 'Invite the next DJ with Invite someone…, beside Not on air, keeping the role DJ. They wait there off air; ⇧⏎ then brings them on air with you.');
       }
       const dj = firstName(step.dj.name, step.dj.identity);
+      // A host's own studio has no microphone in the room: the seat and the talk keys never pass to it.
+      const own = step.dj.role === 'source';
       if (step.kind === 'done') {
         studio.handoverTo = null;
-        return void say('good', `${dj} has the air`, `The handover is done: ${dj} holds the air and the desk's talk keys.`);
+        return void say('good', `${dj} has the air`, own ? `The handover is done: ${dj} holds the air from their own studio.` : `The handover is done: ${dj} holds the air and the desk's talk keys.`);
       }
       if (step.kind === 'on') {
         if (await send(api.desk({ op: 'on_air', identity: step.dj.identity, on: true }))) {
           studio.handoverTo = step.dj.identity;
-          say('good', `${dj} is on air with you`, `The overlap: say hello. Press ⇧⏎ again to take yourself off and hand ${dj} the air.`, 15000);
+          if (own) say('good', `${dj} is on air too`, `The overlap: both sound together, each at their own level. Press ⇧⏎ again to hand ${dj} the air.`, 15000);
+          else say('good', `${dj} is on air with you`, `The overlap: say hello. Press ⇧⏎ again to take yourself off and hand ${dj} the air.`, 15000);
         }
         return;
       }
       for (const s of step.off) if (!(await send(api.desk({ op: 'on_air', identity: s.identity, on: false })))) return;
       studio.handoverTo = null;
       const off = step.off.map((s) => firstName(s.name, s.identity)).join(' and ');
-      say('good', `Handed over to ${dj}`, `${off} off air; ${dj} holds the air. This window's talk keys now speak as ${dj}: close it, or hand it to them, and close your invitation page when you leave (ADR-0239).`, 12000);
+      if (own) say('good', `Handed over to ${dj}`, `${off} off air; ${dj} holds the air from their own studio.`, 12000);
+      else say('good', `Handed over to ${dj}`, `${off} off air; ${dj} holds the air. This window's talk keys now speak as ${dj}: close it, or hand it to them, and close your invitation page when you leave (ADR-0239).`, 12000);
       return;
     }
     case 'talk-seat': {
@@ -340,8 +521,22 @@ export async function run(a: Action): Promise<void> {
     case 'mute': {
       if (a.slot === 6) return void say('good', 'Playout is not a desk source yet', 'Liquidsoap mixes the desk in; a switch for playout at the desk is not built yet.');
       const s = sourceAt(a.slot);
+      // A strip whose source has lost its link is not empty: its place is kept (ADR-0280).
+      const kept = s ? null : keptAt(a.slot);
+      if (kept) {
+        const who = firstName(kept.name, kept.identity);
+        if (a.type !== 'on') return void say('good', `Nothing to ${a.type}`, `${whose(who)} link is lost: nothing arrives from their software.`);
+        // Their own On key is Off air: it lets the place go at once (design section 3.6).
+        return offAirKept(kept.key);
+      }
       // An empty strip says so, rather than nothing happening (the operator's 1.0.2 run).
       if (!s) return void say('good', `Nobody is on strip ${a.slot}`, 'A strip fills when someone joins the room: invite them with Invite someone… on the desk, or join with your own microphone link. Then this key puts them on air.');
+      // At Solo the next show's source has the guest's seat and no On key (`desk.next`; design
+      // section 4.2): its strip's number says where the air passes instead.
+      if (a.type === 'on' && !s.on_air && look() === 'solo' && nextSource(v)?.identity === s.identity) {
+        const who = firstName(s.name, s.identity);
+        return void say('good', `${who} has no On key at Solo`, `The air passes to ${who} when you end the show, or by the schedule.`, 8000);
+      }
       const field = a.type === 'on' ? 'on_air' : a.type;
       await send(api.desk({ op: field, identity: s.identity, on: !s[field] }));
       return;
@@ -363,6 +558,14 @@ export async function run(a: Action): Promise<void> {
     case 'talk': {
       const s = sourceAt(a.slot);
       const me = v?.seats.presenter;
+      // A host's own studio has no ears in the room: Talk reaches their monitor link, while it
+      // is open (ADR-0280; design section 4.1). It speaks as the presenter in the room, as ever.
+      // Letting go always goes through: a talk held open is closed whatever has changed since.
+      if (s?.role === 'source' && a.held) {
+        const who = firstName(s.name, s.identity);
+        if (!s.source?.monitor) return void say('good', `${who} would not hear you`, talkOffWhy(who));
+        if (!me) return void say('good', 'Nobody to talk as', `Talk is the voice of the presenter in the room, and nobody holds that seat. Join with your own microphone link, then hold this key to talk to ${who}.`);
+      }
       await talkHeld(`talk:${a.slot}`, a.held, s && me && s.identity !== me ? { me, to: s.identity } : null);
       return;
     }
@@ -464,10 +667,21 @@ export async function run(a: Action): Promise<void> {
     case 'sor-cancel':
       await chatAction(a);
       return;
-    default: {
-      const nb = NOT_BUILT[a.type];
-      if (nb) say('good', nb[0], nb[1]);
-    }
+  }
+}
+
+/** ⌃4: the focus goes to the Room's newest (or selected) line once the Screener tab is drawn. */
+async function focusRoom(): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    await tick();
+    const room = document.querySelector<HTMLElement>('[data-panel="screener.room"]');
+    if (!room) continue;
+    const line = room.querySelector<HTMLElement>('[data-chat="room-line"][tabindex="0"]');
+    const head = room.querySelector<HTMLElement>('h2');
+    const target = line ?? head;
+    if (head && !line && !head.hasAttribute('tabindex')) head.setAttribute('tabindex', '-1');
+    target?.focus();
+    return;
   }
 }
 

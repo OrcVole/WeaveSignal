@@ -4,8 +4,10 @@ import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 // The station's public pages (M3): the player with call-in (`/`), the join page for invited
-// guests, remote DJs and presenters (`/join/#<pass>`), the echo test (`/echo-test/`), and the
-// station's setup page for its admin (`/setup/`, ADR-0237).
+// guests, remote DJs and presenters (`/join/#<pass>`), the echo test (`/echo-test/`), the
+// station's setup page for its admin (`/setup/`, ADR-0237), and the monitor link for a host in
+// their own studio (`/monitor/#<secret>`, ADR-0280), and the page `/` shows in place of the
+// player until the station is set up (`/not-set-up/`, 1.1).
 // Plain pages, one entry each, so any static server or the station's proxy can serve the build.
 //
 // In development the dev server passes /api to the control plane named by
@@ -46,6 +48,10 @@ export default defineConfig({
         echo: here('echo-test/index.html'),
         // The station's setup page (ADR-0237): an admin's, behind the station key.
         setup: here('setup/index.html'),
+        // The monitor link (ADR-0280): a host's own, opened by a link that carries its secret.
+        monitor: here('monitor/index.html'),
+        // What `/` shows until the station is set up (1.1): the station's own address says so.
+        notsetup: here('not-set-up/index.html'),
       },
     },
   },

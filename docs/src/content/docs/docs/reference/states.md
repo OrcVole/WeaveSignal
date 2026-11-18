@@ -3,7 +3,7 @@ title: "The state vocabulary"
 description: "Every state word the studio app shows, drawn as a chip and as a lamp in both themes, with what it means, what to do and the rule that chooses it, as built."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-16
 sidebar:
   order: 5
 ---
@@ -82,9 +82,9 @@ Something the desk depends on has failed and listeners hear the fallback; open t
 
 <span class="rs-row"><span class="rs-sw rs-dark">![PLAYOUT DOWN chip, dark theme](../../../../assets/states/chip-playout-down-dark.svg)</span><span class="rs-sw rs-light">![PLAYOUT DOWN chip, light theme](../../../../assets/states/chip-playout-down-light.svg)</span><span class="rs-sw rs-dark">![PLAYOUT DOWN lamp, dark theme](../../../../assets/states/lamp-playout-down-dark.svg)</span><span class="rs-sw rs-light">![PLAYOUT DOWN lamp, light theme](../../../../assets/states/lamp-playout-down-light.svg)</span></span>
 
-Playout has stopped while the room is alive; listeners hear the fallback playlist, and your open sources say OPEN; restart playout on the server to bring it back.
+Playout has stopped while the room is alive; listeners hear the fallback playlist, and your open sources say OPEN; restart playout (`⌃R` twice, or the Restart button) to bring it back.
 
-In 1.0.0 the Restart button and `⌃R` only show a note: restart playout on the server ([When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/)).
+From 1.1 the Restart button and `⌃R` twice restart playout; in 1.0.0 they only showed a note ([When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/)).
 
 ### LINK DEGRADED
 
@@ -96,7 +96,7 @@ This person's connection is losing packets or adding delay and they may sound ro
 
 <span class="rs-row"><span class="rs-sw rs-dark">![DELAY 3.2 S chip, dark theme](../../../../assets/states/chip-delay-dark.svg)</span><span class="rs-sw rs-light">![DELAY 3.2 S chip, light theme](../../../../assets/states/chip-delay-light.svg)</span><span class="rs-sw rs-dark">![DELAY 3.2 S lamp, dark theme](../../../../assets/states/lamp-delay-dark.svg)</span><span class="rs-sw rs-light">![DELAY 3.2 S lamp, light theme](../../../../assets/states/lamp-delay-light.svg)</span></span>
 
-The profanity delay is rebuilding after a dump and the figure is how far behind you listeners are now; Dump protects you only once it is full again.
+The profanity delay is rebuilding after a dump and the figure is how much it holds now; Dump protects you only once it is full again.
 
 ### DUMPED
 
@@ -195,5 +195,7 @@ The sentence for DELAY describes the rebuilding, so only the building chip carri
 ## Words with no sentence
 
 READY, WAITING, SCREENING, DROPPED and DEFAULT LOOP are state words with no sentence under them yet, and so are the surface words (ON AUTOMATION, FILE MISSING, DELAY OFF and the rest): they are shown without a tooltip.
+
+Two more surface words come with hosts in their own studios, on a key's row in Settings › Own studios (`settings.hosts`) and never on a tile: **NOT CONNECTED**, the show's slot is open and its host has not connected; and **TEST**, a connection outside the slot, which the station hears and nobody else does. Both borrow STANDBY's lamp with a dashed edge. On the desk a host's own studio uses the tile's words as they are: STANDBY until it is put on air ([a host's own studio as a tile](/docs/reference/surfaces/desk/#a-hosts-own-studio-as-a-tile)).
 
 See [What ON AIR promises](/docs/explanation/on-air/) for why the words are drawn this way.

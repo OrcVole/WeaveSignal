@@ -398,6 +398,17 @@ def processing_status(_) =
 end
 server.register(namespace="processing", usage="status", description="The processing chain, as JSON.", "status", processing_status)
 
+# `playout.restart`: shut playout down so the supervisor starts it again (compose's restart policy,
+# the Quadlet's Restart=always, the Cloudron app's supervisord): the studio's restart key. It
+# answers first and exits a second later, so the answer reaches the control plane; exit code 0
+# is restarted by every one of them. Listeners keep their mount (the listener process holds it)
+# and hear its fallback until playout is back.
+def playout_restart(_) =
+  thread.run(delay=1., fun () -> shutdown())
+  "Playout is restarting."
+end
+server.register(namespace="playout", usage="restart", description="Shut playout down; its supervisor starts it again.", "restart", playout_restart)
+
 # To the listener process: PCM in WAV over loopback (1.5 Mbit/s), so the listener stream is
 # encoded once. Not Ogg FLAC: FLAC codes digital silence in a few bytes, so with nothing on air
 # Ogg pages arrived about every 10 s and the listener process's buffer ran dry and overflowed

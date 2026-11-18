@@ -84,13 +84,16 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
     environment:
       WEAVESIGNAL_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       # The password playout sends with its feed back to the desk (video on, ADR-0172).
       WEAVESIGNAL_PLAYOUT_FEED_PASSWORD: ${LISTENERS_SOURCE_PASSWORD}
+      # The password the ingest sends with each host's source (ADR-0280); unset, the desk takes
+      # no sources.
+      WEAVESIGNAL_DESK_SOURCES_PASSWORD: ${DESK_SOURCES_PASSWORD:-}
       RUST_LOG: ${RUST_LOG:-info}
     configs:
       - source: desk
@@ -128,7 +131,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
     environment:
@@ -139,6 +142,8 @@ services:
       # the control plane will not start without it (weavesignal.sh makes one).
       WEAVESIGNAL_CONTROL_EMAIL_KEY: ${CONTROL_EMAIL_KEY:-}
       WEAVESIGNAL_CONTROL_TOKEN_KEY: ${CONTROL_TOKEN_KEY:-}
+      # The ingest's bearer for the internal routes (ADR-0280): only the ingest and this hold it.
+      WEAVESIGNAL_INGEST_TOKEN: ${INGEST_TOKEN:-}
     configs:
       - source: control
         target: /etc/weavesignal/control.toml
@@ -165,7 +170,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
     environment:
@@ -191,6 +196,26 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Hosts in their own studios (ADR-0280, 1.1): the Icecast and SRT listeners for hosts' own
+  # software, a sandboxed decoding worker per connection, and the hand-over to the desk on
+  # loopback. It listens on SOURCE_ICECAST_PORT and SOURCE_SRT_PORT only when they are set (0 or
+  # unset is off) and only while a show key exists, on INGEST_BIND: loopback, or every address
+  # on the public route. The control plane gives it the ports; it holds no other setting.
+  ingest:
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.4}
+    network_mode: host
+    command: ["weavesignal-ingest", "run"]
+    environment:
+      WEAVESIGNAL_INGEST_TOKEN: ${INGEST_TOKEN:-}
+      WEAVESIGNAL_DESK_SOURCES_PASSWORD: ${DESK_SOURCES_PASSWORD:-}
+      WEAVESIGNAL_INGEST_CONTROL: http://127.0.0.1:${CONTROL_PORT:-7310}
+      WEAVESIGNAL_INGEST_DESK: 127.0.0.1:${DESK_SOURCES_PORT:-7318}
+      WEAVESIGNAL_INGEST_BIND: ${INGEST_BIND:-127.0.0.1}
+      RUST_LOG: ${RUST_LOG:-info}
+      NO_COLOR: "1"
+    depends_on: [control, desk]
     restart: unless-stopped
 
 volumes:
@@ -293,10 +318,15 @@ configs:
       # container (devices: nvidia.com/gpu=all); without it, SVT-AV1 on the CPU.
       [video]
       enabled = ${VIDEO:-false}
-      station = "${STATION_NAME:-Kettle FM}"
+      station = "${STATION_NAME:-This station}"
       # rtmp-out: the picture composed; empty, 480p20. 720p30 (or 720p25, 1080p30) lets RTMP out
       # send more than HLS's 480p20, which is scaled down from it; every camera costs more.
       canvas = "${VIDEO_CANVAS:-}"
+
+      # Hosts' own studios (ADR-0280): the ingest hands each source standing by to the desk here,
+      # on loopback, with DESK_SOURCES_PASSWORD.
+      [sources]
+      port = ${DESK_SOURCES_PORT:-7318}
 
       [video.hls]
       dir = "/var/lib/weavesignal/hls"
@@ -320,7 +350,7 @@ configs:
     content: |
       [station]
       id = "${STATION_ID}"
-      name = "${STATION_NAME:-Kettle FM}"
+      name = "${STATION_NAME:-This station}"
 
       [ports]
       control = ${CONTROL_PORT:-7310}
@@ -328,6 +358,7 @@ configs:
       listeners = ${LISTENERS_PORT:-7312}
       playout_feed = ${PLAYOUT_FEED_PORT:-7315}
       desk_feed = ${DESK_FEED_PORT:-7317}
+      desk_sources = ${DESK_SOURCES_PORT:-7318}
       srt_ingest = ${SRT_INGEST_PORT:-7313}
       livekit_http = ${LIVEKIT_HTTP_PORT:-7880}
       livekit_media = ${LIVEKIT_MEDIA_PORT:-7882}
@@ -335,6 +366,10 @@ configs:
       proxy_https = ${PROXY_HTTPS_PORT:-443}
       # The join pages put this port into the TURN address LiveKit reports (it always says 443).
       turn_tls = ${TURN_TLS_PORT:-5349}
+      # Hosts' own studios (ADR-0280): the installation's ports, which the station's rules show
+      # and cannot change; 0 (unset) is off.
+      source_icecast = ${SOURCE_ICECAST_PORT:-0}
+      source_srt = ${SOURCE_SRT_PORT:-0}
 
       [room]
       # As browsers reach LiveKit: through the proxy on the public route.
@@ -394,11 +429,29 @@ configs:
       mode = "${MAIL_MODE:-off}"
       from = "${MAIL_FROM:-chat@station.example}"
 
+      # The show the desk heads, the rundown and the callers banned before (issue 5). Every
+      # default here is the control plane's own (a test holds them equal); the two lists are
+      # TOML inline tables, written as .env.example says.
+      [studio]
+      show = "${STUDIO_SHOW:-}"
+      listener_delay_ms = ${STUDIO_LISTENER_DELAY_MS:-13000}
+      rundown = [${STUDIO_RUNDOWN:-}]
+      banned = [${STUDIO_BANNED:-}]
+
+      # HLS content steering among the station's edges (ADR-0051): off while STEERING_EDGES is empty.
+      [steering]
+      ttl_s = ${STEERING_TTL_S:-300}
+      check_every_s = ${STEERING_CHECK_EVERY_S:-5}
+      check_timeout_ms = ${STEERING_CHECK_TIMEOUT_MS:-2000}
+      down_after = ${STEERING_DOWN_AFTER:-2}
+      clone_from = "${STEERING_CLONE_FROM:-.}"
+      edges = [${STEERING_EDGES:-}]
+
   chat:
     content: |
       [station]
       id = "${STATION_ID}"
-      name = "${STATION_NAME:-Kettle FM}"
+      name = "${STATION_NAME:-This station}"
 
       [listen]
       address = "127.0.0.1"

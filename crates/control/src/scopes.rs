@@ -71,6 +71,10 @@ pub const SCOPES: &[(&str, &str)] = &[
         "Read the video slate's still and the cameras' thumbnails.",
     ),
     ("video:write", "Change or remove the video slate's still."),
+    (
+        "sources:read",
+        "Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level. Never a key.",
+    ),
 ];
 
 /// Whether `name` is a scope.
@@ -184,6 +188,7 @@ pub const TABLE: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/schedule/import", "shows:write"),
     ("POST", "/api/v1/cards/preview", "shows:write"),
     ("POST", "/api/v1/cards/words", "shows:write"),
+    ("GET", "/api/v1/sources", "sources:read"),
 ];
 
 /// Routes a token never reaches, named so that a new route has to be placed in one list or
@@ -216,6 +221,8 @@ pub const NEVER: &[&str] = &[
     // not an integration's: a token can take people off air one at a time (`desk:control`).
     "/api/v1/show/end",
     "/api/v1/playout/mode",
+    // Restarting playout cuts the programme for a few seconds: a person's key at the studio.
+    "/api/v1/playout/restart",
     // The outgoing Icecast source (ADR-0226) shows the remote server's address and starts a
     // stream to it: a staff session's, never a token's.
     "/api/v1/icecast-out",
@@ -231,11 +238,13 @@ pub const NEVER: &[&str] = &[
     "/api/v1/sessions/me/mode",
     "/api/v1/sessions/me/password",
     "/api/v1/staff",
+    "/api/v1/staff/directory",
     "/api/v1/staff/{id}",
     "/api/v1/staff/{id}/password",
     "/api/v1/staff/{id}/email",
     // The setup page and the station's look (ADR-0237): an admin's, never a token's; reading
     // the look is open to everyone.
+    "/api/v1/front",
     "/api/v1/setup",
     "/api/v1/setup/finish",
     "/api/v1/setup/stream-password",
@@ -272,6 +281,32 @@ pub const NEVER: &[&str] = &[
     "/api/v1/rtmp/destinations",
     "/api/v1/rtmp/destinations/{id}",
     "/api/v1/rtmp/destinations/{id}/enabled",
+    // Hosts in their own studios (ADR-0280): making, renewing and ending a key, disconnecting a
+    // source and the rules are a person's; the internal routes are the ingest's alone.
+    "/api/v1/shows/{show}/keys",
+    "/api/v1/shows/{show}/keys/{key}",
+    "/api/v1/shows/{show}/keys/{key}/renew",
+    "/api/v1/sources/{key}/disconnect",
+    // The post's rule: a hold, Go on air now and Not yet are people's presses.
+    "/api/v1/air/post/hold",
+    "/api/v1/sources/{key}/go",
+    "/api/v1/sources/{key}/not-yet",
+    "/api/v1/sources/{key}/off-air",
+    "/api/v1/settings/sources",
+    "/api/v1/internal/sources/config",
+    "/api/v1/internal/sources/admit",
+    "/api/v1/internal/sources/report",
+    "/api/v1/internal/sources/events",
+    // The monitor link (ADR-0280): its own secret is the bearer, and a token never holds it.
+    "/api/v1/monitor",
+    "/api/v1/monitor/events",
+    "/api/v1/monitor/token",
+    "/api/v1/monitor/go",
+    "/api/v1/monitor/not-yet",
+    "/api/v1/monitor/cue",
+    "/api/v1/monitor/handover",
+    "/api/v1/monitor/end-show",
+    "/api/v1/monitor/dump",
 ];
 
 /// A method on a route whose other methods a scope opens, which no scope opens: a token never
@@ -328,6 +363,8 @@ mod tests {
             ("staff.rs", include_str!("staff.rs")),
             ("steering.rs", include_str!("steering.rs")),
             ("tokens.rs", include_str!("tokens.rs")),
+            ("sources.rs", include_str!("sources.rs")),
+            ("monitor.rs", include_str!("monitor.rs")),
             ("webhooks.rs", include_str!("webhooks.rs")),
             ("open.rs", include_str!("open.rs")),
             ("rtmp.rs", include_str!("rtmp.rs")),

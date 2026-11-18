@@ -8,12 +8,13 @@
   // name stays the word. The chip takes a tab stop and shows the tip on hover and on keyboard
   // focus; Esc hides it without being consumed (the same contract as the panel name plate,
   // ADR-0070), and pointing at the tip itself keeps it open so it can be read at leisure.
-  // It is placed under the chip, or over it when there is no room below, and never over the
-  // chip itself. It does not animate its position, and its fade takes the token --t-state,
-  // which is 0 under prefers-reduced-motion. A word with no approved sentence (READY,
-  // SCREENING, the surface words) is drawn as a plain chip with no tab stop.
+  // It is placed by the rule every tooltip shares (tipPlace.ts): under the chip, or over it when
+  // there is no room below, never over the chip itself, and beyond a panel's name plate. It
+  // does not animate its position, and its fade takes the token --t-state, which is 0 under
+  // prefers-reduced-motion. A word with no approved sentence (READY, SCREENING, the surface
+  // words) is drawn as a plain chip with no tab stop.
   import { tipFor, type Chip } from './states.ts';
-  import { fixedScale } from './fixed.ts';
+  import { placeTip } from './tipPlace.ts';
 
   interface Props {
     chip: Chip;
@@ -29,10 +30,17 @@
     /** Whether the pointer can rest on the tip; false inside a button or a listbox row, where a
      *  click on the tip would press the row. */
     hoverable?: boolean;
+    /** A sentence more, under the word's own: what the surface can add to the approved one (the
+     *  AUTO lamp says what automation plays). It does not replace the word's sentence. */
+    more?: string;
+    /** What the tip must stay clear of besides the chip: an element round it, whose control the
+     *  tip would otherwise cover (the button under the master lamp). The tip goes under it, or
+     *  over it when there is no room below. */
+    clear?: HTMLElement | null;
     class?: string;
     [attr: string]: unknown;
   }
-  let { chip, word, sm = false, lamp = false, focusable = true, hoverable = true, class: extra = '', ...rest }: Props = $props();
+  let { chip, word, sm = false, lamp = false, focusable = true, hoverable = true, more, clear = null, class: extra = '', ...rest }: Props = $props();
 
   const tip = $derived(tipFor(chip));
   const uid = $props.id();
@@ -47,30 +55,15 @@
   let leave = 0;
   const win = $derived(trigger?.ownerDocument.defaultView ?? null);
 
-  function place() {
-    if (!trigger || !box) return;
-    const win = trigger.ownerDocument.defaultView!;
-    const t = trigger.getBoundingClientRect();
-    if (!t.width && !t.height) return;
-    // Rects and the window are in viewport pixels; the tip's style is in CSS pixels, which the
-    // studio's text size (zoom on <html>) scales: convert, or at 130 % the tip lands off the window.
-    const s = fixedScale(box);
-    const vw = win.innerWidth;
-    const vh = win.innerHeight;
-    box.style.maxWidth = `min(24rem, ${(vw - 8) / s}px)`;
-    const b = box.getBoundingClientRect();
-    // Under the chip; over it when the tip would run off the bottom and there is room above.
-    let top = t.bottom;
-    if (top + b.height > vh - 4 && t.top - b.height >= 4) top = t.top - b.height;
-    const left = Math.max(4, Math.min(t.left, vw - b.width - 4));
-    box.style.left = `${(left - b.left) / s}px`;
-    box.style.top = `${(Math.max(0, top) - b.top) / s}px`;
-  }
   function show() {
-    if (!tip || !box) return;
+    if (!tip || !box || !trigger) return;
     win?.clearTimeout(leave);
     box.classList.add('show');
-    place();
+    placeTip(box, trigger, clear);
+    // A chip that is its panel's title shows the panel's name plate too, which may be drawn
+    // after this: look again once it is, so the tip's words begin beyond it.
+    const [b, t] = [box, trigger];
+    win?.requestAnimationFrame(() => b.classList.contains('show') && placeTip(b, t, clear));
   }
   function hide() {
     box?.classList.remove('show');
@@ -116,7 +109,7 @@
 </span>
 {#if tip}
   <span bind:this={box} id={tipId} class="st-tip" class:ghost={!hoverable} role="tooltip" onmouseenter={show} onmouseleave={later}
-    ><span class="st-tip-text">{tip}</span></span
+    ><span class="st-tip-text">{tip}{#if more}<span class="st-tip-more">{more}</span>{/if}</span></span
   >
 {/if}
 
@@ -161,5 +154,9 @@
     border: 1px solid var(--axis, #3b3f57);
     color: var(--ink, #c0caf5);
     box-shadow: var(--e-2, 0 2px 6px rgba(0, 0, 0, 0.35));
+  }
+  .st-tip-more {
+    display: block;
+    margin-top: var(--s-1, 0.25rem);
   }
 </style>

@@ -31,6 +31,14 @@ fn fail(message: &str) -> ExitCode {
 
 /// The sandbox's outcome, reported with the result so a weaker one is visible.
 fn sandbox() -> Result<&'static str, String> {
+    restrict(120)
+}
+
+/// Restrict this process as the worker does, with `cpu_seconds` of CPU time: no file system, no
+/// network, no signals to other processes (Landlock, as far as the kernel offers it), no new
+/// processes or threads, 2 GiB of address space. For the ingest's decoder too, which runs for a
+/// whole show and so needs far more CPU time than a cart's import.
+pub fn restrict(cpu_seconds: u64) -> Result<&'static str, String> {
     use rustix::process::{Resource, Rlimit, setrlimit};
     let limit = |r, n: u64| {
         setrlimit(
@@ -42,7 +50,7 @@ fn sandbox() -> Result<&'static str, String> {
         )
         .map_err(|e| format!("cannot set a resource limit: {e}"))
     };
-    limit(Resource::Cpu, 120)?;
+    limit(Resource::Cpu, cpu_seconds)?;
     limit(Resource::As, 2 * 1024 * 1024 * 1024)?;
     // Standard output may be a file the caller opened; Landlock keeps the worker from opening any.
     limit(Resource::Fsize, 1024 * 1024 * 1024)?;

@@ -49,6 +49,8 @@ struct File {
 pub struct Site {
     files: BTreeMap<String, File>,
     csp: HeaderValue,
+    /// The setup state, for `/` (1.1): while the station is not set up, the not-set-up page.
+    front: Option<Arc<crate::setup::Live>>,
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -86,7 +88,16 @@ fn never_listed(path: &str) -> bool {
     if crate::api::is_open(path) {
         return false;
     }
-    ["/api", "/join", "/echo-test", "/setup"].iter().any(|p| {
+    [
+        "/api",
+        "/join",
+        "/echo-test",
+        "/setup",
+        "/monitor",
+        "/not-set-up",
+    ]
+    .iter()
+    .any(|p| {
         path == *p
             || path
                 .strip_prefix(p)
@@ -125,7 +136,7 @@ pub async fn robots(
     let path = req.uri().path().to_owned();
     if path == "/robots.txt" && matches!(*req.method(), Method::GET | Method::HEAD) {
         let body = if listed {
-            "User-agent: *\nAllow: /api/v1/public/\nAllow: /api/v1/now-playing\nDisallow: /api/\nDisallow: /join/\nDisallow: /echo-test/\nDisallow: /setup/\n"
+            "User-agent: *\nAllow: /api/v1/public/\nAllow: /api/v1/now-playing\nDisallow: /api/\nDisallow: /join/\nDisallow: /echo-test/\nDisallow: /setup/\nDisallow: /monitor/\nDisallow: /not-set-up/\n"
         } else {
             "User-agent: *\nDisallow: /\n"
         };
@@ -302,7 +313,16 @@ impl Site {
         Ok(Self {
             files,
             csp: HeaderValue::from_str(csp).context("the CSP is not a header value")?,
+            front: None,
         })
+    }
+
+    /// Serve `/` as the not-set-up page while `live` says the station is not set up (1.1). A
+    /// station whose control plane does not serve the pages (the Cloudron package) gets the same
+    /// from its nginx, which asks `GET /api/v1/front`.
+    pub fn with_front(mut self, live: Arc<crate::setup::Live>) -> Self {
+        self.front = Some(live);
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -360,6 +380,14 @@ impl Site {
             r.headers_mut()
                 .insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
             r
+        } else if let Some(f) = self.front_notice(path) {
+            // Not a page to list, even on a listed station: it says only where to set up.
+            let mut r = self.file(req, f);
+            r.headers_mut().insert(
+                HeaderName::from_static("x-robots-tag"),
+                HeaderValue::from_static("noindex, nofollow"),
+            );
+            r
         } else if let Some(f) = self.find(path) {
             self.file(req, f)
         } else {
@@ -367,6 +395,13 @@ impl Site {
         };
         self.headers(res.headers_mut());
         res
+    }
+
+    /// The not-set-up page, when `path` is the front page and the station is not set up.
+    fn front_notice(&self, path: &str) -> Option<&File> {
+        (path == "/" && self.front.as_ref().is_some_and(|l| l.front_notice()))
+            .then(|| self.files.get(crate::setup::NOT_SET_UP_PAGE))
+            .flatten()
     }
 
     fn file(&self, req: &Request, f: &File) -> Response {
@@ -604,7 +639,7 @@ mod tests {
     fn listing_app(listed: bool) -> (Router, PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("weavesignal-web-{}", uuid::Uuid::new_v4().simple()));
-        for sub in ["join", "echo-test"] {
+        for sub in ["join", "echo-test", "monitor"] {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
             std::fs::write(
                 dir.join(sub).join("index.html"),
@@ -654,11 +689,11 @@ mod tests {
             assert!(r.headers().get("x-robots-tag").is_none(), "{p}");
         }
         assert!(!text(get(&app, "/", &[]).await).await.contains("noindex"));
-        for p in ["/api/v1/x", "/join/", "/echo-test/"] {
+        for p in ["/api/v1/x", "/join/", "/echo-test/", "/monitor/"] {
             let r = get(&app, p, &[]).await;
             assert_eq!(r.headers()["x-robots-tag"], "noindex, nofollow", "{p}");
         }
-        for p in ["/join/", "/echo-test/"] {
+        for p in ["/join/", "/echo-test/", "/monitor/"] {
             assert!(text(get(&app, p, &[]).await).await.contains(NOINDEX_META));
         }
         let robots = text(get(&app, "/robots.txt", &[]).await).await;
@@ -671,6 +706,79 @@ mod tests {
     fn the_default_load_is_unlisted_and_never_listed_matches_whole_segments() {
         assert!(never_listed("/join/") && never_listed("/join") && never_listed("/api/v1/x"));
         assert!(!never_listed("/joined") && !never_listed("/"));
+        assert!(
+            never_listed("/monitor/") && never_listed("/monitor") && !never_listed("/monitors")
+        );
+        assert!(never_listed("/not-set-up/") && !never_listed("/not-set-up-yet"));
+    }
+
+    #[tokio::test]
+    async fn the_front_page_is_the_not_set_up_page_until_the_station_is_set_up() {
+        let dir =
+            std::env::temp_dir().join(format!("weavesignal-web-{}", uuid::Uuid::new_v4().simple()));
+        for sub in ["not-set-up", "join"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        std::fs::write(
+            dir.join("index.html"),
+            "<!doctype html><head></head><body>PLAYER</body>",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("not-set-up/index.html"),
+            "<!doctype html><head></head><body>NOT SET UP</body>",
+        )
+        .unwrap();
+        let live = Arc::new(crate::setup::Live::new(crate::setup::UNNAMED));
+        let site = Arc::new(
+            Site::load_listed(&dir, "default-src 'none'", true)
+                .unwrap()
+                .with_front(live.clone()),
+        );
+        let app = Router::new()
+            .fallback(fallback(site))
+            .layer(axum::middleware::from_fn_with_state(true, robots));
+        // Before the database has been read (and on a station with none): the player.
+        assert!(text(get(&app, "/", &[]).await).await.contains("PLAYER"));
+        live.set_setup_open(true);
+        let r = get(&app, "/", &[]).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(r.headers()["cache-control"], "no-cache");
+        // Not listed, even on a listed station.
+        assert_eq!(r.headers()["x-robots-tag"], "noindex, nofollow");
+        let etag = r.headers()["etag"].to_str().unwrap().to_owned();
+        let body = text(r).await;
+        assert!(
+            body.contains("NOT SET UP") && !body.contains("PLAYER"),
+            "{body}"
+        );
+        // Revalidated like any page; a changed page is a changed ETag.
+        assert_eq!(
+            get(&app, "/", &[("if-none-match", &etag)]).await.status(),
+            StatusCode::NOT_MODIFIED
+        );
+        // Only `/` is replaced: the other pages are what they were.
+        assert!(
+            text(get(&app, "/not-set-up/", &[]).await)
+                .await
+                .contains("NOT SET UP")
+        );
+        // A name set on the page, and the player is back at once.
+        live.set(Some("Radio Ceilidh".into()), None);
+        let r = get(&app, "/", &[]).await;
+        assert!(r.headers().get("x-robots-tag").is_none());
+        assert!(text(r).await.contains("PLAYER"));
+        // A build without the page keeps the player rather than a 404.
+        live.set(None, None);
+        std::fs::remove_file(dir.join("not-set-up/index.html")).unwrap();
+        std::fs::remove_dir(dir.join("not-set-up")).unwrap();
+        let site = Site::load_listed(&dir, "default-src 'none'", true)
+            .unwrap()
+            .with_front(live);
+        let req = Request::get("/").body(Body::empty()).unwrap();
+        let body = text(site.respond(&req)).await;
+        assert!(body.contains("PLAYER"), "{body}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

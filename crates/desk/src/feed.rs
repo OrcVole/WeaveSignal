@@ -287,15 +287,15 @@ pub(crate) fn running_frames(p: &gst::Pipeline) -> Option<i64> {
 /// Where each piece of the feed goes on the timeline: a cushion ahead of now when it first
 /// arrives, then straight after the piece before, until that has drifted from arrival by more
 /// than the cushion (a pause, a burst after a stall, or the clocks parting).
-struct Placer {
+pub(crate) struct Placer {
     next: Option<i64>,
     cushion: i64,
     /// Pieces placed on this connection.
-    placed: u64,
+    pub(crate) placed: u64,
 }
 
 impl Placer {
-    fn new(cushion: i64) -> Self {
+    pub(crate) fn new(cushion: i64) -> Self {
         Placer {
             next: None,
             cushion,
@@ -304,7 +304,7 @@ impl Placer {
     }
 
     /// Where the piece of `frames` arriving at `now` goes, and whether it was placed afresh.
-    fn place(&mut self, now: i64, frames: i64) -> (i64, bool) {
+    pub(crate) fn place(&mut self, now: i64, frames: i64) -> (i64, bool) {
         let fresh = now + self.cushion - frames;
         let (pos, afresh) = match self.next {
             Some(p) if (p - fresh).abs() <= self.cushion => (p, false),
@@ -329,7 +329,7 @@ fn to_stereo_f32(bytes: &[u8], channels: u16, out: &mut Vec<f32>) {
 }
 
 /// A request's head: everything before the blank line.
-fn read_head(reader: &mut impl BufRead) -> Result<String> {
+pub(crate) fn read_head(reader: &mut impl BufRead) -> Result<String> {
     let mut head = Vec::new();
     loop {
         let mut line = Vec::new();
@@ -351,13 +351,13 @@ fn read_head(reader: &mut impl BufRead) -> Result<String> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Refusal {
+pub(crate) enum Refusal {
     Method(String),
     Password,
 }
 
 impl Refusal {
-    fn response(&self) -> &'static str {
+    pub(crate) fn response(&self) -> &'static str {
         match self {
             Refusal::Method(_) => "HTTP/1.0 405 Method Not Allowed\r\n\r\n",
             Refusal::Password => {
@@ -366,7 +366,7 @@ impl Refusal {
         }
     }
 
-    fn why(&self) -> String {
+    pub(crate) fn why(&self) -> String {
         match self {
             Refusal::Method(m) => format!("`{m}` is not a source request"),
             Refusal::Password => "wrong or missing source password".into(),
@@ -376,7 +376,7 @@ impl Refusal {
 
 /// A source request (`SOURCE`, or `PUT` as newer Icecast clients send), with the password
 /// when the desk has one: HTTP basic authentication, any user name.
-fn check_request(head: &str, password: Option<&str>) -> Result<(), Refusal> {
+pub(crate) fn check_request(head: &str, password: Option<&str>) -> Result<(), Refusal> {
     let first = head.lines().next().unwrap_or_default();
     let method = first.split_whitespace().next().unwrap_or_default();
     if !matches!(method, "SOURCE" | "PUT") {

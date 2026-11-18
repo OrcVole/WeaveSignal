@@ -19,5 +19,6 @@ pub mod pipeline;
 pub mod realtime;
 pub mod room;
 pub mod rtmp;
+pub mod sources;
 pub mod video;
 pub mod vision;

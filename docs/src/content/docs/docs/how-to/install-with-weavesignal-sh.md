@@ -31,7 +31,7 @@ Running it again changes nothing that is already set.
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -81,6 +81,7 @@ station, run this again with --public and the name that reaches this machine.
 The SRT link (7313), the playout feed (7315), the desk's feed (7317), and the ports above the playout feed and above the listener port are internal: the script checks they are free but never shows or publishes them.
 
 Sign in to the studio app with the station key, then add yourself as staff: [Add staff and sign in](/docs/how-to/add-staff/).
+Until the station is named, the control plane's address (`/`) shows a page that says the station is not set up yet and lists these steps, in place of the player (1.1); it goes as soon as the station has a name or its setup is finished. A station still called *Kettle FM* (the old default) with its setup unfinished shows it too; a station that already has a name of its own keeps its player.
 
 From 1.0.1 the script also names the station's **setup page** (`/setup/` on the control plane's address): sign in there with the same key to give the station its name, its takedown contact and its look, with no file to edit ([Set up the station and its look](/docs/how-to/set-up-the-station/)).
 
@@ -103,7 +104,22 @@ CONTROL_PORT=17310 LIVEKIT_MEDIA_PORT=52000 deploy/compose/weavesignal.sh
 ```
 
 If a port you give is taken, the script stops, names it and suggests a free alternative.
-The names are those in `deploy/compose/.env.example`: `CONTROL_PORT`, `CHAT_PORT`, `LISTENERS_PORT`, `SRT_INGEST_PORT`, `PLAYOUT_FEED_PORT`, `DESK_FEED_PORT`, `LIVEKIT_HTTP_PORT` and `LIVEKIT_MEDIA_PORT`.
+The names are those in `deploy/compose/.env.example`: `CONTROL_PORT`, `CHAT_PORT`, `LISTENERS_PORT`, `SRT_INGEST_PORT`, `PLAYOUT_FEED_PORT`, `DESK_FEED_PORT`, `DESK_SOURCES_PORT`, `LIVEKIT_HTTP_PORT` and `LIVEKIT_MEDIA_PORT`.
+
+### Hosts' own studios
+
+A host can send their show from their own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)).
+The station takes it on two ports of its own, both off until you set them:
+
+```sh
+SOURCE_ICECAST_PORT=8005 SOURCE_SRT_PORT=9710 deploy/compose/weavesignal.sh --public station.example
+```
+
+`SOURCE_ICECAST_PORT` is TCP (8005, or 18005, 28005) and `SOURCE_SRT_PORT` is UDP (9710, or 19710, 29710); 0 turns either off.
+The script checks a port you set as it checks the others, keeps it, and names it in what to open.
+The `ingest` service listens on them only while a show key exists: on every address on a public station, on loopback otherwise.
+The station's rules show these ports and cannot change them: change them here and run the script again.
+The script also makes two secrets for this, `INGEST_TOKEN` (the ingest's and the control plane's only) and `DESK_SOURCES_PASSWORD` (the ingest's and the desk's only).
 
 ### Settings only
 

@@ -47,10 +47,15 @@ pub enum Role {
     /// Only listens: a monitor, a recorder, a test's ear. Never at the desk (no mix-minus, no
     /// voice), and its token cannot publish.
     Listener,
+    /// A host's own studio (ADR-0280): what their software sends, taken by the ingest with a
+    /// show key, never through the room. At the desk like a person, with a slot and its keys,
+    /// but standing by until a press puts it on air; no mix-minus of its own yet (the monitor
+    /// link comes later), and no room token is ever made for it.
+    Source,
 }
 
 impl Role {
-    pub const ALL: [Role; 7] = [
+    pub const ALL: [Role; 8] = [
         Role::Presenter,
         Role::Dj,
         Role::Guest,
@@ -58,6 +63,7 @@ impl Role {
         Role::Screener,
         Role::Producer,
         Role::Listener,
+        Role::Source,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -69,6 +75,7 @@ impl Role {
             Role::Screener => "screener",
             Role::Producer => "producer",
             Role::Listener => "listener",
+            Role::Source => "source",
         }
     }
 
@@ -76,7 +83,7 @@ impl Role {
     pub fn can_air(self) -> bool {
         matches!(
             self,
-            Role::Presenter | Role::Dj | Role::Guest | Role::Caller
+            Role::Presenter | Role::Dj | Role::Guest | Role::Caller | Role::Source
         )
     }
 
@@ -93,12 +100,26 @@ impl Role {
 
     /// Whether the role may publish into the room: a listener's token may not.
     pub fn may_publish(self) -> bool {
-        self.at_desk()
+        self.at_desk() && !self.from_ingest()
+    }
+
+    /// Whether the role reaches the desk from the ingest (a host's own software) and never
+    /// through the room: no room token is made for it, and the room's list never yields it.
+    pub fn from_ingest(self) -> bool {
+        matches!(self, Role::Source)
     }
 
     /// Whether the role hears talkback (from producers and screeners).
     pub fn hears_talkback(self) -> bool {
         matches!(self, Role::Presenter | Role::Dj)
+    }
+
+    /// Whether the role's ear holds the cue bus: what is cued (pre-fade listen) and the cued
+    /// carts. A presenter or DJ hears it in their mix-minus; a host's own studio hears it on
+    /// its monitor link (design 4.5: the programme without them, the cue bus, and talkback
+    /// addressed to them). Talkback in general (`hears_talkback`) is not theirs.
+    pub fn hears_cue(self) -> bool {
+        self.hears_talkback() || self == Role::Source
     }
 }
 
@@ -182,6 +203,19 @@ mod tests {
                 .eq([&Role::Listener])
         );
         assert_eq!("listener".parse::<Role>(), Ok(Role::Listener));
+    }
+
+    #[test]
+    fn a_source_airs_but_stands_by_and_never_comes_through_the_room() {
+        let s = Role::Source;
+        assert!(s.can_air() && s.at_desk() && !s.on_air_at_join());
+        assert!(!s.may_publish() && s.from_ingest() && !s.hears_talkback());
+        assert_eq!("source".parse::<Role>(), Ok(Role::Source));
+        assert_eq!(
+            Role::ALL.iter().filter(|r| r.from_ingest()).count(),
+            1,
+            "only a source comes from the ingest"
+        );
     }
 
     #[test]

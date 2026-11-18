@@ -2,6 +2,209 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.1.0 (2026-11-18)
+
+- **The studio's chat connects on a Cloudron station.** The studio's chat socket now opens on the
+  station's public address when it has one (learned from the schedule's reply, `public_url`), since
+  a socket cannot send the bearer that Cloudron's login in front of the app's own domain wants and
+  that domain answered the upgrade with a redirect to `/login`. The requests stay on the app's own
+  domain. An address that never opens is given up for the station's own on the next try; `?chat=`
+  and a station with no public address are unchanged. `deploy/cloudron/test-local.sh` checks that
+  the public domain answers the upgrade with 101.
+- **Per-address limits on Cloudron count each person again.** nginx passes none of the server's
+  proxy headers to a location that sets its own, so the chat's and the control plane's locations
+  sent no `X-Forwarded-For`, and every chatter and caller counted as 127.0.0.1: the chat's 50
+  sockets an address and call-in's per-address limit applied to the whole station. Each such
+  location now restates the client's address and the host, and `test-local.sh` checks that none
+  drops it.
+- **Docs and the not-set-up page.** *End the show* says when to use Hand to automation and when
+  End show, with an example of each. The not-set-up page and *Set up the station* say where to find
+  the station key on Cloudron, on Linux with Compose or Quadlets, and on any other install.
+- **The studio app's version in the top bar, and what automation is, said in place** (the
+  operator's click-through of 1.1.0): the top bar says the studio app's version in its spare
+  room, between the tabs and who is signed in (*WeaveSignal 1.1.0*, or *v1.1.0* in less room; it
+  never moves a control or adds a row, and gives way first), and the station's beside it when
+  the two differ by their numbers (*v1.1.0 · station 1.0.5*), with both in full in its tooltip.
+  **Hand to automation** keeps its name and gains the studio's own tooltip, on hover and on the
+  keyboard's focus: what the press does, then what automation is and plays (the log: the music
+  planned for the hour, with carts such as idents, stingers or adverts; with nothing in the log,
+  the station's fallback files or the loop WeaveSignal ships). The AUTO lamp's tooltip adds the
+  same sentence to its own, and the air dialog says it wherever the press gives automation the
+  air (End show, Hand to automation). The lamp's tooltip opens under the button, not on it, and
+  a tooltip whose word or button is also a panel's title begins beyond the panel's name plate
+  instead of under it.
+- **Issue 9's keys** (ADR-0289): `⌃R` pressed twice restarts playout, like
+  `Del Del` dumps: the first press says what the second does, the second asks the station, which
+  tells playout to shut down so its supervisor (Compose, the Quadlets, the Cloudron app's
+  supervisord) starts it again. New route `POST /api/v1/playout/restart` (any member of staff,
+  refused to a window that is preparing a show, never an API token) and a `playout.restart` command
+  on playout's socket. `⌃4` opens the Screener tab with the focus in its Room lane (the studio has no
+  Chat tab, and the greyed one is gone from the tab strip). `⌃⇧R` (the listener process, which drops
+  every listener; there is no Settings button or route for it yet, so a restart of it is the server's)
+  and `⌃⇧B` (a backup stream, with no design) are no longer keys.
+- **The desk after the look's review**: while a host in their own studio
+  has the air, the stage no longer headlines *You are not in the room yet* over their tile; the
+  offer is one quiet line at the head of Not on air, beside Invite someone… (at Solo, in the
+  guest's seat), which says what joining is for and that it puts you on air. Each panel states
+  the listener delay once: the clock says *about 23 s behind* with its parts on the one line
+  under it, in plain words (*8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners'
+  players (estimated)*; no *read* or *set*, and no tooltip that repeats them), and the delay
+  panel says what it holds (*full · 8.0 s held*), not where listeners are. **End show** is drawn
+  as Hand to automation is, an outlined button at 13 px with its key cap.
+- **The desk: a count's last seconds, Leave, Hand to automation beside End show, the join words and
+  the listener figures** (14a, issue 17): every count on the desk
+  (the clock's, the tile's late count, the next show's card, the toasts, a lost link's place) turns
+  amber in its last 30 s and red in its last 10, with the count's mark (a clock glyph, directly
+  before the figure; never FAULT's triangle), a heavier figure and the words beside the colour; on the presenter's own tile the button is **Leave** (End pass for yourself); **Hand to
+  automation** is a button as wide as the lamp and as tall as End show's, with its words on hover
+  (it was 12 px); **Join with my
+  microphone…** says the browser tab carries the voice and must stay open; the Listeners panel and
+  the clock read `audience` and `listener_delay` as the server left them (an estimate with its
+  parts while it is one, the plain figure once it is measured; the words are in the entry above).
+- **The team's directory is a producer's and an admin's** (ADR-0289):
+  `GET /api/v1/staff/directory` answers a producer, an admin or the station key, and refuses a
+  presenter or a screener with 403 and the words *Only a producer or an admin can see the team*.
+  The show editor does not ask for it from a presenter's or a screener's window: they are offered
+  themselves (and no account) as before, and a show tied to someone else's account keeps it with no
+  picker for them; a producer is offered themselves, and an admin anyone, as before.
+- **A show's presenter picked from the staff accounts, and Comes from in New show**: the show editor's Presenter group gains **Staff account** (`presenter_account`; an admin
+  names anyone, anyone else themselves, sent only when changed), read from the new
+  `GET /api/v1/staff/directory` (id, name and role of each account that is on; a producer's or an admin's, below);
+  New show asks **Comes from** (the room, or the host's own studio) and Done offers **Set up a
+  host…**.
+- **The show, the rundown, the banned list and content steering as settings on Compose and
+  Cloudron** (issue 5): `STUDIO_SHOW`, `STUDIO_LISTENER_DELAY_MS`,
+  `STUDIO_RUNDOWN`, `STUDIO_BANNED`, `STEERING_TTL_S`, `STEERING_CHECK_EVERY_S`,
+  `STEERING_CHECK_TIMEOUT_MS`, `STEERING_DOWN_AFTER`, `STEERING_CLONE_FROM` and `STEERING_EDGES` in
+  `.env` or `weavesignal.env`; the lists are TOML inline tables. Unset, nothing changes; on
+  Cloudron `station.toml` still replaces a whole section.
+- **The listener count and delay, the server's half** (issue 17): the view's
+  `listener_delay` gains `basis` (`estimate` or `measured`), `read_ms` and `set_ms`, and `audience`
+  gains `scope` (`origin`: the station's own listener process, every mount; edges and HLS viewers
+  are not added). Old fields stay. The count itself has run without the playout layer since 1.0.2;
+  a test now puts a stand-in listener process's answer through to the view the desk reads.
+- **The presenter's gate keeps the end of a word** (issue 16): the expander in the presenter's and DJ's chain now holds open for 250 ms (`[inputs.<role>.expander] hold_ms`, 0 to 2000) after the voice falls before it closes, so a word's soft last consonant is no longer turned down by up to 14 dB at ordinary speech levels; `hold_ms = 0` is the old gate.
+- **The monitor link's counts turn amber, then red, and Start listening is off where nothing can play** (ADR-0280, 14a): every count on the page is amber in its last 30 s and red in its last 10 s, with the words *Last 30 seconds* and *Last 10 seconds* beside the colour; Start listening is dimmed, with its reason beside it, while the page has lost the station, the host's link is lost, or the host is not at the desk yet.
+- **The monitor link plays the listeners' stream while the host stands by**
+  (ADR-0280, 14a): with nobody on air at the desk, automation holds the air downstream of the desk,
+  so a standing-by host's return was silent. The page now plays the station's own listener stream,
+  says how far behind it is, and cuts it within one view of the host going on air, of someone else
+  going on air at the desk, or of the views stopping. The view gains `monitor_has_programme`.
+  The same while the host is OPEN (live to the room, automation holds the air): the card says it
+  is the station's output, some seconds behind, with the room's voices not in it, and before
+  Start listening is pressed it says *will hear*. No level bar is drawn beside the stream, since
+  it would show a silent room.
+- **A station not set up yet says so**: on its own address (the app's own
+  domain on Cloudron, the one address on Compose) `/` shows a short page, not the player, while
+  the station still has a name nobody chose and setup has not been finished: it says where to
+  begin (the setup page and the station key, the studio app, connecting it). A new install's name
+  is *This station* (it was Kettle FM) on Cloudron and Compose; a station still called Kettle FM
+  whose setup was never finished (a 1.0.5 install updating) sees the page too, and any other name
+  keeps the player. New open route `GET /api/v1/front`, which the
+  Cloudron package's nginx asks; the public pages' domain never changes.
+- **Hosts in their own studios, the station's side** (ADR-0280,
+  ADR-0284): a show key for each host; their software sends over Icecast (MP3, AAC, Opus, Vorbis,
+  FLAC) or SRT (encrypted with the key); outside the show's slot it is a private test, in it the
+  source stands by on the desk, levelled, until put on air; see *Set up a host in their own studio*.
+- **Hosts in their own studios, the monitor link's page** (ADR-0280): the
+  page `monitor/`, opened by a link that carries its secret after the `#`. A host sees their own
+  state at the size of the desk's lamp with the station's sentence, counts on the station's clock
+  (never the device's), their return with a level bar and a volume control, before you, you and
+  after you, the next insert and what the station hears; and may press Go on air now, Not yet,
+  Cue, the handover's two presses, End my show (asked once) and Dump (two presses). When views
+  stop arriving it says so and shows no state. Light or dark with the device, and a Night switch.
+  See *Use your monitor link*. Driven against a stand-in station (`just test-monitor-page`) and
+  used by a host on a real station.
+- **Hosts in their own studios, the monitor link's controls and live view**
+  (ADR-0280): `GET /api/v1/monitor` grows to the design's view (the lamp and its sentence, what
+  happens next with its count, the post's grace, hold and late count, before you, you and after you,
+  the next insert as far as the log can say, the show's step, the next host, and what the host may
+  press with the reason for each they may not), `GET /api/v1/monitor/events` carries it every
+  second, and the host's controls act through the desk's own paths: `POST /api/v1/monitor/go`,
+  `/not-yet`, `/cue`, `/handover` (two presses: `bring`, then `hand_over`), `/end-show` (End show for
+  this host alone) and `/dump`. A key that ends takes its monitor room's two seats out of the room.
+- **Hosts in their own studios, the monitor link's sound** (ADR-0280): a host
+  with a monitor link hears, through the room's own path, the programme without themselves, the cue
+  bus and talk addressed to them, in a room of their own (`<room>-monitor-<key id>`) that only the
+  link's two seats may subscribe to. The desk makes the mix only while someone listens. A host's
+  monitor secret gives `GET /api/v1/monitor` (their own source's state, way in, format and level, the
+  show and the station's clock) and `POST /api/v1/monitor/token` (a 600 s listen-only token; two
+  browsers, a third refused), both open on Cloudron's public domain. The page and the controls are to
+  come.
+- **Hosts in their own studios, the server's leftovers** (ADR-0280): the
+  schedule's moves (the post, the late count's end, a grace's end, a return after a lost link, End
+  show passing the air) now cross over on the desk in `sources.fade_ms` (2 s) instead of switching,
+  the one coming on rising as the one going off falls; a person's press stays instant, and a desk
+  from before the fade is told again without it. `POST /api/v1/sources/{key}/off-air` lets a lost
+  source's kept place go at once (the desk toast's **Off air**, logged, by whom). The monitor view
+  gains `dumped` (DUMPED and the seconds listeners lost, for ten seconds, for the host on air, after
+  a Dump from the link or the desk). Deleting a show takes its keys' monitor seats out of the room
+  and closes their connections, with no event stream open.
+- **Hosts in their own studios, the studio's screens** (ADR-0280): a host's
+  source is a tile on the desk (Own studio, STANDBY under Not on air, the station's leveller,
+  what their software sends, how long the link has held, **Disconnect**), with a toast when it
+  arrives; **Settings › Own studios** sets a host up, shows their details once with **Copy** on
+  each field and **Copy everything as text**, lists every key with how it stands, and gives
+  **New key…**, **End key…**, **Let back in** and, for an admin, the rules; the show editor's
+  **Comes from** and **Your show** offer the same setup. Talk to a host is drawn off until the
+  monitor link exists.
+- **Hosts in their own studios, after the slot and wrong keys** (ADR-0280): when
+  a slot's door closes, a source standing by that is not on air becomes a private test (off the desk,
+  connection kept, 15 minutes from then, logged as *test*); one on air is never touched. Five wrong keys
+  from one public address in a minute still turn it away for ten minutes, but an address that is
+  private, loopback, link-local, unique-local or carrier-grade NAT is only counted and logged. The
+  addresses in a key's log are kept 30 days, outside the retention setting, and the retention page says
+  so. The Cloudron package gets a first-steps checklist and a plainer post-install note.
+- **Hosts in their own studios, the desk at the post** (ADR-0280): the desk
+  says what the post's rule is doing. The clock's line names the next show's post, counts the grace
+  with **Hold** for an admin or a producer (*Handover held by …*, **Let it run**), or says the DJ on
+  air keeps the air while the next host has not connected; the rundown has a row for that show with
+  STANDBY, NOT CONNECTED or LINK LOST. A late host is counted on air on their tile with **Not yet**,
+  and **Go on air now** is the handover's button and `⇧⏎` at Full; `Esc` on the toast stops the count.
+  A source whose link is lost keeps its tile on the stage with how long and until when its place is
+  kept, a toast once automation covers, and a note when it is back on air. **End show** says where
+  the air goes before the press, to the next host standing by or to automation, and after it.
+- **Hosts in their own studios, the desk's remaining items** (ADR-0280): a
+  grace running is offered in the desk's toast (*Heather goes on air in 0:42*; **On air** on `⇧⏎`
+  brings the next host on now, as the handover does, and **Not now** on `Esc` only puts the offer
+  away), and `⇧⏎` picks the next show's source standing by before any DJ waiting. **Off air** on a
+  lost link's toast and on the kept tile's own On key lets the place go at once, and says when
+  automation took the air with it. At Solo the next show's source is one card in the guest's empty
+  seat (`desk.next`), with Cue and when the schedule brings it on. A key's details give the host's
+  whole monitor link with **Copy**, and so does *Copy everything as text*; a source's tile says
+  *Monitor open* or *Monitor not open*, and **Talk** goes to the monitor link while it is open.
+  **Open my monitor** opens a presenter's own link from the window that made their key: the station
+  keeps only a scrambled form and cannot give the link again.
+- **The Schedule toolbar stays on one line** (issue 28): in a week across two months, or a wider
+  system typeface, the legend wrapped onto a second line at 1440 by 900. It now gives way first:
+  shorter words (*Automation*, *From the rule*, *Aired*), then its glyphs alone, each with its
+  full words as a tooltip and for a screen reader.
+- **The step button's name plate lies over no control** (issue 27): with the panel names pinned
+  (`?audit=1`) on the Carts tab, the plate of `studio.step` lay over the step button, because the
+  row of banks left no room under it. A plate with no room by its title now takes the first clear
+  gap along its row, down to one that holds its name alone; a pinned plate with no room even for
+  that is left out and listed as `no room`, never drawn over a control. A panel's plate also
+  answers only to its own title: pointing at the step button showed the frame's plate too, and
+  pinned, the plates of the frame, the stage and the Not on air row lay on top of the plates of
+  the panels inside them.
+- **Hosts in their own studios, the post's rule** (ADR-0280): the control plane
+  works out every second, from the schedule and the source log, who goes on air at a show's post. With
+  automation holding the air and the next host's source standing by (steady for `steady_s`), it goes on
+  air at the post, to the second; a host who arrives late goes on air after the late count (`Go on air
+  now` and `Not yet` are the host's own); with a DJ on air the DJ keeps the air for the grace and then
+  the schedule hands over, unless a producer or an admin holds that handover; a source on air whose link
+  drops is covered by automation after `silence_s`, its place kept `place_kept_s`, and goes back on air
+  once steady again (30 s after three drops in ten minutes); a drop during a grace hands over at once;
+  End show with the next host standing by passes the air to them. `/studio` and `GET /sources` carry
+  `post`; new routes `POST` and `DELETE /air/post/hold`, `POST /sources/{key}/go` and `/not-yet`;
+  migration 0041. The desk fades a source's On over `fade_ms` for these moves; a person's press stays
+  instant.
+- **The ingest runs wherever the station runs** (ADR-0280, ADR-0284): in the
+  server image, as a Compose service and a Quadlet, and under the Cloudron package's supervisor.
+  Its two public ports are settings, off until set: `SOURCE_ICECAST_PORT` (TCP, 8005 usual) and
+  `SOURCE_SRT_PORT` (UDP, 9710) for `weavesignal.sh` and the install wizard, and two ports of the
+  same names in Cloudron's dashboard; the station's rules show them and cannot change them.
+
 ## 1.0.5 (2026-11-16)
 
 - **An episode's Move… saves the move at once.** In the 1.0.5 test run nobody could tell how a

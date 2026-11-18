@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+
+[package]
+name = "weavesignal-ingest"
+description = "WeaveSignal's ingest (ADR-0280): takes a host's own software over Icecast and SRT with a show key, asks the control plane, decodes in a sandboxed worker per connection, and hands 48 kHz float to the desk over loopback"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "weavesignal-ingest"
+path = "src/main.rs"
+
+[dependencies]
+weavesignal-proto.workspace = true
+weavesignal-media = { path = "../media" }
+anyhow.workspace = true
+base64.workspace = true
+bytes = "1.12.1"
+clap.workspace = true
+futures = { version = "0.3.31", default-features = false, features = ["std"] }
+serde.workspace = true
+serde_json.workspace = true
+# The decoders the media worker already uses (ADR-0284: free decoders, never fdk-aac), with MPEG
+# audio layer II added for MPEG-TS from hardware encoders.
+symphonia = { version = "0.6.1", default-features = false, features = ["flac", "mp2", "mp3", "vorbis", "ogg", "aac"] }
+opus-decoder = "0.1.1"
+# SRT in pure Rust, read from crates.io on 2026-11-15 (Apache-2.0, forbid(unsafe_code)): its
+# listener picks the passphrase for each caller's stream id (the build's recce, verified against
+# ffmpeg's libsrt). srt-protocol is named for KeySettings, which srt-tokio does not re-export.
+srt-tokio = "=0.4.4"
+srt-protocol = "=0.4.4"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "net", "time", "sync", "rt-multi-thread", "macros"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq.workspace = true
+
+[lints]
+workspace = true

@@ -11,6 +11,10 @@
 // The import's preview is the control plane's own reply, recorded (import-preview.json), and
 // the file chosen is kettle-old-schedule.ics, the calendar it was recorded from.
 //
+// It also holds the toolbar to one line: the legend gives way before it wraps (issue 28: its
+// words, shorter words, then the glyphs alone), and the step button's name plate lies over no
+// control on the Schedule and Carts tabs with every plate pinned (`?audit=1`, issue 27).
+//
 //   cd apps/studio && pnpm build
 //   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core OUT=/some/dir node tests/newshow/calendar.mjs
 //   WIDTH=2560 HEIGHT=1440 TEXT=1.2 … node tests/newshow/calendar.mjs      # and 3840 by 2160
@@ -68,7 +72,7 @@ function kettle(o = {}) {
 }
 
 /** A window on a station, on the Schedule tab. */
-async function open(station, { width = SIZE.width, height = SIZE.height, theme = 'dark', text = SIZE.text } = {}) {
+async function open(station, { width = SIZE.width, height = SIZE.height, theme = 'dark', text = SIZE.text, query = '' } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, timezoneId: 'Europe/London', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
   await ctx.addInitScript(([t, z]) => {
     try {
@@ -92,7 +96,7 @@ async function open(station, { width = SIZE.width, height = SIZE.height, theme =
     if (typeof out === 'string') return route.fulfill({ status, contentType: 'text/calendar; charset=utf-8', body: out });
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(out) });
   });
-  await page.goto(`${ORIGIN}/`);
+  await page.goto(`${ORIGIN}/${query}`);
   await page.locator('[data-panel="studio.frame"]').waitFor({ timeout: 15000 });
   if (station.role === 'presenter') await page.getByRole('button', { name: 'Skip for now' }).click({ timeout: 5000 }).catch(() => {});
   await page.keyboard.press('Control+5');
@@ -168,6 +172,45 @@ if (run('subscribe')) {
   const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
   check('the toolbar does not run off the window', overflow <= 1, `${overflow} px over`);
   await shot(page, '01-toolbar');
+
+  // The legend gives way before it wraps (issue 28). A week across two months has the longest
+  // range the toolbar says: at 1440 by 900 it wrapped the legend onto a second line.
+  {
+    const legend = bar.locator('.legend');
+    const oneLine = async () => {
+      const t = await bar.locator(':scope > *').evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 0).map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)));
+      return Math.max(...t) - Math.min(...t) < 12;
+    };
+    /** What a person sees of the legend: the words that are drawn, not the ones kept for a screen reader. */
+    const seen = () => legend.evaluate((el) => [...el.querySelectorAll('.li')].map((li) => [...li.querySelectorAll('.full, .short')].filter((x) => getComputedStyle(x).display !== 'none' && x.getBoundingClientRect().width > 2).map((x) => x.textContent.trim()).join('')).join(' | '));
+    const FULL = 'Live | Automation fills the gaps | A date from the show’s rule | Conflict | Aired, frozen';
+    const fitNow = () => legend.getAttribute('data-fit');
+    if (SIZE.width === 1440 && SIZE.text === 1) check('in a short week the legend has its words in full', (await fitNow()) === 'words' && (await seen()) === FULL, `${await fitNow()}: ${await seen()}`);
+    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
+    await sleep(900);
+    const form = await fitNow();
+    check('in the week of 28 September – 4 October the toolbar is still one line', (await rangeText(page)) === '28 September – 4 October 2026' && (await oneLine()), `${await rangeText(page)}, the legend as ${form}`);
+    check('the legend has the widest form the line has room for', form === 'words' ? (await seen()) === FULL : await legend.evaluate((el) => { const was = el.dataset.fit; const order = ['words', 'short', 'glyphs']; el.dataset.fit = order[order.indexOf(was) - 1]; const p = el.previousElementSibling; let q = p; while (q && !q.offsetWidth) q = q.previousElementSibling; const wraps = el.offsetTop >= q.offsetTop + q.offsetHeight; el.dataset.fit = was; return wraps; }), form);
+    if (SIZE.width === 1440 && SIZE.text === 1) {
+      check('at 1440 by 900 it gives way to shorter words', form === 'short' && (await seen()) === 'Live | Automation | From the rule | Conflict | Aired', `${form}: ${await seen()}`);
+      check('a shortened item keeps its full words: as its tooltip, and for a screen reader', (await legend.locator('.li').nth(1).getAttribute('title')) === 'Automation fills the gaps' && (await legend.locator('.li').nth(2).getAttribute('title')) === 'A date from the show’s rule' && (await legend.locator('.li').nth(0).getAttribute('title')) === null && (await legend.locator('.li').nth(1).locator('.full').innerText()).trim() === 'Automation fills the gaps' && (await legend.locator('.li').nth(1).locator('.short').getAttribute('aria-hidden')) === 'true');
+      check('Conflict keeps its own tooltip', (await legend.locator('.li').nth(3).getAttribute('title')) === 'Where shows clash, one is open and the others fold beside it');
+      await shot(page, '01b-toolbar-two-months');
+      // A narrower window: the glyphs alone, each with its words as a tooltip.
+      await page.setViewportSize({ width: 1200, height: SIZE.height });
+      await sleep(600);
+      check('in a window 1200 wide the legend is its glyphs alone, on the one line', (await fitNow()) === 'glyphs' && (await seen()) === ' |  |  |  | ' && (await oneLine()), `${await fitNow()}: ${await seen()}`);
+      check('each glyph says what it is', JSON.stringify(await legend.locator('.li').evaluateAll((els) => els.map((e) => e.title))) === JSON.stringify(['Live', 'Automation fills the gaps', 'A date from the show’s rule', 'Conflict: Where shows clash, one is open and the others fold beside it', 'Aired, frozen']), JSON.stringify(await legend.locator('.li').evaluateAll((els) => els.map((e) => e.title))));
+      check('and the legend still reads in full to a screen reader', (await legend.evaluate((el) => [...el.querySelectorAll('.full')].map((x) => x.textContent.trim()).join(' | '))) === FULL);
+      await shot(page, '01c-toolbar-glyphs');
+      await page.setViewportSize({ width: SIZE.width, height: SIZE.height });
+      await sleep(600);
+      check('given the room back, the legend has its shorter words again', (await fitNow()) === 'short', await fitNow());
+    }
+    await page.keyboard.press('t');
+    await sleep(900);
+    check('back in this week the legend is as it was', (await rangeText(page)) === '9 – 15 November 2026' && (await oneLine()) && (SIZE.width !== 1440 || SIZE.text !== 1 || (await fitNow()) === 'words'), `${await rangeText(page)}: ${await fitNow()}`);
+  }
 
   if (!wide) {
     // The menu: a dialog, so the keys are its own; ↑ ↓ move, Esc closes, a press elsewhere closes.
@@ -566,8 +609,64 @@ if (run('themes')) {
     await imp(page).locator('li.item').first().waitFor({ timeout: 5000 });
     check(`${theme}: the import lists its shows, the one already on the station unticked`, (await imp(page).locator('li.item').count()) === 7 && (await imp(page).locator('li.item.there.off').count()) === 1);
     await shot(page, `21-import-shows-${theme}`);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    if (await imp(page).evaluate((d) => d.open).catch(() => false)) await imp(page).getByRole('button', { name: /Cancel|Close|Done/ }).first().click();
+    // The legend's shorter forms (issue 28), in this theme: a week across two months.
+    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
+    await sleep(900);
+    await page.locator('[data-panel="calendar.toolbar"]').screenshot({ path: join(OUT, `22-toolbar-two-months-${theme}-${TAG}.png`) });
     await ctx.close();
   }
+}
+
+// ---- The step button's name plate with every plate pinned (issue 27) ----
+if (run('plates')) {
+  const { ctx, page } = await open(kettle(), { query: '?audit=1' });
+  const audit = async () => (await page.locator('#pn-audit').innerText()).split('\n');
+  const stepLine = async () => (await audit()).find((l) => l.startsWith('studio.step ')) ?? 'no studio.step plate';
+  await sleep(600);
+  check('on the Schedule tab the step button has its plate, over no control', (await stepLine()) === 'studio.step  clear', await stepLine());
+  const before = (await audit()).filter((l) => l.includes('OVER'));
+  check('and no plate on the Schedule tab lies over a control', before.length === 0, before.join(' | '));
+  await shot(page, '30-plates-schedule');
+  // The Carts tab's row of banks is under the step button: there was no room by it, and the
+  // plate lay over the button it names.
+  await page.keyboard.press('Control+3');
+  await page.locator('[data-panel="carts.wall"]').waitFor({ timeout: 10000 });
+  await sleep(1200);
+  check('on the Carts tab too', (await stepLine()) === 'studio.step  clear', await stepLine());
+  const after = (await audit()).filter((l) => l.includes('OVER'));
+  check('and no plate on the Carts tab lies over a control', after.length === 0, after.join(' | '));
+  const lies = await page.evaluate(() => {
+    const plate = document.getElementById('pn-studio-step').getBoundingClientRect();
+    const hit = (b) => plate.left < b.right && b.left < plate.right && plate.top < b.bottom && b.top < plate.bottom;
+    const others = [...document.querySelectorAll('.pn-tag.show')].filter((t) => t.id !== 'pn-studio-step' && t.id !== 'pn-studio-frame');
+    return { button: hit(document.querySelector('.stepbtn').getBoundingClientRect()), inWindow: plate.left >= 0 && plate.right <= innerWidth && plate.width >= 72, name: document.querySelector('#pn-studio-step code').textContent };
+  });
+  check('the plate is drawn in the window with its name, and not over the step button', lies.inWindow && !lies.button && lies.name === 'studio.step', JSON.stringify(lies));
+  await shot(page, '31-plates-carts');
+  await ctx.close();
+
+  // Without the plates pinned: pointing at the step button shows its plate clear of the button.
+  const w = await open(kettle());
+  await w.page.keyboard.press('Control+3');
+  await w.page.locator('[data-panel="carts.wall"]').waitFor({ timeout: 10000 });
+  await sleep(600);
+  await w.page.locator('.stepbtn').hover();
+  await sleep(300);
+  const hover = await w.page.evaluate(() => {
+    const tag = document.querySelector('#pn-studio-step.show');
+    if (!tag) return null;
+    const plate = tag.getBoundingClientRect();
+    const b = document.querySelector('.stepbtn').getBoundingClientRect();
+    const under = document.elementsFromPoint(plate.left + plate.width / 2, plate.top + plate.height / 2).find((e) => !e.classList.contains('pn-tag') && !e.closest('.pn-tag'));
+    return { overButton: plate.left < b.right && b.left < plate.right && plate.top < b.bottom && b.top < plate.bottom, overControl: !!under?.closest('button, a[href], input, select, textarea, [role=tab], .cart'), showing: [...document.querySelectorAll('.pn-tag.show code')].map((c) => c.textContent) };
+  });
+  check('pointing at the step button on the Carts tab shows its plate, over no control', !!hover && !hover.overButton && !hover.overControl, JSON.stringify(hover));
+  // The step button is inside the frame: its title is its own, so the frame's plate stays away.
+  check('…and no other panel’s plate with it', hover?.showing.join() === 'studio.step', JSON.stringify(hover?.showing));
+  await w.ctx.close();
 }
 
 await browser.close();

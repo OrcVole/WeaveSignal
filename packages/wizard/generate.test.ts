@@ -71,6 +71,21 @@ describe('the Compose and Quadlets settings file', () => {
     expect(value(text, 'TURN_UDP_PORT')).toBe('3478');
     expect(value(text, 'TURN_TLS_PORT')).toBeUndefined();
   });
+  it("hosts' own studios: both ports off unless given; given, in the file, the ports to open and Cloudron's command", () => {
+    const off = out(compose());
+    expect(keysOf(off.file.text)).not.toContain('SOURCE_ICECAST_PORT');
+    expect(off.ports.map((p) => p.port)).not.toContain(8005);
+    const on = out(compose({ sourceIcecastPort: 8005, sourceSrtPort: 9710 }));
+    expect(value(on.file.text, 'SOURCE_ICECAST_PORT')).toBe('8005');
+    expect(value(on.file.text, 'SOURCE_SRT_PORT')).toBe('9710');
+    expect(on.ports).toContainEqual(expect.objectContaining({ port: 8005, proto: 'TCP' }));
+    expect(on.ports).toContainEqual(expect.objectContaining({ port: 9710, proto: 'UDP' }));
+    const cl = out(cloudron({ sourceIcecastPort: 8005, sourceSrtPort: 9710 }));
+    expect(cl.steps.find((s) => s.title === 'Install the app')!.command!).toContain('TURN_TLS_PORT=15349,SOURCE_ICECAST_PORT=8005,SOURCE_SRT_PORT=9710');
+    expect(cl.dialog.slice(-2).map((d) => d.value)).toEqual(['8005', '9710']);
+    const bad = generate({ ...compose(), sourceSrtPort: 70000 });
+    expect(bad.ok).toBe(false);
+  });
   it('has no public settings on a station for this machine only', () => {
     const o = out(compose({ isPublic: false, domain: '', acmeEmail: 'ops@station.example', mediaPort: 52000 }));
     expect(keysOf(o.file.text)).not.toContain('ACME_EMAIL');
@@ -220,14 +235,14 @@ describe('the ports and the commands', () => {
   });
   it("Cloudron: the dialog's rows and the command carry the names and ports, and the file is put in place after", () => {
     const o = out(cloudron({ turnUdpPort: 3479 }));
-    expect(o.dialog.map((d) => d.value)).toEqual(['studio.station.example', 'listen.station.example', 'room.station.example', 'station.example', '7882', '15349', '3479', 'off']);
+    expect(o.dialog.map((d) => d.value)).toEqual(['studio.station.example', 'listen.station.example', 'room.station.example', 'station.example', '7882', '15349', '3479', 'off', 'off', 'off']);
     const install = o.steps.find((s) => s.title === 'Install the app')!.command!;
     expect(install).toContain('--location studio.station.example');
     expect(install).toContain('LISTENERS_DOMAIN=listen.station.example,ROOM_DOMAIN=room.station.example,PUBLIC_DOMAIN=station.example');
     expect(install).toContain('LIVEKIT_MEDIA_PORT=7882,TURN_TLS_PORT=15349,TURN_UDP_PORT=3479');
     // the names the manifest gives its domains and ports
     const manifest = read('deploy/cloudron/CloudronManifest.json');
-    for (const k of ['LISTENERS_DOMAIN', 'ROOM_DOMAIN', 'PUBLIC_DOMAIN', 'LIVEKIT_MEDIA_PORT', 'TURN_TLS_PORT', 'TURN_UDP_PORT', 'LIVEKIT_TCP_PORT']) expect(manifest).toContain(`"${k}"`);
+    for (const k of ['LISTENERS_DOMAIN', 'ROOM_DOMAIN', 'PUBLIC_DOMAIN', 'LIVEKIT_MEDIA_PORT', 'TURN_TLS_PORT', 'TURN_UDP_PORT', 'LIVEKIT_TCP_PORT', 'SOURCE_ICECAST_PORT', 'SOURCE_SRT_PORT']) expect(manifest).toContain(`"${k}"`);
     expect(o.setupUrl).toBe('https://studio.station.example/setup/');
   });
   it('ends every route on the setup page, with the station key read first', () => {

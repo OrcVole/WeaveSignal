@@ -70,17 +70,45 @@ export function listenerDelayMs(d: { ms: number } | undefined | null): number {
  *  the listener process are read, the mount's own hold and a listener's player are not. */
 export function delayWords(d: ListenerDelay | undefined | null): string {
   const s = Math.round(listenerDelayMs(d) / 1000);
-  if (d?.measured) return `${s} s behind`;
+  if (isMeasured(d)) return `${s} s behind`;
   return `about ${s} s behind (an estimate)`;
 }
 
-/** What the estimate is made of, for the delay panel's detail line: the read parts first, then
- *  the part that is a setting. Empty when the control plane is too old to say. */
+/** The whole path was measured: the station says `measured` (1.1), or, before it did, `measured`
+ *  was true. An estimate otherwise. */
+const isMeasured = (d: ListenerDelay | undefined | null) => (d?.basis ? d.basis === 'measured' : !!d?.measured);
+
+/** Seconds to one decimal, a whole number without it: what a setting says (`13 s`, `14.5 s`). */
+const setSecs = (ms: number) => `${Number.isInteger(ms / 1000) ? ms / 1000 : (ms / 1000).toFixed(1)} s`;
+
+/** The delay on the clock's line (issue 17; the look's review, finding 3: each panel states the
+ *  figure once). While it is an estimate, *about 23 s behind*, and the line under it names the
+ *  parts (`delayParts`); once the whole path is measured, the plain figure. A control plane
+ *  before 1.1 sends no parts, so nothing under the line says what the figure is: the line then
+ *  keeps *(an estimate)*, as it did. */
+export function delayLine(d: ListenerDelay | undefined | null): string {
+  if (isMeasured(d) || !delayParts(d)) return delayWords(d);
+  return `about ${Math.round(listenerDelayMs(d) / 1000)} s behind`;
+}
+
+/** What the figure is made of, in a presenter's words, for the one line under the clock's (ADR-0289
+ *  item 1 keeps the estimate labelled with its parts): *8.0 s profanity delay, 0.5 s buffer, about
+ *  14.5 s in listeners’ players (estimated)*. The profanity delay and the buffer (what the listener
+ *  process holds of playout's feed) are the station's own readings, to 0.1 s; the rest is the
+ *  setting that stands for the stream's own hold and each listener's player, a whole number
+ *  without a decimal, and it alone is called estimated. Nothing here says *read* or *set*: those
+ *  are the code's words (the API's `read_ms` and `set_ms`). Empty when the control plane is too
+ *  old to say. */
 export function delayParts(d: ListenerDelay | undefined | null): string {
   if (!d || d.desk_ms === undefined || d.rest_ms === undefined) return '';
   const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-  const read = [`${s(d.desk_ms)} profanity delay`];
-  if (d.process_ms != null) read.push(`${s(d.process_ms)} in the listener process`);
-  const rest = d.measured ? '' : `; about ${s(d.rest_ms)} more is set, not read: the stream's own hold and each listener's player`;
-  return `Read now: ${read.join(', ')}${rest}`;
+  const parts = [`${s(d.desk_ms)} profanity delay`];
+  if (d.process_ms != null) parts.push(`${s(d.process_ms)} buffer`);
+  if (isMeasured(d)) {
+    // Measured end to end: what is left of the figure is in the stream and the players, and nothing is estimated.
+    const rest = d.ms - d.desk_ms - (d.process_ms ?? 0);
+    if (rest > 0) parts.push(`${s(rest)} in listeners’ players`);
+    return parts.join(', ');
+  }
+  return `${parts.join(', ')}, about ${setSecs(d.rest_ms)} in listeners’ players (estimated)`;
 }

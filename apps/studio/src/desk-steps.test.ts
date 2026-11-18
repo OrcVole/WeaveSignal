@@ -164,7 +164,7 @@ describe('the frame at each step', () => {
       expect(tabsOf(render(App).body), s).toEqual([['Desk', '⌃1'], ['Carts', '⌃3'], ['Schedule', '⌃5'], ['Settings', '']]);
     }
     studio.view = view('full');
-    expect(tabsOf(render(App).body)).toEqual([['Desk', '⌃1'], ['Screener', '⌃2'], ['Carts', '⌃3'], ['Chat', '⌃4'], ['Schedule', '⌃5'], ['Settings', '']]);
+    expect(tabsOf(render(App).body)).toEqual([['Desk', '⌃1'], ['Screener', '⌃2'], ['Carts', '⌃3'], ['Schedule', '⌃5'], ['Settings', '']]);
   });
 
   it('puts the step control beside the station’s name, before the tabs, as pips and a word', () => {

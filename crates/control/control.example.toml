@@ -24,11 +24,17 @@ listeners = 7312       # tcp, loopback: icecast.server's listener streams. Or 17
 srt_ingest = 7313      # udp, loopback: the programme; the desk listens, Liquidsoap connects. Or 17313, 27313.
 playout_feed = 7315    # tcp, loopback: playout's programme to the listener process (and 7316). Or 17315, 27315.
 desk_feed = 7317       # tcp, loopback: playout's programme back to the desk, the video's sound (ADR-0172). Or 17317, 27317.
+desk_sources = 7318    # tcp, loopback: hosts' own studios from the ingest to the desk (ADR-0280). Or 17318, 27318.
 livekit_http = 7880    # tcp, loopback: LiveKit's signalling, behind the proxy. Or 17880, 27880.
 livekit_media = 7882   # udp, public: LiveKit's one media port. Or a port in 52000-60000 (not 50000-51000, Cloudron's TURN relays), or 443.
 livekit_tcp = 7881     # tcp, public: LiveKit's ICE over TCP. Or 17881, 27881.
 turn_udp = 3478        # udp, public: TURN. Or 3479, 13478 (Cloudron's own TURN may hold 3478).
 turn_tls = 5349        # tcp, public: TURN over TLS, on by default (ADR-0080). Or 443 where the proxy does not hold it, or 15349.
+# Hosts' own studios (ADR-0280, ADR-0284): the ingest listens on these only while a show key
+# exists. Named here, they are the installation's: the station's rules for sources show them and
+# cannot change them, and 0 turns that way in off. Left out, the rules' own ports apply.
+# source_icecast = 8005   # tcp, public: Icecast sources. Or 18005, 28005.
+# source_srt = 9710       # udp, public: SRT sources. Or 19710, 29710.
 
 # The live room. LiveKit's API secret comes from WEAVESIGNAL_LIVEKIT_API_SECRET, never this file.
 [room]

@@ -95,7 +95,7 @@ export function liveAsks(air: OnAir): boolean {
 
 /** The two-press actions that change the room: arming one is the first half of doing it. The
  *  chat's own (influx, ban) stay, as the chat stays open to a preparing window. */
-const ARMS_AIR: Record<TwoPress, boolean> = { dump: true, drop: true, 'fade-all': true, 'end-pass': true, influx: false, ban: false };
+const ARMS_AIR: Record<TwoPress, boolean> = { dump: true, drop: true, 'fade-all': true, 'end-pass': true, disconnect: true, influx: false, ban: false, 'restart-playout': true };
 
 /** Every action, sorted once: `air` goes to a route the station refuses a preparing window (the
  *  desk's, the carts' and the screener's commands, ending a pass or the show, the station's
@@ -111,10 +111,9 @@ const AIR: Record<Action['type'], 'air' | 'free' | ((a: never) => boolean)> = {
   dump: 'air',
   drop: 'air',
   'end-pass': 'air',
+  disconnect: 'air', // the station refuses it from a preparing window (409)
   'end-show': 'air',
   'restart-playout': 'air',
-  'restart-encoder': 'air',
-  'backup-stream': 'air',
   'talk-seat': 'air', // held or let go: the Screener tab's release sends too
   cart: 'air',
   picture: 'air',

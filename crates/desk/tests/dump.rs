@@ -210,12 +210,16 @@ fn the_listener_never_hears_what_was_dumped() {
     // of +3.4 to +6.5 dB, each run the same few values as the start-up timing shifted the
     // second's boundary; the marker itself never aired). A marker that aired would sit near
     // the tone's level through every later second, which this still catches.
-    let onset = tone.iter().position(|t| *t > 60.0);
+    //
+    // An onset can also straddle two listener seconds (2026-11-17, `4e54836`: the tone 51 dB in
+    // the first, 151 dB in the next, the trace 36 dB in the first): both are left out, the
+    // first second the tone rises out of silence and the one after.
+    let onset = tone.iter().position(|t| *t > 0.0);
     let worst = marker
         .iter()
         .zip(&tone)
         .enumerate()
-        .filter(|(i, _)| Some(*i) != onset)
+        .filter(|(i, _)| onset.is_none_or(|o| *i != o && *i != o + 1))
         .map(|(_, (m, t))| m - 30.0f64.max(t - 40.0))
         .fold(f64::MIN, f64::max);
     let report = serde_json::json!({

@@ -6,12 +6,17 @@
 
 pub mod booth;
 pub mod forwarded;
+pub mod monitor;
 pub mod pass;
 pub mod role;
+pub mod source_wire;
 pub mod token;
 
 pub use booth::{booth, booth_owner, booth_prefix, room_for};
 pub use forwarded::last_forwarded;
+pub use monitor::{
+    is_monitor_seat, monitor_key, monitor_prefix, monitor_room, monitor_seat, monitor_seats,
+};
 pub use pass::{MAX_PASS_TTL_S, PASS_PREFIX, PassClaims, PassKind};
 pub use role::{IdentityError, ROLE_ATTRIBUTE, Role, check_identity};
 pub use token::{Grants, Keys, TokenClaims, TokenError};

@@ -121,6 +121,14 @@ pub const PORTS: &[PortSpec] = &[
         what: "playout's programme back to the desk, the video stream's sound while nobody is live (ADR-0172); the desk listens, playout connects",
     },
     PortSpec {
+        key: "desk_sources",
+        proto: Proto::Tcp,
+        default: 7318,
+        alternatives: &[17318, 27318],
+        exposure: Exposure::Loopback,
+        what: "hosts' own studios from the ingest to the desk (ADR-0280); the desk listens, the ingest connects",
+    },
+    PortSpec {
         key: "livekit_http",
         proto: Proto::Tcp,
         default: 7880,
@@ -161,7 +169,29 @@ pub const PORTS: &[PortSpec] = &[
         exposure: Exposure::Public,
         what: "LiveKit's built-in TURN over TLS, on by default on 5349; 443 where it is free (ADR-0080)",
     },
+    PortSpec {
+        key: "source_icecast",
+        proto: Proto::Tcp,
+        default: 8005,
+        alternatives: &[18005, 28005],
+        exposure: Exposure::Public,
+        what: "the ingest's Icecast source port, for hosts' own studios (ADR-0280, ADR-0284); listens only while a show key exists",
+    },
+    PortSpec {
+        key: "source_srt",
+        proto: Proto::Udp,
+        default: 9710,
+        alternatives: &[19710, 29710],
+        exposure: Exposure::Public,
+        what: "the ingest's SRT port, for hosts' own studios (ADR-0280, ADR-0284); listens only while a show key exists",
+    },
 ];
+
+/// The ports for hosts' own studios. Named in the settings file, the installation owns them: the
+/// station's rules for sources show them and cannot change them, because the installation is what
+/// publishes them (Cloudron's dashboard, the Compose settings). Left out, the rules' own ports
+/// apply. Each may be 0, which turns that way in off (a port Cloudron's dashboard left disabled).
+pub const SOURCE_PORTS: &[&str] = &["source_icecast", "source_srt"];
 
 /// The port specification for a key.
 /// Settings that once named a port and name nothing now: accepted and ignored, with a warning,
@@ -173,14 +203,30 @@ pub fn spec(key: &str) -> Option<&'static PortSpec> {
     PORTS.iter().find(|s| s.key == key)
 }
 
-/// The configured ports: every key of [`PORTS`], each overridable under `[ports]`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// The configured ports: every key of [`PORTS`], each overridable under `[ports]`. Which keys
+/// the file named is kept too, for [`SOURCE_PORTS`]; two sets of ports are equal when every
+/// port is.
+#[derive(Clone, Debug, Serialize)]
 #[serde(transparent)]
-pub struct Ports(BTreeMap<&'static str, u16>);
+pub struct Ports(
+    BTreeMap<&'static str, u16>,
+    #[serde(skip)] std::collections::BTreeSet<&'static str>,
+);
+
+impl PartialEq for Ports {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for Ports {}
 
 impl Default for Ports {
     fn default() -> Self {
-        Self(PORTS.iter().map(|s| (s.key, s.default)).collect())
+        Self(
+            PORTS.iter().map(|s| (s.key, s.default)).collect(),
+            Default::default(),
+        )
     }
 }
 
@@ -200,12 +246,13 @@ impl<'de> Deserialize<'de> for Ports {
                     known.join(", ")
                 ))
             })?;
-            if port == 0 {
+            if port == 0 && !SOURCE_PORTS.contains(&spec.key) {
                 return Err(serde::de::Error::custom(format!(
                     "port `{key}` is 0; give a port from 1 to 65535"
                 )));
             }
             ports.0.insert(spec.key, port);
+            ports.1.insert(spec.key);
         }
         Ok(ports)
     }
@@ -219,10 +266,16 @@ impl Ports {
         }
     }
 
-    /// Change a port; for tests and for setup tools.
+    /// Change a port; for tests and for setup tools. The port counts as named in the file.
     pub fn set(&mut self, key: &str, port: u16) {
         let spec = spec(key).unwrap_or_else(|| panic!("no port setting named `{key}`"));
         self.0.insert(spec.key, port);
+        self.1.insert(spec.key);
+    }
+
+    /// The port the settings file named for `key`, if it named one (0 included).
+    pub fn given(&self, key: &str) -> Option<u16> {
+        self.1.contains(key).then(|| self.get(key))
     }
 
     /// Every port with its specification, in the registry's order.
@@ -234,7 +287,7 @@ impl Ports {
     pub fn duplicates(&self) -> Vec<(&'static str, &'static str, u16, Proto)> {
         let mut seen: BTreeMap<(u16, Proto), &'static str> = BTreeMap::new();
         let mut dups = Vec::new();
-        for (spec, port) in self.iter() {
+        for (spec, port) in self.iter().filter(|(_, port)| *port != 0) {
             if let Some(first) = seen.insert((port, spec.proto), spec.key) {
                 dups.push((first, spec.key, port, spec.proto));
             }
@@ -346,6 +399,7 @@ pub fn check_one(spec: &'static PortSpec, port: u16, internal: IpAddr) -> Result
 pub fn check_all(ports: &Ports, internal: IpAddr) -> Vec<Clash> {
     ports
         .iter()
+        .filter(|(_, port)| *port != 0)
         .filter_map(|(spec, port)| check_one(spec, port, internal).err())
         .collect()
 }
@@ -404,6 +458,22 @@ mod tests {
         assert_eq!(ports.get("control"), 7410);
         assert!(spec("hls_origin").is_none());
         assert_eq!(ports.iter().count(), PORTS.len());
+    }
+
+    #[test]
+    fn the_source_ports_may_be_off_and_say_when_they_were_named() {
+        let ports: Ports = toml::from_str("source_icecast = 18005\nsource_srt = 0").unwrap();
+        assert_eq!(ports.given("source_icecast"), Some(18005));
+        assert_eq!(ports.given("source_srt"), Some(0));
+        assert_eq!(Ports::default().given("source_icecast"), None);
+        assert!(ports.duplicates().is_empty());
+        assert_eq!(spec("source_icecast").unwrap().default, 8005);
+        assert_eq!(spec("source_srt").unwrap().proto, Proto::Udp);
+        assert_eq!(spec("desk_sources").unwrap().default, 7318);
+        let err = toml::from_str::<Ports>("desk_sources = 0")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("is 0"), "{err}");
     }
 
     #[test]

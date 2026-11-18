@@ -7,6 +7,9 @@
 // The chat's address is the page's own origin (the Vite proxy sends /api/v1/chat there, with
 // the admin bearer added), or `?chat=` names another, or else the control plane's `?control=`;
 // the bearer comes the way the control plane's does (api.ts: the proxy, or `?token=`).
+// The socket is the exception (chatSocket.ts): it opens on the station's public address when
+// there is one, as a socket cannot carry the bearer that a login in front of the station's own
+// address (Cloudron's) wants.
 
 import { onLeave, onStationChange } from './reset.ts';
 import {
@@ -26,6 +29,8 @@ import {
 import type { SorReason, SorThen } from '../../../../packages/ui/keymap.ts';
 import { base, headers, netFetch } from './api.ts';
 import { studio } from './studio.svelte.ts';
+import { loadPublicAddress } from './schedule.svelte.ts';
+import { socketOrigins, socketUrlOn } from './chatSocket.ts';
 import { account } from './account.svelte.ts';
 import { EMPTY_MOD, EMPTY_ROOM, applyMod, applyRoom, needsList, roomFrom, type Entry, type Room, type SorSubject } from './chatModel.ts';
 
@@ -148,14 +153,26 @@ export const chat = $state(fresh());
 
 // ---- the address ----
 
-export function chatBase(): string {
+/** The `?chat=` override, without a trailing slash; empty when not given. */
+function chatParam(): string {
   const q = new URLSearchParams(globalThis.location?.search ?? '');
-  return (q.get('chat') ?? '').replace(/\/$/, '') || base();
+  return (q.get('chat') ?? '').replace(/\/$/, '');
 }
 
-function socketUrl(): string {
-  const origin = chatBase() || globalThis.location.origin;
-  return `${origin.replace(/^http/, 'ws')}/api/v1/chat/socket`;
+export function chatBase(): string {
+  return chatParam() || base();
+}
+
+/** The station's public address, learned once per station and kept for the socket (see
+ *  chatSocket.ts); null until learned, and for a station that has none. */
+let publicUrl: string | null = null;
+/** How many socket attempts have failed before opening: it picks the address to try next. */
+let unopened = 0;
+
+/** The addresses the socket may open on, first choice first. */
+function socketOrigin(): string {
+  const all = socketOrigins({ chat: chatParam(), own: base(), publicUrl, page: globalThis.location?.origin ?? '' });
+  return all[unopened % all.length];
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -256,6 +273,8 @@ export function stopChat(): void {
   started = false;
   session = null;
   since = null;
+  publicUrl = null;
+  unopened = 0;
   const ws = socket;
   socket = null;
   try {
@@ -281,8 +300,17 @@ async function run(mine: number): Promise<void> {
         session = token;
       }
       if (!chat.info) void loadInfo(live);
-      const out = await connect(token);
+      // The socket goes to the public address when the station has one (chatSocket.ts); asked
+      // once, and not when `?chat=` names the address or the page is the station's own origin.
+      if (publicUrl === null && !chatParam() && base()) {
+        const asked = await loadPublicAddress();
+        if (!live()) return;
+        publicUrl = asked;
+      }
+      const out = await connect(token, socketOrigin());
       if (!live()) return;
+      // An address that never opened is given up for the next one, when there is one.
+      if (!out.opened) unopened++;
       code = out.code;
       if (out.welcomed) attempt = 0;
       if (code === CLOSE_SIGNED_OUT || out.refused) session = null;
@@ -311,14 +339,16 @@ async function run(mine: number): Promise<void> {
   }
 }
 
-function connect(token: string): Promise<{ code: number; why: string; welcomed: boolean; refused: boolean }> {
+function connect(token: string, origin: string): Promise<{ code: number; why: string; welcomed: boolean; refused: boolean; opened: boolean }> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(socketUrl());
+    const ws = new WebSocket(socketUrlOn(origin));
     socket = ws;
+    let opened = false;
     let welcomed = false;
     let refused = false;
     let ping: ReturnType<typeof setInterval> | undefined;
     ws.onopen = () => {
+      opened = true;
       ws.send(JSON.stringify({ t: 'hello', session: token, ...(since ? { since } : {}) }));
       ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: 'ping' })), 25_000);
     };
@@ -338,7 +368,7 @@ function connect(token: string): Promise<{ code: number; why: string; welcomed: 
     };
     ws.onclose = (e) => {
       clearInterval(ping);
-      resolve({ code: e.code, why: e.reason || (welcomed ? 'the chat closed the link' : 'the chat did not answer'), welcomed, refused });
+      resolve({ code: e.code, why: e.reason || (welcomed ? 'the chat closed the link' : 'the chat did not answer'), welcomed, refused, opened });
     };
   });
 }

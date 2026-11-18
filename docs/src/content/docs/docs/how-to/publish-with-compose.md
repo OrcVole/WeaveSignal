@@ -30,6 +30,7 @@ The bundle is otherwise the one in [Install a station with weavesignal.sh](/docs
   | 5349 | TCP | LiveKit's TURN over TLS (ADR-0080) |
 
   TURN over UDP and ICE over TCP are off unless you set their ports (below); open those too if you do.
+  So are the two ports for hosts' own studios: `SOURCE_ICECAST_PORT` (TCP, 8005 suggested) and `SOURCE_SRT_PORT` (UDP, 9710).
   Nothing else is published. The control plane, the chat and the listener process stay on loopback behind the proxy.
 - **Ports 80 and 443 free**, and bindable by your user. A rootless Podman may not bind ports below 1024 unless the machine allows it. If yours does not, the script stops and prints the line to run:
 
@@ -88,6 +89,7 @@ All are in the settings file (`deploy/compose/.env`), or in the environment of t
 | `PROXY_HTTPS_PORT`, `PROXY_HTTP_PORT` | 443, 80 | a certificate authority reaches 443 and 80 only, so any other pair needs those forwarded to it |
 | `TURN_TLS_PORT` | 5349 | 15349 where 5349 is taken; not 443, which is the proxy's |
 | `TURN_UDP_PORT`, `LIVEKIT_TCP_PORT` | 0 (off) | TURN over UDP and ICE over TCP; guests who need either are reached by TURN over TLS |
+| `SOURCE_ICECAST_PORT`, `SOURCE_SRT_PORT` | 0 (off) | Icecast (TCP) and SRT (UDP) from hosts' own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)); 8005 and 9710 are usual. The ingest listens on every address on them while a show key exists. They reach the ingest directly, not through the proxy, so it counts wrong keys by the host's own address |
 | `NODE_IP` | empty | LiveKit's public address; empty, it finds it by asking a STUN server. Set it where discovery picks the wrong address |
 | `TURN_ALLOW_CIDRS` | empty | LiveKit's TURN refuses to relay to private addresses, its own included. A `NODE_IP` that is private (the machine is behind NAT) must be listed here, such as `10.0.0.5/32` |
 | `SEARCH_LISTING`, `DIRECTORY_LISTING` | `false` | the station is unlisted until you turn these on: search engines may list the pages (ADR-0133), and the stream asks internet radio directories to list it (ADR-0129) |

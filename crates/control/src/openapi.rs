@@ -93,6 +93,28 @@ impl Modify for Bearers {
             ),
         );
         components.add_security_scheme(
+            "ingest",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some(
+                        "The ingest's own bearer (`WEAVESIGNAL_INGEST_TOKEN`), taken only from a loopback peer with no proxy's header: the internal routes for hosts in their own studios (ADR-0280).",
+                    ))
+                    .build(),
+            ),
+        );
+        components.add_security_scheme(
+            "monitor",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some(
+                        "A monitor link's secret (ADR-0280): the second secret made with a show key, 24 characters, kept by the station only as a keyed hash; sent as a bearer by the monitor page, which reads it from the link's fragment.",
+                    ))
+                    .build(),
+            ),
+        );
+        components.add_security_scheme(
             "pass",
             SecurityScheme::Http(
                 HttpBuilder::new()
@@ -171,6 +193,9 @@ fn api_token_description() -> String {
         (name = "tokens", description = "API tokens for integrations. Admin only."),
         (name = "webhooks", description = "Webhooks: signed deliveries of the station's events to an integration. Admin only."),
         (name = "setup", description = "The station's setup page (ADR-0237): its name and takedown contact, the stream's password where the install has one, and its look on the public pages. Admin only, except reading the look."),
+        (name = "sources", description = "Hosts in their own studios (ADR-0280): show keys, the sources connected or due, disconnecting one, and the station's rules for them."),
+        (name = "monitor", description = "A host's monitor link (ADR-0280): their own source's state and the station's clock, and a listen-only room token for the sound of the programme without them. The bearer is the monitor secret from the key's making; it needs no account."),
+        (name = "internal", description = "Routes for the station's own processes on the same machine; never reachable through the proxy."),
         (name = "rtmp", description = "RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown."),
     ),
     components(responses(Unauthorized, Forbidden, NotFound, Conflict, Unprocessable, Unavailable, TooManyRequests, ScopeMissing)),
@@ -197,6 +222,9 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::webhooks::Api::openapi(),
         crate::open::Api::openapi(),
         crate::rtmp::Api::openapi(),
+        crate::sources::Api::openapi(),
+        crate::post::Api::openapi(),
+        crate::monitor::Api::openapi(),
         crate::setup::Api::openapi(),
     ] {
         doc.merge(part);

@@ -259,6 +259,7 @@ describe('the keys of hidden parts (design section 4)', () => {
       [{ type: 'end-show' }, ['solo', 'guests', 'callers', 'full']],
       [{ type: 'escape' }, ['solo', 'guests', 'callers', 'full']],
       [{ type: 'restart-playout' }, ['solo', 'guests', 'callers', 'full']],
+      [{ type: 'arm', what: 'restart-playout' }, ['solo', 'guests', 'callers', 'full']],
       [{ type: 'arm', what: 'end-pass', identity: 'gregor' }, ['solo', 'guests', 'callers', 'full']],
     ];
     for (const [a, on] of table) {
@@ -297,7 +298,7 @@ describe('the keys of hidden parts (design section 4)', () => {
     // P on the Desk tab at Full (or while everything is shown at Callers): nothing, and no note.
     expect(offNote('take-caller', 'full')).toBeNull();
     expect(offNote('take-caller', 'callers')).toBeNull();
-    for (const p of ['dump', 'drop', 'screener-tab', 'chat-tab', 'talk-screener', 'handover', 'picture'] as const) {
+    for (const p of ['dump', 'drop', 'screener-tab', 'talk-screener', 'handover', 'picture'] as const) {
       const n = offNote(p, 'solo');
       expect(n?.title, p).toMatch(/Solo$/);
       expect(n?.message, p).toMatch(/^This show runs at Solo/);

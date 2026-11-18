@@ -226,6 +226,21 @@ Request body: [NewAccount](#schema-newaccount).
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### GET /api/v1/staff/directory
+
+**Who is on the team**
+
+Needs: staff: any staff session, or the station key.
+
+A producer, an admin or the station key; a presenter or a screener is refused (403). The accounts that are on, by name, each with only its `id`, `name` and `role`: enough for the show editor to name a show's presenter (`presenter_account`) and to offer the accounts an admin may pick. The username, sign-in address, dates and the accounts that are off stay with `GET /api/v1/staff`, an admin's. An API token never reaches it.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The team. | [DirectoryBody](#schema-directorybody) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ### PUT /api/v1/staff/{id}
 
 **Change an account**
@@ -358,7 +373,7 @@ Request body: [DeskCommand](#schema-deskcommand).
 
 Needs: staff: any staff session, or the station key.
 
-Takes everyone off air (presenters, DJs, guests, callers; callers stay in the room and the queue), fades every cart, then hands the air to automation by setting the station's mode to `auto`. The switch waits for the profanity delay to play out, so the last words are heard; `automation_in_ms` says how long. If somebody has gone back on air by then the switch is skipped, and the studio gets a notice saying why. With no desk answering nothing is on air to take off, and the air still goes to automation. With no playout layer (`automation_in_ms` null) there is nothing to hand it to. Any staff member's, like the desk's own switches.
+Takes everyone off air (presenters, DJs, guests, callers; callers stay in the room and the queue), fades every cart, then hands the air to automation by setting the station's mode to `auto`. When the next host's source is standing by (steady, its show next or on air by the schedule) the air passes to them instead, as a handover's two steps: they go on air as the others go off, nothing goes to automation, and `passed_to` names them. The switch waits for the profanity delay to play out, so the last words are heard; `automation_in_ms` says how long. If somebody has gone back on air by then the switch is skipped, and the studio gets a notice saying why. With no desk answering nothing is on air to take off, and the air still goes to automation. With no playout layer (`automation_in_ms` null) there is nothing to hand it to. Any staff member's, like the desk's own switches.
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -1639,6 +1654,22 @@ Request body: [ModeRequest](#schema-moderequest).
 | 500 | The database refused. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### POST /api/v1/playout/restart
+
+**Restart playout**
+
+Needs: staff: any staff session, or the station key.
+
+Asks playout (Liquidsoap) to shut down so that its supervisor, which every install has (Compose's restart policy, the Quadlet's `Restart=always`, the Cloudron app's supervisord), starts it again: the studio's `⌃R` pressed twice. Listeners keep their stream: the listener process holds the mount and plays its fallback until playout is back, about five seconds. Any staff member's, as the station's mode is (it changes what is on air, so a window that is preparing a show is refused with 409); an API token never reaches it. 502 when playout does not answer on its socket (it is already down, and its supervisor is starting it); 503 when the station has no playout layer.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Playout took the command. | [PlayoutRestarting](#schema-playoutrestarting) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 502 | Playout did not answer on its socket. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ### GET /api/v1/playout/settings
 
 **Playout's settings**
@@ -2789,6 +2820,19 @@ The pages go back to the product's own.
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### GET /api/v1/front
+
+**Whether the front page is the not-set-up page**
+
+Needs: nobody (no bearer).
+
+Open. For the Cloudron package's nginx, which serves the pages itself: its `/` on the app's own domain asks this route and, on a 200, serves the page named in `X-Accel-Redirect` (the not-set-up page) instead of the player. 200 while setup is open and the station still has a name nobody chose: the one its install gave it (`This station`) or the demo's (`Kettle FM`, what installs before 1.1 started as); 404 otherwise. The public pages' domain never asks, and never passes this route. The same rule decides `/` on a station whose control plane serves the pages itself.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The station is not set up: serve the not-set-up page. |  |
+| 404 | The station is set up, or is running as it was: the player stays. |  |
+
 ### GET /api/v1/setup
 
 **The station's setup**
@@ -2854,6 +2898,513 @@ Request body: [StreamPasswordChange](#schema-streampasswordchange).
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+## Routes: sources
+
+Hosts in their own studios (ADR-0280): show keys, the sources connected or due, disconnecting one, and the station's rules for them.
+
+### POST /api/v1/air/post/hold
+
+**Hold this handover**
+
+Needs: staff: any staff session, or the station key.
+
+Stops the grace for the handover now at the post (the next show's, as `post` in `GET /studio` names it): the schedule never takes the air from whoever holds it, and the handover is by a press only. It holds this handover alone; the next one is not held. For an admin or a producer; an API token never. 409 when there is no handover to hold.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Held. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/air/post/hold
+
+**Let this handover go**
+
+Needs: staff: any staff session, or the station key.
+
+Lets the held handover go: the grace runs again, counted from where the post and the next host's standing by put it (a grace that was already over hands over at the next look). For an admin or a producer.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Let go. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/settings/sources
+
+**The rules for sources**
+
+Needs: staff: any staff session, or the station key.
+
+The station's rules for hosts in their own studios: the door, the grace, tests outside the slot, the late count, the dropped-link times, the fade, and the ingest's two ports. Admin only.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rules. | [SourceSettings](#schema-sourcesettings) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/settings/sources
+
+**Change the rules for sources**
+
+Needs: staff: any staff session, or the station key.
+
+Every rule at once. The ingest takes new ports within seconds (it listens afresh). A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.
+
+Request body: [SourceSettings](#schema-sourcesettings).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rules now. | [SourceSettings](#schema-sourcesettings) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/shows/{show}/keys
+
+**A show's keys**
+
+Needs: staff: any staff session, or the station key.
+
+Every key the show has, live and ended, newest first, never a secret; where the show comes from (`room` or `push`); each key's last refusal. For an admin, a producer or the show's presenter; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The keys. | [KeyList](#schema-keylist) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/shows/{show}/keys
+
+**Make a show key**
+
+Needs: staff: any staff session, or the station key.
+
+A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`). For an admin, a producer or the show's presenter; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+
+Request body: [NewKey](#schema-newkey).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The key, with its secrets, once. | [MadeKey](#schema-madekey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/shows/{show}/keys/{key}
+
+**End a show key**
+
+Needs: staff: any staff session, or the station key.
+
+The key and its monitor link end for good: the host's software is refused from now on, and a connection with the key is closed. When it was the show's last key, the show comes from the room again. For an admin, a producer or the show's presenter; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `key` | path | string | yes | The key's id |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Ended (`ended` is false when it had ended already). |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/shows/{show}/keys/{key}/renew
+
+**Make a new key in place of one**
+
+Needs: staff: any staff session, or the station key.
+
+A new key for the same person and show (its secrets shown once, as when a key is made). The old key, and its monitor link, end `now` (a connection with it is closed: if the host is on air, listeners hear what the dropped-link rule gives) or `on_disconnect` (when its connection closes, at once if it has none). For an admin, a producer or the show's presenter; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `key` | path | string | yes | The old key's id |
+
+Request body: [Renew](#schema-renew).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The new key, with its secrets, once. | [MadeKey](#schema-madekey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/sources
+
+**Sources connected or due**
+
+Needs: staff: any staff session, or the station key; or an API token with `sources:read`.
+
+Every host's own studio that is connected (`on_air`, `standby`, `test`) or due (`not_connected`: its slot's door is open). `listening` says whether the ingest is running. For staff; an API token with `sources:read`.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The sources. | [SourcesView](#schema-sourcesview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/sources/{key}/disconnect
+
+**Disconnect a source**
+
+Needs: staff: any staff session, or the station key.
+
+The tile's Disconnect: closes the source's connection, takes it off the desk, and turns its key away until its slot's door closes (most software reconnects by itself). `DELETE` lets it back in. For staff at the desk (a window preparing a show is refused, 409); an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The key's id |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Disconnected; `until_ms` is when the key is let back in by itself. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/sources/{key}/disconnect
+
+**Let a disconnected source back in**
+
+Needs: staff: any staff session, or the station key.
+
+Settings' Let back in: the key is taken again at once. For an admin, a producer or the show's presenter; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The key's id |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Let back in. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/sources/{key}/go
+
+**Go on air now**
+
+Needs: staff: any staff session, or the station key.
+
+Skips the late count: puts a source standing by on air at once, taking the air back from automation as the count would have. Refused (409) when someone else presents (the handover is by the post or a press then), when the source is not at the desk or not steady yet. For staff at the desk (a window preparing a show is refused, 409); an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The key's id |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | On air. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/sources/{key}/not-yet
+
+**Not yet: stop the late count**
+
+Needs: staff: any staff session, or the station key.
+
+Stops the late count for this airing: the schedule will not put the source on air by itself, and it goes on air by its own press (`go`, or the handover's key at the desk). For staff at the desk; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The key's id |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The count is stopped. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/sources/{key}/off-air
+
+**Off air: let a lost source's place go**
+
+Needs: staff: any staff session, or the station key.
+
+The desk toast's *Off air* for a source whose link was lost while it was on air (design section 3.6): its place is kept for the rules' time (`place_kept_s`), and this lets it go at once. The log says `place_let_go`, by whom. The tile leaves the stage, and if the source reconnects it stands by instead of going back on air by itself. If nobody else is on air and the station is not on automation yet, automation takes the air first, so listeners are not left with nothing. Refused (409) unless the key's place is being kept now. For staff at the desk; an API token never.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The key's id |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The place is let go; `covered` says whether automation took the air with it. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+## Routes: monitor
+
+A host's monitor link (ADR-0280): their own source's state and the station's clock, and a listen-only room token for the sound of the programme without them. The bearer is the monitor secret from the key's making; it needs no account.
+
+### GET /api/v1/monitor
+
+**The monitor link's view**
+
+Needs: staff: any staff session, or the station key.
+
+What the host behind a monitor link sees: their own source's state (`on_air`, `open`, `standby`, `link_lost`, `test`, `not_connected`) and the lamp's sentence, what happens next with the instant it counts to (`then.at_ms`, on the station's clock), the post (the grace, a hold, the late count) as far as it is theirs, before you, you and after you, the next insert as far as the log can say, the show's step, the next host, the last refusal in words, what the station hears of them, and what they may press now (`controls`, each with `why_not`). The bearer is the monitor secret from the key's making; it needs no account. 401 for a secret that is not one; 410 when the key has ended; 429 for too many wrong secrets from one address.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The host's own view. | [MonitorView](#schema-monitorview) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/cue
+
+**Cue the next host**
+
+Needs: staff: any staff session, or the station key.
+
+Puts the next host (`next_host` in the view: the show after this one's host standing by, or the DJ in the room waiting) in this host's headphones, or takes them out (`{"on": false}`). The body may be empty. The desk's own cue, for the one person the station works out: no identity is taken from the request. Refused (409) unless this host is on air and the next is at the desk and not on air.
+
+Request body: [CueRequest](#schema-cuerequest), or null. `{"on": true}` by default.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | MonitorDone. | [MonitorDone](#schema-monitordone) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/dump
+
+**Dump**
+
+Needs: staff: any staff session, or the station key.
+
+Throws away what the profanity delay holds (the desk's own Dump, on every outgoing stream), for the host who is on air. `lost_ms` is how much of the programme listeners lost. Refused (409, with the words) unless this host is on air and the show's step has Dump (Callers and up). The page asks for two presses within three seconds; nothing here counts them.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Dumped. | [MonitorDone](#schema-monitordone) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/end-show
+
+**End my show**
+
+Needs: staff: any staff session, or the station key.
+
+The desk's End show (`POST /api/v1/show/end`), scoped to this host. With nobody else presenting it is the whole of it: everyone on air comes off, the carts fade, and the air passes to the next host standing by (`passed_to`) or goes to automation once the profanity delay has played out (`automation_in_ms`). With another presenter on air, only this host leaves and that presenter keeps the air. Refused (409) unless this host is on air. The page asks once first; `controls.end_show_says` is what it says follows.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | What was done. | [MonitorDone](#schema-monitordone) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/monitor/events
+
+**The monitor link's view, as events**
+
+Needs: staff: any staff session, or the station key.
+
+Server-sent events: a `view` event whose data is the same JSON as `GET /api/v1/monitor`, at once and then every second (its `station.now_ms` is the station's clock, for the page's counts); a keep-alive comment every 10 seconds. When the key ends the stream says `ended` (its data: `{"error": "This link no longer works. Ask the station for a new one."}`) and closes. The bearer is the monitor secret, in the `Authorization` header (never in the address). Up to six streams a link; a seventh is refused with 429.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | An event stream (`text/event-stream`). | string (`text/event-stream`) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/go
+
+**Go on air now**
+
+Needs: staff: any staff session, or the station key.
+
+The host's own press: skips the late count, or takes the air at the show's time. It is the desk's own Go on air now (`POST /api/v1/sources/{key}/go`), for this host's source only. Refused (409, with the words) unless the source is standing by and steady, the show's time has come, and nobody else presents. The bearer is the monitor secret.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | On air. | [MonitorDone](#schema-monitordone) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/handover
+
+**The handover's two presses**
+
+Needs: staff: any staff session, or the station key.
+
+`{"step": "bring"}` puts the next host on air beside this one (the overlap); `{"step": "hand_over"}` then takes this host (and anyone else presenting) off air, so the next holds it. The two presses of the desk's own handover (ADR-0231), for the one next host the station works out. Refused (409, with the words) unless this host is on air, the show runs at Full, the next is at the desk, and (for the second) the first press has been made.
+
+Request body: [HandoverRequest](#schema-handoverrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | MonitorDone. | [MonitorDone](#schema-monitordone) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/not-yet
+
+**Not yet: stop the late count**
+
+Needs: staff: any staff session, or the station key.
+
+Stops the late count for this host's airing: the schedule will not put them on air by itself, and they go on air by their own press (`go`). The desk's own Not yet (`POST /api/v1/sources/{key}/not-yet`), for this host's source only. Refused (409) unless their count is running.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The count is stopped. | [MonitorDone](#schema-monitordone) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/monitor/token
+
+**A room token for the monitor link**
+
+Needs: staff: any staff session, or the station key.
+
+A 600 s listen-only token for the host's monitor room, where the desk publishes the programme without them, the cue bus and talk addressed to them (ADR-0118: only the link's two seats may subscribe). Two browsers may listen at once: a third is refused with 409. The bearer is the monitor secret. 410 when the key has ended; 503 when the room is not set up.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The token. | [MonitorToken](#schema-monitortoken) |
+| 401 | Not a monitor link's secret. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 410 | The key has ended. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The token could not be signed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+## Routes: internal
+
+Routes for the station's own processes on the same machine; never reachable through the proxy.
+
+### POST /api/v1/internal/sources/admit
+
+**May this connection stand by?**
+
+Needs: staff: any staff session, or the station key.
+
+For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.
+
+Request body: [AdmitRequest](#schema-admitrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The decision. | [AdmitReply](#schema-admitreply) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/internal/sources/config
+
+**The ingest's settings**
+
+Needs: staff: any staff session, or the station key.
+
+For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports. The ingest asks every few seconds.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The ingest's settings. | [IngestConfig](#schema-ingestconfig) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/internal/sources/events
+
+**What happened to a connection**
+
+Needs: staff: any staff session, or the station key.
+
+For the ingest on this machine only: a connection admitted (after SRT's handshake), a test begun, a refusal the ingest made (a failed SRT handshake counts as a wrong key; a format it cannot read; a key in use; too fast), or an end. Written to the key's log.
+
+Request body: [IngestEvent](#schema-ingestevent).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 204 | Written. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/internal/sources/report
+
+**The ingest's connections**
+
+Needs: staff: any staff session, or the station key.
+
+For the ingest on this machine only, every second: what it holds. The reply names the connections to close, and those standing by whose slot's door has closed and that are not on air, which become private tests (their time running from then; one on air is never touched).
+
+Request body: [IngestReport](#schema-ingestreport).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | What to close. | [ReportReply](#schema-reportreply) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: rtmp
@@ -2990,6 +3541,32 @@ A staff account as the routes show it (never the hash).
 |---|---|---|---|
 | `accounts` | array of [Account](#schema-account) | yes |  |
 
+### Schema: AdmitReply
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `decision` | string | yes | `standby`, `test` or `refused`. |
+| `door_closes_ms` | integer (int64), or null | no | For `standby`: when the slot's door closes. |
+| `identity` | string, or null | no | Its desk identity (`source-` and the key id). |
+| `max_ms` | integer (int64), or null | no | For `test`: how long it may last. |
+| `message` | string, or null | no | For a refusal: the sentence for the host. |
+| `name` | string, or null | no | Who the key is for: the name on the desk. |
+| `passphrase` | string, or null | no | For SRT: the passphrase to answer the handshake with. |
+| `reason` | [Refusal](#schema-refusal), or null | no |  |
+| `retry_after_ms` | integer (int64), or null | no | When a refused address may try again. |
+| `show` | string, or null | no |  |
+| `slot` | integer, or null | no | For `standby`: the desk slot it is promised. |
+
+### Schema: AdmitRequest
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `address` | string | yes | The address the connection came from, as the ingest saw it. |
+| `again` | boolean | no | The ingest asks again for a connection it already holds (a test, to see whether the slot's door has opened); nothing is counted or logged. |
+| `key_id` | string | yes | The key id the host's software gave (the SRT stream id, or the Icecast password's first part). |
+| `secret` | string, or null | no | The secret it gave, for Icecast; left out for SRT, whose handshake proves it. |
+| `way` | string | yes | `icecast` or `srt`. |
+
 ### Schema: ApiToken
 
 A token as it is listed: everything but the hash.
@@ -3026,6 +3603,12 @@ A token as it is listed: everything but the hash.
 | `tracks` | integer | yes |  |
 | `tracks_per_hour` | number (double) | yes |  |
 
+### Schema: AudienceScope
+
+What an audience count covers.
+
+one of `origin`
+
 ### Schema: AudienceView
 
 The audience as the app shows it, and the figures its CDN warning (ADR-0017) reads.
@@ -3036,6 +3619,7 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 | `edges` | boolean | yes | The station has edges or a CDN configured: steering has a pathway beside the origin, or `join.hls_url` points the player at another address. |
 | `error` | string, or null | no | Why there is no count, in words the studio can show: the listener process does not answer, or the control plane has no playout layer to ask it. `None` while counted. |
 | `listeners` | integer (int32), or null | no | Listeners connected to the station's stream now, every mount together; `None` while not counted (see `error`). |
+| `scope` | [AudienceScope](#schema-audiencescope) | yes | What the count covers (issue 17): always `origin` today, the listeners connected to this station's own listener process, every mount together. Not counted: listeners on an edge or a CDN (an edge's relay is one connection here, so with `edges` true the figure is a floor), and video viewers on HLS. |
 
 ### Schema: AutodjStatus
 
@@ -3534,6 +4118,30 @@ The consent the caller gave on the page: that they accepted, and the words' vers
 | `accepted` | boolean | yes |  |
 | `version` | string | yes |  |
 
+### Schema: Control
+
+One button: whether it may be pressed now, and if not, why, in words.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `may` | boolean | yes |  |
+| `why_not` | string, or null | no |  |
+
+### Schema: Controls
+
+Everything this host may do now. A page draws only what has `may`, and says `why_not` for the one it keeps in sight (Dump below Callers).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bring` | [Control](#schema-control) | yes | *Bring [next] on air*: the handover's first press, the overlap (Full). |
+| `cue` | [Control](#schema-control) | yes | *Cue [next]*: the next host in this host's headphones. |
+| `dump` | [Control](#schema-control) | yes | *Dump*, two presses on the page (Callers and up). |
+| `end_show` | [Control](#schema-control) | yes | *End my show*, which asks once; `end_show_says` is what follows. |
+| `end_show_says` | string, or null | no | What follows End show, for the question: *Heather is standing by: the air passes to them as you leave.* or *Automation takes the air.* |
+| `go` | [Control](#schema-control) | yes | *Go on air now*: skips the late count, or takes the air at the show's time. |
+| `hand_over` | [Control](#schema-control) | yes | *Hand over to [next]*: the second press; this host comes off air (Full). |
+| `not_yet` | [Control](#schema-control) | yes | *Not yet*: stops the late count, so the host goes on air by their own press. |
+
 ### Schema: Corrected
 
 What a correction answers (ADR-0177).
@@ -3580,6 +4188,14 @@ A correction to the public text of an aired episode (ADR-0177). Fields left out 
 |---|---|---|---|
 | `id` | integer (int64) | yes |  |
 
+### Schema: CueRequest
+
+The body of `POST /api/v1/monitor/cue`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `on` | boolean | no | Put the next host in the headphones (`true`, the default) or take them out. |
+
 ### Schema: Current
 
 | Field | Type | Needed | Meaning |
@@ -3596,6 +4212,12 @@ A correction to the public text of an aired episode (ADR-0177). Fields left out 
 |---|---|---|---|
 | `at_ms` | integer (int64) | yes |  |
 | `reason` | string | yes |  |
+
+### Schema: DelayBasis
+
+Whether the listener delay is a measurement of the whole path or an estimate.
+
+one of `estimate`, `measured`
 
 ### Schema: DelayView
 
@@ -3633,6 +4255,7 @@ One of:
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `fade_ms` | integer (int32), or null | no | Fade over this many milliseconds instead of switching at once: the schedule's moves (the post, a grace's end, End show passing the air) ask for it, a person's press never does. Absent is at once. A desk before 1.1 does not know the field. |
 | `identity` | string | yes |  |
 | `on` | boolean | yes |  |
 
@@ -3722,6 +4345,7 @@ A person as the desk reports them.
 | `on_air` | boolean | yes |  |
 | `present` | boolean | yes |  |
 | `role` | [Role](#schema-role) | yes |  |
+| `source` | [DeskSource](#schema-desksource), or null | no |  |
 | `talk` | boolean | yes |  |
 | `talk_to` | string, or null | no |  |
 
@@ -3768,6 +4392,21 @@ One RTMP encoder at the desk.
 | `video_kbps` | integer (int32) | yes |  |
 | `width` | integer (int32) | yes |  |
 
+### Schema: DeskSource
+
+A host's own studio as the desk reports it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `connected_ms` | integer (int64) | yes | How long the desk has had it, unbroken: its steady time. |
+| `format` | string | yes | What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`). |
+| `key` | string | yes | The show key's public id. |
+| `level_db` | number (float), or null | no | Its own level over the leveller's ten seconds, before the gain, in dBFS RMS; `None` until it has sounded. |
+| `leveller_db` | number (float) | yes | What the leveller is doing to bring it to the desk's level, in dB (±12). |
+| `monitor` | boolean | no | Its monitor link is open: the desk is making its monitor mix (someone listens). |
+| `show` | string | yes | The show's slug. |
+| `way` | string | yes | `icecast` or `srt`. |
+
 ### Schema: DeskVideo
 
 The video path as the desk reports it (M5, ADR-0009): absent with video off.
@@ -3793,11 +4432,38 @@ The video path as the desk reports it (M5, ADR-0009): absent with video off.
 | `playout` | [PlayoutLink](#schema-playoutlink) | yes |  |
 | `reachable` | boolean | yes | The desk answers on its control socket. |
 
+### Schema: Details
+
+How a host's software reaches the station (design section 3.1). The secret is in these only in the reply that makes the key.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `host` | string, or null | no | The station's address as listeners reach it, when the settings give one; else the studio fills in the address it knows. |
+| `icecast` | [IcecastDetails](#schema-icecastdetails) | yes |  |
+| `srt` | [SrtDetails](#schema-srtdetails) | yes |  |
+
+### Schema: DirectoryBody
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `accounts` | array of [TeamMember](#schema-teammember) | yes |  |
+
 ### Schema: Drafted
 
 What to do with the episodes drafted for dates to come when a rule changes.
 
 one of `move`, `leave`
+
+### Schema: Dumped
+
+A Dump just taken, for the host who was on air (design sections 3.7 and 8).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_ms` | integer (int64) | yes | When it was taken, on the station's clock. |
+| `lost_ms` | integer (int64) | yes | What listeners lost, in milliseconds: what the delay held. |
+| `seconds` | integer (int64) | yes | The same in whole seconds, as the words say it. |
+| `words` | string | yes | What the page says: *Dumped. Listeners lost 8 s. Carry on, and do not repeat the words.* |
 
 ### Schema: EdgeHealth
 
@@ -3888,6 +4554,7 @@ What End show did, and the view after it.
 |---|---|---|---|
 | `automation_in_ms` | integer (int64), or null | no | When the air goes to automation: `0` it already was there; a number of milliseconds is how long until the profanity delay has played out (the goodbye is not cut off) and the station is switched; `null` this station has no playout layer to hand the air to, so everyone is off air and nothing more happened. |
 | `off_air` | integer (int32) | yes | How many people and sources were taken off air. |
+| `passed_to` | string, or null | no | The next host's name when they were standing by and the air passed to them (with `automation_in_ms` null: nothing went to automation); absent otherwise. |
 | `view` | [View](#schema-view) | yes | The new studio view, as every command answers. |
 
 ### Schema: Episode
@@ -4044,6 +4711,18 @@ The least a rule requires, in days, and the rule.
 | `gaps` | array of string | yes | What could not be filled, in words. |
 | `items` | integer | yes | How many items the log now holds for the span. |
 
+### Schema: HandoverRequest
+
+The body of `POST /api/v1/monitor/handover`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `step` | [HandoverStep](#schema-handoverstep) | yes | `bring`: the first press, the next host on air beside this one (the overlap). `hand_over`: the second, everyone else presenting comes off air and the next holds it. |
+
+### Schema: HandoverStep
+
+one of `bring`, `hand_over`
+
 ### Schema: Health
 
 | Field | Type | Needed | Meaning |
@@ -4085,6 +4764,15 @@ The least a rule requires, in days, and the rule.
 What a hold can name one by one in this release.
 
 one of `recording`, `consent`
+
+### Schema: IcecastDetails
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `mount` | string | yes | Any mount is taken; this one is suggested. |
+| `password` | string | yes | The key id and the secret, joined by a hyphen. |
+| `port` | integer (int32) | yes |  |
+| `user` | string | yes | Any user name is taken; most software insists on one. |
 
 ### Schema: IcecastOutChoice
 
@@ -4208,6 +4896,60 @@ A made show that overlaps another show's time.
 | `name` | string | yes |  |
 | `show` | string | yes | The made show's path and name. |
 
+### Schema: IngestConfig
+
+What the ingest needs to listen.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `listen` | boolean | yes | Whether to listen at all: only once a key exists that has not ended. |
+| `port_icecast` | integer (int32) | yes | 0: this way is off (the installation turned it off). |
+| `port_srt` | integer (int32) | yes | 0: this way is off. |
+| `test_max_ms` | integer (int64) | yes | A test's longest life, in ms. |
+
+### Schema: IngestConn
+
+A connection as the ingest reports it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `format` | string | no | What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`); empty until the first sound is decoded. |
+| `kbps` | integer (int32) | no | What arrives, in kbit/s, over the last few seconds. |
+| `key_id` | string | yes |  |
+| `level_db` | number (float), or null | no | Its level, dBFS RMS over the last few seconds, as decoded; `None` while silent. |
+| `mode` | string | yes | `standby` (on the desk) or `test` (never on the desk). |
+| `since_ms` | integer (int64) | yes | When the connection was taken, on the station's clock. |
+| `title` | string, or null | no | What the host's software says is playing (Icecast's metadata), cleaned and cut. |
+| `way` | string | yes | `icecast` or `srt`. |
+
+### Schema: IngestEvent
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `address` | string, or null | no |  |
+| `detail` | string | no |  |
+| `event` | string | yes | `admitted` (standing by), `test`, `refused` (with `reason`) or `ended`. |
+| `key_id` | string | yes |  |
+| `reason` | [Refusal](#schema-refusal), or null | no |  |
+| `way` | string | yes |  |
+
+### Schema: IngestReport
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `connections` | array of [IngestConn](#schema-ingestconn) | yes | Every connection the ingest holds now, standing by or in a test. |
+
+### Schema: Insert
+
+The station's next insert, as far as the log can say (ADR-0045).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_ms` | integer (int64) | yes |  |
+| `duration_ms` | integer (int32) | yes |  |
+| `label` | string | yes | The cart's label. |
+| `plays` | string | yes | Whether it plays over a live show or instead of it is not in the log's model: always `unknown` today. |
+
 ### Schema: InstallFacts
 
 What the page explains but cannot change: the install's own settings, as this control plane was started with them.
@@ -4259,11 +5001,51 @@ What a person gets to join: a room token, its pass, and the one track to listen 
 | `token` | string | yes |  |
 | `url` | string | yes |  |
 
+### Schema: KeyList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `keys` | array of [KeyRow](#schema-keyrow) | yes |  |
+| `show` | string | yes |  |
+| `source` | string | yes | `room` or `push`: where the show comes from. |
+
+### Schema: KeyRow
+
+A key with what the studio's row shows.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `created_by` | string | yes |  |
+| `created_ms` | integer (int64) | yes |  |
+| `ends_on_disconnect` | boolean | yes | It ends when its connection closes (made again with `old: on-disconnect`). |
+| `hint` | string | yes | How the host means to send: `icecast` or `srt` (a hint, not a lock). |
+| `id` | string (uuid) | yes |  |
+| `key_id` | string | yes | The public part: the SRT stream id, and the Icecast password's first part. |
+| `label` | string | yes | Who it is for: their name on the desk. |
+| `last_used_ms` | integer (int64), or null | no |  |
+| `revoked_ms` | integer (int64), or null | no | When it ended, if it has. |
+| `show_id` | string (uuid) | yes |  |
+| `staff_id` | string (uuid), or null | no | The member of staff it is for, if one. |
+| `turned_away_by` | string, or null | no |  |
+| `turned_away_until_ms` | integer (int64), or null | no | Turned away from the desk until then (the tile's Disconnect). |
+| `details` | [Details](#schema-details) | yes | The details without the secrets (the ports and the key id). |
+| `last_refusal` | [SourceLogEntry](#schema-sourcelogentry), or null | no |  |
+
 ### Schema: Kind
 
 The kinds of record a preset sets a period for (ADR-0113's list, recce 27's columns).
 
 one of `programme_recordings`, `per_play_log`, `chat_messages`, `moderation_records`, `consent`, `call_recordings`, `listener_statistics`, `access_logs`
+
+### Schema: LastRefusal
+
+A refusal of the host's software, in words.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_ms` | integer (int64) | yes |  |
+| `reason` | string | yes | `wrong_key`, `ended`, `not_your_slot`, `in_use`, `too_many`, `turned_away`, `format`, `desk_full` or `too_fast`. |
+| `words` | string | yes | What the page says. |
 
 ### Schema: LastSweep
 
@@ -4289,17 +5071,34 @@ one of `warning`, `serious`
 |---|---|---|---|
 | `recording_id` | integer (int64) | yes |  |
 
+### Schema: LinkLostView
+
+A lost link and the place kept for it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `covered` | boolean | yes | Whether automation has covered it already. |
+| `covers_ms` | integer (int64) | yes | When automation covers it, if nobody else is on air (the rules' silence). |
+| `key_id` | string | yes |  |
+| `lost_ms` | integer (int64) | yes | When the link was lost. |
+| `name` | string | yes |  |
+| `place_kept_until_ms` | integer (int64) | yes | Until when the place is kept for it. |
+| `show` | string, or null | no |  |
+
 ### Schema: ListenerDelay
 
 The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read live, and the rest as the station's setting. What is read live is the profanity delay (the desk reports it) and what the listener process holds of playout's feed (its own `feed.buffer_length`). What is not: the listener process's mount holds back a fixed stretch before it serves listeners, and each listener's player buffers on top. No marker travels in the stream (a metadata change would chain the Ogg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a listener's ear; `measured` says whether there is one.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `basis` | [DelayBasis](#schema-delaybasis) | yes | `estimate` while `set_ms` is not 0; `measured` only when the whole path was measured (issue 17). The same fact as `measured`, as a word a client can show. |
 | `desk_ms` | integer (int64) | yes | How much the desk's profanity delay holds now (read live from the desk), to 0.1 s. |
 | `measured` | boolean | yes | True only when no part of `ms` is a setting. Nothing measures the mount's hold or a player's buffer, so it is false in this build; the app words the figure as an estimate and names the parts that are read. |
 | `ms` | integer (int64) | yes | The total: `desk_ms` plus `process_ms` plus `rest_ms`. |
 | `process_ms` | integer (int64), or null | no | How much of playout's feed the listener process holds now (read live from it, to 0.1 s); `None` while it does not answer. |
+| `read_ms` | integer (int64) | yes | The part of `ms` that is read live now: `desk_ms` plus `process_ms` (the latter 0 while the listener process does not answer). |
 | `rest_ms` | integer (int64) | yes | The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own hold, playout and a listener's player. Never read. |
+| `set_ms` | integer (int64) | yes | The part of `ms` that is a setting and never read: the same as `rest_ms`. |
 
 ### Schema: ListenerHour
 
@@ -4374,6 +5173,18 @@ An item of the generated log.
 | `dir` | string | no |  |
 | `on` | boolean | yes |  |
 
+### Schema: MadeKey
+
+A key just made: its row, its two secrets and the details, shown this once.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `as_text` | string | yes | The same as plain text, to paste into a message. |
+| `details` | [Details](#schema-details) | yes |  |
+| `key` | [ShowKey](#schema-showkey) | yes |  |
+| `monitor_secret` | string | yes | The monitor link's secret, 24 characters, a second secret made and ended with the key. Shown once. |
+| `secret` | string | yes | The key's secret, 24 characters. Shown once. |
+
 ### Schema: Mapping
 
 How a calendar's event became a show's rule.
@@ -4403,6 +5214,80 @@ The body of `POST /api/v1/playout/mode`.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `mode` | [StationMode](#schema-stationmode) | yes | `auto`: automation holds the air and the desk never airs (the lamp says AUTO, ADR-0183). `live`: the desk first, automation on dead air. |
+
+### Schema: MonitorDone
+
+What a control answers: what it did, and the host's view after it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `automation_in_ms` | integer (int64), or null | no | End show: how long until automation takes the air (`0` it holds it already); absent when nothing goes to automation (the air passed on, another presenter keeps it, or there is no playout layer). |
+| `done` | string | yes | `go`, `not_yet`, `cue`, `bring`, `hand_over`, `end_show` or `dump`. |
+| `lost_ms` | integer (int64), or null | no | Dump: how much of the programme listeners lost, in ms (what the delay held). |
+| `passed_to` | string, or null | no | End show: the next host's name when the air passed to them. |
+| `view` | [MonitorView](#schema-monitorview) | yes | The host's view after it, as `GET /api/v1/monitor` gives it. |
+
+### Schema: MonitorPost
+
+The post, as far as it is this host's: the show whose post it is, and its clocks.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `grace_ends_ms` | integer (int64), or null | no | When the grace ends and the schedule hands the air over from whoever holds it. |
+| `held_by` | string, or null | no | Who holds this handover (a producer's Hold): the grace does not run. |
+| `host` | string, or null | no | The host who takes the air at this post, by name, and where they have got to: `standing_by`, `connecting`, `not_connected`, `link_lost` or `on_air`. |
+| `host_state` | string, or null | no |  |
+| `late_ends_ms` | integer (int64), or null | no | When the late count ends (this host's own count; `go` and `not_yet` act on it). |
+| `mine` | boolean | yes | The post's show is this host's own: they are who takes the air (or one of their show's hosts is). |
+| `on_air` | array of string | yes | Who presents now, on air, by name. |
+| `on_air_at_ms` | integer (int64), or null | no | When the schedule puts this host on air by itself, from automation: at the post, or the late count's end. |
+| `show_name` | string | yes | The show whose post it is. |
+| `start_ms` | integer (int64) | yes | When its post is. |
+| `started` | boolean | yes | Its post has come. |
+
+### Schema: MonitorToken
+
+A listen-only room token for the host's monitor room.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `identity` | string | yes | The seat the token is for. |
+| `room` | string | yes | The monitor room: `<room>-monitor-<key id>`. |
+| `token` | string | yes | The LiveKit access token. |
+| `ttl_s` | integer (int64) | yes | Seconds the token can be used to join. |
+| `url` | string | yes | Where browsers reach LiveKit. |
+
+### Schema: MonitorView
+
+The monitor link's view: this host's own, and nothing of anyone else's.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `controls` | [Controls](#schema-controls) | yes |  |
+| `door_closes_ms` | integer (int64), or null | no | When their slot's door closes, while it is open (the station's clock). |
+| `dumped` | [Dumped](#schema-dumped), or null | no |  |
+| `format` | string, or null | no | What their software sends, while connected. |
+| `insert` | [Insert](#schema-insert), or null | no |  |
+| `label` | string | yes | Who the key is for. |
+| `last_refusal` | [LastRefusal](#schema-lastrefusal), or null | no |  |
+| `level` | number (float), or null | no | Their level at the desk (short-term LUFS after the leveller); for a test, the ingest's reading (dBFS RMS). |
+| `leveller_db` | number (float), or null | no | What the leveller does to bring them to the station's level, in dB. |
+| `listeners_behind_ms` | integer (int64), or null | no | How far behind the programme listeners hear, in ms, for *Listeners hear you, about 23 s behind.* |
+| `monitor_has_programme` | boolean | yes | The host's monitor mix carries what listeners hear now: someone else is on air at the desk and listeners hear the desk, not automation. False while automation (or the fallback) holds the air, which the desk does not make, so the mix is silent but for cue and talk addressed to the host. The page then plays the listeners' stream, a few seconds behind, while the host stands by or is OPEN (in OPEN the room's voices are not in it, and the page says so). |
+| `monitor_open` | boolean | yes | Whether their monitor mix is open at the desk (someone is listening). |
+| `next_host` | [NextHostView](#schema-nexthostview), or null | no |  |
+| `post` | [MonitorPost](#schema-monitorpost), or null | no |  |
+| `rundown` | [Rundown](#schema-rundown) | yes |  |
+| `says` | string | yes | The lamp's sentence, in the design's words (*Standing by. The station hears you. Listeners do not.*). |
+| `show` | string | yes |  |
+| `show_name` | string | yes |  |
+| `state` | string | yes | The host's lamp: `on_air` (listeners hear them), `open` (the station and the room hear them; listeners do not: automation holds the air, or playout is down), `standby`, `link_lost`, `test`, or `not_connected`. |
+| `station` | [StationClock](#schema-stationclock) | yes |  |
+| `steady_ms` | integer (int64), or null | no | How long they have been connected, in milliseconds. |
+| `step` | [StepInfo](#schema-stepinfo) | yes |  |
+| `then` | [Then](#schema-then), or null | no |  |
+| `title` | string, or null | no | What their software says is playing. |
+| `way` | string, or null | no | `icecast` or `srt`, while connected. |
 
 ### Schema: MountCount
 
@@ -4466,6 +5351,14 @@ The new episodes' own fields; the rest is filled in or inherited.
 | `records` | array of [HoldRecord](#schema-holdrecord) | no | Records named one by one. |
 | `to_ms` | integer (int64), or null | no |  |
 
+### Schema: NewKey
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `hint` | string | yes | `icecast` or `srt`: how they will send (a hint, not a lock). |
+| `label` | string | yes | Who it is for: their name on the desk, 1 to 120 characters. |
+| `staff_id` | string (uuid), or null | no | The member of staff it is for, if one. |
+
 ### Schema: NewRecording
 
 | Field | Type | Needed | Meaning |
@@ -4491,6 +5384,16 @@ The new episodes' own fields; the rest is filled in or inherited.
 | `events` | array of string | yes |  |
 | `name` | string | yes |  |
 | `url` | string | yes |  |
+
+### Schema: NextHostView
+
+The next host, for Cue, Bring and Hand over.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `cued` | boolean | yes | In this host's headphones now. |
+| `name` | string | yes |  |
+| `state` | string | yes | `standing_by`, `connecting`, `not_connected`, `link_lost` or `on_air`. |
 
 ### Schema: NextOn
 
@@ -4712,6 +5615,15 @@ Whether playout is connected to the desk's programme output.
 | `connected` | boolean | yes |  |
 | `for_ms` | integer (int64), or null | no |  |
 
+### Schema: PlayoutRestarting
+
+The answer to `POST /api/v1/playout/restart`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `restarting` | boolean | yes | Playout took the command and is shutting down; its supervisor starts it again. |
+| `words` | string | yes | What the studio says. |
+
 ### Schema: PlayoutSettings
 
 The station's playout settings (`playout_settings`).
@@ -4738,6 +5650,35 @@ The station's playout settings (`playout_settings`).
 Which of the desk's cart players a cart sounds in.
 
 one of `shot`, `bed`
+
+### Schema: PostShow
+
+The next handover: the show whose post it is, its source and the clocks of the rule.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `slug` | string | yes |  |
+| `start_ms` | integer (int64) | yes | When its post is (its airing's start). |
+| `started` | boolean | yes | Its post has come. |
+
+### Schema: PostView
+
+What `/studio` and `GET /sources` say of the post (design section 10).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `grace_ends_ms` | integer (int64), or null | no | When the grace ends and the schedule hands over from whoever holds the air. |
+| `held_by` | string, or null | no | Who holds this handover (a producer's Hold); the grace does not run. |
+| `holders` | array of string | yes | Who presents now, on air at the desk. |
+| `late_ends_ms` | integer (int64), or null | no | When the late count ends and the source goes on air. |
+| `link_lost` | [LinkLostView](#schema-linklostview), or null | no |  |
+| `on_air_at_ms` | integer (int64), or null | no | When the schedule puts it on air, from automation: at the post, or the late count's end. |
+| `show` | [PostShow](#schema-postshow), or null | no |  |
+| `source` | string, or null | no | Its source: the key's id (or, for a presenter in the room, their identity). |
+| `source_name` | string, or null | no | Its source's name. |
+| `standing_since_ms` | integer (int64), or null | no | When the source became steady (standing by). |
+| `state` | [SourceState](#schema-sourcestate), or null | no |  |
 
 ### Schema: Preset
 
@@ -4991,6 +5932,12 @@ What kind of recording: the programme (logger, archive) or the screener's off-ai
 
 one of `programme`, `call`
 
+### Schema: Refusal
+
+Why a connection was refused: a word for the log and the API, and the sentence the monitor link and Settings show (design section 9).
+
+one of `wrong_key`, `ended`, `not_your_slot`, `in_use`, `too_many`, `turned_away`, `format`, `desk_full`, `too_fast`
+
 ### Schema: RelayInfo
 
 | Field | Type | Needed | Meaning |
@@ -5003,6 +5950,12 @@ one of `programme`, `call`
 |---|---|---|---|
 | `by` | string | yes |  |
 | `reason` | string | yes |  |
+
+### Schema: Renew
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `old` | string | yes | When the old key ends: `now` (a connection with it is closed) or `on_disconnect`. |
 
 ### Schema: Repeat
 
@@ -5052,6 +6005,13 @@ One of:
 |---|---|---|---|
 | `dates` | array of string (date) | yes |  |
 
+
+### Schema: ReportReply
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `close` | array of string | yes | Key ids whose connections the ingest is to close now: a key that ended, a source disconnected from the desk. |
+| `to_test` | array of [ToTest](#schema-totest) | no | Connections standing by whose slot's door has closed and that are not on air: the ingest makes each a private test, its time running from then. |
 
 ### Schema: Resolved
 
@@ -5124,7 +6084,7 @@ What retention decides for the playout layer.
 
 What a participant does in the room; the desk routes their voice by it.
 
-one of `presenter`, `dj`, `guest`, `caller`, `screener`, `producer`, `listener`
+one of `presenter`, `dj`, `guest`, `caller`, `screener`, `producer`, `listener`, `source`
 
 ### Schema: Row
 
@@ -5256,6 +6216,16 @@ A rule said back in words, by the control plane, in British English (design sect
 | `sentence` | string | yes | *Every month on the first Tuesday, 20:00 to 21:00, from 1 December, for 10 episodes.* |
 | `short` | string | yes | *First Tue monthly, 20:00–21:00*, for lists and tooltips. |
 
+### Schema: Rundown
+
+Before you, you and after you (`monitor.next`).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `after` | [RundownRow](#schema-rundownrow), or null | no |  |
+| `before` | [RundownRow](#schema-rundownrow), or null | no |  |
+| `you` | [RundownRow](#schema-rundownrow), or null | no |  |
+
 ### Schema: RundownItem
 
 One row of the "coming up" rundown: a setting (`studio.rundown`); the schedule does not fill it yet.
@@ -5267,6 +6237,18 @@ One row of the "coming up" rundown: a setting (`studio.rundown`); the schedule d
 | `hard_post` | boolean | no | A hard post: the clock back-times to the first one still ahead. |
 | `key` | string, or null | no | The cart key it needs, if any (`F1` to `F6`). |
 | `title` | string | yes |  |
+
+### Schema: RundownRow
+
+One show in the rundown around this host's own.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `end_ms` | integer (int64) | yes |  |
+| `host` | string, or null | no | Its host's name: the key's label for a host's own studio, the presenter for a show from the room; absent when it names none. |
+| `show_name` | string | yes |  |
+| `start_ms` | integer (int64) | yes |  |
+| `state` | string | yes | `on_air`, `open`, `standing_by`, `connecting`, `not_connected`, `link_lost`, `test`, `in_room` (a show from the room) or `standby` (for this host's own row, as `state`). |
 
 ### Schema: Scope
 
@@ -5530,6 +6512,26 @@ A show as the studio app sends it; hosts by name.
 | `step` | [Step](#schema-step), or null | no |  |
 | `tags` | array of string | no |  |
 
+### Schema: ShowKey
+
+A show key as it is kept (never its secret).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `created_by` | string | yes |  |
+| `created_ms` | integer (int64) | yes |  |
+| `ends_on_disconnect` | boolean | yes | It ends when its connection closes (made again with `old: on-disconnect`). |
+| `hint` | string | yes | How the host means to send: `icecast` or `srt` (a hint, not a lock). |
+| `id` | string (uuid) | yes |  |
+| `key_id` | string | yes | The public part: the SRT stream id, and the Icecast password's first part. |
+| `label` | string | yes | Who it is for: their name on the desk. |
+| `last_used_ms` | integer (int64), or null | no |  |
+| `revoked_ms` | integer (int64), or null | no | When it ended, if it has. |
+| `show_id` | string (uuid) | yes |  |
+| `staff_id` | string (uuid), or null | no | The member of staff it is for, if one. |
+| `turned_away_by` | string, or null | no |  |
+| `turned_away_until_ms` | integer (int64), or null | no | Turned away from the desk until then (the tile's Disconnect). |
+
 ### Schema: ShowOut
 
 A show, with its rule said in words and its next date (release 1.0.4). The rule itself is `rule`; `slot` is the weekly slot while the rule is exactly that, else `null`.
@@ -5644,10 +6646,90 @@ One cart sounding, as the control plane keeps it.
 | `on_air` | boolean | yes |  |
 | `present` | boolean | yes |  |
 | `role` | [Role](#schema-role) | yes |  |
+| `source` | [DeskSource](#schema-desksource), or null | no |  |
 | `talk` | boolean | yes |  |
 | `talk_to` | string, or null | no |  |
 | `caller` | [CallerNote](#schema-callernote), or null | no |  |
 | `slot` | integer | yes |  |
+
+### Schema: SourceLogEntry
+
+One line of what happened to a source connection.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_ms` | integer (int64) | yes |  |
+| `detail` | string | no |  |
+| `event` | string | yes | `admitted`, `test`, `refused`, `ended`, `disconnected`, `let_back`, or one the post's rule writes (`on_air`, `off_air`, `link_lost`, `back`, `place_let_go`, `covered`, `go`, `not_yet`, `hold`, `hold_released`). |
+| `key_id` | string | yes |  |
+| `reason` | string, or null | no | For a refusal: its word (`Refusal::as_str`). |
+| `way` | string, or null | no | `icecast` or `srt`. |
+
+### Schema: SourceSettings
+
+The station's rules for sources (design section 10).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `door_before_min` | integer (int32) | yes | How early a host may connect before their show, in minutes (0 to 240). |
+| `fade_ms` | integer (int32) | yes | The crossfade when the schedule or End show moves a source, in ms. |
+| `grace_s` | integer (int32) | yes | The grace at the post, in seconds: 0 (off) to 600; the studio offers 60, 120 and 300. |
+| `late_count_s` | integer (int32) | yes | A late host's count onto automation, in seconds; 0 is off. |
+| `place_kept_s` | integer (int32) | yes | How long a lost source's place is kept, in seconds. |
+| `port_icecast` | integer (int32) | yes | The ingest's Icecast port (TCP). |
+| `port_srt` | integer (int32) | yes | The ingest's SRT port (UDP). |
+| `silence_s` | integer (int32) | yes | How long a link may be lost before automation covers, in seconds. |
+| `steady_s` | integer (int32) | yes | How long a source must be steady to stand by, in seconds. |
+| `test_max_min` | integer (int32) | yes | How long a test lasts at most, in minutes. |
+| `test_outside` | boolean | yes | Outside the slot, take a connection as a private test. |
+
+### Schema: SourceState
+
+The state of the post's source, in a word.
+
+one of `not_connected`, `connecting`, `standing_by`, `on_air`, `link_lost`
+
+### Schema: SourceView
+
+A source connected or due, as the studio sees it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `door_closes_ms` | integer (int64), or null | no | When its slot's door closes, while it is open. |
+| `format` | string, or null | no | What the host's software sends, while connected. |
+| `identity` | string | yes | The desk identity it has or would have (`source-` and the key id). |
+| `key_id` | string | yes |  |
+| `label` | string | yes | Who it is for. |
+| `level` | number (float), or null | no | Its level at the desk (short-term LUFS, after the leveller); for a test, the ingest's reading (dBFS RMS). |
+| `leveller_db` | number (float), or null | no | What the leveller does, in dB, while it is at the desk. |
+| `monitor_open` | boolean | yes | Whether the host's monitor link is open: someone listens, and the desk makes their monitor mix. |
+| `place_kept_until_ms` | integer (int64), or null | no | While `link_lost`: until when its place is kept. |
+| `show` | string | yes |  |
+| `show_name` | string | yes |  |
+| `slot` | integer, or null | no | The desk slot it holds, while it is at the desk. |
+| `state` | string | yes | `on_air`, `standby` (at the desk, not on air), `test` (connected outside its slot, never on the desk), `link_lost` (it was on air and its link is gone; its place is kept until `place_kept_until_ms`), or `not_connected` (its slot's door is open and it has not connected). |
+| `steady_ms` | integer (int64), or null | no | How long it has been connected, in ms. |
+| `title` | string, or null | no | What the host's software says is playing (Icecast's metadata), while connected. |
+| `turned_away_until_ms` | integer (int64), or null | no | Turned away from the desk until then (the tile's Disconnect). |
+| `way` | string, or null | no | `icecast` or `srt`, while connected. |
+
+### Schema: SourcesView
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `listening` | boolean | yes | Whether the ingest is running and reporting. |
+| `post` | [PostView](#schema-postview), or null | no |  |
+| `sources` | array of [SourceView](#schema-sourceview) | yes |  |
+
+### Schema: SrtDetails
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `passphrase` | string | yes | The secret: the media is encrypted with it, so it never crosses in clear. |
+| `pbkeylen` | integer (int32) | yes | AES-128. |
+| `port` | integer (int32) | yes |  |
+| `streamid` | string | yes | The key id. |
+| `url` | string, or null | no | `srt://host:port?streamid=…&passphrase=…&pbkeylen=16`, when the host is known. |
 
 ### Schema: StaffRole
 
@@ -5663,6 +6745,15 @@ A station: what release one's interface shows one of.
 |---|---|---|---|
 | `id` | [StationId](#schema-stationid) | yes |  |
 | `name` | string | yes |  |
+
+### Schema: StationClock
+
+The station's clock, as the monitor page shows it (never the device's).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `now_ms` | integer (int64) | yes | The station's time now, milliseconds since the Unix epoch. |
+| `zone` | string | yes | The station's time zone (an IANA name). |
 
 ### Schema: StationId
 
@@ -5733,6 +6824,17 @@ The change, and the station's step now.
 | `show` | string | yes | The show's path segment. |
 | `station` | [StepView](#schema-stepview) | yes | The station's step now: it moves with the show only when this show is the one the step comes from. |
 | `step` | [Step](#schema-step) | yes | The show's step now. |
+
+### Schema: StepInfo
+
+The show's step, as the controls follow it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `dump` | boolean | yes | Dump is there (Callers and up). |
+| `handover` | boolean | yes | The overlap, and so the handover's two presses, is there (Full). |
+| `step` | [Step](#schema-step) | yes | `solo`, `guests`, `callers` or `full`: the station's, which is the step of the show on air, and the next show's during a grace (ADR-0271). |
+| `word` | string | yes | `Solo`, `Guests`, `Callers` or `Full`. |
 
 ### Schema: StepNext
 
@@ -5832,11 +6934,40 @@ What one sweep did, or (dry run) would do.
 | `preset` | string | yes |  |
 | `recordings_deleted` | integer (int32) | yes |  |
 
+### Schema: TeamMember
+
+One member of the team as any member of staff may read them: no username, address or dates.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `id` | string (uuid) | yes |  |
+| `name` | string | yes |  |
+| `role` | [StaffRole](#schema-staffrole) | yes |  |
+
+### Schema: Then
+
+What happens next to this host, in one sentence, with its time.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_ms` | integer (int64), or null | no | The instant the sentence counts to, on the station's clock (`station.now_ms`), when it counts to one. |
+| `kind` | string | yes | `at_post`, `late_count`, `grace`, `held`, `waits`, `press_only`, `keeps_air`, `slot`, `link_lost`, `place_gone` or `test`: which sentence this is, for a page that picks by it. |
+| `words` | string | yes | The sentence, in the design's words, without its count and without clock times: the page adds the count it draws from `at_ms` and the station's clock. |
+
 ### Schema: ThumbsBody
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `thumbs` | map of string | yes | Each camera's identity and its picture: a JPEG in base64. |
+
+### Schema: ToTest
+
+A connection to turn into a private test.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `key_id` | string | yes |  |
+| `max_ms` | integer (int64) | yes | How long the test may last from now, in ms (the rules' `test_max_min`). |
 
 ### Schema: TokenList
 
@@ -5929,6 +7060,7 @@ Where the player finds the HLS: `live` (AV1 with Opus) and `audio` (the same Opu
 | `mode` | [StationMode](#schema-stationmode), or null | no |  |
 | `notices` | array of [Notice](#schema-notice) | yes |  |
 | `now_ms` | integer (int64) | yes |  |
+| `post` | [PostView](#schema-postview), or null | no |  |
 | `seats` | [Seats](#schema-seats) | yes |  |
 | `show` | [StudioShow](#schema-studioshow) | yes |  |
 | `sources` | array of [Source](#schema-source) | yes | Slots 1 to 5 that hold a source, in slot order. |

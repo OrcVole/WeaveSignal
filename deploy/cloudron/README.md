@@ -52,6 +52,8 @@ the desk began a chained Ogg stream on the mount, and that switch no longer reac
 | TURN over TLS | `tcpPorts.TURN_TLS_PORT`, 15349 | LiveKit's TURN, with the `tls` addon's certificate (ADR-0059, ADR-0106: Cloudron's own TURN holds 5349) |
 | TURN over UDP (off by default) | `udpPorts.TURN_UDP_PORT`, 3479 | LiveKit's TURN |
 | ICE over TCP (off by default) | `tcpPorts.LIVEKIT_TCP_PORT`, 7881 | LiveKit |
+| Hosts' own studios over Icecast (off by default) | `tcpPorts.SOURCE_ICECAST_PORT`, 8005 | the ingest, on every address, only while a show key exists (ADR-0280) |
+| Hosts' own studios over SRT (off by default) | `udpPorts.SOURCE_SRT_PORT`, 9710 | the ingest, the same |
 
 The public ports have no `containerPort`, so Cloudron maps each to the same number inside the
 container, and `start.sh` gives LiveKit the number the administrator chose: LiveKit advertises the
@@ -59,6 +61,16 @@ port it binds. The SRT link, the feed, `icecast.server`'s `/status.json` (ADR-01
 plane, the chat, LiveKit's API and the control sockets stay on loopback inside the container
 (ADR-0048 rule 3, ADR-0049, ADR-0086). The one socket on every address that is not a published
 port is playout's SRT caller's ephemeral UDP port, an outgoing connection's.
+
+The ingest runs under supervisord beside the rest. `start.sh` gives the control
+plane the two hosts' ports as `ports.source_icecast` and `ports.source_srt` (0 when a port is
+disabled in the dashboard, which turns that way off), so a host's key names the ports chosen
+there and the station's rules cannot move them. The ingest's routes in the control plane
+(`/api/v1/internal/`) answer only a loopback peer with no proxy's header and the ingest's bearer
+(`INGEST_TOKEN` in secrets.env), and nginx answers 404 for them on every domain. The hosts' ports
+reach the container through Cloudron's port mapping, not its proxy, so the ingest reads each
+host's own address from the connection (*inference* for a real Cloudron: Docker's DNAT keeps the
+source address for IPv4; `test-local.sh` runs rootless Podman, whose port forwarder does not).
 
 Cloudron's own TURN service holds 3478, 5349 and 50000–51000/udp on the server (reported on
 Cloudron's forum, not measured here). Where it runs, choose 15349 for TURN over TLS, and keep the

@@ -53,9 +53,15 @@ use crate::staff::{Actor, Need, Staff};
 /// The demo station's name: a station still called this has not been named.
 pub const DEMO_NAME: &str = "Kettle FM";
 
+/// The name the install routes give a station until it is named (the Cloudron package's and the
+/// Compose bundle's default `STATION_NAME`, 1.1). A blank name is refused everywhere, so the
+/// unnamed station has this one; the public pages show it as it is, and `/` shows the
+/// not-set-up page in place of the player ([`Live::front_notice`]).
+pub const UNNAMED: &str = "This station";
+
 /// The name and takedown contact in force, shared by every route that says either.
 #[derive(Debug)]
-pub struct Live(RwLock<Inner>, StepWake);
+pub struct Live(RwLock<Inner>, StepWake, std::sync::atomic::AtomicBool);
 
 /// What wakes the step reconciler (ADR-0271) when a route changes a show's step, and who
 /// did it, for the notice every window gets. Kept here because the shows' routes and the studio's
@@ -98,7 +104,28 @@ impl Live {
                 contact: None,
             }),
             StepWake::default(),
+            std::sync::atomic::AtomicBool::new(false),
         )
+    }
+
+    /// Whether setup is still open in the database (nobody has finished the page). Known only
+    /// once the setup state is read at start; a control plane with no database never has it, so
+    /// it never offers the not-set-up page, which would send an admin to a setup that cannot save.
+    pub fn set_setup_open(&self, open: bool) {
+        self.2.store(open, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether `/` should show the not-set-up page in place of the player (1.1): setup is open
+    /// and the station still has a name nobody chose: the one the install gives ([`UNNAMED`]) or
+    /// the demo's ([`DEMO_NAME`], what every install before 1.1 started as, so a 1.0.5 install
+    /// whose setup was never finished sees the page after updating). It is narrower than the
+    /// setup view's `pending` on purpose: a station with a name of its own and no takedown
+    /// contact is running, and keeps its player. A station whose setup was finished keeps its
+    /// player whatever it is called. Held in memory, so a request to `/` asks no question of the
+    /// database.
+    pub fn front_notice(&self) -> bool {
+        self.2.load(std::sync::atomic::Ordering::Relaxed)
+            && matches!(self.name().trim(), UNNAMED | DEMO_NAME)
     }
 
     /// A show's step was changed by `who`: wake the step reconciler now, and keep the name for
@@ -307,6 +334,7 @@ pub fn router(state: Arc<SetupState>) -> Router {
     // The body is the picture itself, so the cap is the worker's own.
     let upload = |kind: Kind| DefaultBodyLimit::max(kind.max_bytes());
     Router::new()
+        .route("/api/v1/front", get(front))
         .route("/api/v1/setup", get(view).put(save))
         .route("/api/v1/setup/finish", post(finish))
         .route("/api/v1/setup/stream-password", put(stream_password))
@@ -389,6 +417,9 @@ pub fn missing(name: &str, contact: &str) -> Vec<&'static str> {
     let mut out = Vec::new();
     if name.trim() == DEMO_NAME {
         out.push("The station still has the demo's name, Kettle FM.");
+    }
+    if name.trim() == UNNAMED {
+        out.push("The station has no name yet: it is called This station.");
     }
     if contact.trim().is_empty() {
         out.push("There is no takedown contact, so call-in is closed.");
@@ -509,6 +540,45 @@ async fn view(State(state): St, headers: HeaderMap) -> Response {
     match guard(&state, &headers) {
         Ok((pool, _)) => respond(&state, pool).await,
         Err(r) => r,
+    }
+}
+
+/// The page nginx puts in place of the player while the station is not set up (the build's
+/// `not-set-up/`), named in `X-Accel-Redirect`.
+pub const NOT_SET_UP_PAGE: &str = "/not-set-up/index.html";
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/front",
+    operation_id = "front",
+    tag = "setup",
+    summary = "Whether the front page is the not-set-up page",
+    description = "Open. For the Cloudron package's nginx, which serves the pages itself: its `/` on the app's own domain asks this route and, on a 200, serves the page named in `X-Accel-Redirect` (the not-set-up page) instead of the player. 200 while setup is open and the station still has a name nobody chose: the one its install gave it (`This station`) or the demo's (`Kettle FM`, what installs before 1.1 started as); 404 otherwise. The public pages' domain never asks, and never passes this route. The same rule decides `/` on a station whose control plane serves the pages itself.",
+    responses(
+        (status = 200, description = "The station is not set up: serve the not-set-up page.", headers(("X-Accel-Redirect" = String, description = "The page to serve in place of the player."))),
+        (status = 404, description = "The station is set up, or is running as it was: the player stays."),
+    ),
+    security(()),
+)]
+async fn front(State(state): St) -> Response {
+    if state.hub.live.front_notice() {
+        (
+            StatusCode::OK,
+            [
+                (
+                    axum::http::HeaderName::from_static("x-accel-redirect"),
+                    HeaderValue::from_static(NOT_SET_UP_PAGE),
+                ),
+                (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+            ],
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        )
+            .into_response()
     }
 }
 
@@ -634,6 +704,7 @@ async fn finish(State(state): St, headers: HeaderMap) -> Response {
     let by = actor.label();
     match model::complete_setup(pool, state.station, &by).await {
         Ok(_) => {
+            state.hub.live.set_setup_open(false);
             tracing::info!(target: "weavesignal::setup", by = %by, "setup finished");
             respond(&state, pool).await
         }
@@ -1136,6 +1207,10 @@ pub async fn restore(state: &SetupState) {
                 );
             }
             state.hub.live.set(setup.name, setup.consent_contact);
+            state
+                .hub
+                .live
+                .set_setup_open(setup.completed_at_ms.is_none());
             if setup.completed_at_ms.is_none() {
                 let missing = missing(&state.hub.live.name(), &state.contact());
                 if !missing.is_empty() {
@@ -1153,6 +1228,7 @@ pub async fn restore(state: &SetupState) {
 #[derive(utoipa::OpenApi)]
 #[openapi(
     paths(
+        front,
         view,
         save,
         finish,
@@ -1206,6 +1282,62 @@ mod tests {
         assert_eq!(missing("Kettle FM", "calls@station.example").len(), 1);
         assert_eq!(missing("Radio Ceilidh", "  ").len(), 1);
         assert!(missing("Radio Ceilidh", "calls@station.example").is_empty());
+        // The name an install gives a station until it is named counts as unnamed.
+        assert_eq!(missing(UNNAMED, "calls@station.example").len(), 1);
+        assert_eq!(missing(UNNAMED, "").len(), 2);
+    }
+
+    #[test]
+    fn the_front_page_is_the_notice_only_while_setup_is_open_and_the_name_is_not_the_stations_own()
+    {
+        let live = Live::new(UNNAMED);
+        // Setup's state is read from the database at start; until then (and with no database at
+        // all) the player stays.
+        assert!(!live.front_notice());
+        live.set_setup_open(true);
+        assert!(live.front_notice());
+        // A name set on the page ends it at once, without a restart.
+        live.set(Some("Radio Ceilidh".into()), None);
+        assert!(!live.front_notice());
+        // Handing the name back to the settings file brings it back.
+        live.set(None, None);
+        assert!(live.front_notice());
+        // Finishing the page ends it, whatever the name.
+        live.set_setup_open(false);
+        assert!(!live.front_notice());
+    }
+
+    #[test]
+    fn a_station_still_called_kettle_fm_whose_setup_was_never_finished_shows_the_notice() {
+        // A 1.0.5 install updating to 1.1: it started as the demo and nobody ever finished setup.
+        let live = Live::new(DEMO_NAME);
+        assert!(!live.front_notice(), "no database state yet");
+        live.set_setup_open(true);
+        assert!(live.front_notice());
+        // The padding a settings file may carry does not hide it.
+        let padded = Live::new("  Kettle FM ");
+        padded.set_setup_open(true);
+        assert!(padded.front_notice());
+        // Naming it on the page ends the notice, and so does finishing setup.
+        live.set(Some("Radio Ceilidh".into()), None);
+        assert!(!live.front_notice());
+        live.set(Some(DEMO_NAME.into()), None);
+        assert!(live.front_notice());
+        live.set_setup_open(false);
+        assert!(
+            !live.front_notice(),
+            "setup finished: the demo's name is a choice"
+        );
+    }
+
+    #[test]
+    fn a_station_with_a_name_of_its_own_keeps_its_player_with_setup_open() {
+        // Running, even with no takedown contact.
+        for name in ["Radio Ceilidh", "Kettle FM Two", "kettle fm"] {
+            let live = Live::new(name);
+            live.set_setup_open(true);
+            assert!(!live.front_notice(), "{name}");
+        }
     }
 
     #[test]

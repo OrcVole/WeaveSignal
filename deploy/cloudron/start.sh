@@ -5,7 +5,7 @@
 # WeaveSignal on Cloudron: writes every service's settings from Cloudron's environment on every
 # start (ports, domains, the database and mail can change between starts), checks them, then
 # hands over to supervisord, which runs LiveKit, the listener process (icecast.server), playout,
-# the control plane, the chat, the desk and nginx as the cloudron user.
+# the control plane, the chat, the desk, the ingest and nginx as the cloudron user.
 #
 # Cloudron provides (when the administrator leaves the port or domain enabled):
 #   CLOUDRON_APP_DOMAIN, CLOUDRON_APP_ORIGIN, CLOUDRON_POSTGRESQL_URL
@@ -17,6 +17,8 @@
 #   TURN_TLS_PORT        tcp, LiveKit's TURN over TLS (ADR-0059, ADR-0080, ADR-0106)
 #   TURN_UDP_PORT        udp, LiveKit's TURN over UDP (off by default)
 #   LIVEKIT_TCP_PORT     tcp, LiveKit's ICE over TCP (off by default)
+#   SOURCE_ICECAST_PORT  tcp, the ingest's Icecast sources, hosts' own studios (1.1, off by default)
+#   SOURCE_SRT_PORT      udp, the ingest's SRT sources (1.1, off by default)
 # The public ports have no containerPort in the manifest, so the number inside the container is
 # the number outside: LiveKit advertises the port it binds, and guests must reach that number.
 #
@@ -36,7 +38,7 @@ if [[ ! -f $data/weavesignal.env ]]; then
     cat > "$data/weavesignal.env" <<'ENV'
 # WeaveSignal settings. Restart the app after editing. Every port is a setting (ADR-0075); the
 # public ports (media, TURN, ICE over TCP) are chosen in Cloudron's dashboard, not here.
-STATION_NAME="Kettle FM"
+STATION_NAME="This station"
 ROOM_NAME=studio
 # Listener stream access: "off" leaves the stream open but unlisted, as the Compose bundle does;
 # "on" asks for the user `listener` and the password in secrets.env.
@@ -98,6 +100,8 @@ elif ! grep -q '^# weavesignal: loudness default moved to -16' "$data/weavesigna
 fi
 setting PROCESSING_MAX_GAIN_DB 6 "The most the gain control may raise the programme, in dB."
 setting DESK_FEED_PORT 7317 "Playout's programme back to the desk, the video's sound (ADR-0172), on loopback; used only with VIDEO=true."
+# --- 1.1: hosts in their own studios (ADR-0280) ---
+setting DESK_SOURCES_PORT 7318 "Hosts' own studios from the ingest to the desk (ADR-0280), on loopback. The two public ports for hosts' software are chosen in Cloudron's dashboard."
 # --- cloudron-video (ADR-0227): the video path, off by default ---------------------------------
 setting VIDEO false "The desk's video path (ADR-0009, ADR-0227): true or false. On, the desk takes guests' cameras, mixes the picture, encodes AV1 on the CPU with SVT-AV1 and writes CMAF HLS that the public domain serves at /hls/; the join pages offer a camera check. It costs memory and CPU (see the install guide); restart the app after changing it."
 # --- icecast-out (ADR-0226): send the programme to another Icecast server ---------------------
@@ -116,18 +120,31 @@ setting VIDEO_CANVAS "" "RTMP out (with video on): the picture composed; empty i
 setting RTMP_RUNG "" "RTMP out: the picture sent, at most the canvas; empty is the canvas."
 setting RTMP_H264 openh264 "RTMP out's H.264 encoder: openh264 on the CPU (a Cloudron app has no GPU), auto or nvenc."
 setting RTMP_VIDEO_KBPS 0 "RTMP out's H.264 bitrate in kbit/s; 0 is the picture's default (480p20: 700, 720p30: 2500)."
+# --- 1.1: the show, the rundown and steering (issue 5) ---
+# Empty is the control plane's own default; station.toml, when it exists, replaces a whole section.
+setting STUDIO_SHOW "" "The show the desk heads, as plain text. Empty: the desk says No show set."
+setting STUDIO_LISTENER_DELAY_MS "" "How far behind listeners hear, in ms, not counting the profanity delay: a whole number, shown on the desk as an estimate (ADR-0103). Empty: 13000."
+setting STUDIO_RUNDOWN "" "What is coming up on the desk: TOML inline tables, comma-separated, in single quotes, e.g. '{ at = \"10:00\", title = \"News\", detail = \"hard post\", hard_post = true, key = \"F2\" }, { at = \"10:06\", title = \"Weather\" }'. Empty: none."
+setting STUDIO_BANNED "" "Callers banned before: TOML inline tables as above, e.g. '{ identity = \"tavish\", date = \"2026-09-12\", reason = \"Abuse on air\" }'. Empty: none."
+setting STEERING_EDGES "" "HLS content steering among your edges (ADR-0051): TOML inline tables, comma-separated, in single quotes, e.g. '{ pathway = \"edge-1\", host = \"edge-1.edges.example\", check_url = \"http://edge-1.edges.example/health\" }'. Empty: steering is off."
+setting STEERING_TTL_S "" "Steering: how long a player keeps its manifest, in seconds. Empty: 300."
+setting STEERING_CHECK_EVERY_S "" "Steering: each edge's health check, in seconds. Empty: 5."
+setting STEERING_CHECK_TIMEOUT_MS "" "Steering: how long one health check may take, in ms. Empty: 2000."
+setting STEERING_DOWN_AFTER "" "Steering: failed checks in a row before an edge leaves the order. Empty: 2."
+setting STEERING_CLONE_FROM "" "Steering: the pathway the playlist declares, which edges with a host are cloned from. Empty: a dot (.)."
 # shellcheck source=/dev/null
 source "$data/weavesignal.env"
 CHAT_PORT=${CHAT_PORT:-7311}
 PLAYOUT_FEED_PORT=${PLAYOUT_FEED_PORT:-7315}
 DESK_FEED_PORT=${DESK_FEED_PORT:-7317}
+DESK_SOURCES_PORT=${DESK_SOURCES_PORT:-7318}
 MAIL_MODE=${MAIL_MODE:-cloudron}
 # Settings written into JSON and TOML as they are: a wrong value would stop both Liquidsoaps in
 # a restart loop, so it stops the start here instead, with the setting named.
 is_bool() { [[ ${!1} == true || ${!1} == false ]] || { log "$1=${!1} in weavesignal.env is not true or false"; exit 1; }; }
 is_number() { [[ ${!1} =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { log "$1=${!1} in weavesignal.env is not a number"; exit 1; }; }
 for b in SEARCH_LISTING DIRECTORY_LISTING COMPAT_STREAM COMPAT_HIGH_STREAM PROCESSING VIDEO; do is_bool "$b"; done
-for n in COMPAT_BITRATE PROCESSING_TARGET_LUFS PROCESSING_MAX_GAIN_DB DESK_FEED_PORT FEED_BUFFER_S; do is_number "$n"; done
+for n in COMPAT_BITRATE PROCESSING_TARGET_LUFS PROCESSING_MAX_GAIN_DB DESK_FEED_PORT DESK_SOURCES_PORT FEED_BUFFER_S; do is_number "$n"; done
 # rtmp-out
 is_number RTMP_VIDEO_KBPS
 [[ $RTMP_H264 == openh264 || $RTMP_H264 == auto || $RTMP_H264 == nvenc ]] || { log "RTMP_H264=$RTMP_H264 in weavesignal.env is not openh264, auto or nvenc"; exit 1; }
@@ -187,6 +204,8 @@ secret_setting() {   # name, comment
 secret_setting CHAT_EMAIL_KEY "Keys the hash of chatters' email addresses (0.8.0). Never change it: the chat would find no account made before."
 secret_setting CONTROL_EMAIL_KEY "Keys the hash of staff email addresses for emailed sign-in codes (0.8.0). Never change it."
 secret_setting CONTROL_TOKEN_KEY "Keys API tokens and webhook secrets (0.9.2, ADR-0202). Never change it: every token would be revoked."
+secret_setting INGEST_TOKEN "The ingest's bearer for the control plane's internal routes (1.1, ADR-0280). Any new value works after a restart."
+secret_setting DESK_SOURCES_PASSWORD "The password the ingest sends the desk with each host's source (1.1, ADR-0280). Any new value works after a restart."
 # icecast-out (ADR-0226): the other server's password is the administrator's to type here; it
 # is a secret, so it lives in this file (mode 0600), not in weavesignal.env.
 if ! grep -q '^ICECAST_OUT_PASSWORD=' "$data/secrets.env"; then
@@ -265,6 +284,10 @@ LIVEKIT_MEDIA_PORT=${LIVEKIT_MEDIA_PORT:-}
 LIVEKIT_TCP_PORT=${LIVEKIT_TCP_PORT:-}
 TURN_TLS_PORT=${TURN_TLS_PORT:-}
 TURN_UDP_PORT=${TURN_UDP_PORT:-}
+# Hosts' own studios (1.1, ADR-0280): off unless enabled in the dashboard; the ingest listens on
+# an enabled one only while a show key exists. Disabled is 0 to the control plane: that way is off.
+SOURCE_ICECAST_PORT=${SOURCE_ICECAST_PORT:-}
+SOURCE_SRT_PORT=${SOURCE_SRT_PORT:-}
 if [[ -z $LIVEKIT_MEDIA_PORT ]]; then
     log "LIVEKIT_MEDIA_PORT is disabled: media only through TURN"
 fi
@@ -364,6 +387,11 @@ socket = "$run/desk.sock"
 # The cart files the media worker wrote: the desk decodes and plays them (ADR-0117).
 [carts]
 dir = "$data/carts"
+
+# Hosts' own studios (ADR-0280): the ingest hands each source standing by to the desk here, on
+# loopback, with WEAVESIGNAL_DESK_SOURCES_PASSWORD.
+[sources]
+port = $DESK_SOURCES_PORT
 TOML
 # cloudron-video (ADR-0227): the video path, with the Compose bundle's defaults (the 480p20 rung,
 # SVT-AV1, 2 s segments). The HLS is written under /run, which is never backed up, and served
@@ -421,11 +449,15 @@ listeners = $LISTENERS_PORT
 srt_ingest = $SRT_INGEST_PORT
 playout_feed = $PLAYOUT_FEED_PORT
 desk_feed = $DESK_FEED_PORT
+desk_sources = $DESK_SOURCES_PORT
 livekit_http = $LIVEKIT_HTTP_PORT
 livekit_media = ${LIVEKIT_MEDIA_PORT:-7882}
 livekit_tcp = ${LIVEKIT_TCP_PORT:-7881}
 turn_udp = ${TURN_UDP_PORT:-3478}
 turn_tls = ${TURN_TLS_PORT:-15349}
+# Hosts' own studios: the dashboard's ports, which the station's rules cannot change; 0 is off.
+source_icecast = ${SOURCE_ICECAST_PORT:-0}
+source_srt = ${SOURCE_SRT_PORT:-0}
 
 [room]
 public_url = "wss://${ROOM_DOMAIN:-$CLOUDRON_APP_DOMAIN}"
@@ -536,6 +568,11 @@ from = "$mail_from"
 command = ["/usr/bin/msmtp", "-C", "$run/msmtprc", "-t"]
 outbox_dir = "$data/staff-outbox"
 TOML
+# The show, the rundown and steering, from weavesignal.env (issue 5); nothing is written for
+# a setting left empty. A mistake in a list stops the control plane's check below, naming the line.
+# shellcheck source=/dev/null
+source /app/code/station-sections.sh
+station_sections >> "$run/control.toml"
 cat > "$run/chat.toml" <<TOML
 # Written by start.sh on every start.
 [station]
@@ -587,6 +624,9 @@ chat_public='^/api/v1/chat/(info|socket|signin/start|signin/finish|guest|notices
 # (their PUT and DELETE are an admin's, on the app's own domain).
 control_public='^/api/v1/(station|player|call-in|call-in/challenge|pass|pass/token|pass/events|pass/leave|now-playing|now-playing/events|steering)$'
 branding_public='^/api/v1/branding(/icon|/banner)?$'
+# A host's monitor link (ADR-0280): its own secret is the bearer, so it needs no login. The
+# page itself (monitor/) is served beside the join and echo-test pages.
+monitor_public='^/api/v1/monitor(/(token|events|go|not-yet|cue|handover|end-show|dump))?$'
 # Calendar files (ADR-0281): the schedule and each show's, for a person's own calendar; and the
 # read-only JSON for a station's own website (ADR-0282, crates/control/src/open.rs). GET only.
 calendar_public='^/api/v1/public/(station|schedule|episodes|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
@@ -626,7 +666,7 @@ noindex='add_header X-Robots-Tag "noindex, nofollow" always;'
 if [[ $SEARCH_LISTING == true ]]; then
     pub_noindex=        # on the server: nothing
     pub_never=$noindex  # on the API, the invite page and the echo test
-    pub_robots='User-agent: *\nDisallow: /api/\nDisallow: /join/\nDisallow: /echo-test/\nDisallow: /setup/\n'
+    pub_robots='User-agent: *\nDisallow: /api/\nDisallow: /join/\nDisallow: /echo-test/\nDisallow: /setup/\nDisallow: /monitor/\nDisallow: /not-set-up/\n'
 else
     pub_noindex=$noindex
     pub_never=          # inherited from the server
@@ -678,16 +718,29 @@ http {
         location /api/v1/chat/ {
             client_max_body_size 33m;
             proxy_pass http://127.0.0.1:$CHAT_PORT;
+            # nginx passes none of the server's proxy headers to a location that sets its own:
+            # the client's address and the host are restated (per-address limits count on them).
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
             proxy_set_header Upgrade \$http_upgrade;
             proxy_set_header Connection \$connection_upgrade;
             proxy_buffering off;
             proxy_read_timeout 1d;
             proxy_send_timeout 1d;
         }
+        # The ingest's routes (ADR-0280) are for the ingest in this container, on loopback, and
+        # never through a proxy. The control plane refuses a request that carries a proxy's
+        # header, but the location below sets headers of its own, so nginx sends it none of the
+        # server's (X-Forwarded-For included): the routes are closed here instead.
+        location /api/v1/internal/ { return 404; }
         # The control plane. Its event streams are server-sent events: no buffering. Uploads:
         # carts to 64 MB, library tracks to 200 MB.
         location /api/ {
             proxy_pass http://127.0.0.1:$CONTROL_PORT;
+            # nginx passes none of the server's proxy headers to a location that sets its own:
+            # the client's address and the host are restated (per-address limits count on them).
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
             proxy_set_header Connection "";
             proxy_buffering off;
             proxy_request_buffering off;
@@ -703,6 +756,22 @@ http {
         # update had removed (the talk station, 2026-11-11). By expires, not add_header, so the
         # server's own headers still apply.
         location /assets/ { expires max; try_files \$uri =404; }
+        # The front page (1.1): until the station is set up, this address shows the page that says
+        # so and where to begin, not the listeners' player. The control plane decides, live: it
+        # answers 200 with X-Accel-Redirect to that page while setup is open and the station has
+        # the name the install gave it, and 404 otherwise; and the player stays when it does not
+        # answer at all. The public pages' domain below never asks.
+        location = / {
+            proxy_pass http://127.0.0.1:$CONTROL_PORT/api/v1/front;
+            # nginx passes none of the server's proxy headers to a location that sets its own:
+            # the client's address and the host are restated (per-address limits count on them).
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
+            proxy_set_header Connection "";
+            proxy_intercept_errors on;
+            error_page 404 502 503 504 = @player;
+        }
+        location @player { expires epoch; try_files /index.html =404; }
         location / { expires epoch; try_files \$uri \$uri/index.html =404; }
     }
 
@@ -744,7 +813,7 @@ $stream_locations
         # The station's health, for the edges' pass-through check (ADR-0160): this domain is
         # outside Cloudron's login, and the answer says only ok, the version and the database.
         location = /health { $pub_never proxy_pass http://127.0.0.1:$CONTROL_PORT; }
-        location ~ ^/(join|echo-test)(/|\$) { $pub_never expires epoch; try_files \$uri \$uri/index.html =404; }
+        location ~ ^/(join|echo-test|monitor)(/|\$) { $pub_never expires epoch; try_files \$uri \$uri/index.html =404; }
         location ~ $chat_public {
             $pub_never
             # A chatter's picture (ADR-0235) or a file posted in the chat (ADR-0262): the chat
@@ -752,6 +821,10 @@ $stream_locations
             # the most), route by route.
             client_max_body_size 33m;
             proxy_pass http://127.0.0.1:$CHAT_PORT;
+            # nginx passes none of the server's proxy headers to a location that sets its own:
+            # the client's address and the host are restated (per-address limits count on them).
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
             proxy_set_header Upgrade \$http_upgrade;
             proxy_set_header Connection \$connection_upgrade;
             proxy_buffering off;
@@ -761,8 +834,26 @@ $stream_locations
         location ~ $control_public {
             $pub_never
             proxy_pass http://127.0.0.1:$CONTROL_PORT;
+            # nginx passes none of the server's proxy headers to a location that sets its own:
+            # the client's address and the host are restated (per-address limits count on them).
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
             proxy_set_header Connection "";
             proxy_buffering off;
+            proxy_read_timeout 1d;
+        }
+        # The monitor link's routes. A location that sets any proxy_set_header sends none of the
+        # server's (nginx's inheritance rule), so the client's address and the host are restated:
+        # the control plane counts wrong secrets by that address.
+        location ~ $monitor_public {
+            $pub_never
+            limit_except GET POST { deny all; }
+            proxy_pass http://127.0.0.1:$CONTROL_PORT;
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
+            proxy_set_header Connection "";
+            proxy_buffering off;
+            # monitor/events is a stream that stays open for the show.
             proxy_read_timeout 1d;
         }
         location ~ $branding_public {
@@ -777,6 +868,8 @@ $stream_locations
         }
         # The setup page is the admin's, on the app's own domain only (ADR-0237).
         location ~ ^/setup(/|\$) { return 404; }
+        # So is the not-set-up page, which is the app's own domain's front page (1.1).
+        location ~ ^/not-set-up(/|\$) { return 404; }
         location ~ ^/(feeds|cards|media/episodes)/ {
             limit_except GET { deny all; }
             proxy_pass http://127.0.0.1:$CONTROL_PORT;
@@ -804,9 +897,10 @@ export GST_REGISTRY_1_0=$run/gst/registry.bin
 export LIQ_CACHE_USER_DIR=/app/code/liq-cache   # built with the image; see the Dockerfile
 export RUST_LOG=${RUST_LOG:-$LOG_LEVEL}
 export WEAVESIGNAL_DATABASE_URL=$CLOUDRON_POSTGRESQL_URL
-# The station's own [studio] (the show, the rundown, the banned list) and [steering], which
-# this script does not write: /app/data/station.toml, read by the control plane when it
-# exists (issue 5). It may hold only those two sections.
+# The station's own [studio] (the show, the rundown, the banned list) and [steering]: written
+# from STUDIO_* and STEERING_* in weavesignal.env, and replaced, section by section, by
+# /app/data/station.toml, which the control plane reads when it exists (issue 5). It may hold
+# only those two sections.
 export WEAVESIGNAL_CONTROL_EXTRA=/app/data/station.toml
 export WEAVESIGNAL_LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
 export WEAVESIGNAL_CONTROL_ADMIN_TOKEN=$CONTROL_ADMIN_TOKEN
@@ -817,6 +911,15 @@ export WEAVESIGNAL_LISTENERS_SOURCE_PASSWORD=$LISTENERS_SOURCE_PASSWORD
 export WEAVESIGNAL_PLAYOUT_FEED_PASSWORD=$LISTENERS_SOURCE_PASSWORD   # the desk's video feed (ADR-0172)
 export WEAVESIGNAL_ICECAST_OUT_PASSWORD=${ICECAST_OUT_PASSWORD:-}   # icecast-out (ADR-0226)
 export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET"
+# Hosts' own studios (ADR-0280): the ingest's bearer for the control plane, and the password it
+# sends the desk. Every service here runs as one user in one container, so, like every secret
+# above, they are in each one's environment; on Compose and Quadlets only the two ends get each.
+export WEAVESIGNAL_INGEST_TOKEN=$INGEST_TOKEN
+export WEAVESIGNAL_DESK_SOURCES_PASSWORD=$DESK_SOURCES_PASSWORD
+export WEAVESIGNAL_INGEST_CONTROL=http://127.0.0.1:$CONTROL_PORT
+export WEAVESIGNAL_INGEST_DESK=127.0.0.1:$DESK_SOURCES_PORT
+# Every address in the container: Cloudron forwards the two ports to it.
+export WEAVESIGNAL_INGEST_BIND=0.0.0.0
 
 # The settings must parse, and every port must be free, before anything starts: a mistake here
 # would otherwise be a restart loop in one service's log.
@@ -824,5 +927,5 @@ if ! out=$(/app/code/bin/weavesignal-control --config "$run/control.toml" check-
     log "the control plane's settings or ports are wrong:"; echo "$out"; exit 1
 fi
 
-log "station $STATION_ID; room wss://${ROOM_DOMAIN:-?}; media udp ${LIVEKIT_MEDIA_PORT:-off}; TURN/TLS ${turn_tls:-off}; TURN/UDP ${TURN_UDP_PORT:-off}; ICE/TCP ${LIVEKIT_TCP_PORT:-off}; listeners https://${LISTENERS_DOMAIN:-?}/$LISTENERS_MOUNT (auth ${LISTENERS_AUTH:-off}); public pages ${PUBLIC_DOMAIN:-off}; cards and feeds $public_url; chat mail $mail_mode; video $VIDEO"
+log "station $STATION_ID; room wss://${ROOM_DOMAIN:-?}; media udp ${LIVEKIT_MEDIA_PORT:-off}; TURN/TLS ${turn_tls:-off}; TURN/UDP ${TURN_UDP_PORT:-off}; ICE/TCP ${LIVEKIT_TCP_PORT:-off}; sources icecast ${SOURCE_ICECAST_PORT:-off} srt ${SOURCE_SRT_PORT:-off}; listeners https://${LISTENERS_DOMAIN:-?}/$LISTENERS_MOUNT (auth ${LISTENERS_AUTH:-off}); public pages ${PUBLIC_DOMAIN:-off}; cards and feeds $public_url; chat mail $mail_mode; video $VIDEO"
 exec /usr/bin/supervisord --configuration /app/code/supervisord.conf --nodaemon

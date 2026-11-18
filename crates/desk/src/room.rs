@@ -85,7 +85,8 @@ pub fn parse(reply: &str, desk_prefix: &str) -> Result<Vec<Seen>> {
         .filter(|p| p.state != "DISCONNECTED")
         .filter_map(|p| {
             let role: Role = p.attributes.get(ROLE_ATTRIBUTE)?.parse().ok()?;
-            if !role.at_desk() {
+            // A source never comes through the room (ADR-0280), whatever a token says.
+            if !role.at_desk() || role.from_ingest() {
                 return None;
             }
             let mut audio = p.tracks.iter().filter(|t| t.kind == "AUDIO").peekable();
@@ -144,6 +145,37 @@ pub fn parse_booths(reply: &str, studio_room: &str) -> Result<Vec<(String, Strin
         .collect())
 }
 
+/// The monitor rooms of a studio room that anyone is in, from a `ListRooms` reply, with the key
+/// each belongs to (design 4.5). The desk's own publisher counts as being in one, so who is
+/// listening is read from the room's participants, [`parse_monitor_listeners`].
+pub fn parse_monitor_rooms(reply: &str, studio_room: &str) -> Result<Vec<(String, String)>> {
+    let reply: RoomsReply =
+        serde_json::from_str(reply).context("LiveKit's room list is not JSON")?;
+    Ok(reply
+        .rooms
+        .into_iter()
+        .filter(|r| r.num_participants > 0)
+        .filter_map(|r| {
+            let key = weavesignal_proto::monitor_key(studio_room, &r.name)?.to_owned();
+            Some((r.name, key))
+        })
+        .collect())
+}
+
+/// How many of a monitor link's seats are taken, from a `ListParticipants` reply for its room:
+/// the participants whose identity is one of that key's seats (the desk's own publisher, and
+/// anyone else, never count).
+pub fn parse_monitor_listeners(reply: &str, key_id: &str) -> Result<usize> {
+    let reply: ListReply =
+        serde_json::from_str(reply).context("LiveKit's participant list is not JSON")?;
+    Ok(reply
+        .participants
+        .iter()
+        .filter(|p| p.state != "DISCONNECTED")
+        .filter(|p| weavesignal_proto::is_monitor_seat(key_id, &p.identity))
+        .count())
+}
+
 /// LiveKit's server API for the studio room and its booths.
 pub struct RoomApi {
     agent: ureq::Agent,
@@ -172,6 +204,11 @@ impl RoomApi {
     /// Everyone the desk should mix: the studio room, then each caller's booth (ADR-0193).
     /// A room nobody has opened yet is empty.
     pub fn list(&self) -> Result<Vec<Seen>> {
+        Ok(self.list_all()?.0)
+    }
+
+    /// As [`Self::list`], and with it how many seats of each monitor link (by key id) are taken.
+    pub fn list_all(&self) -> Result<(Vec<Seen>, BTreeMap<String, usize>)> {
         let mut seen = parse(
             &self.call(
                 "ListParticipants",
@@ -189,7 +226,16 @@ impl RoomApi {
             )?;
             seen.extend(parse_booth(&reply, &self.desk_prefix, &booth, &owner)?);
         }
-        Ok(seen)
+        let mut listening = BTreeMap::new();
+        for (room, key) in parse_monitor_rooms(&rooms, &self.room)? {
+            let reply = self.call(
+                "ListParticipants",
+                &room,
+                serde_json::json!({ "room": room }),
+            )?;
+            listening.insert(key.clone(), parse_monitor_listeners(&reply, &key)?);
+        }
+        Ok((seen, listening))
     }
 
     /// One call to LiveKit's room service, as an admin of `room`; a room that is not there
@@ -244,6 +290,44 @@ pub struct DeskView {
     /// empty in a fresh view): nothing arrived while they were muted, so their voice is given
     /// a full wait from then.
     pub unmuted: BTreeMap<String, Duration>,
+}
+
+/// What to do to bring the desk's monitor mixes in line with who listens (design 4.5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MonitorAction {
+    /// Someone listens on this key's monitor link: make its mix.
+    Open(String),
+    /// Nobody has listened for a while: take its mix down.
+    Close(String),
+}
+
+/// How long a monitor mix is kept after its last listener leaves, so a page that reloads, or a
+/// connection that drops and comes back, finds the mix running and its publisher still joined.
+pub const MONITOR_GRACE: Duration = Duration::from_secs(10);
+
+/// The monitor actions that follow who is listening. Pure, so it is tested on its own.
+/// `listening`: seats taken on each link now; `open`: the keys whose mix the desk is making;
+/// `quiet`: for each open key, how long nobody has been listening; `grace`: how long a mix is
+/// kept without a listener.
+pub fn reconcile_monitors(
+    listening: &BTreeMap<String, usize>,
+    open: &BTreeSet<String>,
+    quiet: &BTreeMap<String, Duration>,
+    grace: Duration,
+) -> Vec<MonitorAction> {
+    let mut out = Vec::new();
+    for (key, n) in listening {
+        if *n > 0 && !open.contains(key) {
+            out.push(MonitorAction::Open(key.clone()));
+        }
+    }
+    for key in open {
+        let heard = listening.get(key).copied().unwrap_or(0) > 0;
+        if !heard && quiet.get(key).is_some_and(|q| *q > grace) {
+            out.push(MonitorAction::Close(key.clone()));
+        }
+    }
+    out
 }
 
 /// How long a subscription is given before it is made again: `link_timeout` the first time,
@@ -325,7 +409,9 @@ impl Desk {
     /// The desk as the room watch sees it.
     pub fn view(&self) -> DeskView {
         let mut v = DeskView::default();
-        for p in self.status() {
+        // Sources come from the ingest (ADR-0280): the room never sees them, so the room watch
+        // must never mark them away or remove them.
+        for p in self.status().into_iter().filter(|p| !p.role.from_ingest()) {
             let away = self
                 .person(&p.identity)
                 .and_then(|x| x.away_since)
@@ -341,6 +427,21 @@ impl Desk {
             v.people.insert(p.identity, (p.role, away));
         }
         v
+    }
+
+    /// Carry out the monitor actions.
+    pub fn apply_monitors(&self, actions: &[MonitorAction]) {
+        for a in actions {
+            match a {
+                MonitorAction::Open(key) => match self.open_monitor(key) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(action = ?a, error = %format!("{e:#}"), "cannot open a monitor mix");
+                    }
+                },
+                MonitorAction::Close(key) => self.close_monitor(key),
+            }
+        }
     }
 
     /// Carry out reconciling actions.
@@ -418,6 +519,8 @@ pub fn watch(desk: Desk, api: RoomApi, stop: Arc<AtomicBool>) {
     let mut retries: BTreeMap<String, u32> = BTreeMap::new();
     // When each person was last seen with their audio muted.
     let mut last_muted: BTreeMap<String, Instant> = BTreeMap::new();
+    // When each open monitor mix last had a listener (or was opened).
+    let mut last_heard: BTreeMap<String, Instant> = BTreeMap::new();
     while !stop.load(Ordering::SeqCst) {
         // Each time the room empties, what the desk still holds: across shows it must come
         // back to the same (the staging run saw about two cores used with the room empty).
@@ -432,8 +535,8 @@ pub fn watch(desk: Desk, api: RoomApi, stop: Arc<AtomicBool>) {
             );
         }
         was_empty = empty;
-        match api.list() {
-            Ok(seen) => {
+        match api.list_all() {
+            Ok((seen, listening)) => {
                 if failing_since.take().is_some() {
                     tracing::info!("LiveKit's server API answers again");
                 }
@@ -449,6 +552,29 @@ pub fn watch(desk: Desk, api: RoomApi, stop: Arc<AtomicBool>) {
                 count_retries(&mut retries, &actions, &view);
                 desk.apply(&actions);
                 desk.note_names(seen.iter().map(|s| (s.identity.as_str(), s.name.as_str())));
+                // The monitor links (design 4.5): a mix exists while someone listens, and a
+                // little after. A failed look at LiveKit (below) keeps what is open.
+                let open = desk.monitors();
+                let now = Instant::now();
+                last_heard.retain(|k, _| open.contains(k));
+                for k in &open {
+                    let heard = listening.get(k).is_some_and(|n| *n > 0);
+                    if heard {
+                        last_heard.insert(k.clone(), now);
+                    } else {
+                        last_heard.entry(k.clone()).or_insert(now);
+                    }
+                }
+                let quiet = last_heard
+                    .iter()
+                    .map(|(k, t)| (k.clone(), now.duration_since(*t)))
+                    .collect();
+                desk.apply_monitors(&reconcile_monitors(
+                    &listening,
+                    &open,
+                    &quiet,
+                    MONITOR_GRACE,
+                ));
             }
             Err(e) => {
                 if failing_since.is_none() {
@@ -839,6 +965,79 @@ mod tests {
         assert_eq!(
             reconcile(&[seen("g", "PA_1", true)], &v, GRACE, TIMEOUT),
             vec![Action::Resubscribe("g".into(), "PA_1".into())]
+        );
+    }
+
+    #[test]
+    fn monitor_rooms_are_found_and_only_their_seats_count_as_listening() {
+        let rooms = r#"{"rooms": [
+            {"name": "studio-monitor-k3yid0ab", "numParticipants": 3},
+            {"name": "studio-monitor-empty000", "numParticipants": 0},
+            {"name": "studio-booth-c7f3", "numParticipants": 1},
+            {"name": "other-monitor-k3yid0ab", "numParticipants": 1}
+        ]}"#;
+        assert_eq!(
+            parse_monitor_rooms(rooms, "studio").unwrap(),
+            vec![("studio-monitor-k3yid0ab".to_owned(), "k3yid0ab".to_owned())]
+        );
+        // The desk's own publisher and a stranger are in the room; one seat is taken, one has gone.
+        let people = r#"{"participants": [
+            {"sid": "PA_1", "identity": "desk-mm-source-k3yid0ab", "state": "ACTIVE", "tracks": [{"type": "AUDIO"}]},
+            {"sid": "PA_2", "identity": "monitor-k3yid0ab-1", "state": "ACTIVE", "tracks": []},
+            {"sid": "PA_3", "identity": "monitor-k3yid0ab-2", "state": "DISCONNECTED", "tracks": []},
+            {"sid": "PA_4", "identity": "monitor-other000-1", "state": "ACTIVE", "tracks": []}
+        ]}"#;
+        assert_eq!(parse_monitor_listeners(people, "k3yid0ab").unwrap(), 1);
+        assert_eq!(parse_monitor_listeners("{}", "k3yid0ab").unwrap(), 0);
+        assert!(parse_monitor_listeners("nope", "k3yid0ab").is_err());
+    }
+
+    #[test]
+    fn a_monitor_mix_is_made_while_someone_listens_and_kept_a_little_after() {
+        let keys = |l: &[&str]| l.iter().map(|k| (*k).to_owned()).collect::<BTreeSet<_>>();
+        let listening = |l: &[(&str, usize)]| {
+            l.iter()
+                .map(|(k, n)| ((*k).to_owned(), *n))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let quiet = |l: &[(&str, u64)]| {
+            l.iter()
+                .map(|(k, s)| ((*k).to_owned(), Duration::from_secs(*s)))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let grace = Duration::from_secs(10);
+        // A listener and no mix: open it.
+        assert_eq!(
+            reconcile_monitors(&listening(&[("a", 1)]), &keys(&[]), &quiet(&[]), grace),
+            vec![MonitorAction::Open("a".into())]
+        );
+        // Open and listened to: nothing, however long since it was quiet.
+        assert!(
+            reconcile_monitors(
+                &listening(&[("a", 2)]),
+                &keys(&["a"]),
+                &quiet(&[("a", 60)]),
+                grace
+            )
+            .is_empty()
+        );
+        // Open, nobody for 3 s: kept for a reload; for 11 s: closed.
+        assert!(
+            reconcile_monitors(
+                &listening(&[("a", 0)]),
+                &keys(&["a"]),
+                &quiet(&[("a", 3)]),
+                grace
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            reconcile_monitors(&listening(&[]), &keys(&["a"]), &quiet(&[("a", 11)]), grace),
+            vec![MonitorAction::Close("a".into())]
+        );
+        // Nobody listens and nothing is open: nothing.
+        assert!(
+            reconcile_monitors(&listening(&[("a", 0)]), &keys(&[]), &quiet(&[]), grace).is_empty()
         );
     }
 

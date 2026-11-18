@@ -17,6 +17,8 @@ pub mod join;
 pub mod mail;
 pub mod mailkey;
 pub mod media;
+pub mod monitor;
+pub mod monitor_view;
 pub mod onair;
 pub mod onair_api;
 pub mod open;
@@ -24,6 +26,7 @@ pub mod openapi;
 mod openapi_page;
 pub mod playout;
 pub mod ports;
+pub mod post;
 pub mod public;
 pub mod retention;
 pub mod rules;
@@ -31,6 +34,7 @@ pub mod schedule;
 pub mod scopes;
 pub mod setup;
 pub mod shows;
+pub mod sources;
 pub mod staff;
 pub mod steering;
 pub mod steps;
@@ -318,6 +322,11 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     // request. The settings file's name is `config.station.name`; the database's `station.name`
     // (returned above) is the one in force.
     hub.live.set_file_name(&config.station()?.name);
+    // Hosts' own studios (ADR-0280): the ports the installation publishes win over the rules'.
+    hub.sources.set_fixed_ports(
+        config.ports.given("source_icecast"),
+        config.ports.given("source_srt"),
+    );
     let setup_state = Arc::new(setup::SetupState {
         station: station.id,
         db: db.clone(),
@@ -345,6 +354,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         started: std::time::SystemTime::now(),
     });
     setup::restore(&setup_state).await;
+    // The pages' front (1.1): `/` is the not-set-up page until the station is set up.
+    let live = hub.live.clone();
     let state = Arc::new(app::AppState {
         station,
         db,
@@ -380,6 +391,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     // The beginner step (ADR-0271), read before the routes are served so a restart does not
     // open the lines at a Solo show; kept in line with the schedule from here on.
     steps::start(state.clone()).await;
+    // The post's rule (ADR-0280): who goes on air at a show's post, every second.
+    post::start(state.clone());
     let link = Arc::new(retention::RetentionLink {
         recordings_dir: config.retention.recordings_dir.clone(),
         sweep_every: std::time::Duration::from_secs(config.retention.sweep_every_s),
@@ -423,7 +436,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
                 &edges,
             );
             let site = web::Site::load_listed(dir, &csp, config.web.listed)
-                .with_context(|| format!("cannot serve the public pages from {}", dir.display()))?;
+                .with_context(|| format!("cannot serve the public pages from {}", dir.display()))?
+                .with_front(live.clone());
             tracing::info!(dir = %dir.display(), files = site.len(), "serving the public pages");
             Some(Arc::new(site))
         }

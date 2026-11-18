@@ -22,6 +22,8 @@ sed -e 's/^STATION_ID=.*/STATION_ID=3d0b7a52-1f7e-4a8b-9a51-0d2b6a4e9c11/' \
     -e 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=bundle-test-only/' \
     -e 's/^CONTROL_ADMIN_TOKEN=.*/CONTROL_ADMIN_TOKEN=bundle-admin-test/' \
     -e 's/^CHAT_EMAIL_KEY=.*/CHAT_EMAIL_KEY=bundle-test-only-chat-email-key-0123456789/' \
+    -e 's/^INGEST_TOKEN=.*/INGEST_TOKEN=bundle-test-only-ingest-token-0123456789/' \
+    -e 's/^DESK_SOURCES_PASSWORD=.*/DESK_SOURCES_PASSWORD=bundle-test-only-desk-sources-0123456789/' \
     -e "s|^SERVER_IMAGE=.*|SERVER_IMAGE=${WEAVESIGNAL_SERVER_IMAGE:-localhost/weavesignal-server:m1}|" \
     -e 's/^COMPAT_STREAM=.*/COMPAT_STREAM=true/' \
     -e 's/^COMPAT_HIGH_STREAM=.*/COMPAT_HIGH_STREAM=true/' \
@@ -32,6 +34,7 @@ sed -e 's/^STATION_ID=.*/STATION_ID=3d0b7a52-1f7e-4a8b-9a51-0d2b6a4e9c11/' \
     -e "s/^LISTENERS_PORT=.*/LISTENERS_PORT=${LISTENERS_PORT:-17312}/" \
     -e "s/^PLAYOUT_FEED_PORT=.*/PLAYOUT_FEED_PORT=${FEED_PORT:-17315}/" \
     -e "s/^SRT_INGEST_PORT=.*/SRT_INGEST_PORT=${SRT_PORT:-17313}/" \
+    -e "s/^DESK_SOURCES_PORT=.*/DESK_SOURCES_PORT=${DESK_SOURCES_PORT:-17318}/" \
     -e "s/^LIVEKIT_HTTP_PORT=.*/LIVEKIT_HTTP_PORT=${LK_PORT:-17880}/" \
     -e "s/^LIVEKIT_MEDIA_PORT=.*/LIVEKIT_MEDIA_PORT=${LK_UDP_PORT:-17882}/" \
     "$root/deploy/compose/.env.example" > "$env"
@@ -48,6 +51,28 @@ echo "control plane: $(curl -fs "http://127.0.0.1:$CONTROL_PORT/health")"
 curl -fs -X POST -H "Authorization: Bearer bundle-admin-test" -H "Content-Type: application/json" \
   -d '{"identity": "hamish", "role": "presenter"}' "http://127.0.0.1:$CONTROL_PORT/api/v1/room/tokens" | grep -q '"token"'
 echo "room token issued"
+# A station not set up yet (1.1): while it still has its install's name, `/` is the not-set-up
+# page, not the player, and `/api/v1/front` says so. Naming it on the setup route (without
+# finishing setup) gives `/` back to the player.
+curl -fs -o /dev/null "http://127.0.0.1:$CONTROL_PORT/api/v1/front" \
+  && ! curl -fs "http://127.0.0.1:$CONTROL_PORT/" | grep -q '/assets/player-' \
+  || { echo "a station not set up yet does not show the not-set-up page at /" >&2; exit 1; }
+curl -fs -o /dev/null -X PUT -H "Authorization: Bearer bundle-admin-test" -H "Content-Type: application/json" \
+  -d '{"name": "Bundle FM"}' "http://127.0.0.1:$CONTROL_PORT/api/v1/setup"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$CONTROL_PORT/api/v1/front")" = 404 ] \
+  || { echo "naming the station did not give / back to the player" >&2; exit 1; }
+# A 1.0.5 install updating to 1.1 is still called Kettle FM and never finished its setup: the
+# demo's name is not a name chosen, so it shows the page too. Then it is named again.
+curl -fs -o /dev/null -X PUT -H "Authorization: Bearer bundle-admin-test" -H "Content-Type: application/json" \
+  -d '{"name": "Kettle FM"}' "http://127.0.0.1:$CONTROL_PORT/api/v1/setup"
+curl -fs -o /dev/null "http://127.0.0.1:$CONTROL_PORT/api/v1/front" \
+  && ! curl -fs "http://127.0.0.1:$CONTROL_PORT/" | grep -q '/assets/player-' \
+  || { echo "a station still called Kettle FM with setup open does not show the not-set-up page at /" >&2; exit 1; }
+curl -fs -o /dev/null -X PUT -H "Authorization: Bearer bundle-admin-test" -H "Content-Type: application/json" \
+  -d '{"name": "Bundle FM"}' "http://127.0.0.1:$CONTROL_PORT/api/v1/setup"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$CONTROL_PORT/api/v1/front")" = 404 ] \
+  || { echo "naming the station again did not give / back to the player" >&2; exit 1; }
+echo "not set up: / is the not-set-up page until the station is named (Kettle FM counts as unnamed)"
 # The public pages (M3), from the image: the player with its CSP, an immutable asset, and
 # call-in's challenge.
 page=$(curl -fsi "http://127.0.0.1:$CONTROL_PORT/")
@@ -226,5 +251,40 @@ sys.exit(0 if bos == 1 else 1)' "$run/held-programme.opus" \
   || { echo "the held Opus listener got a chained Ogg stream across playout's restart" >&2; exit 1; }
 echo "held listeners: all three mounts unbroken through playout's restart ($(for m in programme.opus programme.mp3 programme-high.mp3; do printf '%s %s B; ' "$m" "$(stat -c %s "$run/held-$m")"; done))"
 rm -f "$run"/held-*
+# The studio's restart of playout (ADR-0289, the keys ⌃R twice): the route tells playout to shut
+# down and its supervisor (here Compose's restart policy) starts it again, with a listener held
+# on the MP3 mount throughout. A route for a person (staff or the key): no bearer is refused.
+playout_started() { podman inspect -f '{{.State.StartedAt}}' "$(compose ps -q playout)" 2>/dev/null; }
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$CONTROL_PORT/api/v1/playout/restart")" = 401 ] \
+  || { echo "POST /api/v1/playout/restart without a bearer was not refused" >&2; exit 1; }
+before_start=$(playout_started)
+curl -s -N --max-time 300 "http://127.0.0.1:$LISTENERS_PORT/programme.mp3" -o "$run/held-restart.mp3" &
+restart_held=$!
+sleep 3
+answer=$(curl -fs -X POST -H "Authorization: Bearer bundle-admin-test" "http://127.0.0.1:$CONTROL_PORT/api/v1/playout/restart") \
+  || { echo "POST /api/v1/playout/restart was refused or did not answer" >&2; compose logs control playout | tail -20; exit 1; }
+grep -q '"restarting":true' <<<"$answer" || { echo "the restart route did not say playout is restarting: $answer" >&2; exit 1; }
+for i in $(seq 1 90); do
+  now_start=$(playout_started)
+  [ -n "$now_start" ] && [ "$now_start" != "$before_start" ] \
+    && [ "$(listeners_cmd fallback.status 2>/dev/null)" = '{"on_air":"feed","default":false}' ] \
+    && [ "$(playout_status 2>/dev/null)" = "default true" ] && break
+  sleep 1; [ "$i" = 90 ] && { echo "playout did not shut down and come back from the studio's restart (started $before_start, now $now_start): $(playout_status)" >&2; compose logs playout | tail -20; exit 1; }
+done
+sleep 3
+kill -0 "$restart_held" 2>/dev/null || { echo "the listener held on programme.mp3 was dropped by the studio's restart of playout" >&2; compose logs listeners | tail -20; exit 1; }
+b=$(stat -c %s "$run/held-restart.mp3"); sleep 2; a=$(stat -c %s "$run/held-restart.mp3")
+[ "$a" -gt "$b" ] || { echo "the listener held on programme.mp3 stopped receiving after the studio's restart of playout" >&2; exit 1; }
+kill "$restart_held" 2>/dev/null || true; wait "$restart_held" 2>/dev/null || true
+rm -f "$run/held-restart.mp3"
+echo "playout restart: the studio's route shut it down, Compose started it again, the held listener unbroken"
+# Hosts' own studios (ADR-0280): the ingest runs, reaches the control plane with its bearer, and
+# with no show key and its ports off (the default) listens for nothing, so the scan below sees no
+# new listener.
+for i in $(seq 1 30); do
+  compose logs ingest 2>&1 | grep 'no show key yet: not listening' >/dev/null && break
+  sleep 1; [ "$i" = 30 ] && { echo "the ingest did not reach the control plane, or listens without a key" >&2; compose logs ingest | tail -20; exit 1; }
+done
+echo "ingest: running, reaches the control plane, listening for nothing without a show key"
 containers=$(compose ps -q | xargs podman inspect -f '{{.Name}}')
 podman unshare python3 -I "$root/tests/ports/scan.py" --public "$LIVEKIT_MEDIA_PORT/udp" $containers | tail -4

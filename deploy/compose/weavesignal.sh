@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -38,6 +38,9 @@
 # network or a test; browsers do not trust it), ACME_EMAIL, NODE_IP (LiveKit's public address;
 # else found by STUN), TURN_ALLOW_CIDRS (addresses TURN may relay to, for a private NODE_IP),
 # PROXY_HTTP_PORT, PROXY_HTTPS_PORT, TURN_TLS_PORT, TURN_UDP_PORT and LIVEKIT_TCP_PORT (0 is off).
+# Hosts in their own studios (ADR-0280): SOURCE_ICECAST_PORT (TCP, 8005 suggested) and
+# SOURCE_SRT_PORT (UDP, 9710), 0 or unset is off. Set, each is checked free and the ingest listens
+# on it while a show key exists: on every address with --public, else on loopback.
 set -euo pipefail
 umask 077
 
@@ -176,14 +179,14 @@ keep() { # key default: the value in the settings file, else the environment, el
 }
 station_id=$(keep STATION_ID "$(cat /proc/sys/kernel/random/uuid)")
 [ "$station_id" != 00000000-0000-0000-0000-000000000000 ] || station_id=$(cat /proc/sys/kernel/random/uuid)
-station_name=$(keep STATION_NAME "Kettle FM")
+station_name=$(keep STATION_NAME "This station")
 room=$(keep ROOM studio)
 # The demo station (the demo name) is given the demo slate picture once (ADR-0200); a station
 # with its own name starts with none. A value already in the settings file is kept, empty or not.
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.5)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -202,6 +205,12 @@ control_key=${have[CONTROL_EMAIL_KEY]:-$(secret)}
 # revokes every token. An older station gains one on this run, which revokes the tokens it had.
 token_key=${have[CONTROL_TOKEN_KEY]:-$(secret)}
 [ ${#token_key} -ge 32 ] || die "CONTROL_TOKEN_KEY in $env_file is shorter than 32 characters"
+# Hosts in their own studios (ADR-0280): the ingest's bearer, which only the ingest and the
+# control plane are given, and the password the ingest sends the desk, which only those two hold.
+# Either may be changed at any time (both ends read it at their next start).
+ingest_token=${have[INGEST_TOKEN]:-$(secret)}
+[ ${#ingest_token} -ge 32 ] || die "INGEST_TOKEN in $env_file is shorter than 32 characters"
+desk_sources_pw=${have[DESK_SOURCES_PASSWORD]:-$(secret)}
 mail_mode=$(keep MAIL_MODE off)
 mail_from=$(keep MAIL_FROM chat@station.example)
 avatar_uploads=$(keep AVATAR_UPLOADS true)
@@ -209,6 +218,16 @@ chat_attachments=$(keep CHAT_ATTACHMENTS false)
 consent_contact=$(keep CONSENT_CONTACT "")
 search_listing=$(keep SEARCH_LISTING false)
 directory_listing=$(keep DIRECTORY_LISTING false)
+# The show and steering's settings (issue 5) go into the control plane's settings file inside quotes
+# or as numbers, and Compose cannot escape them: refuse here rather than stop the control plane.
+for key in STUDIO_SHOW STEERING_CLONE_FROM; do
+  v=$(keep "$key" ""); v=${v#[\"\']}; v=${v%[\"\']}
+  [[ $v != *[\"\\]* ]] || die "$key in $env_file holds a quote or a backslash, which the settings file cannot take; leave them out"
+done
+for key in STUDIO_LISTENER_DELAY_MS STEERING_TTL_S STEERING_CHECK_EVERY_S STEERING_CHECK_TIMEOUT_MS STEERING_DOWN_AFTER; do
+  v=$(keep "$key" ""); v=${v#[\"\']}; v=${v%[\"\']}
+  [[ -z $v || $v =~ ^[0-9]+$ ]] || die "$key=$v in $env_file is not a whole number"
+done
 
 # --- The public route (opt-in): a name for the station, and what follows from it -------------
 case $public_arg in
@@ -240,6 +259,7 @@ port_specs=(
   "SRT_INGEST_PORT udp 7313 17313 27313"
   "PLAYOUT_FEED_PORT tcp 7315 17315 27315"
   "DESK_FEED_PORT tcp 7317 17317 27317"
+  "DESK_SOURCES_PORT tcp 7318 17318 27318"
   "LIVEKIT_HTTP_PORT tcp 7880 17880 27880"
   # 443, the control plane's other suggestion, needs privileges a rootless engine lacks.
   "LIVEKIT_MEDIA_PORT udp 7882 52000"
@@ -259,7 +279,7 @@ fi
 # The bundle binds every port to loopback except LiveKit's media port, which takes every
 # address (and, on a public station, the proxy's and TURN's). A loopback port clashes with a listener on loopback or on every address; one bound to
 # another interface's address does not stop it.
-public_keys=" LIVEKIT_MEDIA_PORT PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT "
+public_keys=" LIVEKIT_MEDIA_PORT PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT "
 in_use() { # protocol port [any]: true when a listener would stop the bundle binding it
   local flag=-Hltn; [ "$1" = udp ] && flag=-Hlun
   local addrs
@@ -344,6 +364,21 @@ if [ -n "$public_domain" ]; then
   done
   [ "${port[TURN_TLS_PORT]}" != "${port[PROXY_HTTPS_PORT]}" ] || die "TURN_TLS_PORT and PROXY_HTTPS_PORT are both ${port[TURN_TLS_PORT]}: TURN over TLS needs a port of its own (the proxy does not share 443 with it)"
 fi
+# Hosts in their own studios (ADR-0280): off (0) unless the station sets a port. A set
+# port is checked like any public one, as the ingest takes every address on a public station.
+for spec in "SOURCE_ICECAST_PORT tcp 8005 18005 28005" "SOURCE_SRT_PORT udp 9710 19710 29710"; do
+  read -r key proto def alts <<< "$spec"
+  p=$(keep "$key" 0)
+  [[ $p =~ ^[0-9]+$ ]] && [ "$p" -le 65535 ] || die "$key=$p is not a port (0 turns it off)"
+  if [ "$p" != 0 ]; then
+    if [ "$ours" = false ] || [ -z "${have[$key]:-}" ]; then
+      free "$proto" "$p" any || die "$key=$p ($proto) is in use; free it, or choose another port ($def or ${alts%% *} are the usual)"
+    fi
+    low_ok "$p" || die "$(low_hint "$key" "$p")"
+    claim "$proto" "$p"
+  fi
+  port[$key]=$p
+done
 # Liquidsoap also opens TCP on the port above two of its listeners, on loopback, with no setting
 # to turn it off: icecast.server's legacy source port (LISTENERS_PORT + 1) and the playout feed's
 # harbor (PLAYOUT_FEED_PORT + 1). Both, like the feed itself, stay internal: never published.
@@ -380,7 +415,8 @@ TURN_CERT_DIR=$cert_dir
 PROXY_LOCAL_CERTS=$local_certs
 PROXY_ACME_EMAIL=$acme_option
 LIVEKIT_USE_EXTERNAL_IP=$use_external
-LIVEKIT_NODE_IP=$lk_node"
+LIVEKIT_NODE_IP=$lk_node
+INGEST_BIND=0.0.0.0"
 fi
 
 # --- The settings file: written whole, atomically, mode 600 --------------------------------
@@ -412,6 +448,10 @@ trap 'rm -f "$tmp"' EXIT
   say "# Keys API tokens and webhook secrets. Keep it with the backups: a different key revokes"
   say "# every token and ends every webhook's signatures."
   say "CONTROL_TOKEN_KEY=$token_key"
+  say "# Hosts in their own studios (ADR-0280): the ingest's bearer for the control plane, and the"
+  say "# password it sends the desk with each source. Either may be changed; restart the station."
+  say "INGEST_TOKEN=$ingest_token"
+  say "DESK_SOURCES_PASSWORD=$desk_sources_pw"
   say ""
   say "MAIL_MODE=$mail_mode"
   say "MAIL_FROM=$mail_from"
@@ -449,6 +489,10 @@ trap 'rm -f "$tmp"' EXIT
   fi
   say "# Ports (ADR-0075): any free port may be used instead."
   for spec in "${port_specs[@]}"; do read -r key _ <<< "$spec"; say "$key=${port[$key]}"; done
+  say "# Hosts in their own studios (ADR-0280): Icecast (TCP) and SRT (UDP) from hosts'"
+  say "# own software; 0 is off. Set, the ingest listens on them while a show key exists."
+  say "SOURCE_ICECAST_PORT=${port[SOURCE_ICECAST_PORT]}"
+  say "SOURCE_SRT_PORT=${port[SOURCE_SRT_PORT]}"
   if [ -n "$public_domain" ]; then
     say "# TURN over UDP and ICE over TCP: 0 is off (TURN over TLS reaches the same guests)."
     say "TURN_UDP_PORT=${port[TURN_UDP_PORT]}"
@@ -458,7 +502,7 @@ trap 'rm -f "$tmp"' EXIT
     printf '%s\n' "$derived"
   fi
   # Anything else the file held is kept as it was.
-  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY MAIL_MODE MAIL_FROM AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP "
+  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND "
   extra=''
   for k in "${!have[@]}"; do [[ $known == *" $k "* ]] || extra+="$k=${have[$k]}"$'\n'; done
   [ -z "$extra" ] || { say ""; printf '%s' "$extra" | sort; }
@@ -547,6 +591,13 @@ if [ -n "$public_domain" ]; then
   fi
   turn_udp=off; [ "${port[TURN_UDP_PORT]}" = 0 ] || turn_udp="UDP ${port[TURN_UDP_PORT]}"
   ice_tcp=off; [ "${port[LIVEKIT_TCP_PORT]}" = 0 ] || ice_tcp="TCP ${port[LIVEKIT_TCP_PORT]}"
+  hosts=off
+  if [ "${port[SOURCE_ICECAST_PORT]}" != 0 ] || [ "${port[SOURCE_SRT_PORT]}" != 0 ]; then
+    hosts=''
+    [ "${port[SOURCE_ICECAST_PORT]}" = 0 ] || hosts="TCP ${port[SOURCE_ICECAST_PORT]} (Icecast)"
+    [ "${port[SOURCE_SRT_PORT]}" = 0 ] || hosts="${hosts:+$hosts and }UDP ${port[SOURCE_SRT_PORT]} (SRT)"
+    hosts="$hosts, listening once a show key exists"
+  fi
   cat <<EOF
 
 WeaveSignal is running, public (project '$project', $engine): $proxied.
@@ -562,7 +613,7 @@ Set the station up: open $origin/setup/ and sign in with the same key. The page 
 station's name, the takedown contact that opens call-in, the jurisdiction and the station's look.
 
 Open to the internet: TCP ${port[PROXY_HTTP_PORT]} and ${port[PROXY_HTTPS_PORT]} (the proxy), UDP ${port[LIVEKIT_MEDIA_PORT]} (media) and TCP ${port[TURN_TLS_PORT]} (TURN over TLS);
-TURN over UDP $turn_udp, ICE over TCP $ice_tcp. Nothing else is published. Call-in stays closed until
+TURN over UDP $turn_udp, ICE over TCP $ice_tcp; hosts' own studios $hosts. Nothing else is published. Call-in stays closed until
 CONSENT_CONTACT is set in $env_file (ADR-0124).
 The station is unlisted by default (SEARCH_LISTING=false, DIRECTORY_LISTING=false); turn them on in
 $env_file when it should be found.

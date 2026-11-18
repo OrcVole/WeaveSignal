@@ -78,7 +78,7 @@ describe('desk.audience', () => {
   });
 
   it('says waiting before the first answer, and says an old control plane cannot count', () => {
-    expect(audienceWords(view({ listeners: null, edges: false }, pic)).detail).toContain('waiting for the first answer');
+    expect(audienceWords(view({ listeners: null, edges: false }, pic)).detail).toContain('Waiting for the first answer');
     const old = audienceWords(view(undefined, pic));
     expect(old.count).toBeNull();
     expect(old.detail).toContain('too old to count');

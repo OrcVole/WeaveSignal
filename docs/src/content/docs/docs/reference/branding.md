@@ -8,7 +8,7 @@ sidebar:
   order: 8
 ---
 
-> **From 1.0.1.** Not released yet.
+> **From 1.0.1.**
 
 A station can give its public pages its own look (ADR-0237): an **accent colour**, a **brand icon** and a **banner**.
 An admin sets them on [the station's setup page](/docs/how-to/set-up-the-station/); they are kept in the station's database, so a backup of the database carries them.

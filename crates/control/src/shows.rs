@@ -1084,6 +1084,12 @@ async fn delete_show(
             })
             .count();
         hub.forget_show_carts(&gone.cart_files).await;
+        // The show's host keys went with it (ADR-0280): their monitor seats leave the room
+        // whether or not a page has an event stream open, and a connection with one is closed.
+        for key_id in &gone.key_ids {
+            hub.sources.close_later(key_id);
+            crate::monitor::remove_seats(hub, key_id);
+        }
     }
     if let Some(live) = &state.live {
         live.wake_steps();

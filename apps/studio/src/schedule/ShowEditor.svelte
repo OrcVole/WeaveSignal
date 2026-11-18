@@ -11,15 +11,17 @@
   // show also carries its own slate picture (ShowStill, ADR-0200), set by its own route, and
   // its presenter's fields (ADR-0214, ADR-0219): the on-air name and takedown contact the
   // consent words name while it is on air, the links to the presenter's channels, and whether
-  // it plays commercial music. The account the show is tied to (ADR-0218) is the wizard's
-  // and is left out here, which keeps it. Under the name is the show's step (ADR-0271,
+  // it plays commercial music. The staff account the show is tied to (ADR-0218) is picked there
+  // too (schedule/presenter.ts): an admin names anyone, anyone else only themselves, and a
+  // save that leaves it as it was sends nothing about it. Under the name is the show's step (ADR-0271,
   // `calendar.show-step`): the same field the frame's step dialog changes, so there is one
   // truth. A new show starts at Solo; the step goes with the save only when it was changed.
   // Delete show… (`calendar.show-delete`, ADR-0279) is at the foot, left, for an admin or a
   // producer on a station of 1.0.4 or later: a confirmation that says what goes with the show,
   // with its real counts, and shows the station's own sentence when it refuses (409: an episode
   // has aired or is on air now), keeping the show. When it airs also offers Subscribe…
-  // (`calendar.subscribe`, ADR-0281): the link to this show's calendar file.
+  // (`calendar.subscribe`, ADR-0281): the link to this show's calendar file. Comes from
+  // (`calendar.show-source`, ADR-0280) is ShowSource's: the room, or the host's own studio.
   import { untrack } from 'svelte';
   import Field from './Field.svelte';
   import ShowStill from './ShowStill.svelte';
@@ -39,6 +41,8 @@
   import { dateWords, ruleOfSlot, shortOfSlot, whenFields } from './rule/form.ts';
   import { unscheduled } from './rule/view.ts';
   import Subscribe from './files/Subscribe.svelte';
+  import ShowSource from '../settings/ShowSource.svelte';
+  import { accountPatch, mayListTeam, namesAnyone, offeredName, ownTeam, presenterChoice, presenterHint, type TeamMember } from './presenter.ts';
 
   let {
     slug,
@@ -49,6 +53,7 @@
     onRule,
     onDeleted,
     embedded = false,
+    team: seedTeam = null,
   }: {
     slug: string;
     show: Show;
@@ -61,6 +66,8 @@
      *  it the editor offers no Delete show…. */
     onDeleted?: (name: string) => Promise<void> | void;
     embedded?: boolean;
+    /** The team, a test's: the picker is drawn from it without asking the station. */
+    team?: TeamMember[] | null;
   } = $props();
 
   // The props seed the draft once; after that the draft is this editor's own.
@@ -80,7 +87,38 @@
     commercial_music: seed.show.commercial_music ?? false,
     // The step the show has (Full before steps arrived).
     step: asStep(seed.show.step),
+    // The staff account (ADR-0218): sent only when it was changed, as the step is.
+    presenter_account: seed.show.presenter_account ?? null,
   });
+  /** Who is on the team, for the picker; null before the station has said, or on a station that
+   *  cannot (the picker is then left out and the account is kept as it is). */
+  let team = $state<TeamMember[] | null>(untrack(() => seedTeam));
+  $effect(() => {
+    if (untrack(() => team) !== null) return;
+    if (!account.loaded) return;
+    // The directory is a producer's and an admin's (ADR-0289): a presenter or a screener is not
+    // asked, so the station is not made to refuse it. They are offered themselves, as before.
+    if (!mayListTeam(account.me)) {
+      team = ownTeam(account.me, untrack(() => draft.presenter_account ?? null));
+      return;
+    }
+    void (async () => {
+      try {
+        team = await rulesApi.listTeam();
+      } catch {
+        // A station before 1.1 has no directory: an admin reads the staff list, and anyone else
+        // keeps the account as it is.
+        try {
+          if (namesAnyone(untrack(() => account.me))) team = (await rulesApi.listStaff()).filter((a) => a.disabled_ms === null).map((a) => ({ id: a.id, name: a.name, role: a.role }));
+        } catch {
+          // The picker stays out.
+        }
+      }
+    })();
+  });
+  function pickAccount(id: string) {
+    draft = { ...draft, presenter_account: id || null, ...(id && team ? { presenter: offeredName(team, id, draft.presenter ?? '') } : {}) };
+  }
   /** The draft as it was last read from the station or saved to it: Esc on the tab closes the
    *  editor column, but never over a draft that differs (lib/schedule.svelte.ts, closeOpen). */
   let clean = $state(untrack(() => JSON.stringify(draft)));
@@ -96,6 +134,7 @@
 
   /** The show as the station last gave it: when it airs is read from here, never from the draft. */
   const stored = $derived(view?.show ?? show);
+  const choice = $derived(team ? presenterChoice(team, account.me, stored.presenter_account ?? null) : null);
   const rulesOn = $derived(sched.rules === true);
   const short = $derived(stored.rule_words?.short ?? (stored.slot ? shortOfSlot(stored.slot) : ''));
   const sentence = $derived(stored.rule_words?.sentence ?? '');
@@ -170,6 +209,7 @@
           links: v.show.links ?? [],
           commercial_music: v.show.commercial_music ?? false,
           step: asStep(v.show.step),
+          presenter_account: v.show.presenter_account ?? null,
         };
         clean = JSON.stringify(draft);
       })
@@ -203,6 +243,10 @@
       // An unchanged step is left out, which keeps it: changing it is for an admin, a producer or
       // the show's presenter, and anyone else may still save the rest.
       if (view && body.step === asStep(view.show.step)) delete body.step;
+      // The same for the staff account: the station refuses a body that names someone else's
+      // account from anyone but an admin, even when it is the one the show has.
+      delete body.presenter_account;
+      Object.assign(body, accountPatch(draft.presenter_account ?? '', (view?.show ?? show).presenter_account ?? null));
       const v = await api.putShow(path, body);
       view = v;
       clean = JSON.stringify(draft);
@@ -312,11 +356,21 @@
       <span class="num">{short}</span>{#if next}<span class="next">· next {next}</span>{/if}
     {/if}
   </Field>
+  <!-- Comes from (`calendar.show-source`, ADR-0280): the station's room, or the host's own
+       studio with its keys. It is read and changed through the show's keys, apart from Save. -->
+  {#key slug}<ShowSource {slug} name={stored.name} />{/key}
   <Field label="Hosts" marker={draft.hosts.length ? 'set' : 'own'} plain>
     <input type="text" value={draft.hosts.join(', ')} placeholder="Names, separated by commas" aria-label="Hosts, separated by commas" onchange={(e) => (draft = { ...draft, hosts: splitList((e.currentTarget as HTMLInputElement).value) })} />
   </Field>
   <fieldset class="group" data-panel="calendar.show-presenter">
     <legend data-panel-title>Presenter</legend>
+    {#if choice}
+      <Field label="Staff account" marker={draft.presenter_account ? 'set' : 'own'} plain hint={presenterHint(choice)}>
+        <select aria-label="The presenter's staff account" value={draft.presenter_account ?? ''} onchange={(e) => pickAccount(e.currentTarget.value)}>
+          {#each choice.options as o (o.value)}<option value={o.value} disabled={o.disabled}>{o.label}</option>{/each}
+        </select>
+      </Field>
+    {/if}
     <Field label="On-air name" marker={draft.presenter ? 'set' : 'own'} plain hint="The consent words name the presenter of the show on air (ADR-0214).">
       <input type="text" value={draft.presenter} placeholder="The name they go by on air" aria-label="Presenter's on-air name" maxlength="120" oninput={(e) => (draft = { ...draft, presenter: (e.currentTarget as HTMLInputElement).value })} />
     </Field>

@@ -369,6 +369,7 @@ mod tests {
             linked: true,
             lufs: None,
             lufs_peak: None,
+            source: None,
         }
     }
 

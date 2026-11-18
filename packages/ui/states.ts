@@ -41,6 +41,12 @@ export const CHIP = {
   delay: { cls: 'hollow hollow-accent', glyph: 'g-delay', glyphCls: 'g-accent', word: 'Delay' },
   dumped: { cls: 'hollow hollow-warning', glyph: 'g-dumped', glyphCls: 'g-warning', word: 'Dumped' },
   auto: { cls: 'hollow hollow-auto', glyph: 'g-auto', glyphCls: 'g-auto', word: 'Auto' },
+  // Two surface words for a host's own studio (ADR-0280; hosts-in-their-own-studios.md section
+  // 5), each borrowing a shape: no new state and no new colour. LINK LOST is LINK DEGRADED's
+  // glyph in the serious colour: nothing arrives, and the place is kept. NOT CONNECTED is
+  // STANDBY's lamp, dashed: the show is due and its host has not connected.
+  linkLost: { cls: 'hollow hollow-serious', glyph: 'g-link-degraded', glyphCls: 'g-serious', word: 'Link lost' },
+  notConnected: { cls: 'hollow hollow-standby dashed', glyph: 'g-standby', glyphCls: '', word: 'Not connected' },
 } as const satisfies Record<string, Chip>;
 
 /** The one plain sentence under each state word (design system section 3, "The tooltip on each
@@ -64,11 +70,11 @@ export const STATE_TIPS: Readonly<Record<string, string>> = {
   [CHIP.fault.word]:
     'Something the desk depends on has failed and listeners hear the fallback; open the panel the chip sits on, which names what to restart.',
   [CHIP.playoutDown.word]:
-    'Playout has stopped while the room is alive; listeners hear the fallback playlist, and your open sources say OPEN; restart playout on the server to bring it back.',
+    'Playout has stopped while the room is alive; listeners hear the fallback playlist, and your open sources say OPEN; restart playout (⌃R twice, or the Restart button) to bring it back.',
   [CHIP.linkDegraded.word]:
     "This person's connection is losing packets or adding delay and they may sound rough; watch it, and ask them to change network if it does not clear.",
   [CHIP.delay.word]:
-    'The profanity delay is rebuilding after a dump and the figure is how far behind you listeners are now; Dump protects you only once it is full again.',
+    'The profanity delay is rebuilding after a dump and the figure is how much it holds now; Dump protects you only once it is full again.',
   [CHIP.dumped.word]:
     'The last seconds were cut from the stream and listeners heard the dump; the delay is rebuilding, so carry on and do not repeat the words.',
   [CHIP.deskBusy.word]:

@@ -62,6 +62,10 @@ export interface Answers {
   turnUdpPort: number;
   /** 0 is off. */
   iceTcpPort: number;
+  /** Hosts in their own studios (1.1, ADR-0280): Icecast sources, TCP; 0 is off. */
+  sourceIcecastPort: number;
+  /** Hosts in their own studios: SRT sources, UDP; 0 is off. */
+  sourceSrtPort: number;
   /** The accent colour, `#rrggbb`, or empty for the product's own. */
   accent: string;
 }
@@ -92,6 +96,8 @@ export function defaults(route: Route = 'compose'): Answers {
     turnTlsPort: route === 'cloudron' ? 15349 : 5349,
     turnUdpPort: 0,
     iceTcpPort: 0,
+    sourceIcecastPort: 0,
+    sourceSrtPort: 0,
     accent: '',
   };
 }
@@ -191,6 +197,8 @@ export function problems(a: Answers): Problem[] {
     add('turnTlsPort', portProblem(a.turnTlsPort, false));
     add('turnUdpPort', portProblem(a.turnUdpPort, true));
     add('iceTcpPort', portProblem(a.iceTcpPort, true));
+    add('sourceIcecastPort', portProblem(a.sourceIcecastPort, true));
+    add('sourceSrtPort', portProblem(a.sourceSrtPort, true));
     if (a.route === 'cloudron') {
       // Cloudron's own TURN holds these (ADR-0106; the package's manifest says the same).
       if (a.turnTlsPort === 5349) add('turnTlsPort', "Cloudron's own TURN holds 5349. Use 15349 or another free port.");
@@ -296,6 +304,8 @@ function composeEnv(a: Answers): string {
     if (a.turnTlsPort !== d.turnTlsPort) lines.push(`TURN_TLS_PORT=${a.turnTlsPort}`);
     if (a.turnUdpPort !== 0) lines.push(`TURN_UDP_PORT=${a.turnUdpPort}`);
     if (a.iceTcpPort !== 0) lines.push(`LIVEKIT_TCP_PORT=${a.iceTcpPort}`);
+    if (a.sourceIcecastPort !== 0) lines.push(`SOURCE_ICECAST_PORT=${a.sourceIcecastPort}`);
+    if (a.sourceSrtPort !== 0) lines.push(`SOURCE_SRT_PORT=${a.sourceSrtPort}`);
   }
   return `${lines.join('\n')}\n`;
 }
@@ -428,6 +438,8 @@ function portsFor(a: Answers): PortToOpen[] {
   );
   if (a.turnUdpPort) out.push({ port: a.turnUdpPort, proto: 'UDP', what: 'TURN over UDP' });
   if (a.iceTcpPort) out.push({ port: a.iceTcpPort, proto: 'TCP', what: "the live room's media over TCP" });
+  if (a.sourceIcecastPort) out.push({ port: a.sourceIcecastPort, proto: 'TCP', what: "hosts' own studios over Icecast" });
+  if (a.sourceSrtPort) out.push({ port: a.sourceSrtPort, proto: 'UDP', what: "hosts' own studios over SRT" });
   return out;
 }
 
@@ -503,6 +515,8 @@ function cloudronSteps(a: Answers, setupUrl: string): Step[] {
   const portBindings = [`LIVEKIT_MEDIA_PORT=${a.mediaPort}`, `TURN_TLS_PORT=${a.turnTlsPort}`];
   if (a.turnUdpPort) portBindings.push(`TURN_UDP_PORT=${a.turnUdpPort}`);
   if (a.iceTcpPort) portBindings.push(`LIVEKIT_TCP_PORT=${a.iceTcpPort}`);
+  if (a.sourceIcecastPort) portBindings.push(`SOURCE_ICECAST_PORT=${a.sourceIcecastPort}`);
+  if (a.sourceSrtPort) portBindings.push(`SOURCE_SRT_PORT=${a.sourceSrtPort}`);
   steps.push({
     title: 'Install the app',
     text: 'In Cloudron’s dashboard: App Store, Community apps, paste the catalogue address, Install, and fill the dialog in from the table above. Or, with the Cloudron command-line tool logged in:',
@@ -551,6 +565,8 @@ export function generate(a: Answers): { ok: true; output: Output } | { ok: false
       { label: 'TURN over TLS', value: String(a.turnTlsPort) },
       { label: 'TURN over UDP', value: a.turnUdpPort ? String(a.turnUdpPort) : 'off' },
       { label: 'Live room media over TCP', value: a.iceTcpPort ? String(a.iceTcpPort) : 'off' },
+      { label: "Hosts' own studios: Icecast", value: a.sourceIcecastPort ? String(a.sourceIcecastPort) : 'off' },
+      { label: "Hosts' own studios: SRT", value: a.sourceSrtPort ? String(a.sourceSrtPort) : 'off' },
     ];
     if (a.streamPassword) {
       notes.push('With the stream’s password on, the player page stays silent: a browser does not ask for a password for audio from another name. Players and apps given the address, the user listener and LISTENERS_PASSWORD from secrets.env can play it.');

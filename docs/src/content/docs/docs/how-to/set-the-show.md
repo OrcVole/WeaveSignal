@@ -14,12 +14,13 @@ The schedule does choose the slate's picture for the show on air ([Video in the 
 
 ## Set them
 
-1. Open the file for them:
-   - **With the Quadlets or your own settings file**: the control plane's `control.toml` ([Settings](/docs/reference/settings/)).
-   - **On Cloudron** (from 1.0.1): create `/app/data/station.toml` with Cloudron's file manager. The package writes `control.toml` itself at every start, without `[studio]`, and the control plane adds this file to it. It may hold only `[studio]` and `[steering]`; anything else stops the control plane with a message naming the file.
-   - **Any install**: the environment variable `WEAVESIGNAL_CONTROL_EXTRA` names such a file for the control plane to add, if it exists.
-   - **The Compose bundle** has no place for the file yet: its control plane's settings are written into `compose.yaml`.
-2. Add a `[studio]` table:
+1. Choose where to set them:
+   - **With the Compose bundle** (from 1.1): the `STUDIO_*` lines in `.env` ([below](#with-the-compose-bundle-and-the-quadlets)).
+   - **On Cloudron** (from 1.1): the `STUDIO_*` lines in `/app/data/weavesignal.env` ([below](#on-cloudron)). Before 1.1, or for anything those lines cannot say, create `/app/data/station.toml` with Cloudron's file manager (from 1.0.1); the control plane adds it to the settings the package writes, and its `[studio]` replaces the package's whole. It may hold only `[studio]` and `[steering]`; anything else stops the control plane with a message naming the file.
+   - **With the Quadlets**: the same `STUDIO_*` lines in the settings file you generate them from.
+   - **Your own settings file**: the control plane's `control.toml` ([Settings](/docs/reference/settings/)).
+   - **Any install**: the environment variable `WEAVESIGNAL_CONTROL_EXTRA` names a file like `station.toml` for the control plane to add, if it exists.
+2. In `control.toml` or `station.toml`, add a `[studio]` table (the `STUDIO_*` lines below say the same in one line each):
 
    ```toml
    [studio]
@@ -62,12 +63,33 @@ The desk now heads the stage with the show, lists what is coming up and back-tim
 
 The rundown's times are read on the station's clock, in the station's time zone (the one chosen in the Schedule tab), from the studio app 1.0.1; the app 1.0.0 read them in the time zone of the computer that runs it.
 
-## With the Compose bundle, Quadlets or Cloudron
+## With the Compose bundle and the Quadlets
 
-The packages write `control.toml` themselves, and none of them takes `[studio]` from its settings file:
+From 1.1 `.env` holds the same settings as lines. Leave them empty for the defaults.
 
-- **Compose** (`weavesignal.sh`) writes it from the `control` settings in `compose.yaml` whenever the station starts; `.env` has no key for the show.
-- **Quadlets** (`deploy/quadlets/generate.sh`) write it as a file, `config/control` under the output folder. Add `[studio]` there and restart the control plane's unit; generating the units again overwrites it.
-- **Cloudron** writes it on every start, and `weavesignal.env` has no key for the show.
+| Line | What it sets |
+|---|---|
+| `STUDIO_SHOW` | `show`: plain text, with no quote or backslash (`weavesignal.sh` refuses them) |
+| `STUDIO_LISTENER_DELAY_MS` | `listener_delay_ms`, `13000` unless set |
+| `STUDIO_RUNDOWN` | the `[[studio.rundown]]` rows, as TOML inline tables, comma-separated, in single quotes |
+| `STUDIO_BANNED` | the `[[studio.banned]]` rows, written the same way |
 
-So on Compose and Cloudron the desk shows *No show set*, an empty rundown and no banned list in 1.0.0.
+```sh
+STUDIO_SHOW=The Morning Kettle
+STUDIO_RUNDOWN='{ at = "10:00", title = "News", detail = "hard post", hard_post = true, key = "F2" }, { at = "10:06", title = "Weather", detail = "Eilidh reads" }'
+STUDIO_BANNED='{ identity = "tavish", date = "2026-09-12", reason = "Abuse on air" }'
+```
+
+Restart the station (`weavesignal.sh` again, or `docker compose up -d`) for the control plane to read them.
+A mistake in a row stops the control plane, and its log names the setting's line in `control.toml`.
+The Quadlets take the lines from the same file when you generate the units again; the generated `config/control` then holds them.
+Content steering has the same kind of lines (`STEERING_*`; [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)).
+
+## On Cloudron
+
+From 1.1 `/app/data/weavesignal.env` has the same four lines (`STUDIO_SHOW`, `STUDIO_LISTENER_DELAY_MS`, `STUDIO_RUNDOWN`, `STUDIO_BANNED`), added empty to a station that updates, with the example beside each.
+Write the lists exactly as above, in single quotes, restart the app, and read the log if the app does not come up: a wrong row is named there.
+An empty line leaves the control plane's own default in force, so a station that sets nothing is unchanged.
+If `/app/data/station.toml` also has a `[studio]`, that one wins, whole: the package's lines are not merged into it.
+
+Before 1.1 neither the Compose bundle nor Cloudron had a place for the show in their settings, and the desk said *No show set* unless you wrote `station.toml` (Cloudron, from 1.0.1) or edited `compose.yaml`.

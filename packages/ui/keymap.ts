@@ -22,8 +22,9 @@ export const TABS: readonly Tab[] = ['desk', 'screener', 'carts', 'chat', 'sched
 
 /** The two-press actions (rule 4). `end-pass` is armed by its button on a desk tile only: it
  *  has no key, because a key is a change to the keymap and so a new ADR (keymap.md), and the
- *  tile it was pressed on says whose pass it ends. */
-export type TwoPress = 'dump' | 'drop' | 'influx' | 'fade-all' | 'ban' | 'end-pass';
+ *  tile it was pressed on says whose pass it ends. `disconnect` is the same for a host's own
+ *  studio (ADR-0280): a button on its tile, two presses, and no key. */
+export type TwoPress = 'dump' | 'drop' | 'influx' | 'fade-all' | 'ban' | 'end-pass' | 'disconnect' | 'restart-playout';
 
 /** The statement dialog's reasons, on `A` `S` `T` `I` `M` `E` (screener section 3), and `C` for a
  *  picture suspected of being child sexual abuse material (ADR-0257; the dialog offers it for a
@@ -52,10 +53,12 @@ export type Action =
   | { type: 'drop' }
   /** End this person's pass (ADR-0119): off air, out of the room, no new tokens. */
   | { type: 'end-pass'; identity: string }
+  /** Disconnect a host's own studio (ADR-0280): its connection is closed and its key turned
+   *  away for the rest of today's show. `key` is the show key's public id. */
+  | { type: 'disconnect'; identity: string; key: string }
   | { type: 'influx' }
+  /** ⌃R twice (rule 4): playout shuts down and its supervisor starts it again. */
   | { type: 'restart-playout' }
-  | { type: 'restart-encoder' }
-  | { type: 'backup-stream' }
   | { type: 'end-show' }
   | { type: 'talk-seat'; held: boolean }
   /** F1 to F6: cart n of the current bank's top row, from any tab. */
@@ -266,11 +269,15 @@ export class KeyEngine {
     if (mod && !k.alt) {
       const digit = /^Digit([1-5])$/.exec(k.code);
       if (digit && !k.shift) return handled({ type: 'tab', tab: TABS[Number(digit[1]) - 1] });
-      if (k.code === 'KeyR') {
-        if (k.shift) return handled({ type: 'restart-encoder' });
-        return handled({ type: 'restart-playout' });
+      // ⌃R twice restarts playout, like Del Del dumps: a two-press chord, never from a text
+      // field (rule 3). ⌃⇧R (restart the listener process) and ⌃⇧B (a backup stream) are not keys
+      // (ADR-0289): the first drops every listener, so no key should reach it (there is no
+      // Settings button or route for it yet either: it is the server's restart), and the second
+      // has no design.
+      if (k.code === 'KeyR' && !k.shift) {
+        if (ctx.inTextField) return handled(null);
+        return this.twoPress('restart-playout', k, now, { type: 'restart-playout' });
       }
-      if (k.code === 'KeyB' && k.shift) return handled({ type: 'backup-stream' });
       // ⌃⏎ posts as staff from the Room's composer: a chord, so it fires from the field.
       if ((k.code === 'Enter' || k.code === 'NumpadEnter') && !k.shift && ctx.tab === 'screener') {
         return handled({ type: 'post' });

@@ -69,7 +69,7 @@ describe('the invitation dialog', () => {
   it('words the Solo DJ’s own link as the design does', () => {
     expect(OWN_LINK.button).toBe('Join with my microphone…');
     expect(OWN_LINK.title).toBe('Your microphone link');
-    expect(OWN_LINK.lede).toBe('Open it in a browser on this computer and press Join the studio. You are on air the moment you join.');
+    expect(OWN_LINK.lede).toBe('Open it in a browser on this computer and press Join the studio. You are on air the moment you join. Keep that tab open: it carries your voice.');
     expect(OWN_LINK.open).toBe('Open in browser');
   });
 });

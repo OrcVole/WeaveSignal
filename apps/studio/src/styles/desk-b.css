@@ -22,6 +22,7 @@
   .toast .title { font-weight: 700; font-size: var(--fs-13); }
   .toast .msg { font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-label); grid-column: 2; }
   .toast .acts { grid-column: 2; display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: var(--s-1); }
+  .toast .acts .btn { padding: 0 var(--s-2); }   /* two keyed answers side by side in the slot at 1,440 (Off air 5, Dismiss Esc), not one above the other */
   .toast.warning .stripe { background: var(--status-warning); } .toast.warning svg { color: var(--status-warning); }
   .toast.serious .stripe { background: var(--status-serious); } .toast.serious svg { color: var(--status-serious); }
   .toast.critical .stripe { background: var(--status-critical); } .toast.critical svg { color: var(--status-critical); }
@@ -49,9 +50,24 @@
   .clock .post { display: grid; grid-template-columns: 1fr auto; gap: 0 var(--s-3); align-items: baseline; margin-top: var(--s-1); }
   .clock .post .name { font-weight: 600; font-size: var(--fs-14); }
   .clock .post .left { font-family: var(--font-mono); font-size: var(--fs-24); font-variant-numeric: tabular-nums; }
-  .clock .post .left.soon { color: var(--status-warning); }
+  /* a count's last seconds (14a): amber in the last 30 s, red in the last 10 s, from the status tokens the desk's own readouts use
+     (the monitor page does the same). The colour is never the only sign: the count's mark, the clock glyph, stands directly before
+     the figure, one shape at both levels (the triangle is FAULT's alone); the figure reads what is left and its weight rises to 700
+     (800 is the on-air lamp's alone); a screen reader is told the words. On the clock the figure is 24 px, large text, so 3:1 is the
+     floor: critical is 3.56 on Dark's surface, 4.68 on Light's and 3.59 on Night's, warning 9.32, 5.01 and 10.67. Smaller figures (the
+     tile's count, the next card, a kept place, the toast) stay in the ink, which meets 4.5:1 everywhere, and carry the level in the mark. */
+  .clock .post .left[data-hurry] { font-weight: 700; }
+  .clock .post .left[data-hurry="amber"] { color: var(--status-warning); }
+  .clock .post .left[data-hurry="red"] { color: var(--status-critical); }
+  .clock .post .left svg.hurry { width: 18px; height: 18px; vertical-align: -2px; margin-right: 4px; }
   .clock .bar { height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; grid-column: 1 / -1; margin-top: 2px; }
   .clock .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  /* the schedule's own line on the clock (ADR-0280): the grace's bar is the warning colour's, what the count waits for sits under
+     the bar with Hold beside it, and a line with nothing counted is words alone. No colour is added: every value is a token. */
+  .clock .post .why { font-size: var(--fs-12); color: var(--ink-2); align-self: center; line-height: var(--lh-label); }
+  .clock .post .hold { justify-self: end; min-height: 1.5rem; margin-top: 2px; }
+  .clock .post.grace .bar i { background: var(--status-warning); }
+  .clock .post.held .name, .clock .post.says .name { grid-column: 1 / -1; line-height: var(--lh-label); }
   .clock .listen { font-size: var(--fs-13); color: var(--muted); display: block; line-height: 1.4; }
   .clock .listen b { color: var(--ink-2); font-family: var(--font-mono); font-weight: 500; }
   .clock .listen svg { width: 12px; height: 12px; }
@@ -66,6 +82,9 @@
   .rundown .row .btn { font-size: var(--fs-13); min-height: 2rem; padding: 0 var(--s-2); }
   .rundown .row.hand { grid-template-columns: 3rem minmax(0, 1fr); }   /* the handover's row: its button under the title, the time column as every row's */
   .rundown .row.hand .btn { grid-column: 2; justify-self: start; }
+  /* the row of the show whose post it is (ADR-0280): how its source stands, then the handover's button */
+  .rundown .row.hand .handrow { grid-column: 2; display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+  .rundown .row .state.sm { height: 1.375rem; }
   .playout .q { font-size: var(--fs-13); color: var(--ink-2); display: grid; gap: 2px; }
   .playout .q b { color: var(--ink); font-weight: 600; }
   .playout .plamp { display: flex; gap: var(--s-1); flex-wrap: wrap; align-items: center; }
@@ -97,8 +116,13 @@
   .delay .lbl { display: grid; gap: 2px; justify-items: start; }
   .delay .lbl .small { white-space: normal; max-width: 8rem; line-height: 1.3; }
   .delay .btn.big { min-height: 2.25rem; font-size: var(--fs-14); padding: 0 var(--s-3); }
-  .stage-head .acts { display: grid; gap: var(--s-1); }
-  .stage-head .acts .btn { min-height: 1.75rem; font-size: var(--fs-13); justify-content: space-between; padding: 0 var(--s-1); }
+  /* the head's own column (End show, Screener), not the buttons of the dialog the head holds (AirControl's End show and Hand to automation) */
+  .stage-head > .acts { display: grid; gap: var(--s-1); }
+  .stage-head > .acts .btn { min-height: 1.75rem; font-size: var(--fs-13); justify-content: space-between; padding: 0 var(--s-1) 0 var(--s-2); }
+  /* the two ways off the air wear one button: Hand to automation under the lamp and End show at the head's right, outlined in the ink,
+     13 px (the look's review, question 7). A quiet button with an outline: no fill, so the lamp stays the head's one filled thing. */
+  .btn.outline { background: transparent; color: var(--ink); border-color: var(--ink-2); }
+  .btn.outline:hover { background: var(--surface-2); }
 
   .tiles { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: var(--s-3); min-height: 0; }
   /* a tile's head is two lines high whatever the state (name, then role), chips never wrap, and the rows are fixed
@@ -148,8 +172,42 @@
   .waiting .tile { border-style: dashed; }   /* on --surface, not --surface-2: 12 px muted labels only pass on --surface (design system §5) */
   .waiting .wh .rule { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
   .waiting .wh::after { min-width: 2rem; }
+  /* while a host in their own studio has the air, joining with your own microphone is one quiet line here, beside Invite someone…:
+     the sentence is never cut (it says joining puts you on air), so where the row is too narrow it takes a second line */
+  .waiting .wh.has-own { flex-wrap: wrap; row-gap: 2px; }
+  .waiting .wh .own { order: 2; flex: 0 1 auto; min-width: 0; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-2); line-height: var(--lh-label); }
   .waiting .tile .controls .btn { min-height: 2rem; }
   .waiting .tile .hfader, .waiting .tile .levels .rd:last-child { display: none; }
+  /* a host's own studio (ADR-0280): the leveller is drawn on the fader's track, nothing at the middle and its reach either side; it
+     stays in the Not on air row, where a source stands by and the reading matters most */
+  .tile .hfader.leveller .reach { position: absolute; top: 50%; height: 6px; transform: translateY(-50%); background: var(--ink-2); border-radius: 3px; }
+  /* a reading, not a handle: nobody moves the leveller, so its end is a mark and not a fader's knob */
+  .tile .hfader.leveller .knob { width: 3px; height: 1rem; border: 0; border-radius: 1px; box-shadow: none; background: var(--ink); }
+  .tile .hfader.leveller .knob::after { display: none; }
+  .waiting .tile.is-source .hfader, .waiting .tile.is-source .levels .rd:last-child { display: revert; }
+  .tile .lines .fmt svg { color: var(--muted); }
+  .tile .lines .mon svg { color: var(--muted); }
+  .tile .lines .mon.open svg { color: var(--status-good); }
+  .tile .lines.has-hand .mon { margin-top: 3px; }   /* under the handover's button, which reaches 4 px past its row */
+  /* its place is kept while its link is lost (ADR-0280): the tile stays on the stage, dashed, in the serious colour; never the red edge */
+  .tile.is-kept { border-style: dashed; border-color: var(--status-serious); }
+  .tile .extra.kept { border-left-color: var(--status-serious); }
+  /* the late count on the tile it is for: what the station will do by itself, and the one button that stops it */
+  .tile .rest { display: grid; gap: var(--s-1); align-content: start; }
+  .tile .count { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2); align-items: center; font-size: var(--fs-13); color: var(--ink); background: var(--surface-2); border-radius: var(--r-1); padding: 2px 2px 2px var(--s-2); line-height: var(--lh-label); }
+  .tile .count b { font-family: var(--font-mono); font-weight: 600; }
+  .tile .count .by { color: var(--ink-2); }
+  .tile .count .btn { min-height: 1.5rem; font-size: var(--fs-12); }
+  /* the small counts' last seconds: the mark directly before the figure, on its line, and the figure at 700 */
+  .tile .count[data-hurry] b, .tile .lines .kept[data-hurry] b { font-weight: 700; }   /* the next show's card's is in steps.css, with the card */
+  .tile .count[data-hurry="amber"] { box-shadow: inset 3px 0 0 var(--status-warning); }
+  .tile .count[data-hurry="red"] { box-shadow: inset 3px 0 0 var(--status-critical); }
+  .tile .count svg.hurry, .tile .lines .kept svg.hurry, .when svg.hurry { width: 14px; height: 14px; vertical-align: -2px; margin: 0 3px 0 0; }
+  .tile .lines .kept .left { white-space: nowrap; }   /* the mark never parts from the figure it marks */
+  /* a toast with a count keeps its own glyph, the clock, which takes the level's colour; its stripe stops at warning: never a critical alert's look */
+  .toast[data-hurry] .stripe { background: var(--status-warning); }
+  .toast[data-hurry="amber"] .body > svg { color: var(--status-warning); }
+  .toast[data-hurry="red"] .body > svg { color: var(--status-critical); }
 
   /* right column */
   .audience .count { font-family: var(--font-mono); font-size: var(--fs-24); color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; display: flex; align-items: baseline; gap: var(--s-2); }
@@ -236,7 +294,14 @@
   .lamp.lamp-fault svg { color: var(--status-critical); }
   .tiles .empty { grid-column: 1 / -1; display: grid; align-content: center; justify-items: center; gap: var(--s-1); border: 1px dashed var(--axis); border-radius: var(--r-3); color: var(--ink-2); font-size: var(--fs-13); min-height: 8rem; }
   .tiles .empty b { color: var(--ink); font-size: var(--fs-16); }
-  .tiles .empty .hint { color: var(--muted); font-size: var(--fs-13); max-width: 36rem; }
+  /* The join offer above tiles takes its own height, not an equal share of the stage: with two hosts' own studios in an
+     overlap under it (ADR-0280), an equal share cut the note under a tile at 900 px. Only in the full-window layout: the
+     narrow one already gives every row its content's height. */
+  @container (min-width: 1400.5px) {
+    .tiles:has(> .empty.join):has(> .tile, > .seat) { grid-template-rows: auto; }
+    .tiles:has(> .tile, > .seat) > .empty.join { padding: var(--s-2) var(--s-4); min-height: 0; }
+  }
+  .tiles .empty > .hint { color: var(--muted); font-size: var(--fs-13); max-width: 36rem; }   /* the empty stage's own hint, not the hints of a dialog opened from it */
   .cart.empty { border-style: dashed; box-shadow: none; background: transparent; }
   .cart.empty .label { color: var(--ink-2); font-weight: 600; }
   .cart.empty .dur { color: var(--muted); }

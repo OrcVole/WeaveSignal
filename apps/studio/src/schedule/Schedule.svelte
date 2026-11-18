@@ -29,6 +29,8 @@
   // buttons with their words do not fit beside the legend there: in a window that has the room
   // they are two buttons, and in a narrower one they are the two entries of one small menu
   // beside New show (calendar-files.md section 1). The menu is a dialog, so it owns the keys.
+  // The legend gives way before it wraps (issue 28): its words shorten, then leave the glyphs
+  // alone, by what the line has room for (`legendFit.ts`).
   import { onDestroy, onMount, untrack } from 'svelte';
   import EventCalendarGrid from './calendar/EventCalendarGrid.svelte';
   import EpisodeEditor from './EpisodeEditor.svelte';
@@ -38,6 +40,7 @@
   import ClashBox from './ClashBox.svelte';
   import CardEditor from './CardEditor.svelte';
   import * as api from '../lib/schedule.ts';
+  import { legendFit, type LegendForm } from './legendFit.ts';
   import { backToShows, closeOpen, keyView, loadWeek, openDay, openShow, sched, select, setView, showInWeek, step, today, weekBlocks } from '../lib/schedule.svelte.ts';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { load as loadRetention } from '../lib/retention.ts';
@@ -207,6 +210,16 @@
   let newShow = $state<{ at: { date: IsoDate; from: string } | null } | null>(firstDialog === 'new-show' ? { at: null } : null);
   // ---- the toolbar's calendar-files menu (a narrower window's form of the two buttons) ----
   let menuEl = $state<HTMLDialogElement | null>(null);
+  /** The form the toolbar's legend has room for: its words, shorter words, or the glyphs alone. */
+  let legendForm = $state<LegendForm>('words');
+  /** The legend, in full and in short; the full words are each item's tooltip once shortened. */
+  const LEGEND: readonly { glyph: string; full: string; short: string; warn?: boolean; why?: string }[] = [
+    { glyph: 'g-mic', full: 'Live', short: 'Live' },
+    { glyph: 'g-auto', full: 'Automation fills the gaps', short: 'Automation' },
+    { glyph: 'g-repeat', full: 'A date from the show’s rule', short: 'From the rule' },
+    { glyph: 'g-fault', full: 'Conflict', short: 'Conflict', warn: true, why: 'Where shows clash, one is open and the others fold beside it' },
+    { glyph: '', full: 'Aired, frozen', short: 'Aired' },
+  ];
   let menuBtn = $state<HTMLButtonElement | null>(null);
   let menuOpen = $state(false);
   const menuItems = () => [...(menuEl?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
@@ -476,12 +489,14 @@
     {/if}
     {#if sched.loading}<span class="load" role="status">Loading…</span>{/if}
     {#if sched.error}<span class="load g-warning" role="alert">{sched.error}</span>{/if}
-    <div class="legend" aria-label="Legend">
-      <span><svg aria-hidden="true"><use href="#g-mic" /></svg>Live</span>
-      <span><svg aria-hidden="true"><use href="#g-auto" /></svg>Automation fills the gaps</span>
-      <span><svg aria-hidden="true"><use href="#g-repeat" /></svg>A date from the show’s rule</span>
-      <span title="Where shows clash, one is open and the others fold beside it"><svg aria-hidden="true" style="color:var(--status-warning)"><use href="#g-fault" /></svg>Conflict</span>
-      <span><i class="past"></i>Aired, frozen</span>
+    <div class="legend" aria-label="Legend" data-fit="words" use:legendFit={(f) => (legendForm = f)}>
+      {#each LEGEND as l (l.full)}
+        <!-- Shortened, an item's full words are its tooltip, and stay for a screen reader. -->
+        <span class="li" title={[legendForm === 'words' || (legendForm === 'short' && l.short === l.full) ? '' : l.full, l.why ?? ''].filter(Boolean).join(': ') || undefined}
+          >{#if l.glyph}<svg aria-hidden="true" style:color={l.warn ? 'var(--status-warning)' : undefined}><use href="#{l.glyph}" /></svg>{:else}<i class="past"></i>{/if}<span class="full" class:same={l.short === l.full}>{l.full}</span
+          >{#if l.short !== l.full}<span class="short" aria-hidden="true">{l.short}</span>{/if}</span
+        >
+      {/each}
     </div>
   </div>
 

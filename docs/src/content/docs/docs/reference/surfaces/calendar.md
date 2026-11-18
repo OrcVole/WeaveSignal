@@ -3,7 +3,7 @@ title: "Schedule"
 description: "The Schedule tab's panels by name: the toolbar, the week and how clashing shows fold in it, the Day view and its strip, the clash in the editor, the list of shows and a show's dates, New show and the rule dialog, Subscribe… and Import a calendar…, the episode, series and card editors, the show's rule, step, slate picture and delete, the aired episode, and the log editor."
 type: reference
 status: draft
-last_verified: 2026-11-15
+last_verified: 2026-11-16
 sidebar:
   order: 5
 ---
@@ -166,7 +166,7 @@ The rows are one stop for `Tab`: `↑` `↓`, `Home` and `End` move between them
 
 **New show** opens a dialog in three parts (ADR-0278; [Schedule a new show](/docs/how-to/schedule-the-week/)):
 
-1. **The show**: its name, its colour and its step.
+1. **The show**: its name, its colour and its step. On a station of 1.1, an admin or a producer is also asked **Comes from** (a field of `calendar.new-show`, with no panel of its own): **The station's room** (picked) or **The host's own studio**. A show's source follows from its keys and the show does not exist yet, so the pick is only an intention: when the show is made, **Done** says it comes from the host's own studio once a key is made, with **Set up a host…**, which opens the same setup as the show editor's (SRT offered for a show at Callers or Full, Icecast otherwise). New show stays open while the key's details are shown, and then says the host has a key.
 2. **When it airs**: `calendar.rule`, below. With a block selected, the date and time start from that block.
 3. **Done**: the show is made and its first episode drafted; **Draft all 10** drafts the rest of a rule with an end, and **Open episode 1** selects it.
 
@@ -191,6 +191,16 @@ On a show that has episodes, **Save…** shows *Before you save* (`calendar.rule
 ## `calendar.show-rule`
 
 **When it airs** on the show's **Details**: the rule in words and **Change…**, which opens `calendar.rule`. The show's **Dates** say the same rule in full and list its dates (`calendar.show-dates`). **Subscribe…** opens the link to this show's calendar file (`calendar.subscribe`).
+
+## `calendar.show-source`
+
+**Comes from** on the show's **Details** (ADR-0280): **The station's room**, or **The host's own studio**.
+Under the second, each host with a key: their name, the way in, how it stands now, and **Details…**, **New key…** and **End key…**; **Add a host…** makes a key for a co-host or a stand-in.
+
+![Comes from in the show editor: The host's own studio is picked, with Finlay Grant over SRT standing by and Elspeth Gordon over Icecast, each with Details…, New key… and End key…, and Add a host….](../../../../../assets/screens/reference-calendar-show-source.png)
+
+The station decides where a show comes from by its keys: the host's own studio once a key is made, the room again when the last key ends. So the field is apart from **Save show**. Picking **The host's own studio** on a show with no key says *No key yet* and offers **Set up a host…** (`settings.hosts.setup`, with the show given); picking **The station's room** on a show with keys says they are to end, and ends none.
+It is not drawn for someone who may not read the show's keys, or on a station older than 1.1.
 
 ## `calendar.subscribe`
 
@@ -270,6 +280,12 @@ After a delete the editor closes, the week is read again, and the tab says *The 
 The **Presenter** fields on the show level (ADR-0214, ADR-0219): the **on-air name** and **takedown contact** the consent words name while this show is on air (the contact first, then the station's own as the host; empty, the station's alone), the **channel links**, one per line, and whether the show plays **commercial music** (a reminder that a UK webcast of it needs PPL and PRS for Music licences; it blocks nothing).
 They are the same answers a presenter gives in their own setup ([Set up your show](/docs/how-to/set-up-your-show/)), and the show's rule is the *When it is on* that setup asks for.
 A save that leaves these fields out keeps them, so an older studio build or an integration never wipes a presenter's details.
+
+The group's first field is **Staff account**: the member of staff who presents the show (`presenter_account`, ADR-0218), or *No account: just a name*.
+The schedule brings an account's owner on air at the show's time when they are in the room signed in as themselves, and they may change the show's step, its presenter details and its keys.
+An admin is offered everyone on the team, by name and role. Anyone else is offered themselves, marked *(you)*, and the account the show has now, which they cannot pick again once they change it; the station allows no one but an admin to name another member of staff, and the sentence under the field says so.
+Picking an account fills an empty **On-air name** with the account's name and never changes one that is typed. A save that leaves the account as it was does not send it. An account that has been turned off is named as such.
+The field is not drawn on a station older than 1.1 for anyone but an admin, who reads the staff list instead.
 
 ## `calendar.aired-episode`
 

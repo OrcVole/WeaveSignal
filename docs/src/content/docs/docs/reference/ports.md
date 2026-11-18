@@ -3,7 +3,7 @@ title: "Ports"
 description: "Every port a station listens on: its setting, default, suggested alternatives, who can reach it, and the Cloudron package's defaults."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-16
 sidebar:
   order: 6
 ---
@@ -25,14 +25,20 @@ Each has a default chosen clear of ports other software commonly claims, and sug
 | `srt_ingest` | UDP | 7313 | 17313, 27313 | loopback | the programme over SRT: the desk listens, Liquidsoap connects (ADR-0086) |
 | `playout_feed` | TCP | 7315 | 17315, 27315 | loopback | playout's programme to the listener process, which holds the listener mount |
 | `desk_feed` | TCP | 7317 | 17317, 27317 | loopback | playout's programme back to the desk, the video stream's sound while nobody is live (ADR-0172): the desk listens, playout connects |
+| `desk_sources` | TCP | 7318 | 17318, 27318 | loopback | hosts' own studios from the ingest to the desk (ADR-0280): the desk listens, the ingest connects |
 | `livekit_http` | TCP | 7880 | 17880, 27880 | loopback | LiveKit's signalling and API, behind the proxy |
 | `livekit_media` | UDP | 7882 | 52000, 443 | anywhere | LiveKit's one WebRTC media port (ADR-0023) |
 | `livekit_tcp` | TCP | 7881 | 17881, 27881 | anywhere | LiveKit's ICE over TCP, when UDP is blocked |
 | `turn_udp` | UDP | 3478 | 3479, 13478 | anywhere | LiveKit's TURN over UDP |
 | `turn_tls` | TCP | 5349 | 443, 15349 | anywhere | LiveKit's TURN over TLS, on by default (ADR-0080); 443 where nothing else holds it, so guests on networks that pass only web ports can join. It refuses clients that reach it over IPv6 (508): give its name an A record only ([Known limits](/docs/reference/release-one-status/#known-limits)) |
+| `source_icecast` | TCP | 8005 | 18005, 28005 | anywhere | the ingest's Icecast source port for hosts' own studios (ADR-0280, ADR-0284); listens only while a show key exists |
+| `source_srt` | UDP | 9710 | 19710, 29710 | anywhere | the ingest's SRT port for hosts' own studios; listens only while a show key exists |
 
-All thirteen are checked by `weavesignal-control check-ports`, whether or not the station turns them on: the Compose bundle, for one, leaves `livekit_tcp` and `turn_udp` off, and on loopback has no proxy.
-WeaveSignal's own services default to 7310–7317, a block with no entry in the IANA service registry.
+All sixteen are checked by `weavesignal-control check-ports`, whether or not the station turns them on: the Compose bundle, for one, leaves `livekit_tcp` and `turn_udp` off, and on loopback has no proxy.
+`source_icecast` and `source_srt` alone may be 0, which turns that way in off, and a port of 0 is not checked.
+When the settings file names either of them, it is the installation's: the station's rules for sources (`GET /api/v1/settings/sources`) show it and cannot change it, because the installation is what publishes it. Left out, the rules' own port applies, 8005 and 9710 unless an admin changes them.
+These two reach the ingest directly, not through the proxy, so the ingest counts wrong keys by the address it sees.
+WeaveSignal's own internal services default to 7310–7318, a block with no entry in the IANA service registry; the hosts' two public ports take 8005, the port DJs know for Icecast sources, and 9710.
 `hls_origin`, a port once kept for an HLS origin of its own that was never built, is retired: an old settings file that names it still starts, with a warning.
 LiveKit's ports keep LiveKit's own defaults.
 Liquidsoap's control interface and the desk's are Unix sockets, not ports, and PostgreSQL listens on a Unix socket only (ADR-0092).
@@ -68,6 +74,9 @@ With `--public` ([Publish a station from the Compose bundle](/docs/how-to/publis
 A taken 443 or 80 stops the script rather than moving the proxy, since a certificate authority reaches those two only; it names the alternative and says to forward to it.
 A rootless Podman cannot bind a port below 1024 unless `net.ipv4.ip_unprivileged_port_start` allows it, and the script says so before it starts.
 
+`SOURCE_ICECAST_PORT` (TCP) and `SOURCE_SRT_PORT` (UDP), for hosts' own studios, are 0, off, unless you set them; a set one is checked as a public port and kept.
+The `ingest` service binds them on every address on a public station (`INGEST_BIND`, derived), and on loopback otherwise.
+
 A loopback port counts as taken when something listens on loopback or on every address; a listener bound only to another interface's address does not take it.
 The media port counts as taken when anything listens on it.
 `icecast.server`'s legacy source port and the playout feed's harbor each also open the port above them (the `listeners` port + 1 and `playout_feed` + 1), so the script checks those too.
@@ -87,8 +96,10 @@ Inside the container every port above is on loopback, behind the package's nginx
 | `TURN_TLS_PORT` | TCP | **15349** | yes | Cloudron's own TURN holds 5349 (ADR-0106) |
 | `TURN_UDP_PORT` | UDP | 3479 | no | Cloudron's own TURN holds 3478 |
 | `LIVEKIT_TCP_PORT` | TCP | 7881 | no | TURN over TLS reaches the same guests |
+| `SOURCE_ICECAST_PORT` | TCP | 8005 | no | hosts' own studios over Icecast; disabled is off |
+| `SOURCE_SRT_PORT` | UDP | 9710 | no | hosts' own studios over SRT; disabled is off |
 
-The public ports keep the same number inside the container, so LiveKit advertises the port the administrator chose.
+The public ports keep the same number inside the container, so LiveKit advertises the port the administrator chose, and a host's key gives the hosts' ports chosen there.
 Cloudron gives the app's domains an AAAA record whenever the server has IPv6, so on such a server TURN refuses guests who reach it over IPv6 ([Install on Cloudron](/docs/how-to/install-on-cloudron/#ipv6-and-turn)).
 Every other route keeps 5349 for TURN over TLS, with 443 offered where it is free (ADR-0080).
 The control plane's suggested media-port alternative, 52000, stays clear of Cloudron's TURN relay range (50000–51000).

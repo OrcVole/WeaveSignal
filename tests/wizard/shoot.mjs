@@ -5,7 +5,7 @@
 // (ADR-0237): 1,440 x 900, 390 x 844 (a phone) and 2,560 x 1,440.
 //
 //   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core \
-//     node tests/wizard/shoot.mjs http://127.0.0.1:18950/ target/wizard/player
+//     node tests/wizard/shoot.mjs http://127.0.0.1:18950/index.html target/wizard/player
 //
 // writes target/wizard/player-1440-dark.png and so on. Playwright is not a dependency of the
 // repository (see tests/m2/drive.mjs).

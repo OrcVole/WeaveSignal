@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-# The M1 server image: weavesignal-desk, weavesignal-control and weavesignal-chat (M6), with M5's video path, built in the desk's build image and
+# The M1 server image: weavesignal-desk, weavesignal-control, weavesignal-chat (M6) and weavesignal-ingest (1.1), with M5's video path, built in the desk's build image and
 # run on spike 01's GStreamer image (GStreamer 1.28.8, gst-plugins-rs 0.15.4 webrtc with
 # LiveKit, the SRT plugin against libsrt 1.5.7). The Compose bundle runs both from it.
 # The release images (GStreamer from source, slim runtime stages, amd64 and arm64) are M10's.
@@ -47,6 +47,10 @@ RUN cargo build --release --locked -p weavesignal-desk -p weavesignal-control -p
     && install -D -m 0755 target/release/weavesignal-desk /out/usr/local/bin/weavesignal-desk \
     && install -D -m 0755 target/release/weavesignal-control /out/usr/local/bin/weavesignal-control \
     && install -D -m 0755 target/release/weavesignal-chat /out/usr/local/bin/weavesignal-chat
+# The ingest (ADR-0280): hosts' own studios over Icecast and SRT, a worker per connection. Built
+# on its own, so srt-tokio's features of tokio are not unified into the three binaries above.
+RUN cargo build --release --locked -p weavesignal-ingest --bin weavesignal-ingest \
+    && install -D -m 0755 target/release/weavesignal-ingest /out/usr/local/bin/weavesignal-ingest
 
 FROM ${RUNTIME}
 COPY --from=build /out/ /
@@ -102,6 +106,6 @@ RUN useradd --system --home-dir /var/lib/weavesignal --create-home weavesignal \
 # mount did not help, a file in the volume did).
 USER weavesignal
 LABEL org.opencontainers.image.title="weavesignal-server" \
-      org.opencontainers.image.description="WeaveSignal M1: the desk, the control plane, the chat and the public pages" \
+      org.opencontainers.image.description="WeaveSignal: the desk, the control plane, the chat, the ingest and the public pages" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 CMD ["weavesignal-control", "--help"]

@@ -52,7 +52,7 @@ The schedule's show editor has the same fields under **Presenter** ([Schedule](/
 
 A show is tied to the account that set it up.
 That account can change the show's details from Settings.
-The tie itself is set by the wizard, or through the API: an admin who wants an existing show tied to a DJ sends `presenter_account` in a `PUT` to `/api/v1/shows/{show}` ([Control plane API](/docs/reference/control-api/)); the show editor sets the presenter's name and contact, not the tie.
+The tie itself is set by the wizard, or in the show editor: under **Presenter**, **Staff account** picks the member of staff who presents the show (an admin may pick anyone; anyone else may pick themselves. The list of the team is a producer's and an admin's, so a presenter or a screener is offered only themselves). Through the API an admin sends `presenter_account` in a `PUT` to `/api/v1/shows/{show}` ([Control plane API](/docs/reference/control-api/)). Before release 1.1 the show editor set the presenter's name and contact, not the tie.
 If the station turns an account off, the show stays and the tie is cleared.
 
 ## What callers see

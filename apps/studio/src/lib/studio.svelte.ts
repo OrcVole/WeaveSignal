@@ -10,6 +10,7 @@ import type { AirAsk } from './air.ts';
 import { lookOf, showTookAir, stationStep, tabShown } from './steps.ts';
 import { onStationChange } from './reset.ts';
 import { readScoped, writeScoped } from './scoped.ts';
+import { BACK_NOTE_MS, backOnAir, lostId, withoutLetGo } from './post.ts';
 
 export interface LocalNote {
   id: number;
@@ -46,6 +47,22 @@ const fresh = () => ({
   note: null as LocalNote | null,
   /** Toasts dismissed with Esc, by notice id. */
   dismissed: [] as number[],
+  /** The hosts' own studios whose arrival this window has been told of and dismissed (ADR-0280),
+   *  by identity. */
+  toldSources: [] as string[],
+  /** The strip each host's own studio was last seen on, by its show key: a source whose link is
+   *  lost has left the view, and its kept tile stays on its strip (ADR-0280). */
+  sourceSlots: {} as Record<string, number>,
+  /** The lost links whose toast this window has dismissed, each by its key and when it was lost. */
+  lostDismissed: [] as string[],
+  /** The kept places this window was told are let go (Off air), each by its key and when it was
+   *  lost, until the station's view stops carrying them. */
+  letGo: [] as string[],
+  /** The graces whose offer this window has put away with Not now, each by its handover. */
+  graceDismissed: [] as string[],
+  /** The clock's Hold or Let it run was pressed and the view has not caught up: what `held_by`
+   *  was at the press. Null when nothing is waited for. */
+  holdAsked: null as { was: string | null; at: number } | null,
   /** The cart banks and carts, as last fetched: the station's, and `cartShow`'s own. */
   catalogue: null as Catalogue | null,
   /** The show whose own cart banks this window works with, by its slug (prepare.ts,
@@ -60,6 +77,8 @@ const fresh = () => ({
   setupPending: null as string[] | null,
   /** The station's time zone (IANA), for the rundown's times; empty until read. */
   zone: '',
+  /** The station's version, from `/health`, for the frame (lib/version.ts); null until read. */
+  stationVersion: null as string | null,
   /** The ask the desk's air dialog is open on (End show, Hand to automation, Take the air
    *  back; ADR-0272): set by ⌃⇧E and by the buttons, cleared when the dialog closes. */
   airAsk: null as AirAsk | null,
@@ -145,9 +164,20 @@ export function stationNow(): number {
   return studio.now + studio.skew;
 }
 
-export function takeView(v: View): void {
+export function takeView(seen: View): void {
+  // After Off air the station's view may carry the place for a moment more: it is read without it.
+  const v = withoutLetGo(seen, studio.letGo);
+  const still = seen.post?.link_lost ? lostId(seen.post.link_lost) : null;
+  if (studio.letGo.some((id) => id !== still)) studio.letGo = studio.letGo.filter((id) => id === still);
   // Show everything lasts until the next show takes the air, and means nothing at Full.
   if (studio.showAll && (showTookAir(studio.view?.step, v.step) || stationStep(v) === 'full')) studio.showAll = false;
+  // A host's own studio (ADR-0280): where each one sits, for the tile kept while its link is
+  // lost; and a source that is back on air after a lost link, which the station posts no notice for.
+  for (const s of v.sources ?? []) if (s.role === 'source' && s.source && studio.sourceSlots[s.source.key] !== s.slot) studio.sourceSlots = { ...studio.sourceSlots, [s.source.key]: s.slot };
+  const back = backOnAir(studio.view, v);
+  if (back) say('good', back.title, back.message, BACK_NOTE_MS);
+  // The view has caught up with Hold or Let it run, or it never will: the button is free again.
+  if (studio.holdAsked && ((v.post?.held_by ?? null) !== studio.holdAsked.was || Date.now() - studio.holdAsked.at > 5000)) studio.holdAsked = null;
   studio.view = v;
   settleTab();
   studio.skew = v.now_ms - Date.now();

@@ -205,7 +205,29 @@ await audit.waitForSelector('.schedule .ec', { timeout: 15000 });
 await sleep(1500);
 const plates = await audit.evaluate(() => document.getElementById('pn-audit')?.textContent ?? '');
 check('the panel name plates sit clear of controls', /plates \d+/.test(plates) && !/OVER/.test(plates), plates.split('\n')[0]);
+// The step button's own plate (issue 27): there, and over no control, on this tab and on the
+// Carts tab, whose row of banks leaves no room under the button.
+const stepPlate = (text) => text.split('\n').find((l) => l.startsWith('studio.step ')) ?? 'no studio.step plate';
+check('the step button has its name plate, clear of controls', stepPlate(plates) === 'studio.step  clear', stepPlate(plates));
 await audit.screenshot({ path: join(OUT, 'schedule-1440-dark-plates.png') });
+await audit.keyboard.press('Control+3');
+await audit.locator('[data-panel="carts.wall"]').waitFor({ timeout: 15000 });
+await sleep(1500);
+const cartPlates = await audit.evaluate(() => document.getElementById('pn-audit')?.textContent ?? '');
+check('and on the Carts tab', stepPlate(cartPlates) === 'studio.step  clear', stepPlate(cartPlates));
+// On a full frame not every plate has room there: one that has none is left out and listed as
+// `no room`. None is ever drawn over a control.
+check('and no plate on the Carts tab lies over a control', /plates \d+/.test(cartPlates) && !/OVER/.test(cartPlates), cartPlates.split('\n').filter((l) => /OVER|no room/.test(l)).join(' | '));
+await audit.screenshot({ path: join(OUT, 'carts-1440-dark-plates.png') });
+// The toolbar's legend gives way before it wraps (issue 28): whatever the week, the toolbar is one line.
+await audit.keyboard.press('Control+5');
+await audit.waitForSelector('.schedule .ec', { timeout: 15000 });
+await sleep(800);
+const oneLine = await audit.locator('[data-panel="calendar.toolbar"] > *').evaluateAll((els) => {
+  const t = els.filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2);
+  return Math.max(...t) - Math.min(...t) < 12;
+});
+check('the Schedule toolbar is one line at 1440 by 900, the legend beside it', oneLine, await audit.locator('[data-panel="calendar.toolbar"] .legend').getAttribute('data-fit'));
 await ctx.close();
 
 // ---- the other sizes and the light theme, for the comparison against the design ----

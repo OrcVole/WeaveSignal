@@ -16,7 +16,7 @@ The Compose route's installer, `weavesignal.sh`, makes the same check itself and
 weavesignal-control --config control.toml check-ports
 ```
 
-It lists all thirteen ports under `[ports]`, each as `free` or `TAKEN`, with its setting and what listens on it, and ends with `every port is free` when they all are:
+It lists all sixteen ports under `[ports]`, each as `free` or `TAKEN`, with its setting and what listens on it, and ends with `every port is free` when they all are:
 
 ```text
 free    7310/tcp  control  (the control plane's HTTP API, behind the proxy)

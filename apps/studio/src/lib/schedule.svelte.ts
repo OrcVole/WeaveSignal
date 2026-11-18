@@ -239,6 +239,22 @@ export async function loadStationFacts(): Promise<void> {
   noteStationVersion(v);
 }
 
+/** The station's public address, for a link made outside the Schedule tab (a host's monitor
+ *  link, from Settings or the desk). It comes with the week (1.0.5), so a window that has read
+ *  no week yet asks for an empty one. Null when the station has none, or could not be asked. */
+export async function loadPublicAddress(): Promise<string | null> {
+  if (sched.publicUrl === undefined) {
+    try {
+      const now = Date.now();
+      const asked = (await api.weekEpisodes(now, now + 1000)).publicUrl;
+      if (sched.publicUrl === undefined) sched.publicUrl = asked;
+    } catch {
+      // Not known: the caller says how the link is formed instead of giving one.
+    }
+  }
+  return sched.publicUrl ?? null;
+}
+
 /** Fetch the week and what frames it; errors are the tab's to show, not the caller's. */
 export async function loadWeek(): Promise<void> {
   if (fetching) return fetching;

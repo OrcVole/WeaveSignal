@@ -24,6 +24,7 @@
 //! | `DELETE /api/v1/sessions/me` | a session | sign out |
 //! | `POST /api/v1/sessions/me/password` | a session | change your own password (`current`, `new`) |
 //! | `GET /api/v1/staff` | admin | every account |
+//! | `GET /api/v1/staff/directory` | producer or admin | who is on the team: `id`, `name` and `role` of each account that is on (1.1; the show editor's presenter) |
 //! | `POST /api/v1/staff` | admin | a new account: `username`, `name`, `role`, `password` |
 //! | `PUT /api/v1/staff/{id}` | admin | `name`, `role`, `disabled` (off ends its sessions) |
 //! | `POST /api/v1/staff/{id}/password` | admin | set someone's password (ends their sessions) |
@@ -96,6 +97,15 @@ impl Actor {
         }
     }
 
+    /// A producer, an admin or the station key.
+    pub fn is_producer_or_admin(&self) -> bool {
+        match self {
+            Actor::Station => true,
+            Actor::Staff(a) => a.role.is_admin() || a.role == Role::Producer,
+            Actor::Token(_) => false,
+        }
+    }
+
     /// How logs name them: a username, or "station key".
     pub fn label(&self) -> String {
         match self {
@@ -120,6 +130,9 @@ pub enum Need {
     /// session whose window is preparing a show is refused (409); the station key and API
     /// tokens are never preparing.
     OnAir,
+    /// A producer, an admin or the station key: the team's directory (names and roles, not
+    /// the staff list). A presenter or a screener is refused (403); so is an API token.
+    Producer,
     /// An admin, or the station key: retention, erasure, personal data, the staff list.
     Admin,
 }
@@ -403,6 +416,16 @@ pub fn check(
             },
         ));
     }
+    if need == Need::Producer && !actor.is_producer_or_admin() {
+        return Err(problem(
+            StatusCode::FORBIDDEN,
+            if matches!(actor, Actor::Token(_)) {
+                "An API token cannot do that: only a producer or an admin can."
+            } else {
+                "Only a producer or an admin can see the team. Ask the station's admin."
+            },
+        ));
+    }
     Ok(actor)
 }
 
@@ -416,6 +439,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/sessions/me/mode", put(set_mode))
         .route("/api/v1/sessions/me/password", post(own_password))
         .route("/api/v1/staff", get(list).post(create))
+        .route("/api/v1/staff/directory", get(directory))
         .route("/api/v1/staff/{id}", put(change))
         .route("/api/v1/staff/{id}/password", post(set_password))
         .route("/api/v1/staff/{id}/email", put(set_email))
@@ -1275,6 +1299,60 @@ async fn list(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respons
     }
 }
 
+/// One member of the team as any member of staff may read them: no username, address or dates.
+#[derive(Serialize, utoipa::ToSchema)]
+struct TeamMember {
+    id: Uuid,
+    name: String,
+    role: Role,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+struct DirectoryBody {
+    accounts: Vec<TeamMember>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/staff/directory",
+    operation_id = "staff_directory",
+    tag = "staff",
+    summary = "Who is on the team",
+    description = "A producer, an admin or the station key; a presenter or a screener is refused (403). The accounts that are on, by name, each with only its `id`, `name` and `role`: enough for the show editor to name a show's presenter (`presenter_account`) and to offer the accounts an admin may pick. The username, sign-in address, dates and the accounts that are off stay with `GET /api/v1/staff`, an admin's. An API token never reaches it.",
+    responses(
+        (status = 200, description = "The team.", body = DirectoryBody),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
+        (status = 503, response = crate::openapi::Unavailable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn directory(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Err(r) = state.check(&headers, Need::Producer) {
+        return r;
+    }
+    let pool = match db(&state) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match model::list_accounts(pool, state.station.id).await {
+        Ok(all) => {
+            let mut accounts: Vec<TeamMember> = all
+                .into_iter()
+                .filter(|a| a.disabled_ms.is_none())
+                .map(|a| TeamMember {
+                    id: a.id,
+                    name: a.name,
+                    role: a.role,
+                })
+                .collect();
+            accounts.sort_by_cached_key(|a| a.name.to_lowercase());
+            Json(DirectoryBody { accounts }).into_response()
+        }
+        Err(e) => db_problem(e),
+    }
+}
+
 #[derive(Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 struct NewAccount {
@@ -1511,6 +1589,7 @@ struct AccountsBody {
     sign_out,
     own_password,
     list,
+    directory,
     create,
     change,
     set_password,
@@ -1581,6 +1660,30 @@ mod tests {
         assert!(check(None, &staff, &headers(&t), Need::Staff).is_ok());
         let (admin, _) = signed_in(&staff, Role::Admin, now_ms() + 60_000);
         assert!(check(None, &staff, &headers(&admin), Need::Admin).is_ok());
+    }
+
+    #[test]
+    fn the_directorys_need_is_a_producer_an_admin_or_the_station_key() {
+        let staff = Staff::default();
+        for (role, ok) in [
+            (Role::Admin, true),
+            (Role::Producer, true),
+            (Role::Presenter, false),
+            (Role::Screener, false),
+        ] {
+            let (t, _) = signed_in(&staff, role, now_ms() + 60_000);
+            let got = check(Some("key"), &staff, &headers(&t), Need::Producer);
+            assert_eq!(got.is_ok(), ok, "{role:?}");
+            if let Err(r) = got {
+                assert_eq!(r.status(), StatusCode::FORBIDDEN, "{role:?}");
+            }
+        }
+        assert_eq!(
+            check(Some("key"), &staff, &headers("key"), Need::Producer).unwrap(),
+            Actor::Station
+        );
+        let r = check(Some("key"), &staff, &headers("nope"), Need::Producer).unwrap_err();
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[test]
