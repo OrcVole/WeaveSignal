@@ -31,7 +31,7 @@ Running it again changes nothing that is already set.
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -197,6 +197,14 @@ deploy/compose/weavesignal.sh --project kettle --env-file ~/stations/kettle.env
 ```
 
 The volumes are named after the project (`kettle_postgres-data`), so stations never share data.
+
+## If the database never turns healthy
+
+On Podman, in a session whose OOM score adjustment is above 0 (`cat /proc/self/oom_score_adj`), a container Compose made with an adjustment of 0 cannot be entered with `podman exec`, and PostgreSQL's healthcheck never passes.
+The script sets `WEAVESIGNAL_OOM_SCORE_ADJ` to your session's value, which the bundle gives every service, so it needs nothing from you.
+Export your own value first to choose another.
+Station containers made by an older bundle keep their old value: run `--uninstall` (the data stays) and install again.
+When you run `podman compose` by hand instead, see [Run with Compose](/docs/how-to/run-with-compose/#if-up-fails-because-postgresql-never-turns-healthy).
 
 ## How it is tested
 

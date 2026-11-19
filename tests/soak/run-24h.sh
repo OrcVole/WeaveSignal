@@ -26,6 +26,8 @@
 # passed.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# shellcheck source=tests/oom-score-adj.sh
+. "$root/tests/oom-score-adj.sh"
 here="$root/tests/soak"
 
 duration=${DURATION:-24h}

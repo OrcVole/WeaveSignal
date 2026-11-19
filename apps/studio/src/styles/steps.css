@@ -59,7 +59,7 @@ dialog.stepmenu::backdrop { background: var(--scrim); }
 .stepmenu .acts { display: flex; gap: var(--s-2); justify-content: flex-end; flex-wrap: wrap; }
 
 /* the desk at a step */
-.desk .col.right.three { grid-template-rows: auto auto minmax(0, 1fr); }      /* no Picture panel: the chat glance takes what is left */
+.desk .col.right.three { grid-template-rows: max-content max-content minmax(var(--slot-floor), 1fr); }      /* no Picture panel: the slot takes what is left */
 .desk .tiles .empty.seat { grid-column: auto; padding: var(--s-4); text-align: center; align-content: center; gap: var(--s-2); }   /* desk.step-note: the guest's seat, empty at Solo */
 .desk .tiles .empty.seat span { max-width: 21rem; line-height: var(--lh-body); }
 .desk .tiles .empty.join span { max-width: 26rem; line-height: var(--lh-body); text-align: center; }

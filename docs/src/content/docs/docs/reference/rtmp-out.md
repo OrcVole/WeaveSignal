@@ -3,7 +3,7 @@ title: "RTMP out"
 description: "The desk sending the programme's picture and sound, behind the delay, to RTMP servers: the two profiles and their formats, the picture, the settings, the status, the API, the encoders and their licences, what each platform took in tests, the failures handled, and what it costs."
 type: reference
 status: draft
-last_verified: 2026-11-06
+last_verified: 2026-11-18
 ---
 
 RTMP out sends the programme's picture and sound, behind the profanity delay, to RTMP or RTMPS servers such as Rumble, Odysee and PeerTube (ADR-0229, ADR-0230).
@@ -67,7 +67,7 @@ In the desk's `desk.toml` (all optional):
 
 The Compose bundle (and the Quadlets made from it) set these from `.env`: `VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264` and `RTMP_VIDEO_KBPS`.
 The Cloudron package takes the same four in `weavesignal.env`, with `RTMP_H264` at `openh264` (a Cloudron app has no GPU).
-The package runs video from 1.0.1, but its image does not carry OpenH264 or vo-aacenc yet, so `compatible` cannot run there, and `open` has not been tried in the package: RTMP out on Cloudron waits for a later package.
+The package runs video from 1.0.1, and its image carries Ubuntu's OpenH264 and vo-aacenc, so `compatible` runs there. On 2026-11-11 a Cloudron station sent `compatible` to Owncast 0.3.0, and on 2026-11-12 to YouTube and X; `open` was tried against Owncast only, which refused it (see [What each platform took](#what-each-platform-took)).
 
 The destinations are not in any settings file.
 An admin adds them in the studio app (Settings, RTMP out) or through the API below, and the control plane keeps them in its database.
@@ -143,7 +143,7 @@ H.264 is still under patent in many countries (in the US until about November 20
 
 ## What each platform took
 
-Tested against local servers on loopback only, never a real platform (`just test-rtmp`, 2026-11-06):
+The table below is from local servers on loopback (`just test-rtmp`, 2026-11-06). Real platforms were tried later, from a station on Cloudron (the list after the table):
 
 | Server | `compatible` (H.264, AAC) | `open` (AV1, Opus) |
 |---|---|---|
@@ -156,7 +156,14 @@ Rumble's own settings page asks for H.264 and AAC; Odysee's setup page gives H.2
 PeerTube takes RTMP on port 1935, and RTMPS on 1936 where its admin turns it on, with a stream key; its documentation names no codec.
 So `open` is for servers that say they take AV1 and Opus over Enhanced RTMP, now or later.
 
-Not tried yet: any real platform, RTMPS against a server (`rtmp2sink` speaks it, but no RTMPS server was run), NVENC for H.264, and RTMP out in the Cloudron package.
+Tried since, from a station on Cloudron:
+
+- **Owncast 0.3.0** (2026-11-11), `compatible`: live, and its public HLS played as H.264 and AAC.
+  With `open` (AV1 and Opus), Owncast closed every connection within about a second, so it takes classic RTMP only.
+- **YouTube** and **X** (2026-11-12), `compatible`, over RTMPS: both went live, and YouTube showed the picture and rated the stream's health excellent ([What has been tried](/docs/how-to/send-to-video-platforms/#what-has-been-tried)).
+
+Not tried yet: Rumble and Odysee themselves, `open` against a platform that takes Enhanced RTMP, NVENC for H.264, and RTMP out from a station that is not on Cloudron.
+RTMPS has been used only against YouTube and X; no RTMPS server was run on the test machine.
 
 ## What it costs
 

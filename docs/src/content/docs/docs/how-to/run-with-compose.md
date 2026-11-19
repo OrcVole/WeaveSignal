@@ -22,7 +22,7 @@ sidebar:
 
 ## The images
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0`, which holds the desk, the control plane, the chat and the public pages.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1`, which holds the desk, the control plane, the chat and the public pages.
 Liquidsoap 2.5.0-rc1, LiveKit 1.13.10 and PostgreSQL 18 come from their upstream images.
 Compose pulls them all on the first `up`.
 
@@ -92,6 +92,20 @@ just test-bundle
 ```
 
 It builds the server image, brings the bundle up on test ports with throwaway secrets, checks the control plane, a room token, the desk and playout, the listener process's feed cushion behind the real desk, the Opus stream at a rate set, both MP3 streams at their rates, the player's list of streams, the default loop, and a listener on each mount held through a playout restart, scans the ports, and takes the bundle down with its volumes.
+
+## If `up` fails because PostgreSQL never turns healthy
+
+On Podman, in a session that runs with a raised OOM score (a systemd user manager does on some distributions; `cat /proc/self/oom_score_adj` shows above 0), `podman exec` into a container the Compose bundle made fails with `crun: write to /proc/self/oom_score_adj: Permission denied`, so PostgreSQL's healthcheck, which runs inside it, never passes.
+Compose asks for an adjustment of 0 and an unprivileged process cannot go below the one it started with.
+The bundle sets `oom_score_adj` on every service from `WEAVESIGNAL_OOM_SCORE_ADJ` (0 when unset, which is what Docker does anyway), and `weavesignal.sh` sets it to your session's own value on Podman.
+When you run `podman compose` yourself, set it first:
+
+```sh
+export WEAVESIGNAL_OOM_SCORE_ADJ=$(cat /proc/self/oom_score_adj)
+podman compose up -d
+```
+
+Containers made without it keep the old value; remove them (`podman compose down`) and bring the bundle up again.
 
 ## The studio app
 

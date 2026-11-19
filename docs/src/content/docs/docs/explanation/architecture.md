@@ -58,7 +58,7 @@ It is why the desk holds its receive jitter buffer at 50 ms rather than LiveKit'
 **Listeners** can be seconds behind, and they are.
 The listener server keeps about 12 s of the stream in hand for each new listener, so a player starts at once and rides out a poor network; the profanity delay adds its own length on top.
 The rehearsals of October 2026 measured 12 to 23 s; this release does not measure the delay itself.
-The studio app's clock shows *Listeners hear* from a setting (`studio.listener_delay_ms`, 13 s by default), so set it to what your station measures.
+The studio app's clock shows *Listeners hear* from the mount's fixed 12 s, a setting for the players (`studio.player_allowance_ms`, 0.5 s by default) and the profanity delay and the buffer read live, so set the allowance to what your station measures.
 
 The programme passes through playout, an encoder and a listener server built for buffering, so any ordinary player and any stream directory can take it.
 Making the listener stream "real time" would buy nothing a listener can notice and lose that compatibility.
@@ -101,7 +101,7 @@ The stream is encoded at a constant 96 kbit/s, so silence still sends a steady s
 
 ## Rules and limits the shape imposes
 
-- **The desk sends WebRTC without congestion control.** Its image lacks GStreamer's `rtpgccbwe`, so each mix-minus goes out at its set bitrate whatever the person's link can carry. A guest on a poor link may hear more loss than a browser-to-browser call would give.
+- **The desk's congestion control sees only its own link.** Since 1.0.1 its WebRTC senders use Google congestion control (`rtpgccbwe`). It adapts the programme picture, and protects the voices if the desk's own uplink is the bottleneck. Each mix-minus still goes out at its set bitrate, and the desk cannot see a guest's link, so a guest on a poor link may hear more loss than a browser-to-browser call would give.
 - **A return's timing comes from its place in the mix.** Each block the desk sends is stamped with its position in the mix, never with the clock at the moment it is encoded. Stamped at encode time, the timestamps stepped unevenly and receivers concealed a gap at nearly every packet: 29.8 % of a caller's return was concealed before the fix and 0.0 % after, measured with WebRTC `getStats` on the receiver (2026-11-03).
 - **LiveKit's built-in TURN refuses clients that reach it over IPv6** (an allocation error, 508): give the TURN name an A record and no AAAA record.
 - **The studio app's Linux webview has no WebRTC**, so the app drives the desk and presenters join from a browser.

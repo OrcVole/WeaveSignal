@@ -156,7 +156,13 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         },
     });
     let mut studio = studio::Studio::new(&config.studio.show, config.studio.rundown.clone());
-    studio.set_listener_delay(config.studio.listener_delay_ms);
+    if config.studio.listener_delay_ms_is_overridden() {
+        tracing::warn!(
+            "`studio.listener_delay_ms` is ignored: `studio.player_allowance_ms` \
+             is set and says the same thing in parts"
+        );
+    }
+    studio.set_listener_path(config.studio.listener_path());
     // Viewers are served by more than this server when steering has edges, or when the
     // player's HLS is on another address, an edge or a CDN (issue 4).
     studio.set_edges(config.steering.enabled() || web::hls_elsewhere(&config.join.hls_url));
@@ -230,7 +236,9 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
                 // The logger writes into retention's recordings directory, which the sweeper
                 // deletes from (the listener process's `logger.dir`).
                 logger_dir: config.retention.recordings_dir.join(onair::LOGGER_SUBDIR),
-                listener_delay: std::time::Duration::from_millis(config.studio.listener_delay_ms),
+                listener_delay: std::time::Duration::from_millis(
+                    config.studio.listener_path().total_ms(),
+                ),
                 library_lufs: config.playout.library_lufs,
                 library_max_seconds: config.playout.library_max_seconds,
             };

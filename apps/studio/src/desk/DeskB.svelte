@@ -4,7 +4,8 @@
   // Desk B, the focus (ADR-0061), wired to the desk through the control plane: time on the
   // left (clock, rundown, playout), what is on air in the middle (the lamp, the stage, the
   // sources not on air), the station on the right, and the station's health along the foot.
-  // Panel names as on the design page (ADR-0070); the toast takes the chat glance's cell.
+  // Panel names as on the design page (ADR-0070); a toast and the chat glance share the right
+  // column's last cell, the toast above.
   //
   // The show's step decides what is drawn (ADR-0271; docs/reference/design/beginner-steps.md,
   // section 1): nothing moves, things only appear. Solo is one tile, the guest's empty seat and
@@ -66,6 +67,7 @@
   import { OWN_LINK, airHost, ownLinkBeside } from '../lib/invite.ts';
   import { preparing } from '../lib/prepare.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
+  import { edges } from '../schedule/rule/edges.ts';
 
   const v = $derived(studio.view);
   /** The station's step: what is switched on. */
@@ -779,23 +781,27 @@
 
       {#if deskCallersShown(lk)}
         <!-- The queue on the desk, in the place the Picture panel has at Full: a DJ alone answers
-             callers here, with the Screener tab hidden. Three rows at most, so the chat keeps room. -->
+             callers here, with the Screener tab hidden. Three rows at most. -->
         <section class="panel callers" data-panel="desk.callers" aria-label="Callers">
           <div class="ph">
             <h2>Callers</h2>
             <span class="spacer"></span><span class="small">{queue.head}</span>
           </div>
           {#if queue.rows.length}
-            <ol class="cq">
-              {#each queue.rows as r (r.identity)}
-                <li>
-                  <span class="n">{r.n}</span>
-                  <span class="who"><b>{r.name}</b><span>{r.topic || 'no topic given'}</span></span>
-                  <span class="t num">{r.dropped ? 'link lost' : dur(now - r.since_ms)}</span>
-                </li>
-              {/each}
-            </ol>
-            {#if queue.more}<p class="more">and {queue.more} more waiting</p>{/if}
+            <!-- Where the column is short the rows scroll here and Take stays in sight; the list
+                 is then a tab stop, so the keys reach it. -->
+            <div class="fold" role="group" aria-label="Who is waiting" use:edges={{ keys: true }}>
+              <ol class="cq">
+                {#each queue.rows as r (r.identity)}
+                  <li>
+                    <span class="n">{r.n}</span>
+                    <span class="who"><b>{r.name}</b><span>{r.topic || 'no topic given'}</span></span>
+                    <span class="t num">{r.dropped ? 'link lost' : dur(now - r.since_ms)}</span>
+                  </li>
+                {/each}
+              </ol>
+              {#if queue.more}<p class="more">and {queue.more} more waiting</p>{/if}
+            </div>
             <div class="acts">
               <button
                 type="button"
@@ -819,45 +825,50 @@
       {@const picOff = off('picture')}
       <section class="panel video" data-panel="desk.picture" aria-label="Picture">
         <div class="ph"><h2>Picture</h2>{#if picOff}<span class="spacer"></span><span class="offtag">{tag}</span>{/if}</div>
-        {#if pic}
-          <div class="pic" aria-label={pic.shot === 'slate' ? 'The slate is on air' : `${shotName} is on air`}>
-            {#if pic.shot === 'slate'}
-              <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{v?.show.title}</span><span class="pill">slate</span></div>
-            {:else}
-              <div class="slate"><b>{shotName}</b><span>on camera</span><span class="pill">{pic.mode.mode === 'auto' ? 'follows the audio' : 'held'}</span></div>
-            {/if}
-          </div>
-          <div class="sw" role="group" aria-label="Picture source">
-            <button type="button" class="btn" aria-pressed={pic.mode.mode !== 'slate'} aria-disabled={picOff || undefined} disabled={prep} title={prepWhy ?? (picOff ? `The picture is held on the slate at ${STEP_WORD[step]}. Switching it comes with Full.` : undefined)} onclick={() => !picOff && pic.mode.mode === 'slate' && run({ type: 'picture' })}
-              >Live picture <kbd>F7</kbd></button
-            >
-            <button type="button" class="btn" aria-pressed={pic.mode.mode === 'slate'} aria-disabled={picOff || undefined} disabled={prep} title={prepWhy} onclick={() => !picOff && pic.mode.mode !== 'slate' && run({ type: 'picture' })}
-              >Slate <kbd>F7</kbd></button
-            >
-          </div>
-          <p class="small">{pic.cameras.length} {pic.cameras.length === 1 ? 'camera' : 'cameras'}{pic.hls ? '' : ' · encoders restarting'}</p>
-          <Cameras
-            cameras={pic.cameras}
-            onair={pic.shot === 'person' ? (pic.identity ?? null) : null}
-            label={(id) => {
-              const s = v?.sources.find((x) => x.identity === id);
-              return s ? firstName(s.name, id) : id;
-            }}
-          />
-          <SlateStill on={!!pic.still} off={prep} />
-        {:else}
-          <div class="pic" aria-label="No programme picture">
-            <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{v?.show.title}</span><span class="pill">{picOff ? 'the slate holds the picture' : 'video off'}</span></div>
-          </div>
-          <div class="sw" role="group" aria-label="Picture source">
-            <button type="button" class="btn" aria-disabled="true" disabled={prep} title={prepWhy} onclick={() => !picOff && run({ type: 'picture' })}
-              >Live picture <kbd>F7</kbd></button
-            >
-            <button type="button" class="btn" aria-disabled="true" disabled={prep} title={prepWhy} onclick={() => !picOff && run({ type: 'picture' })}
-              >Slate <kbd>F7</kbd></button
-            >
-          </div>
-        {/if}
+        <!-- Where the column is short (1,440 × 900 with video on) the panel gives way to the slot's
+             floor and this part scrolls inside it: the picture and its switch first, the cameras
+             and the slate picture under them. -->
+        <div class="fold">
+          {#if pic}
+            <div class="pic" aria-label={pic.shot === 'slate' ? 'The slate is on air' : `${shotName} is on air`}>
+              {#if pic.shot === 'slate'}
+                <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{v?.show.title}</span><span class="pill">slate</span></div>
+              {:else}
+                <div class="slate"><b>{shotName}</b><span>on camera</span><span class="pill">{pic.mode.mode === 'auto' ? 'follows the audio' : 'held'}</span></div>
+              {/if}
+            </div>
+            <div class="sw" role="group" aria-label="Picture source">
+              <button type="button" class="btn" aria-pressed={pic.mode.mode !== 'slate'} aria-disabled={picOff || undefined} disabled={prep} title={prepWhy ?? (picOff ? `The picture is held on the slate at ${STEP_WORD[step]}. Switching it comes with Full.` : undefined)} onclick={() => !picOff && pic.mode.mode === 'slate' && run({ type: 'picture' })}
+                >Live picture <kbd>F7</kbd></button
+              >
+              <button type="button" class="btn" aria-pressed={pic.mode.mode === 'slate'} aria-disabled={picOff || undefined} disabled={prep} title={prepWhy} onclick={() => !picOff && pic.mode.mode !== 'slate' && run({ type: 'picture' })}
+                >Slate <kbd>F7</kbd></button
+              >
+            </div>
+            <p class="small">{pic.cameras.length} {pic.cameras.length === 1 ? 'camera' : 'cameras'}{pic.hls ? '' : ' · encoders restarting'}</p>
+            <Cameras
+              cameras={pic.cameras}
+              onair={pic.shot === 'person' ? (pic.identity ?? null) : null}
+              label={(id) => {
+                const s = v?.sources.find((x) => x.identity === id);
+                return s ? firstName(s.name, id) : id;
+              }}
+            />
+            <SlateStill on={!!pic.still} off={prep} />
+          {:else}
+            <div class="pic" aria-label="No programme picture">
+              <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{v?.show.title}</span><span class="pill">{picOff ? 'the slate holds the picture' : 'video off'}</span></div>
+            </div>
+            <div class="sw" role="group" aria-label="Picture source">
+              <button type="button" class="btn" aria-disabled="true" disabled={prep} title={prepWhy} onclick={() => !picOff && run({ type: 'picture' })}
+                >Live picture <kbd>F7</kbd></button
+              >
+              <button type="button" class="btn" aria-disabled="true" disabled={prep} title={prepWhy} onclick={() => !picOff && run({ type: 'picture' })}
+                >Slate <kbd>F7</kbd></button
+              >
+            </div>
+          {/if}
+        </div>
       </section>
       {/if}
 
@@ -913,27 +924,13 @@
         </div>
       </section>
 
+      <!-- The slot a toast and the chat glance share (ADR-0070: `desk.toast`, `desk.chat`). The
+           column keeps it a floor of height, so a toast always has its place and arrives without
+           moving a panel above it. The toast is as tall as its words (fewer lines of its message
+           where the slot is short, so a keyed answer is whole); the chat keeps what is left under
+           it, and where that would not hold two lines it is left out whole, never drawn as a
+           header with nothing to read (styles/desk-b.css). -->
       <div class="slot">
-        <!-- The chat to read, at every step: the room's last messages, and one line when something
-             waits for a moderator (the chat's rules keep working out of sight, ADR-0274). -->
-        <section class="panel chat" class:has-needs={!!needs} data-panel="desk.chat" aria-label="Chat">
-          <div class="ph">
-            <h2>Chat</h2>
-            <span class="spacer"></span><span class="small">to read</span>
-          </div>
-          {#if needs}
-            <div class="needs" role="status"><b>{needs}</b> {chatNeedsWhere(lk, v?.chat)}</div>
-          {/if}
-          <div class="msgs">
-            {#if chatSays}<div class="msg link" data-chat="link">{chatSays}</div>{/if}
-            {#each chatLines as m (m.id)}
-              <div class="msg"><b>{m.author.name}</b> {m.body || (m.attachment ? `sent a ${m.attachment.kind}` : '')}</div>
-            {/each}
-            {#if priv}
-              <div class="msg priv"><svg aria-hidden="true"><use href="#g-lock" /></svg><b>{priv.author.name}</b> {priv.body}</div>
-            {/if}
-          </div>
-        </section>
         {#if toast}
           <!-- A toast with a count keeps its own glyph, the clock, in the count's last seconds: it
                takes the level's colour, and the stripe stops at the warning colour. A count that
@@ -945,7 +942,8 @@
               <svg aria-hidden="true"><use href="#{toast.glyph}" /></svg><span class="title" data-panel-title
                 >{#if toast.count}{toast.count.lead} <span aria-hidden="true">{toast.count.tick}</span><span class="sr-only">{toast.count.said}</span>{#if th}<span class="sr-only"> {th.word}.</span>{/if}{:else}{toast.title}{/if}</span
               >
-              <span class="msg">{toast.msg}</span>
+              <!-- In a short slot the message is held to fewer lines (styles/desk-b.css); its title has it whole. -->
+              <span class="msg" title={toast.msg}>{toast.msg}</span>
               {#if toast.acts.length}
                 <span class="acts">
                   {#each toast.acts as a (a.label)}
@@ -959,6 +957,28 @@
             </div>
           </div>
         {/if}
+        <div class="chat-cell">
+          <!-- The chat to read, at every step: the room's last messages, and one line when something
+               waits for a moderator (the chat's rules keep working out of sight, ADR-0274). -->
+          <section class="panel chat" class:has-needs={!!needs} data-panel="desk.chat" aria-label="Chat">
+            <div class="ph">
+              <h2>Chat</h2>
+              <span class="spacer"></span><span class="small">to read</span>
+            </div>
+            {#if needs}
+              <div class="needs" role="status"><b>{needs}</b> {chatNeedsWhere(lk, v?.chat)}</div>
+            {/if}
+            <div class="msgs">
+              {#if chatSays}<div class="msg link" data-chat="link">{chatSays}</div>{/if}
+              {#each chatLines as m (m.id)}
+                <div class="msg"><b>{m.author.name}</b> {m.body || (m.attachment ? `sent a ${m.attachment.kind}` : '')}</div>
+              {/each}
+              {#if priv}
+                <div class="msg priv"><svg aria-hidden="true"><use href="#g-lock" /></svg><b>{priv.author.name}</b> {priv.body}</div>
+              {/if}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   </div>

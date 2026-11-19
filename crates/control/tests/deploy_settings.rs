@@ -136,6 +136,7 @@ fn the_examples_in_env_example_set_what_they_say_on_both_routes() {
         let c = parse(&fragment);
         assert_eq!(c.studio.show, "The Morning Kettle", "{route}");
         assert_eq!(c.studio.listener_delay_ms, 13_000, "{route}");
+        assert_eq!(c.studio.player_allowance_ms, Some(500), "{route}");
         assert_eq!(c.studio.rundown.len(), 2, "{route}");
         assert!(c.studio.rundown[0].hard_post, "{route}");
         assert_eq!(c.studio.rundown[0].key.as_deref(), Some("F2"), "{route}");
@@ -153,6 +154,7 @@ fn every_setting_reaches_its_key_on_both_routes() {
     let env: BTreeMap<String, String> = [
         ("STUDIO_SHOW", "Kettle \"Late\" \\ Show"),
         ("STUDIO_LISTENER_DELAY_MS", "9000"),
+        ("STUDIO_PLAYER_ALLOWANCE_MS", "700"),
         ("STEERING_TTL_S", "120"),
         ("STEERING_CHECK_EVERY_S", "10"),
         ("STEERING_CHECK_TIMEOUT_MS", "1500"),
@@ -171,11 +173,74 @@ fn every_setting_reaches_its_key_on_both_routes() {
     assert_eq!(k.studio.show, "Kettle \"Late\" \\ Show");
     for c in [c, k] {
         assert_eq!(c.studio.listener_delay_ms, 9000);
+        assert_eq!(c.studio.player_allowance_ms, Some(700));
         assert_eq!(c.steering.ttl_s, 120);
         assert_eq!(c.steering.check_every_s, 10);
         assert_eq!(c.steering.check_timeout_ms, 1500);
         assert_eq!(c.steering.down_after, 3);
         assert_eq!(c.steering.clone_from, "origin");
+    }
+}
+
+/// An installed station keeps what it set before the split (ADR-0289), on both routes: only
+/// the old figure set means the old figure; the parts set mean the parts; both, the parts.
+#[test]
+fn the_old_listener_delay_setting_still_means_what_it_did_on_both_routes() {
+    use weavesignal_control::studio::ListenerPath::{self, Parts, Whole};
+    let set = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    };
+    for (what, env, want) in [
+        ("nothing set", set(&[]), ListenerPath::default_parts()),
+        (
+            "the old line as an install has had it",
+            set(&[("STUDIO_LISTENER_DELAY_MS", "13000")]),
+            ListenerPath::default_parts(),
+        ),
+        (
+            "the old line changed",
+            set(&[("STUDIO_LISTENER_DELAY_MS", "9000")]),
+            Whole(9_000),
+        ),
+        (
+            "the old line, the allowance's line empty (a package update's line)",
+            set(&[
+                ("STUDIO_LISTENER_DELAY_MS", "9000"),
+                ("STUDIO_PLAYER_ALLOWANCE_MS", ""),
+            ]),
+            Whole(9_000),
+        ),
+        (
+            "the allowance",
+            set(&[("STUDIO_PLAYER_ALLOWANCE_MS", "700")]),
+            Parts {
+                player_allowance_ms: 700,
+            },
+        ),
+        (
+            "both: the allowance wins",
+            set(&[
+                ("STUDIO_LISTENER_DELAY_MS", "9000"),
+                ("STUDIO_PLAYER_ALLOWANCE_MS", "700"),
+            ]),
+            Parts {
+                player_allowance_ms: 700,
+            },
+        ),
+    ] {
+        for (route, fragment) in [
+            ("compose", compose_fragment(&env)),
+            ("cloudron", cloudron_fragment(&env)),
+        ] {
+            assert_eq!(
+                parse(&fragment).studio.listener_path(),
+                want,
+                "{what}, {route}"
+            );
+        }
     }
 }
 
@@ -186,6 +251,7 @@ fn cloudron_with_nothing_set_writes_nothing() {
     let empties: BTreeMap<String, String> = [
         "STUDIO_SHOW",
         "STUDIO_LISTENER_DELAY_MS",
+        "STUDIO_PLAYER_ALLOWANCE_MS",
         "STUDIO_RUNDOWN",
         "STUDIO_BANNED",
         "STEERING_EDGES",

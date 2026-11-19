@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.1.0:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.1.1:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -478,14 +478,6 @@ export const next: Planned[] = [
     today: 'In 1.1 a host\'s software pushes to the station over Icecast or SRT with a show key; the station does not fetch a stream, and the studio app does not carry one.',
     href: '/docs/how-to/set-up-a-host-in-their-own-studio/',
     link: 'Set up a host in their own studio',
-  },
-  {
-    id: 'listener-delay-split',
-    name: 'The listener delay in two settings',
-    what: 'The listener mount\'s fixed 12 s hold and a player allowance as settings of their own, in place of one estimate (ADR-0289).',
-    today: 'The desk shows the estimate with its parts: the profanity delay, the buffer and about what listeners\' players hold.',
-    href: '/docs/reference/surfaces/desk/#deskclock',
-    link: 'The desk\'s clock',
   },
   {
     id: 'desk-gpu',

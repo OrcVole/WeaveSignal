@@ -5,6 +5,11 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 root := justfile_directory()
+# The Compose bundle gives each container oom_score_adj ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}. A session
+# that runs above 0 cannot `podman exec` into a container made with 0 (crun: write to
+# /proc/self/oom_score_adj: Permission denied), so PostgreSQL's healthcheck never passes. Every
+# recipe gets the session's own value when it is above 0 (never lower); set the variable to override.
+export WEAVESIGNAL_OOM_SCORE_ADJ := env("WEAVESIGNAL_OOM_SCORE_ADJ", `v=$(cat /proc/self/oom_score_adj 2>/dev/null || echo 0); case $v in ''|*[!0-9]*) echo 0 ;; *) echo $v ;; esac`)
 # The desk's build image; settable, so a worktree that changes it does not retag another's.
 desk_image := env("WEAVESIGNAL_DESK_IMAGE", "localhost/weavesignal-desk-dev:m5")
 liquidsoap_image := "docker.io/savonet/liquidsoap:v2.5.0-rc1"
@@ -191,6 +196,13 @@ test-m3:
 # the images' element checks (rtpav1depay) are.
 test-browsercam:
     TEST=browsercam {{root}}/tests/room/run-stack.sh
+
+# Congestion control at the desk (issue 1), rootless: the real desk, LiveKit and a headless guest
+# on a podman network of their own, the links shaped with tc, the desk's rtpgccbwe on and off
+# (needs PLAYWRIGHT_CORE and a release desk for the cost rows). A measurement, not a pass mark,
+# and not in `ci`: about two hours in all. `just test-cc audio1` runs one group of about ten.
+test-cc group="all":
+    {{root}}/tests/cc/matrix.sh {{group}}
 
 # The edge images (M7): nginx as the HLS pull-through cache, Icecast 2.5 as the audio relay
 edge-image: relay-image

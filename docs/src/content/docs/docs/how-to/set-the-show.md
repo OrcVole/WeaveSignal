@@ -55,7 +55,8 @@ The desk now heads the stage with the show, lists what is coming up and back-tim
 | `hard_post = true` | the clock (`desk.clock`) back-times to the first such row ahead |
 | `key` | the cart key the row needs, shown beside it; `⇧⏎` marks the row as the DJ handover, and while a DJ is in the room it carries the handover button ([Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/)) |
 | `[[studio.banned]]` | a caller who joins with that `identity` shows BANNED BEFORE on the screener, with the `date` (`YYYY-MM-DD`) and the `reason` |
-| `listener_delay_ms` | how far behind the studio listeners hear, not counting the profanity delay: 13000 (13 s) by default, so a default station shows about 21 s, as the demo station measured (21.2 s). The desk reads the profanity delay and the listener process's buffer live and uses this for the rest, so it shows the total as an estimate (ADR-0103, ADR-0272) |
+| `player_allowance_ms` | the part of how far behind the studio listeners hear that nothing reads, besides the listener mount's own hold of the stream (fixed at 12 s, not a setting): what a listener's player adds (500, 0.5 s). The desk reads the profanity delay and the listener process's buffer live and adds them, so a default station shows about 21 s, as the demo station measured (21.2 s), and the total is an estimate (ADR-0103, ADR-0272, ADR-0289) |
+| `listener_delay_ms` | the older way to give those two as one figure, 13000 by default (the buffer's 0.5 s is inside it). A station that sets only this one keeps the figure it had; set `player_allowance_ms` and this one is ignored |
 
 ![The desk's clock, counting down to the next hard post.](../../../../assets/screens/how-to-set-the-show-clock.png)
 
@@ -70,7 +71,8 @@ From 1.1 `.env` holds the same settings as lines. Leave them empty for the defau
 | Line | What it sets |
 |---|---|
 | `STUDIO_SHOW` | `show`: plain text, with no quote or backslash (`weavesignal.sh` refuses them) |
-| `STUDIO_LISTENER_DELAY_MS` | `listener_delay_ms`, `13000` unless set |
+| `STUDIO_PLAYER_ALLOWANCE_MS` | `player_allowance_ms`, `500` unless set |
+| `STUDIO_LISTENER_DELAY_MS` | `listener_delay_ms`, `13000` unless set; used only while the line above is empty (the setting before 1.1.1, which keeps working) |
 | `STUDIO_RUNDOWN` | the `[[studio.rundown]]` rows, as TOML inline tables, comma-separated, in single quotes |
 | `STUDIO_BANNED` | the `[[studio.banned]]` rows, written the same way |
 
@@ -87,7 +89,7 @@ Content steering has the same kind of lines (`STEERING_*`; [Steer viewers to the
 
 ## On Cloudron
 
-From 1.1 `/app/data/weavesignal.env` has the same four lines (`STUDIO_SHOW`, `STUDIO_LISTENER_DELAY_MS`, `STUDIO_RUNDOWN`, `STUDIO_BANNED`), added empty to a station that updates, with the example beside each.
+From 1.1 `/app/data/weavesignal.env` has the same lines (`STUDIO_SHOW`, `STUDIO_LISTENER_DELAY_MS`, `STUDIO_RUNDOWN`, `STUDIO_BANNED`; from 1.1.1 also `STUDIO_PLAYER_ALLOWANCE_MS`), added empty to a station that updates, with the example beside each.
 Write the lists exactly as above, in single quotes, restart the app, and read the log if the app does not come up: a wrong row is named there.
 An empty line leaves the control plane's own default in force, so a station that sets nothing is unchanged.
 If `/app/data/station.toml` also has a `[studio]`, that one wins, whole: the package's lines are not merged into it.

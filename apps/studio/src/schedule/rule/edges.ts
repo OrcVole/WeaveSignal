@@ -5,9 +5,13 @@
 // gone out of sight above, or that Ends waited below. This marks the column with `data-more`
 // (`above`, `below`, or both), and the style sheet fades that edge. A column that holds
 // everything is left alone.
+//
+// The desk's callers list uses it too (1.1.1): it scrolls inside its panel where the column is
+// short. A list has nothing in it to focus, so with `keys` it is a tab stop for as long as
+// something is out of view, and the arrow keys scroll it.
 
 /** A Svelte action: keep `data-more` on a scrolling element in step with what is out of view. */
-export function edges(el: HTMLElement): { destroy: () => void } {
+export function edges(el: HTMLElement, opts: { keys?: boolean } = {}): { destroy: () => void } {
   const set = () => {
     const more = el.scrollHeight - el.clientHeight > 1;
     const above = more && el.scrollTop > 1;
@@ -16,6 +20,10 @@ export function edges(el: HTMLElement): { destroy: () => void } {
     if (now) {
       if (el.dataset.more !== now) el.dataset.more = now;
     } else if (el.dataset.more !== undefined) delete el.dataset.more;
+    if (opts.keys) {
+      if (more) el.tabIndex = 0;
+      else el.removeAttribute('tabindex');
+    }
   };
   el.addEventListener('scroll', set, { passive: true });
   // The column's own size (the window, the text size) and what it holds (Ends appears, a date

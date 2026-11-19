@@ -3,7 +3,7 @@ title: "Update the studio app, or roll it back"
 description: "How the studio app finds and installs a signed update, why it waits for a quiet desk, and how to go back to the version before: in the app for an AppImage, by hand for the other packages. For the person who publishes releases: the update feed."
 type: howto
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-18
 sidebar:
   order: 36
 ---
@@ -59,7 +59,6 @@ If the update fails, the copy kept by an earlier update stays.
 It is refused while a strip is open, like an update.
 The version you left is not announced in the top bar again; Settings still offers it, and a newer one is announced as usual.
 Only one earlier version is kept.
-A version older than 1.0.5 does not read 1.0.5's list of stations, so after rolling back to one you sign in again.
 
 **`.deb`, `.rpm` and Windows.**
 The system's package tools replace these, so the app keeps nothing.
@@ -72,6 +71,13 @@ sudo dnf downgrade ./WeaveSignal-1.0.0-1.x86_64.rpm                   # Fedora
 
 On Windows, run the earlier `WeaveSignal_1.0.0_x64-setup.exe`.
 Not tried on Windows yet ([planned](/docs/reference/release-one-status/)).
+
+**Going back to a version older than 1.0.5.**
+This applies to a rollback from Settings and to installing an older `.deb`, `.rpm` or Windows installer over a newer one.
+1.0.5 keeps a list of stations ([Work with several stations](/docs/how-to/work-with-several-stations/)) and removes the single-station file that 1.0.4 and older read.
+After going back, the app opens signed out, with the station's address filled in: sign in again.
+Nothing on the station changes, and going forward to 1.0.5 or later again needs no extra step.
+If you never go back past 1.0.5 you will not see this.
 
 ## Publish a release
 

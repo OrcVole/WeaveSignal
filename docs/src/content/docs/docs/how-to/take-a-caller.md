@@ -64,7 +64,7 @@ The call page says the same under *Trouble hearing or being heard?*: "Studio too
 
 The desk sends each caller's return evenly timed: measured with WebRTC `getStats` on the receiver, 0.0 % of it was concealed, locally and over the internet ([What release one does](/docs/reference/release-one-status/#measured)).
 Gaps a caller still hears come from their network.
-The desk sends without congestion control (a known limit: its image lacks GStreamer's `rtpgccbwe`), so a caller on a poor link may hear more loss than a browser-to-browser call would give.
+The desk sends each voice at a set bitrate and cannot see the caller's own link (a known limit), so a caller on a poor link may hear more loss than a browser-to-browser call would give.
 
 If a caller cannot get through at all (a blocked microphone, a phone on an IPv6-only network), see [When a call does not work](/docs/reference/public-pages/#when-a-call-does-not-work).
 

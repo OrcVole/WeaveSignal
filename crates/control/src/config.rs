@@ -481,7 +481,67 @@ pub struct StudioConfig {
     /// How far behind the studio listeners hear, in milliseconds, not counting the profanity
     /// delay (the studio view adds that delay's current length, ADR-0165): a setting, shown
     /// labelled as one, until the station measures it (ADR-0103). Spike 01 measured about 15 s.
+    ///
+    /// Since 1.1.1 this is the old way to say it, kept so that a station set up before keeps
+    /// the same figure: the mount's hold and a player allowance, with the buffer's nominal 0.5 s
+    /// inside. It is used only while neither of the two settings below is set.
     pub listener_delay_ms: u64,
+    /// The listener mount's own 12 s hold is a constant (`studio::DEFAULT_MOUNT_HOLD_MS`): it is
+    /// not a setting, since playout has no way to change it (ADR-0289).
+    /// What a listener's own player is taken to add, in milliseconds (ADR-0289): 500 unless set.
+    #[serde(
+        deserialize_with = "optional_ms",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub player_allowance_ms: Option<u64>,
+}
+
+impl StudioConfig {
+    /// The delay's setting part as the settings say it: the mount's fixed 12 s plus
+    /// `player_allowance_ms` when that is set (it wins over a changed `listener_delay_ms`);
+    /// otherwise `listener_delay_ms` stands, as before.
+    pub fn listener_path(&self) -> crate::studio::ListenerPath {
+        use crate::studio::ListenerPath;
+        let Some(player_allowance_ms) = self.player_allowance_ms else {
+            // 13000 is the parts' defaults, so a station that never set it is shown in parts;
+            // any other old figure cannot be split and stays whole.
+            return if self.listener_delay_ms == StudioConfig::default().listener_delay_ms {
+                ListenerPath::default_parts()
+            } else {
+                ListenerPath::Whole(self.listener_delay_ms)
+            };
+        };
+        ListenerPath::Parts {
+            player_allowance_ms,
+        }
+    }
+
+    /// True when `listener_delay_ms` was changed from its default and is being ignored because
+    /// `player_allowance_ms` is set: the two ways were both asked for.
+    pub fn listener_delay_ms_is_overridden(&self) -> bool {
+        self.player_allowance_ms.is_some()
+            && self.listener_delay_ms != StudioConfig::default().listener_delay_ms
+    }
+}
+
+/// A number of milliseconds that may also be written as a string, where an empty string is
+/// "not set": the Compose bundle's settings file cannot leave a line out, so it writes
+/// `player_allowance_ms = "${STUDIO_PLAYER_ALLOWANCE_MS:-}"`.
+fn optional_ms<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Ms {
+        Number(u64),
+        Text(String),
+    }
+    match Option::<Ms>::deserialize(d)? {
+        None => Ok(None),
+        Some(Ms::Number(n)) => Ok(Some(n)),
+        Some(Ms::Text(t)) if t.trim().is_empty() => Ok(None),
+        Some(Ms::Text(t)) => t.trim().parse().map(Some).map_err(|_| {
+            serde::de::Error::custom(format!("`{t}` is not a whole number of milliseconds"))
+        }),
+    }
 }
 
 impl Default for StudioConfig {
@@ -491,6 +551,7 @@ impl Default for StudioConfig {
             rundown: Vec::new(),
             banned: Vec::new(),
             listener_delay_ms: 13_000,
+            player_allowance_ms: None,
         }
     }
 }
@@ -946,6 +1007,88 @@ name = "Kettle FM"
             c.steering,
             crate::steering::SteeringConfig::default(),
             "the sample documents the steering defaults, with steering off"
+        );
+    }
+
+    fn studio_from(extra: &str) -> StudioConfig {
+        Config::from_toml(&format!("{MINIMAL}\n[studio]\n{extra}"), "t")
+            .unwrap()
+            .studio
+    }
+
+    #[test]
+    fn the_listener_delay_is_the_old_figure_the_parts_or_both() {
+        use crate::studio::ListenerPath::{Parts, Whole};
+        // Nothing set: the old default, 13 s, which the parts' defaults equal.
+        let none = studio_from("");
+        assert_eq!(
+            none.listener_path(),
+            crate::studio::ListenerPath::default_parts()
+        );
+        assert_eq!(none.listener_path().rest_ms(false), 13_000);
+        assert_eq!(none.listener_path().rest_ms(true), 12_500);
+        // The old default written out is the same station.
+        assert_eq!(
+            studio_from("listener_delay_ms = 13000\n").listener_path(),
+            none.listener_path()
+        );
+        assert_eq!(
+            none.listener_path().rest_ms(false),
+            crate::studio::ListenerPath::default_parts().rest_ms(false)
+        );
+        assert!(!none.listener_delay_ms_is_overridden());
+        // An old value alone keeps its meaning (an upgrade changes nothing).
+        let old = studio_from("listener_delay_ms = 9000\n");
+        assert_eq!(old.listener_path(), Whole(9_000));
+        assert_eq!(
+            old.listener_path().mount_hold_ms(),
+            None,
+            "it cannot be split"
+        );
+        assert_eq!(old.listener_path().total_ms(), 9_000);
+        assert!(!old.listener_delay_ms_is_overridden());
+        // The allowance alone: the mount's 12 s plus it.
+        assert_eq!(
+            studio_from("player_allowance_ms = 3000\n").listener_path(),
+            Parts {
+                player_allowance_ms: 3_000
+            }
+        );
+        assert_eq!(
+            studio_from("player_allowance_ms = 3000\n")
+                .listener_path()
+                .rest_ms(true),
+            12_000 + 3_000
+        );
+        // Both: the allowance wins, and the config says the old figure is being ignored.
+        let both = studio_from("listener_delay_ms = 9000\nplayer_allowance_ms = 700\n");
+        assert_eq!(
+            both.listener_path(),
+            Parts {
+                player_allowance_ms: 700
+            }
+        );
+        assert!(both.listener_delay_ms_is_overridden());
+        // An old figure left at its default beside the allowance is no conflict.
+        assert!(
+            !studio_from("listener_delay_ms = 13000\nplayer_allowance_ms = 700\n")
+                .listener_delay_ms_is_overridden()
+        );
+        // The Compose bundle writes the allowance as a string, empty when unset.
+        let empty = studio_from("player_allowance_ms = \"\"\n");
+        assert_eq!(empty.player_allowance_ms, None);
+        assert_eq!(empty, StudioConfig::default());
+        let text = studio_from("player_allowance_ms = \" 700 \"\n");
+        assert_eq!(text.player_allowance_ms, Some(700));
+        // The mount's hold is not a setting: a station that writes it is refused, loudly.
+        let hold = format!("{MINIMAL}\n[studio]\nmount_hold_ms = 10000\n");
+        assert!(Config::from_toml(&hold, "t").is_err());
+        let bad = format!("{MINIMAL}\n[studio]\nplayer_allowance_ms = \"a lot\"\n");
+        assert!(
+            Config::from_toml(&bad, "t")
+                .unwrap_err()
+                .to_string()
+                .contains("whole number")
         );
     }
 

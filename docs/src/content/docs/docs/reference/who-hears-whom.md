@@ -80,4 +80,4 @@ A guest whose connection stops taking audio loses only their own headphone feed 
 Every block that leaves the desk is timestamped from its place in the mix, never from the clock when an encoder reached it.
 Stamped by the encoder's clock, the timestamps stepped unevenly and the receiver concealed a gap at nearly every packet: on a local stack 29.8 % of a guest's return was concealment, and 0.0 % since (measured with the receiving browser's WebRTC `getStats`).
 
-The desk's WebRTC sends without congestion control, because its image lacks GStreamer's `rtpgccbwe`: a guest on a poor link may hear more loss than a browser-to-browser call would give ([Known limits](/docs/reference/release-one-status/#known-limits)).
+The desk sends each mix-minus at a set bitrate and cannot see a guest's own link: a guest on a poor link may hear more loss than a browser-to-browser call would give ([Known limits](/docs/reference/release-one-status/#known-limits)).

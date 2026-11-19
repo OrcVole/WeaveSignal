@@ -2,6 +2,12 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.1.1]
+
+- **A notice no longer hides the desk's chat**: a toast and Chat share the right column's slot, and a toast is always drawn, even in a small window with video on.
+- **The desk names the parts of the listener delay**, with the stream's fixed 12 s apart from listeners' players. New optional setting: `STUDIO_PLAYER_ALLOWANCE_MS` (default 500). `STUDIO_LISTENER_DELAY_MS` keeps working.
+- Docs: what RTMP out has been tried against, what the desk's congestion control can and cannot do, and signing in again after going back below 1.0.5.
+
 [1.1.0]
 
 - **Hosts in their own studios** (ADR-0280): a host sends their show from their own software (BUTT, Mixxx, OBS, vMix, ffmpeg) over Icecast or SRT with a show key; the source stands by on the desk until put on air, the schedule's post hands the air over after a grace, a dropped link is covered by automation, and each host has a monitor link (a web page with their state, their return and the counts). Two new optional ports, both off by default: `SOURCE_ICECAST_PORT` (TCP, 8005) and `SOURCE_SRT_PORT` (UDP, 9710).

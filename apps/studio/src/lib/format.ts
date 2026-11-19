@@ -92,13 +92,21 @@ export function delayLine(d: ListenerDelay | undefined | null): string {
 }
 
 /** What the figure is made of, in a presenter's words, for the one line under the clock's (ADR-0289
- *  item 1 keeps the estimate labelled with its parts): *8.0 s profanity delay, 0.5 s buffer, about
- *  14.5 s in listeners’ players (estimated)*. The profanity delay and the buffer (what the listener
- *  process holds of playout's feed) are the station's own readings, to 0.1 s; the rest is the
- *  setting that stands for the stream's own hold and each listener's player, a whole number
- *  without a decimal, and it alone is called estimated. Nothing here says *read* or *set*: those
- *  are the code's words (the API's `read_ms` and `set_ms`). Empty when the control plane is too
- *  old to say. */
+ *  item 1 keeps the estimate labelled with its parts): *8.0 s profanity delay, 0.5 s buffer, 12 s
+ *  held by the stream, about 0.5 s in listeners’ players (estimated)*, in the order the sound
+ *  travels. The profanity delay and the buffer (what the listener process holds of playout's
+ *  feed) are the station's own readings, to 0.1 s. The stream's hold is the listener mount's
+ *  fixed 12 s, a fact, so it is said plainly. What is left is the allowance for each listener's
+ *  player, and it alone is called estimated; it is what the station counts beyond the hold, so
+ *  the parts always add up to the figure above them. While the listener process does not answer,
+ *  that share also holds the buffer's nominal 0.5 s, and the words say so: *about 1 s in the
+ *  buffer and listeners’ players (estimated)*.
+ *
+ *  A station that still gives the older single figure cannot split it (`mount_hold_ms` and
+ *  `player_ms` are null, or absent before 1.1.1), so it keeps the one sentence it had: *about
+ *  14.5 s in listeners’ players (estimated)*. Nothing here says *read* or *set*: those are the
+ *  code's words (the API's `read_ms` and `set_ms`). Empty when the control plane is too old to
+ *  say. */
 export function delayParts(d: ListenerDelay | undefined | null): string {
   if (!d || d.desk_ms === undefined || d.rest_ms === undefined) return '';
   const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
@@ -109,6 +117,11 @@ export function delayParts(d: ListenerDelay | undefined | null): string {
     const rest = d.ms - d.desk_ms - (d.process_ms ?? 0);
     if (rest > 0) parts.push(`${s(rest)} in listeners’ players`);
     return parts.join(', ');
+  }
+  const hold = d.mount_hold_ms;
+  if (typeof hold === 'number' && typeof d.player_ms === 'number' && d.rest_ms >= hold) {
+    const where = d.process_ms != null ? 'in listeners’ players' : 'in the buffer and listeners’ players';
+    return `${parts.join(', ')}, ${setSecs(hold)} held by the stream, about ${setSecs(d.rest_ms - hold)} ${where} (estimated)`;
   }
   return `${parts.join(', ')}, about ${setSecs(d.rest_ms)} in listeners’ players (estimated)`;
 }

@@ -240,7 +240,7 @@ pub struct Studio {
     /// What callers gave before calling, by identity: name, topic, consent.
     lobby: BTreeMap<String, CallIn>,
     /// How far behind listeners hear, as set (ADR-0103), without the profanity delay.
-    listener_delay_ms: u64,
+    listener_path: ListenerPath,
     /// Listeners connected now, from the listener process; `None` until counted, and while it
     /// does not answer (ADR-0046).
     listeners: Option<u32>,
@@ -391,7 +391,8 @@ pub struct ListenerDelay {
     /// How much of playout's feed the listener process holds now (read live from it, to
     /// 0.1 s); `None` while it does not answer.
     pub process_ms: Option<u64>,
-    /// The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own
+    /// The rest of the path as the settings say it (the mount's fixed 12 s and
+    /// `studio.player_allowance_ms`, or the older `studio.listener_delay_ms`): the mount's own
     /// hold, playout and a listener's player. Never read.
     pub rest_ms: u64,
     /// `estimate` while `set_ms` is not 0; `measured` only when the whole path was measured
@@ -402,12 +403,101 @@ pub struct ListenerDelay {
     pub read_ms: u64,
     /// The part of `ms` that is a setting and never read: the same as `rest_ms`.
     pub set_ms: u64,
+    /// Of `set_ms`, the listener mount's own hold (fixed, 12 s; not a setting); `null` when the
+    /// station gives the older single figure (`studio.listener_delay_ms`), which cannot be
+    /// split (ADR-0289).
+    pub mount_hold_ms: Option<u64>,
+    /// Of `set_ms`, what a listener's player is taken to add (`studio.player_allowance_ms`);
+    /// `null` with the older single figure. While the listener process's buffer is not read,
+    /// `set_ms` also holds its nominal 0.5 s, so the parts do not always add up to it.
+    pub player_ms: Option<u64>,
 }
 
-/// What the `studio.listener_delay_ms` setting is taken to include of the listener process's
-/// feed buffer (the 0.5 s default of `FEED_BUFFER_S`): when the live reading exists it replaces
-/// this share of the setting, so the buffer is counted once.
+/// What the listener process's feed buffer is taken to be (the 0.5 s default of
+/// `FEED_BUFFER_S`) while it is not read: when the live reading exists it replaces this share,
+/// so the buffer is counted once.
 const NOMINAL_FEED_BUFFER_MS: u64 = 500;
+
+/// How long the listener process's Icecast mount holds the stream before serving it: fixed in
+/// the mount, about 12 s (`icecast.server`'s pre-buffer). A constant, not a setting: nothing in
+/// playout can change it, so a setting would only change what the desk shows (ADR-0289).
+pub const DEFAULT_MOUNT_HOLD_MS: u64 = 12_000;
+
+/// What a listener's own player is taken to add on top: the default of
+/// `studio.player_allowance_ms`.
+pub const DEFAULT_PLAYER_ALLOWANCE_MS: u64 = 500;
+
+/// The part of the listener delay that nothing reads, as the settings give it (ADR-0289).
+///
+/// Two ways to say the same thing, so a station set up before the split keeps its figure:
+/// - `Parts`: the mount's fixed hold (`DEFAULT_MOUNT_HOLD_MS`, a constant) and a player
+///   allowance (`studio.player_allowance_ms`). The feed buffer is not in them: it is added as
+///   read, or as its nominal 0.5 s while it is not read.
+/// - `Whole`: the one figure of `studio.listener_delay_ms`, which has the buffer's nominal 0.5 s
+///   inside it and gives that share up when the buffer is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListenerPath {
+    Whole(u64),
+    Parts { player_allowance_ms: u64 },
+}
+
+impl Default for ListenerPath {
+    fn default() -> Self {
+        ListenerPath::Whole(0)
+    }
+}
+
+impl ListenerPath {
+    /// The defaults: 12 s and 0.5 s, which with the buffer make the old 13 s.
+    pub fn default_parts() -> Self {
+        ListenerPath::Parts {
+            player_allowance_ms: DEFAULT_PLAYER_ALLOWANCE_MS,
+        }
+    }
+
+    /// The part of the delay that is a setting, while the buffer is read live or not.
+    pub fn rest_ms(self, buffer_read: bool) -> u64 {
+        match self {
+            ListenerPath::Whole(ms) if buffer_read => ms.saturating_sub(NOMINAL_FEED_BUFFER_MS),
+            ListenerPath::Whole(ms) => ms,
+            ListenerPath::Parts {
+                player_allowance_ms,
+            } => {
+                DEFAULT_MOUNT_HOLD_MS
+                    + player_allowance_ms
+                    + if buffer_read {
+                        0
+                    } else {
+                        NOMINAL_FEED_BUFFER_MS
+                    }
+            }
+        }
+    }
+
+    /// The mount's hold, when the settings give the parts.
+    pub fn mount_hold_ms(self) -> Option<u64> {
+        match self {
+            ListenerPath::Parts { .. } => Some(DEFAULT_MOUNT_HOLD_MS),
+            ListenerPath::Whole(_) => None,
+        }
+    }
+
+    /// A player's allowance, when the settings give the parts.
+    pub fn player_allowance_ms(self) -> Option<u64> {
+        match self {
+            ListenerPath::Parts {
+                player_allowance_ms,
+            } => Some(player_allowance_ms),
+            ListenerPath::Whole(_) => None,
+        }
+    }
+
+    /// The whole figure with nothing read, as the settings stand: what the now-playing line
+    /// waits for before it follows playout (ADR-0103).
+    pub fn total_ms(self) -> u64 {
+        self.rest_ms(false)
+    }
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq, utoipa::ToSchema)]
 #[schema(as = StudioShow)]
@@ -624,14 +714,20 @@ impl Studio {
         Studio {
             show: show.to_owned(),
             rundown,
-            listener_delay_ms: 13_000,
+            listener_path: ListenerPath::default_parts(),
             ..Studio::default()
         }
     }
 
-    /// Set how far behind listeners hear (the `studio.listener_delay_ms` setting).
+    /// Set how far behind listeners hear as one figure (the old `studio.listener_delay_ms`
+    /// setting, which counts the buffer's nominal share in it).
     pub fn set_listener_delay(&mut self, ms: u64) {
-        self.listener_delay_ms = ms;
+        self.listener_path = ListenerPath::Whole(ms);
+    }
+
+    /// Set the part of the delay nothing reads, from the settings (`StudioConfig::listener_path`).
+    pub fn set_listener_path(&mut self, path: ListenerPath) {
+        self.listener_path = path;
     }
 
     /// Whether the default loop is on air; true when this changed it.
@@ -1323,12 +1419,7 @@ impl Studio {
     fn listener_delay(&self, delay: Option<&crate::desk::DeskDelay>) -> ListenerDelay {
         let desk_ms = delay.map_or(0, |x| u64::from(x.delay_ms / 100 * 100));
         let process_ms = self.feed_buffer_ms;
-        let rest_ms = match process_ms {
-            Some(_) => self
-                .listener_delay_ms
-                .saturating_sub(NOMINAL_FEED_BUFFER_MS),
-            None => self.listener_delay_ms,
-        };
+        let rest_ms = self.listener_path.rest_ms(process_ms.is_some());
         ListenerDelay {
             ms: desk_ms + process_ms.unwrap_or(0) + rest_ms,
             measured: false,
@@ -1338,6 +1429,8 @@ impl Studio {
             basis: DelayBasis::Estimate,
             read_ms: desk_ms + process_ms.unwrap_or(0),
             set_ms: rest_ms,
+            mount_hold_ms: self.listener_path.mount_hold_ms(),
+            player_ms: self.listener_path.player_allowance_ms(),
         }
     }
 
@@ -1618,7 +1711,9 @@ mod tests {
                 rest_ms: 13_000,
                 basis: DelayBasis::Estimate,
                 read_ms: 8_000,
-                set_ms: 13_000
+                set_ms: 13_000,
+                mount_hold_ms: Some(12_000),
+                player_ms: Some(500),
             }
         );
         // Its buffer read: it replaces the 0.5 s the setting is taken to hold, once.
@@ -1649,6 +1744,8 @@ mod tests {
             "read and set make the whole"
         );
         let json = serde_json::to_value(read).unwrap();
+        assert_eq!(json["mount_hold_ms"], 12_000);
+        assert_eq!(json["player_ms"], 500);
         assert_eq!(json["basis"], "estimate");
         assert_eq!(json["read_ms"], 11_600);
         assert_eq!(json["set_ms"], 12_500);
@@ -1656,6 +1753,55 @@ mod tests {
         assert_eq!(s.listener_delay(None).desk_ms, 0);
         assert!(s.set_feed_buffer(None));
         assert_eq!(s.listener_delay(None).ms, 13_000);
+    }
+
+    #[test]
+    fn the_listener_path_says_the_same_in_parts_as_in_one_figure() {
+        let delay = crate::desk::DeskDelay {
+            delay_ms: 8_000,
+            target_ms: 8_000,
+            rebuilding: false,
+            dumps: 0,
+            dumped_ms_ago: None,
+        };
+        let mut s = Studio::new("Show", vec![]);
+        // The defaults are the old 13 s: 12 s of mount, 0.5 s of player, 0.5 s of buffer.
+        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 13_000);
+        assert!(s.set_feed_buffer(Some(500)));
+        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 12_500);
+        // The old figure and its parts give the same answer, buffer read or not, for the old
+        // default; the old figure still means what it did for any other value.
+        for read in [false, true] {
+            assert_eq!(
+                ListenerPath::Whole(13_000).rest_ms(read),
+                ListenerPath::default_parts().rest_ms(read)
+            );
+        }
+        assert_eq!(ListenerPath::Whole(9_000).rest_ms(false), 9_000);
+        assert_eq!(ListenerPath::Whole(9_000).rest_ms(true), 8_500);
+        assert_eq!(ListenerPath::Whole(0).rest_ms(true), 0, "no underflow");
+        assert_eq!(ListenerPath::Whole(0).total_ms(), 0);
+        // Parts: the buffer is added by the reading, or by its nominal half second.
+        // The mount's 12 s is a constant; only the player's allowance is a setting.
+        let parts = ListenerPath::Parts {
+            player_allowance_ms: 2_000,
+        };
+        assert_eq!(parts.mount_hold_ms(), Some(12_000));
+        assert_eq!(parts.player_allowance_ms(), Some(2_000));
+        assert_eq!(parts.rest_ms(true), 14_000);
+        assert_eq!(parts.rest_ms(false), 14_500);
+        assert_eq!(parts.total_ms(), 14_500);
+        s.set_listener_path(parts);
+        assert!(s.set_feed_buffer(None));
+        assert_eq!(s.listener_delay(None).rest_ms, 14_500);
+        assert!(s.set_feed_buffer(Some(3_000)));
+        let v = s.listener_delay(Some(&delay));
+        assert_eq!((v.rest_ms, v.process_ms), (14_000, Some(3_000)));
+        assert_eq!(v.ms, 8_000 + 3_000 + 14_000);
+        assert_eq!((v.mount_hold_ms, v.player_ms), (Some(12_000), Some(2_000)));
+        // The old setter still means the old figure.
+        s.set_listener_delay(9_000);
+        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 8_500);
     }
 
     #[test]

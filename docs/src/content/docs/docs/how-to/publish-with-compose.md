@@ -125,6 +125,6 @@ On 2026-11-03 the public route ran on a dedicated public server (rootless Podman
 ## Known limits
 
 - **IPv6 and TURN**: see the AAAA record under [Before you start](#before-you-start).
-- **The desk's WebRTC sends without congestion control**: its image lacks GStreamer's `rtpgccbwe`, so a guest on a poor link may hear more loss than a browser-to-browser call would give.
+- **The desk's congestion control sees only its own link**: it adapts the programme picture, but each voice goes out at a set bitrate, so a guest on a poor link may hear more loss than a browser-to-browser call would give.
 - **Quadlets** are generated with the proxy when the settings name a domain (`deploy/quadlets/generate.sh`), but the generated proxy units have been checked with Podman's generator only, not run.
 - **The edges** (`edges.yaml`) pull from loopback and are unchanged by the public route.

@@ -25,22 +25,25 @@ The name never covers a live control and never takes a key.
 
 The studio clock: room time with tenths of a second, and back-timing to the next hard post in the rundown, with a bar that fills as it nears.
 
-Under it, the time listeners are hearing and how far behind that is, as an estimate: *Listeners hear 16:00:55 · about 23 s behind* (ADR-0103, ADR-0165, ADR-0272; issue 17, built for 1.1).
-Each panel of the desk states the figure once. The stage's line above says *listeners about 23 s behind (an estimate)*, and the delay panel beside it says what the profanity delay holds, not where listeners are ([`desk.delay`](#deskdelay)).
+Under it, the time listeners are hearing and how far behind that is, as an estimate: *Listeners hear 16:00:57 · about 21 s behind* (ADR-0103, ADR-0165, ADR-0272; issue 17, built for 1.1).
+Each panel of the desk states the figure once. The stage's line above says *listeners about 21 s behind (an estimate)*, and the delay panel beside it says what the profanity delay holds, not where listeners are ([`desk.delay`](#deskdelay)).
 No honest end-to-end measurement exists: a marker cannot travel in the listener stream (a metadata change chains the Ogg stream and drops the mount), and a listener's own player buffers on top of what the station sends.
-So the figure is made of parts, and one line under it names them, in one place only: *8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners' players (estimated)*.
+So the figure is made of parts, and one line under it names them, in one place only and in the order the sound travels: *8.0 s profanity delay, 0.5 s buffer, 12 s held by the stream, about 0.5 s in listeners' players (estimated)*.
+The parts add up to the figure on the line above (*about 21 s behind* here).
 
 - **The profanity delay** is the station's own reading, live from the desk (8 s when full, by default, 0 just after a dump).
 - **The buffer** is what the listener process holds of playout's feed, its own reading every five seconds (about 0.5 s; it grows on a loaded host, which is how to see a backlog).
-- **In listeners' players** is the rest, the setting `studio.listener_delay_ms` (13 s by default, less the 0.5 s the buffer's reading replaces): the stream's own hold (the listener process holds the stream about 12 s before it serves it) and each listener's player. Nothing reads this part, so it alone is called *estimated*.
+- **Held by the stream** is the stream's own hold: the listener process's mount keeps about 12 s of the stream before it serves it. It is fixed and not a setting, so the line says it plainly, without *about*.
+- **In listeners' players** is what each listener's own player adds, as `studio.player_allowance_ms` says (0.5 s by default). Nothing reads this part, so it alone is called *estimated*.
 
-The two readings have one decimal (the station reads them to 0.1 s); the estimated part has none when it is whole (*about 13 s*).
-If the listener process does not answer, its buffer is not named: *8.0 s profanity delay, about 13 s in listeners' players (estimated)*.
-The rehearsals measured about 22.5 s on loopback and 11.8 to 18.4 s over the internet; set `studio.listener_delay_ms` from such a measurement for your own station.
+The two readings have one decimal (the station reads them to 0.1 s); the other two parts have none when they are whole (*12 s*, *about 2 s*).
+If the listener process does not answer, its buffer is not named as a reading; its usual 0.5 s is counted with the estimate, and the line says so: *8.0 s profanity delay, 12 s held by the stream, about 1 s in the buffer and listeners' players (estimated)*.
+A station that sets only the older single figure, `studio.listener_delay_ms`, to something other than its default 13 s keeps that figure, and the desk cannot split it. Its line stays as it was before 1.1.1, with the stream's hold and the players as one estimate: *8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners' players (estimated)* for a setting of 15 s (less the 0.5 s the buffer's reading replaces).
+The rehearsals measured about 22.5 s on loopback and 11.8 to 18.4 s over the internet; set `studio.player_allowance_ms` from such a measurement for your own station.
 A figure measured end to end would drop *about* and *(estimated)*: *21 s behind*; nothing measures the whole path yet.
 A station before 1.1 does not send the parts, so the line itself keeps the label, *about 15 s behind (an estimate)*, as it did.
 
-The API says the same in fields (`listener_delay` in `GET /api/v1/studio`): `basis` is `estimate` or `measured`, `read_ms` is what the station reads now (the profanity delay and the buffer), `set_ms` is what is only a setting, and they add up to `ms`. *Read* and *set* are the API's words; the desk does not use them.
+The API says the same in fields (`listener_delay` in `GET /api/v1/studio`): `basis` is `estimate` or `measured`, `read_ms` is what the station reads now (the profanity delay and the buffer), `set_ms` is what is only a setting, and they add up to `ms`. *Read* and *set* are the API's words; the desk does not use them. From 1.1.1 the reply also carries `mount_hold_ms` and `player_ms`, the two parts of `set_ms` (the mount's fixed 12 s and the allowance; with the buffer not read, `set_ms` also holds its nominal 0.5 s); both are `null` on a station that still gives the single older figure, which cannot be split.
 Likewise the Listeners panel's `audience` carries `scope`, `origin` today: the listeners on this station's own listener process, every mount together.
 Listeners on an edge or a CDN are not added (an edge's relay counts as one connection), and neither are video viewers on HLS.
 
@@ -220,6 +223,7 @@ At Solo it is your own microphone link instead, from **Join with my microphone�
 At the Callers step only: who is waiting on the phone lines, what about and for how long, the longest wait first; three rows at most, then a count.
 **Take … to strip 4** (`P`) brings the caller who has waited longest to strip 4, off air.
 The strip holds one caller, so the button waits while it is taken.
+In a short window the rows scroll inside the panel, and the button stays in sight.
 At Full the queue is the Screener tab's, and this panel is not drawn.
 
 ![Callers on the desk: one waiting and the lines open, Niall Anderson about the bus lanes on Leith Walk, and Take Niall to strip 4.](../../../../../assets/screens/reference-desk-callers.png)
@@ -239,6 +243,7 @@ When video is on, more than about 500 are connected and the station has no CDN o
 The programme picture: the live picture or the slate, switched with `F7`.
 Under the switch are a small picture of each camera the desk sees, the one on air marked (refreshed every two seconds), and the slate's picture: **Choose a slate picture** takes a PNG or JPEG for the slate to show above its words, **Remove** takes it away ([Video in the desk](/docs/reference/desk-video/#the-slates-picture)).
 With video off the panel says so and the switch is disabled.
+In a short window (1,440 × 900 with video on) the panel scrolls inside itself: the picture and its switch stay in sight, and the cameras and the slate's picture are under them.
 
 ## `desk.carts`
 
@@ -250,11 +255,17 @@ The cart wall is the Carts tab (`⌃3`): see [Cart wall](/docs/reference/surface
 The chat to read, at every step: the room's last messages, newest at the foot.
 When held messages or reports wait for a moderator, one line says so (*1 report, 2 held messages need a moderator*), and where to go: the Screener tab, behind **Show everything** below Full.
 The chat's own rules keep acting at every step (ADR-0274).
+It shares the right column's last cell with [`desk.toast`](#desktoast), and keeps what is left under a toast.
 Until 1.0.2 the panel only said the chat was on the [Screener tab](/docs/reference/surfaces/screener/); writing in the chat and moderating it are still there.
 
 ## `desk.toast`
 
-The reserved slot a toast takes, in place of the chat glance, so nothing moves and no control is covered.
+The reserved slot a toast takes, above the chat glance, so nothing moves and no control is covered.
+The right column keeps the slot a floor of height, so a toast always has its place; in a short window it is the panel above the carts (`desk.picture`, or `desk.callers`) that gives way, and scrolls inside itself.
+In a short slot the message of a toast with keys is held to two lines, and at the floor to one, so its title and its keys are whole; point at the message to read the rest.
+The chat stays under the toast with what is left of the slot.
+Where that would not hold two lines of it (under a toast with keys in a 1,440 × 900 window at Full, for one), the chat is left out until the toast goes.
+Until 1.1.1 a toast always took the chat's place, and in a short window with video on the slot had no height at all.
 One toast at a time, most urgent first:
 
 1. a note you asked for, such as a key that is not in 1.0.0;

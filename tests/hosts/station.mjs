@@ -22,6 +22,10 @@
 // the admin. Sample people are the designs' (ADR-0071).
 
 import { Station, instant } from '../newshow/station.mjs';
+import { readFileSync } from 'node:fs';
+
+// The stand-in station runs the same version as the studio app under test.
+const APP_VERSION = JSON.parse(readFileSync(new URL('../../apps/studio/src-tauri/tauri.conf.json', import.meta.url), 'utf8')).version;
 
 export { instant };
 
@@ -53,7 +57,7 @@ export class HostStation extends Station {
    *  settings give no address for its stream; `publicUrl: null` one with no public address to
    *  make a monitor link from. `preparing` is a window that is preparing a show (ADR-0276). */
   constructor({ today = '2026-11-20', nowMinutes = 13 * 60 + 52, role = 'producer', routes = true, host = 'kettle.example', step = 'guests', preparing = false, ...o } = {}) {
-    super({ today, nowMinutes, version: routes ? '1.1.0' : '1.0.5', role, ...o });
+    super({ today, nowMinutes, version: routes ? APP_VERSION : '1.0.5', role, ...o });
     this.shows = [];
     this.episodes = [];
     const daily = (start, minutes) => ({ starts_on: '2026-09-07', start, minutes, repeat: { kind: 'weekly', every: 1, weekdays: [1, 2, 3, 4, 5] }, end: { kind: 'never' }, skip: [], moves: [] });
@@ -101,9 +105,10 @@ export class HostStation extends Station {
     this.lag = false;
     this.letGoAfterNextView = false;
     /** What the view says of the audience and of the listener delay (issue 17): the stand-in's
-     *  own, which a driver replaces to see each state the desk draws. */
+     *  own, which a driver replaces to see each state the desk draws. The delay is a default
+     *  1.1.1 station's: the mount's 12 s and a 0.5 s player allowance named apart (ADR-0289). */
     this.audience = { listeners: 138, by_mount: [{ mount: '/programme.opus', listeners: 138 }], error: null, edges: false, scope: 'origin' };
-    this.listenerDelay = { ms: 23_000, measured: false, basis: 'estimate', desk_ms: 8000, process_ms: 500, rest_ms: 14_500, read_ms: 8500, set_ms: 14_500 };
+    this.listenerDelay = { ms: 21_000, measured: false, basis: 'estimate', desk_ms: 8000, process_ms: 500, rest_ms: 12_500, read_ms: 8500, set_ms: 12_500, mount_hold_ms: 12_000, player_ms: 500 };
   }
 
   // ---- the driver's hands ----

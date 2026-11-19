@@ -39,7 +39,7 @@ export const DESK_B: readonly PanelInfo[] = [
   { name: 'desk.picture', what: 'In the right panel. The programme picture: the camera on air or the slate, switched with F7 (ADR-0010).' },
   { name: 'desk.carts', what: "In the right panel. The glance: the top row of the show's cart bank, F1 to F6 from any tab." },
   { name: 'desk.chat', what: 'In the right panel. The chat to read: the room’s last messages, and one line when something waits for a moderator.' },
-  { name: 'desk.toast', what: 'The reserved slot a toast takes; the chat glance steps aside, so nothing moves and no control is covered.' },
+  { name: 'desk.toast', what: 'The reserved slot a toast takes, above the chat glance: nothing moves and no control is covered.' },
   { name: 'desk.status', what: "The station's health in one line: the room, the link to playout, the listener server, and the talk rule." },
 ];
 

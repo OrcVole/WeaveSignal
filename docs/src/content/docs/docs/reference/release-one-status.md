@@ -3,12 +3,12 @@ title: "What release one does, and what it leaves out"
 description: "WeaveSignal 1.0.0 and 1.0.1: what each part of release one brings, what is not in it, what 1.0.1 added, the known limits, and what was measured. Every 'planned' mark on this site points here."
 type: reference
 status: draft
-last_verified: 2026-11-12
+last_verified: 2026-11-19
 sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, and **1.1.0** on 2026-11-18, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -77,7 +77,7 @@ Released in 1.0.2 (2026-11-12), ADR-0272:
 | **The chat to read, on the desk** | the desk's Chat panel shows the room's last messages at every step, and says when held messages or reports wait for a moderator; built for 1.0.2 |
 | **Prepare mode** | a studio window is Live or Preparing; a preparing window sees the live desk but cannot change what is on air (ADR-0276; [Get your show ready while someone else is on air](/docs/how-to/prepare-your-show/)) |
 | **A cart wall per show** | a show's own banks beside the station's shared ones; a preparing window edits its own show's banks without touching the live show's (ADR-0276); made and filled through the API for now |
-| **RTMP presets** | YouTube, Owncast and X beside Rumble, Odysee and PeerTube (Gab is not offered: its live streaming is not open yet), each with its profile; tried live against Owncast only ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
+| **RTMP presets** | YouTube, Owncast and X beside Rumble, Odysee and PeerTube (Gab is not offered: its live streaming is not open yet), each with its profile; tried live against Owncast, YouTube and X, with Compatible ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
 | **Simple guides** | eleven short guides for people at [/guides/](/guides/) |
 
 Released in 1.0.3 (2026-11-13), a patch:
@@ -133,8 +133,9 @@ Not in 1.1: the station pulling a host's or a partner's stream, the studio app a
 
 | Limit | What to do |
 |---|---|
-| The desk's WebRTC sends without congestion control: its image lacks GStreamer's `rtpgccbwe` | Nothing yet. A guest on a poor link may hear more loss than a browser-to-browser call would give |
+| The desk's congestion control (`rtpgccbwe`, since 1.0.1) sees only the desk's own link, and each voice goes out at a set bitrate | Nothing yet. A guest on a poor link may hear more loss than a browser-to-browser call would give |
 | LiveKit's built-in TURN refuses clients that reach it over IPv6 (an allocation error, 508; reported upstream as LiveKit issue 5131) | Give the TURN name an A record and no AAAA record (ADR-0217). On Cloudron the TURN name is the app's own domain, and Cloudron's install waits for an AAAA record on every name: add it for the install and delete it after, on a domain with manual DNS ([IPv6 and TURN](/docs/how-to/install-on-cloudron/#ipv6-and-turn)) |
+| A station asks outside STUN servers for addresses: the desk uses Google's by default; LiveKit asks Twilio's and Google's for its public address at start when `NODE_IP` is empty; and browsers joining the room can be given those servers when no STUN or UDP TURN is configured, so they would see a guest's address. This holds on Cloudron, Compose and Quadlets | Setting `NODE_IP` stops LiveKit's own lookup. 1.1.2 is planned to contact no outside STUN server by default (ADR-0290) |
 | A busy shared server starves the listener stream: on a host at load 9–22 on 12 cores, a 3 s feed cushion filled to its 10 s cap | Run a station on a server of its own. On a dedicated 4-vCPU server the default 0.5 s cushion held ([Memory and CPU](/docs/reference/resources/)) |
 | `weavesignal.sh` refuses `podman-compose`: it ignores the top-level `configs` that carry every service's settings | Use Docker Compose, or Podman with the docker-compose provider ([Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/)) |
 | Firefox for Android cannot use the microphone until Android allows it | In Android's settings, allow Firefox's microphone permission; the call page says when the microphone was refused |
@@ -143,7 +144,7 @@ Not in 1.1: the station pulling a host's or a partner's stream, the studio app a
 | The studio app's Linux webview has no WebRTC | Presenters and guests join the room from a browser; the studio app drives the desk |
 | The Windows installer is unsigned | Edge holds the download and SmartScreen may stop it the first time; run on Windows 11 on 2026-11-15 ([Install the studio app on Windows](/docs/how-to/install-studio-windows/)) |
 | The Cloudron package 1.0.0 runs with Cloudron's soft limit of 1,024 open files, so its listener stream takes fewer than 1,024 listeners | Update to 1.0.1, which raises it to 65,536 ([Open files and large audiences](/docs/how-to/install-on-cloudron/#open-files-and-large-audiences)) |
-| RTMP out has not been tried from a Cloudron install: the package's image carries the encoders (Ubuntu's OpenH264 and vo-aacenc, checked to load and encode in the image), but no Cloudron station has sent to an RTMP server yet | Send a short test stream with a test key before the first show, or send from a station on the Compose bundle ([What has been tried](/docs/how-to/send-to-video-platforms/#what-has-been-tried)) |
+| RTMP out has been tried from a Cloudron station only against Owncast (2026-11-11), YouTube and X (2026-11-12), all with Compatible; Rumble, Odysee and Enhanced RTMP (Open) against a server that takes it are not tried | Send a short test stream with a test key before the first show ([What has been tried](/docs/how-to/send-to-video-platforms/#what-has-been-tried)) |
 | RTMP out has been tested against servers on the test machine only (MediaMTX, OvenMediaEngine, PeerTube): not against Rumble, Odysee or another real platform, not over RTMPS, and not with NVENC's H.264 | Send a short test stream with a test key before the first show ([What has been tried](/docs/how-to/send-to-video-platforms/#what-has-been-tried)) |
 | Icecast out has been tested against Icecast 2.5, not against an AzuraCast itself | Try it with **Always** before the first show ([What has been tried](/docs/how-to/send-to-azuracast/#what-has-been-tried)) |
 

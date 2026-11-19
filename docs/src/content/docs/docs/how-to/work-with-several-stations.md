@@ -3,7 +3,7 @@ title: "Work with several stations"
 description: "Keep more than one station in the studio app and switch between them in one window: add a station, switch, what happens to a station left on air, give a station a name of your own, sign out of one, remove one, and what a station on another version gets."
 type: howto
 status: draft
-last_verified: 2026-11-15
+last_verified: 2026-11-18
 sidebar:
   order: 13
 ---
@@ -116,4 +116,5 @@ A station refuses, in its own words, anything it does not understand.
 |---|---|
 | *Control plane not connected* after a switch | The station does not answer. Press the station's name and go back, or wait. |
 | *Your sign-in has ended* | Press **Sign in again**. The sign-in screen for that station opens, with your other stations listed under it. |
+| The app opens signed out, with the address filled in, after you went back to a version older than 1.0.5 | Those versions do not read the list of stations. Sign in again; nothing on the station changed ([Roll back](/docs/how-to/update-studio-app/#roll-back)). |
 | The wrong station opened | Press the station's name and pick the other. The badge and the address on each row tell two stations with one name apart. |

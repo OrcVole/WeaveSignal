@@ -44,12 +44,12 @@ What you hear is **your own return**: the programme without you, anyone the stat
 It is live, not the stream listeners get, which runs some seconds behind.
 
 **While you stand by and nobody is on air at the station's desk**, automation holds the air, and automation does not pass through the desk, so your return would be silent.
-The page then plays the stream listeners hear instead, and says so, with how far behind it is: *You are hearing what listeners hear, about 23 s behind, while you stand by.*
+The page then plays the stream listeners hear instead, and says so, with how far behind it is: *You are hearing what listeners hear, about 21 s behind, while you stand by.*
 It stops the moment you are on air, or when someone else goes on air at the desk (their voice is in your return, live), or when the page loses the station, and your return takes over.
 Cue and anything said to you still come through your return as before.
 
 **While you are OPEN**, the station hears you and the room hears you, but listeners do not, because automation or the fallback holds the air.
-The page plays the station's output then too, and says plainly what it is: *You are hearing the station's output, about 23 s behind. The room's voices are not in it.*
+The page plays the station's output then too, and says plainly what it is: *You are hearing the station's output, about 21 s behind. The room's voices are not in it.*
 It is the station's own sound, a few seconds late, so you hear what listeners hear and not the people in the room.
 Before you press **Start listening** it says *You will hear*, because nothing plays yet.
 The page draws no level bar beside the stream, since the bar shows your live return, which has no programme in it then.

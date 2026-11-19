@@ -13,12 +13,21 @@
 #
 # Every port is a setting (ADR-0075): each one below comes from .env. Host networking keeps
 # the loopback binds exact; PostgreSQL listens on a Unix socket only, so it takes no port.
+#
+# Every service sets oom_score_adj from WEAVESIGNAL_OOM_SCORE_ADJ (0 when unset, as Docker does
+# anyway). Compose always sends a value, 0 when none is given, and an unprivileged process cannot
+# go below the OOM score adjustment it started with. Where the user session runs above 0 (a
+# systemd user manager and desktop session can, as on Fedora 45 with systemd 262), Podman's
+# `exec` into a container made with 0 then fails: "crun: write to /proc/self/oom_score_adj:
+# Permission denied", and PostgreSQL's healthcheck never passes. weavesignal.sh sets the variable
+# to the session's own value on Podman; set it yourself to override.
 
 name: weavesignal
 
 x-liquidsoap: &liquidsoap
   image: docker.io/savonet/liquidsoap:v2.5.0-rc1
   network_mode: host
+  oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
   # The scripts are bind-mounted from the repository; on SELinux hosts the container would
   # otherwise be refused them.
   security_opt: [label=disable]
@@ -36,6 +45,7 @@ x-liquidsoap: &liquidsoap
 services:
   livekit:
     image: docker.io/livekit/livekit-server:v1.13.10
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["--config", "/etc/livekit.yaml"]
     environment:
@@ -84,7 +94,8 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1}
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
     environment:
@@ -111,6 +122,7 @@ services:
 
   postgres:
     image: docker.io/library/postgres:18
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["postgres", "-c", "listen_addresses="]
     environment:
@@ -131,7 +143,8 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1}
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
     environment:
@@ -170,7 +183,8 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1}
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
     environment:
@@ -205,6 +219,7 @@ services:
   # on the public route. The control plane gives it the ports; it holds no other setting.
   ingest:
     image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.4}
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-ingest", "run"]
     environment:
@@ -435,6 +450,7 @@ configs:
       [studio]
       show = "${STUDIO_SHOW:-}"
       listener_delay_ms = ${STUDIO_LISTENER_DELAY_MS:-13000}
+      player_allowance_ms = "${STUDIO_PLAYER_ALLOWANCE_MS:-}"
       rundown = [${STUDIO_RUNDOWN:-}]
       banned = [${STUDIO_BANNED:-}]
 

@@ -505,6 +505,19 @@ describe('the listener delay (ADR-0103, ADR-0272)', () => {
     expect(delayParts({ ms: 15_000, measured: false })).toBe('');
     expect(delayParts(null)).toBe('');
   });
+
+  it('says the stream’s own hold as a fact and only the players’ share as an estimate (ADR-0289)', () => {
+    // A station with `studio.player_allowance_ms = 2000` and a backlog in its buffer.
+    const d = { ms: 25_000, measured: false, desk_ms: 8_000, process_ms: 3_000, rest_ms: 14_000, mount_hold_ms: 12_000, player_ms: 2_000 };
+    expect(delayParts(d)).toBe('8.0 s profanity delay, 3.0 s buffer, 12 s held by the stream, about 2 s in listeners’ players (estimated)');
+    // The buffer not read: its nominal 0.5 s is in the rest, and the words name it there.
+    expect(delayParts({ ...d, ms: 22_500, process_ms: null, rest_ms: 14_500 })).toBe('8.0 s profanity delay, 12 s held by the stream, about 2.5 s in the buffer and listeners’ players (estimated)');
+    // Null, or one part missing, is the older single figure: the sentence as it was.
+    expect(delayParts({ ...d, mount_hold_ms: null, player_ms: null })).toBe('8.0 s profanity delay, 3.0 s buffer, about 14 s in listeners’ players (estimated)');
+    expect(delayParts({ ...d, player_ms: null })).toBe('8.0 s profanity delay, 3.0 s buffer, about 14 s in listeners’ players (estimated)');
+    // A rest smaller than the hold cannot be split either: never a negative part.
+    expect(delayParts({ ...d, rest_ms: 9_000 })).toBe('8.0 s profanity delay, 3.0 s buffer, about 9 s in listeners’ players (estimated)');
+  });
 });
 
 describe('AUTO (ADR-0183)', () => {

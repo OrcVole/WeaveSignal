@@ -30,7 +30,9 @@
    *  sending and dropping are the live screener's. The chat's panels work as usual. */
   const prep = $derived(preparing());
   const prepWhy = $derived(prep ? OFF_WHY : undefined);
-  /** The listener delay: the `studio.listener_delay_ms` setting, labelled until measured (ADR-0103). */
+  /** The listener delay: the station's readings, the mount's fixed hold and the
+   *  `studio.player_allowance_ms` setting (or the older `studio.listener_delay_ms`), labelled until
+   *  measured (ADR-0103, ADR-0289). */
   const LISTENER_DELAY_MS = $derived(listenerDelayMs(v?.listener_delay));
   const behind = $derived(delayWords(v?.listener_delay));
   const now = $derived(stationNow());

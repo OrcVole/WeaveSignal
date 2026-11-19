@@ -2,6 +2,38 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.1.1 (2026-11-19)
+
+- **A notice no longer hides the chat.** On the desk a toast stands first in the right column's
+  slot and Chat keeps what is left under it, down to its header and two lines. The column gives
+  the slot a floor of 7.5 rem: the panel above it (Picture or Callers) gives way and scrolls inside
+  itself, with **Take** and the picture's switch kept in sight, so a toast is always drawn. In 1.1.0
+  a window of 1,440 by 900 with video on left the slot no height at all. A toast with keys holds
+  its message to two lines, then one, in a short slot, so its answer is never cut.
+- **Name plates follow what can be seen.** With plates pinned (`?audit=1`), a panel that is not
+  drawn has no plate, and one scrolled or squeezed out of sight has none and is listed as not in
+  view. Plates had stayed where a closed menu, dialog or hidden panel last was, over the controls
+  beneath it.
+- **The desk names the parts of the listener delay.** The clock's line says, for example, *8.0 s
+  profanity delay, 0.5 s buffer, 12 s held by the stream, about 0.5 s in listeners' players
+  (estimated)*. Only the players' part is an estimate. `listener_delay` in the view and API gains
+  `mount_hold_ms` and `player_ms`, `null` for a station on an older single figure other than 13 s.
+- **A setting for the player allowance** (ADR-0289): `studio.player_allowance_ms`, or
+  `STUDIO_PLAYER_ALLOWANCE_MS`, default 500. The stream's 12 s hold is fixed. An existing
+  `studio.listener_delay_ms` or `STUDIO_LISTENER_DELAY_MS` keeps working as before; if both are set
+  the allowance wins and the control plane logs a warning.
+- **Compose with Podman where the session runs above an OOM score of 0.** On such a host (seen with
+  Podman 6.1.3, crun 1.31 and systemd 262) `podman exec` failed in every container Compose had made
+  (*crun: write to /proc/self/oom_score_adj: Permission denied*), so PostgreSQL's health check never
+  passed and the station did not start. Each service now takes `WEAVESIGNAL_OOM_SCORE_ADJ`, which
+  `weavesignal.sh` sets from the session on Podman; it is never lowered, and Docker is unchanged.
+- **Docs.** What RTMP out has really been tried against (Owncast, YouTube and X, from a Cloudron
+  station). The desk has used congestion control since 1.0.1, which adapts the programme picture
+  but cannot help a guest on a poor link. Going back below 1.0.5 asks you to sign in again.
+- **Tests.** The unattended run records each container's anonymous memory and file cache from
+  outside the stack (`memstat.jsonl`), and `just test-cc` measures the desk's sending under loss,
+  jitter and limited bandwidth, with congestion control on and off.
+
 ## 1.1.0 (2026-11-18)
 
 - **The studio's chat connects on a Cloudron station.** The studio's chat socket now opens on the

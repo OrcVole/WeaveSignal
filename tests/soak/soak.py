@@ -39,13 +39,20 @@ from array import array
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 E = os.environ
-PROJECT = E["SOAK_PROJECT"]
-CONTROL_PORT = int(E["CONTROL_PORT"])
-LISTENERS_PORT = int(E["LISTENERS_PORT"])
-TOKEN = E["SOAK_TOKEN"]
-D = int(E["SOAK_DURATION_S"])
-SAMPLE_S = max(2, int(E.get("SAMPLE_S", "60")))
-OUT = E["OUT"]
+# `soak.py --memory-report <run folder>` recomputes the memory section of a finished run from its
+# saved samples (see `memory_report`); it needs none of the run's environment.
+REPORT_ONLY = sys.argv[1:2] == ["--memory-report"]
+if REPORT_ONLY:
+    OUT = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else sys.exit("usage: soak.py --memory-report <run folder>")
+    PROJECT, CONTROL_PORT, LISTENERS_PORT, TOKEN, D, SAMPLE_S = "", 0, 0, "", 0, 60
+else:
+    PROJECT = E["SOAK_PROJECT"]
+    CONTROL_PORT = int(E["CONTROL_PORT"])
+    LISTENERS_PORT = int(E["LISTENERS_PORT"])
+    TOKEN = E["SOAK_TOKEN"]
+    D = int(E["SOAK_DURATION_S"])
+    SAMPLE_S = max(2, int(E.get("SAMPLE_S", "60")))
+    OUT = E["OUT"]
 IMAGE = E.get("SOAK_IMAGE", "")
 CONTAINER_SUFFIX = "-1"
 NTRACKS = 6
@@ -55,7 +62,7 @@ HOUR = 3600
 STOP = threading.Event()
 T_START = time.time()
 NOTES = []  # what the script did to the station, and when
-LOGF = open(os.path.join(OUT, "run.log"), "a", buffering=1)
+LOGF = open(os.devnull if REPORT_ONLY else os.path.join(OUT, "run.log"), "a", buffering=1)
 
 
 def now():
@@ -353,6 +360,40 @@ def short(name):
     return n[: -len(CONTAINER_SUFFIX)] if n.endswith(CONTAINER_SUFFIX) else n
 
 
+CGROUP_ROOT = "/sys/fs/cgroup"
+
+
+def read_cgroups(containers):
+    """Each running container's memory, read from outside the stack, on the host: `memory.current`
+    and every line of `memory.stat` (bytes) of the container's own cgroup scope, which rootless
+    Podman with systemd puts at `/sys/fs/cgroup/<State.CgroupPath>` (user.slice/.../libpod-<id>.scope).
+    `anon` is the processes' own memory; `file` is page cache (files read and written, reclaimable
+    unless dirty or mapped); `shmem` is shared memory and tmpfs (counted in `file` too); `kernel` is
+    kernel memory the container holds. Podman's own "MemUsage" is `memory.current` minus
+    `inactive_file`. Returns ({container: {...}}, {container: why it could not be read})."""
+    got, err = {}, {}
+    out = sh("podman", "inspect", "--format", "{{.Name}}|{{.State.Status}}|{{.State.CgroupPath}}", *containers, timeout=60)
+    for line in out.splitlines():
+        name, status, path = (line.split("|") + ["", ""])[:3]
+        if status != "running":
+            continue  # a container that has finished (a one-shot step) has no cgroup to read
+        n = short(name)
+        if not path:
+            err[n] = "podman inspect gives no cgroup path"
+            continue
+        base = os.path.join(CGROUP_ROOT, path.lstrip("/"))
+        try:
+            d = {"current": int(open(os.path.join(base, "memory.current")).read())}
+            for kv in open(os.path.join(base, "memory.stat")).read().splitlines():
+                k, _, v = kv.partition(" ")
+                if v.strip().isdigit():
+                    d[k] = int(v)
+            got[n] = d
+        except (OSError, ValueError) as e:
+            err[n] = f"{type(e).__name__}: {e}"
+    return got, err
+
+
 class Observer:
     def __init__(self, helper, t0, containers):
         self.helper, self.t0, self.containers = helper, t0, containers
@@ -364,6 +405,12 @@ class Observer:
         self.restarts = []
         self.health_bad = 0
         self.samples_file = open(os.path.join(OUT, "samples.jsonl"), "w", buffering=1)
+        # the containers' own cgroup counters, read from the host (see `read_cgroups`)
+        self.cg_file = open(os.path.join(OUT, "memstat.jsonl"), "w", buffering=1)
+        self.cg_rows = []  # {"e", "t", "cg": {container: {"current": bytes, <memory.stat keys>: bytes}}, "err": {container: why}}
+        self.cg_failed = 0  # samples in which a running container could not be read
+        self.cg_last_err = None
+        json.dump({"duration_s": D, "sample_s": SAMPLE_S, "project": PROJECT, "image": IMAGE}, open(os.path.join(OUT, "memory-meta.json"), "w"))
         self._last = None
 
     def elapsed(self):
@@ -441,6 +488,7 @@ class Observer:
             if v is not None:
                 mem[short(n_)] = round(v, 1)
         row["mem"] = mem
+        self.sample_cgroups(t)
         now_state = self.inspect()
         for name, st in now_state.items():
             was = self.started.get(name)
@@ -451,6 +499,24 @@ class Observer:
         self.rows.append(row)
         self.samples_file.write(json.dumps(row, separators=(",", ":")) + "\n")
         return row
+
+    def sample_cgroups(self, t):
+        """A failure here is reported and counted, never raised: the run goes on without the reading."""
+        try:
+            cg, err = read_cgroups(self.containers)
+            if not cg and not err:
+                err = {"*": "no running container found"}
+        except Exception as e:  # podman not answering, a changed path: a missing reading, not a stop
+            cg, err = {}, {"*": f"{type(e).__name__}: {e}"}
+        if err:
+            self.cg_failed += 1
+            self.cg_last_err = err
+            log(f"WARNING: cgroup memory not read at {t:.0f}s for {sorted(err)}: {next(iter(err.values()))}")
+        row = {"e": round(t, 1), "t": iso(), "cg": cg}
+        if err:
+            row["err"] = err
+        self.cg_rows.append(row)
+        self.cg_file.write(json.dumps(row, separators=(",", ":")) + "\n")
 
 
 # ---- the run --------------------------------------------------------------------------------
@@ -570,6 +636,131 @@ def main():
     finish(obs, listener, helper, containers, tracks, victim, t0, t_stop, interrupted, dict(
         gap1=gap1, gap2=gap2, hole_a=hole_a, hole_len=hole_len, miss_a=miss_a, miss_len=miss_len, resumed_at=resumed_at, seed_plan=seed_plan, shows=shows, retained=retained))
     helper.close()
+
+# ---- memory: the verdicts and the tables, from saved samples (also `--memory-report`) -------
+
+MIB = 1048576
+
+
+def grew(start, end):
+    """The run's one growth rule for every memory series: more than 20 % and more than 20 MiB."""
+    return end > start * 1.2 and end - start > 20
+
+
+def series_start(series, base_at):
+    """The reading at the baseline time (after the stack has settled), else the first one."""
+    return next((v for e, v in series if e >= base_at), series[0][1])
+
+
+def memory_analysis(rows, cg_rows, duration):
+    """`rows` are the samples' rows (`mem` is `podman stats`, MiB); `cg_rows` the cgroup readings
+    (bytes). Returns the baseline time, the `podman stats` lines, and for each
+    container the start, peak and end (MiB) of memory.current (`total`), `anon`, `file`, `kernel`
+    and `shmem`, with whether each grew by the rule above."""
+    base_at = min(180, 0.15 * duration)
+    ws = []
+    for n in sorted({k for r in rows for k in r["mem"]}):
+        series = [(r["e"], r["mem"][n]) for r in rows if n in r["mem"]]
+        start, peak, end = series_start(series, base_at), max(v for _, v in series), series[-1][1]
+        ws.append((n, start, peak, end, grew(start, end)))
+    cg = {}
+    for n in sorted({k for r in cg_rows for k in r["cg"]}):
+        cg[n] = {}
+        for label, key in (("total", "current"), ("anon", "anon"), ("file", "file"), ("active file", "active_file"), ("kernel", "kernel"), ("shmem", "shmem")):
+            series = [(r["e"], r["cg"][n][key] / MIB) for r in cg_rows if key in r["cg"].get(n, {})]
+            if series:
+                start, peak, end = series_start(series, base_at), max(v for _, v in series), series[-1][1]
+                cg[n][label] = (start, peak, end, grew(start, end))
+    return {"base_at": base_at, "ws": ws, "cg": cg, "cg_samples": len(cg_rows),
+            "cg_failed": sum(1 for r in cg_rows if r.get("err"))}
+
+
+def memory_verdicts(a):
+    """(total flagged, anon flagged, file flagged, flagged by total but not by anon) as name lists."""
+    total = [n for n, _, _, _, f in a["ws"] if f]
+    anon = [n for n, d in a["cg"].items() if d.get("anon", (0, 0, 0, False))[3]]
+    file_ = [n for n, d in a["cg"].items() if d.get("file", (0, 0, 0, False))[3]]
+    return total, anon, file_, [n for n in total if n not in anon]
+
+
+def memory_lines(a, cg_last_err=None):
+    """The Markdown for RESULT.md's memory section."""
+    out = ["| container | start | peak | end | grew |", "|---|---|---|---|---|"]
+    out += [f"| {n} | {s} | {p} | {e} | {'**yes**' if f else 'no'} |" for n, s, p, e, f in a["ws"]]
+    out += ["", "Container memory as `podman stats` reports it (`memory.current` minus inactive file cache), MiB: it counts active page cache, so the verdict reads the cgroup table below. "
+            f"Baseline at {a['base_at']:.0f} s.", "",
+            "### The same, split by the cgroup's own counters (read on the host; `memstat.jsonl`)", ""]
+    if not a["cg"]:
+        out += [f"**No cgroup readings** ({a['cg_failed']} of {a['cg_samples']} samples failed" + (f"; last: {cg_last_err}" if cg_last_err else "") + ").", ""]
+        return out
+    out += ["| container | counter | start | peak | end | growth MiB | growth % |", "|---|---|---|---|---|---|---|"]
+    for n, d in a["cg"].items():
+        for label in ("total", "anon", "file", "active file"):
+            if label in d:
+                s_, p_, e_, f_ = d[label]
+                pc = f"{(e_ - s_) / s_ * 100:+.0f} %" if s_ else "-"
+                out.append(f"| {n} | {label}{' (memory.current)' if label == 'total' else ''} | {s_:.1f} | {p_:.1f} | {e_:.1f} | {e_ - s_:+.1f} | {pc}{' **over the rule**' if f_ else ''} |")
+    out += ["", "`total` is `memory.current`; `anon` is the processes' own memory (heap, stacks); `file` is page cache, the kernel's to take back under pressure unless it is dirty or mapped; `active file` is the part of it recently used (podman's figure leaves out only the inactive part, so growth in active file cache shows in the first table). MiB.", "",
+            "| container | kernel start | kernel end | shmem start | shmem end |", "|---|---|---|---|---|"]
+    for n, d in a["cg"].items():
+        k, sh_ = d.get("kernel"), d.get("shmem")
+        out.append(f"| {n} | {k[0]:.1f} | {k[2]:.1f} | {sh_[0]:.1f} | {sh_[2]:.1f} |" if k and sh_ else f"| {n} | - | - | - | - |")
+    out.append("")
+    out.append(f"Cgroup readings: {a['cg_samples'] - a['cg_failed']} of {a['cg_samples']} samples complete" + (f"; **{a['cg_failed']} had a failure** (last: {cg_last_err})" if a["cg_failed"] else "") + ".")
+    out.append("")
+    return out
+
+
+def memory_check_texts(a):
+    """The two lines: (name, ok, detail). The verdict reads each container's own memory, the cgroup's
+    `anon` and `shmem`; page cache is the kernel's to take back, and it moving from inactive to
+    active made a flat process look as if it had grown in `podman stats` (2026-11-18). That figure
+    stays beside it as information. With too few cgroup readings the verdict falls back on it."""
+    total, anon, file_, only_total = memory_verdicts(a)
+    own = sorted(set(anon) | {n for n, d in a["cg"].items() if d.get("shmem", (0, 0, 0, False))[3]})
+    podman = (f"baseline at {a['base_at']:.0f} s; grew: {total or 'none'}; of those, own memory did not grow in: "
+              f"{[n for n in only_total if n not in own] or 'none'}; page cache (`file`) grew: {file_ or 'none'}")
+    complete = a["cg_samples"] - a["cg_failed"]
+    if not a["cg"] or complete < 0.9 * a["cg_samples"]:
+        return (("no container's memory grew by more than 20 % (and 20 MiB) from its start reading to its end "
+                 "(`podman stats`: too few cgroup readings for the usual test)", not total, podman),
+                ("(information) the cgroup's own-memory test could not be made", None,
+                 f"readings complete at {complete} of {a['cg_samples']} samples; see the log's WARNING lines"))
+    return (("no container's own memory (`anon` and `shmem`) grew by more than 20 % (and 20 MiB) from its start reading to its end", not own,
+             f"baseline at {a['base_at']:.0f} s; grew: {own or 'none'}; readings complete at {complete} of {a['cg_samples']} samples"),
+            ("(information) the same test on `podman stats`, which counts active page cache (not part of the verdict)", None, podman))
+
+
+def memory_report(out):
+    """`soak.py --memory-report <run folder>`: the memory section again from `samples.jsonl`,
+    `memstat.jsonl` and `memory-meta.json`, printed and saved as `memory-recomputed.md`."""
+    def load(name):
+        rows = []
+        try:
+            for line in open(os.path.join(out, name)):
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    pass  # a line cut short by a stopped run
+        except OSError as e:
+            print(f"cannot read {name}: {e}", file=sys.stderr)
+        return rows
+
+    rows, cg_rows = load("samples.jsonl"), load("memstat.jsonl")
+    if not rows:
+        sys.exit("no samples")
+    try:
+        duration = json.load(open(os.path.join(out, "memory-meta.json")))["duration_s"]
+    except (OSError, ValueError, KeyError):
+        duration = rows[-1]["e"]
+        print(f"no memory-meta.json: taking the run's length as {duration:.0f} s", file=sys.stderr)
+    a = memory_analysis(rows, cg_rows, duration)
+    last_err = next((r["err"] for r in reversed(cg_rows) if r.get("err")), None)
+    t, n = memory_check_texts(a)
+    text = ["## Verdicts", "", f"- **{'PASS' if t[1] else 'FAIL'}** {t[0]}: {t[2]}", f"- **INFO** {n[0]}: {n[2]}", "", "## Memory (MiB)", ""] + memory_lines(a, last_err)
+    open(os.path.join(out, "memory-recomputed.md"), "w").write("\n".join(text))
+    print("\n".join(text))
+
 
 
 # ---- the end: checks and RESULT.md ----------------------------------------------------------
@@ -745,20 +936,11 @@ def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, 
     resets = sum(1 for a, b in zip(for_ms, for_ms[1:]) if b < a)
     check("the desk stayed linked to playout and its mixer kept time", not link and resets == 0 and (blocks == 0 or late / blocks < 0.001),
           f"link down at {len(link)} samples, {resets} resets of the link's age, {late} late blocks of {blocks}, longest pass {max(r.get('mix_max_us', 0) for r in rows)} us")
-    # 8 memory
-    names = sorted({k for r in rows for k in r["mem"]})
-    base_at = min(180, 0.15 * D)
-    grow, mem_lines = [], []
-    for n in names:
-        series = [(r["e"], r["mem"][n]) for r in rows if n in r["mem"]]
-        start = next((v for e, v in series if e >= base_at), series[0][1])
-        peak, end = max(v for _, v in series), series[-1][1]
-        flag = end > start * 1.2 and end - start > 20
-        if flag:
-            grow.append(n)
-        mem_lines.append((n, start, peak, end, flag))
-    check("no container's memory grew by more than 20 % (and 20 MiB) from its start reading to its end", not grow,
-          f"baseline at {base_at:.0f} s; grew: {grow or 'none'}")
+    # 8 memory: the verdict reads each container's own memory (cgroup anon and shmem)
+    mem_a = memory_analysis(rows, obs.cg_rows, D)
+    mem_total, mem_anon = memory_check_texts(mem_a)
+    check(*mem_total)
+    check(*mem_anon)
     # 9 information: plan against play, warnings
     pairs = [(i["planned_at_ms"], (by_item[i["id"]][0]["started_at_ms"] - i["planned_at_ms"]) / 1000)
              for i in played if by_item.get(i["id"]) and i["planned_at_ms"] < ms(t0 + plan["gap1"])]
@@ -787,10 +969,10 @@ def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, 
                     cnt[("text", re.sub(r"\d+", "N", re.sub(r"^\S+ \S+ ", "", line))[:90])] += 1
         if cnt:
             noise.append((short(c), cnt))
-    write_result(obs, L, checks, mem_lines, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift_pre)
+    write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift_pre)
 
 
-def write_result(obs, L, checks, mem_lines, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift):
+def write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift):
     fails = [c for c in checks if c[1] is False]
     out = [f"# Soak run {iso(t0)}", "",
            f"- Station image: `{IMAGE}`; project `{PROJECT}`; ran {fmt_t(t_stop)} of {fmt_t(D)} asked{' (INTERRUPTED)' if interrupted else ''}; sampled every {SAMPLE_S} s ({len(obs.rows)} samples in `samples.jsonl`).",
@@ -804,8 +986,7 @@ def write_result(obs, L, checks, mem_lines, files, noise, plan, victim, t0, t_st
     out += ["", "## What was on air (playout, now-playing, mode, desk connected), from the 2 s poll", ""]
     for t, a, n, m, d in obs.timeline:
         out.append(f"- {fmt_t(t)} {a} / {n} / {m} / desk {d}")
-    out += ["", "## Memory (MiB)", "", "| container | start | peak | end | grew |", "|---|---|---|---|---|"]
-    out += [f"| {n} | {s} | {p} | {e} | {'**yes**' if f else 'no'} |" for n, s, p, e, f in mem_lines]
+    out += ["", "## Memory (MiB)", ""] + memory_lines(mem_a, obs.cg_last_err)
     out += ["", "## Listener", "", f"- {L.connects} connection(s), {L.bytes / 1e6:.1f} MB, drops {L.drops}, gaps over 2 s {[(fmt_t(a), round(d, 1)) for a, d in L.gaps]}, silences {[(fmt_t(a), round(d, 1)) for a, d in L.silences]}"]
     out += ["", "## Logger files", ""] + [f"- {f['name']}: {f['bytes'] / 1e6:.1f} MB, {f['duration'] and round(f['duration'])} s, silences {f['silences']}" for f in files]
     out += ["", "## Warnings and errors in the containers' logs (last 20,000 lines each; `logs/`)", ""]
@@ -823,4 +1004,4 @@ def write_result(obs, L, checks, mem_lines, files, noise, plan, victim, t0, t_st
 
 
 if __name__ == "__main__":
-    main()
+    memory_report(OUT) if REPORT_ONLY else main()

@@ -12,10 +12,12 @@
 #   2. a wrong key is refused (ffmpeg fails; the key's row says wrong_key);
 #   3. an SRT source outside its slot is a private test, and never reaches the desk;
 #   4. an SRT source in its slot stands by, and its sound arrives at the desk;
-#   5. (DESK=real) when a slot's door closes, a source still standing by becomes a private test
+#   5. a wrong SRT passphrase is refused by the handshake and counted as a wrong key;
+#   6. ending a key closes its connection;
+#   7. (DESK=real) when a slot's door closes, a source still standing by becomes a private test
 #      (off the desk, its connection kept); with `test_outside` off its connection is closed
-#      instead; a source on air is never touched;
-#   6. (DESK=real) the post's rule with short settings: a late host goes on air after the count; at a
+#      instead; a source on air is never touched (ADR-0280, the operator's yes of 2026-11-16);
+#   8. (DESK=real) the post's rule with short settings: a late host goes on air after the count; at a
 #      show's post a host on air keeps the air for the grace and then the schedule hands over (the
 #      outgoing host becomes a test); a producer's hold stops one handover; End show passes the air
 #      to the next host standing by; a dropped link keeps its place and the return goes back on air.

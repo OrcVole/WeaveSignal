@@ -3,7 +3,7 @@ title: "Send your show to YouTube, Owncast, Rumble and other platforms"
 description: "Send the studio's picture and sound, behind the delay, to YouTube, Owncast, X, Rumble, Odysee, PeerTube or any RTMP server: turn video on, find the platform's server URL and stream key, add the destination, and go live."
 type: howto
 status: draft
-last_verified: 2026-11-11
+last_verified: 2026-11-18
 sidebar:
   order: 37
 ---
@@ -25,7 +25,7 @@ RTMP out sends the desk's picture, so the desk must run video.
 
 - **Compose or `weavesignal.sh`.** In the station's `.env` set `VIDEO=true`, and restart the station.
 - **For 720p** (Rumble's 720p tier, for example) set `VIDEO_CANVAS=720p30` as well: the desk then composes every picture at 1280 × 720 and scales its own player's picture down from it. It costs more CPU: about 5 points of one core for the picture, then 9 for the H.264 encode, on the test workstation.
-- **Cloudron.** The package runs video from 1.0.1 ([Install on Cloudron](/docs/how-to/install-on-cloudron/#video)) and its image carries RTMP out's encoders (Ubuntu's builds of OpenH264 and vo-aacenc), but no Cloudron station has sent to an RTMP server yet: send a short test stream with a test key first ([Known limits](/docs/reference/release-one-status/#known-limits)). A Cloudron app has no GPU, so H.264 is OpenH264 on the CPU (`RTMP_H264=openh264`).
+- **Cloudron.** The package runs video from 1.0.1 ([Install on Cloudron](/docs/how-to/install-on-cloudron/#video)) and its image carries RTMP out's encoders (Ubuntu's builds of OpenH264 and vo-aacenc), and a Cloudron station has sent **Compatible** to Owncast, YouTube and X ([What has been tried](#what-has-been-tried)); still send a short test stream with a test key before the first show. A Cloudron app has no GPU, so H.264 is OpenH264 on the CPU (`RTMP_H264=openh264`).
 
 The Settings panel says so when the desk runs without video.
 

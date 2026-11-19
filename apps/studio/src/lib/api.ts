@@ -272,8 +272,16 @@ export interface ListenerDelay {
   desk_ms?: number;
   /** What the listener process holds of playout's feed (read live); null while it does not answer. */
   process_ms?: number | null;
-  /** The rest of the path, as the `studio.listener_delay_ms` setting says (never read). */
+  /** The rest of the path (never read): the mount's fixed hold and `studio.player_allowance_ms`,
+   *  or the older single `studio.listener_delay_ms`. While `process_ms` is null it also holds the
+   *  buffer's nominal 0.5 s. */
   rest_ms?: number;
+  /** Of `rest_ms`, the listener mount's own hold: fixed at 12 s, not a setting (ADR-0289). Null on
+   *  a station that still gives the older single figure, which cannot be split; absent before 1.1.1. */
+  mount_hold_ms?: number | null;
+  /** Of `rest_ms`, what a listener's player is taken to add (`studio.player_allowance_ms`), an
+   *  estimate. Null and absent as `mount_hold_ms` is. */
+  player_ms?: number | null;
 }
 
 export interface MountCount {

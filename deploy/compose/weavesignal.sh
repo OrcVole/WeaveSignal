@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -115,6 +115,15 @@ case $engine in
 esac
 "$engine" compose version >/dev/null 2>&1 || die "'$engine compose' does not work here"
 [ "$engine" = docker ] || ! podman_compose_provider || die "$no_podman_compose"
+# Compose gives every container an oom_score_adj (compose.yaml: WEAVESIGNAL_OOM_SCORE_ADJ, 0 when
+# unset). A user session that runs above 0 cannot exec into such a container on Podman ("crun:
+# write to /proc/self/oom_score_adj: Permission denied"), so PostgreSQL's healthcheck never
+# passes. On Podman, when the session's own value is above 0 and the user has not set one, the
+# containers get that value. It is never lowered, and Docker keeps 0.
+if [ "$engine" = podman ] && [ -z "${WEAVESIGNAL_OOM_SCORE_ADJ:-}" ]; then
+  session_oom=$(cat /proc/self/oom_score_adj 2>/dev/null || echo 0)
+  if [[ $session_oom =~ ^[0-9]+$ ]] && [ "$session_oom" -gt 0 ]; then export WEAVESIGNAL_OOM_SCORE_ADJ=$session_oom; fi
+fi
 # Said on install, as Podman with podman-compose beside Docker now means Docker.
 [ "$action" != install ] || say "Container engine: $engine"
 # The public route is the overlay public.yaml, used whenever the settings file names a domain, so
@@ -186,7 +195,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.0)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -224,7 +233,7 @@ for key in STUDIO_SHOW STEERING_CLONE_FROM; do
   v=$(keep "$key" ""); v=${v#[\"\']}; v=${v%[\"\']}
   [[ $v != *[\"\\]* ]] || die "$key in $env_file holds a quote or a backslash, which the settings file cannot take; leave them out"
 done
-for key in STUDIO_LISTENER_DELAY_MS STEERING_TTL_S STEERING_CHECK_EVERY_S STEERING_CHECK_TIMEOUT_MS STEERING_DOWN_AFTER; do
+for key in STUDIO_LISTENER_DELAY_MS STUDIO_PLAYER_ALLOWANCE_MS STEERING_TTL_S STEERING_CHECK_EVERY_S STEERING_CHECK_TIMEOUT_MS STEERING_DOWN_AFTER; do
   v=$(keep "$key" ""); v=${v#[\"\']}; v=${v%[\"\']}
   [[ -z $v || $v =~ ^[0-9]+$ ]] || die "$key=$v in $env_file is not a whole number"
 done

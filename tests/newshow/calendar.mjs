@@ -13,7 +13,9 @@
 //
 // It also holds the toolbar to one line: the legend gives way before it wraps (issue 28: its
 // words, shorter words, then the glyphs alone), and the step button's name plate lies over no
-// control on the Schedule and Carts tabs with every plate pinned (`?audit=1`, issue 27).
+// control on the Schedule and Carts tabs with every plate pinned (`?audit=1`, issue 27). On the
+// Desk a pinned plate goes with a panel that cannot be seen: the chat glance left out under a
+// toast, and a panel scrolled out of sight in the one-column layout (1.1.1).
 //
 //   cd apps/studio && pnpm build
 //   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core OUT=/some/dir node tests/newshow/calendar.mjs
@@ -28,6 +30,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IMPORT_PREVIEW, SAMPLE_ICS, Station, instant } from './station.mjs';
+import { HostStation } from '../hosts/station.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_CORE ?? 'playwright-core');
@@ -667,6 +670,116 @@ if (run('plates')) {
   // The step button is inside the frame: its title is its own, so the frame's plate stays away.
   check('…and no other panel’s plate with it', hover?.showing.join() === 'studio.step', JSON.stringify(hover?.showing));
   await w.ctx.close();
+
+  // ---- On the Desk: a pinned plate goes with a panel that cannot be seen (1.1.1) ----
+  // The M2 drive's one failing check of 1.1.0: a toast took the slot, the chat glance was no
+  // longer drawn, and its plate stayed where the chat had been, by then over the cart wall. That
+  // drive only met it when a notice happened to be showing. Here the toast is brought on.
+  /** A window on a station's Desk tab; the view is asked again each second, as the hosts' suite does. */
+  async function openDesk(station, { text = 1, query = '?audit=1' } = {}) {
+    const ctx = await browser.newContext({ viewport: { width: SIZE.width, height: SIZE.height }, deviceScaleFactor: 1, timezoneId: 'Europe/London' });
+    await ctx.addInitScript((z) => {
+      try {
+        localStorage.setItem('weavesignal.theme', 'dark');
+        localStorage.setItem('weavesignal.zoom', String(z));
+      } catch {}
+    }, text);
+    const page = await ctx.newPage();
+    await page.clock.setFixedTime(new Date(station.now * 1000));
+    page.on('pageerror', (e) => check('no page errors', false, e.message));
+    await page.route(/\/(api\/|health)/, async (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      if (url.pathname === '/api/v1/studio/events') return route.fulfill({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify(station.studioView())}\n\n` });
+      if (url.pathname.startsWith('/api/v1/carts') || url.pathname.startsWith('/api/v1/chat')) return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"not in the stand-in"}' });
+      const [status, body] = station.handle(req.method(), url.pathname + url.search, req.postData() ? JSON.parse(req.postData()) : undefined);
+      await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await page.goto(`${ORIGIN}/${query}`);
+    await page.locator('[data-panel="desk.stage"]').waitFor({ timeout: 15000 });
+    await sleep(1500);
+    return { ctx, page };
+  }
+  /** The plates as they stand: which are shown for a panel that is not drawn, which lie outside
+   *  the desk's columns as the window shows them, and what the audit says. */
+  const platesNow = (page) =>
+    page.evaluate(() => {
+      const drawn = (n) => [...document.querySelectorAll(`[data-panel="${n}"]`)].some((p) => p.getClientRects().length > 0);
+      const cols = document.querySelector('.desk .cols').getBoundingClientRect();
+      const shown = [...document.querySelectorAll('.pn-tag.show')].map((t) => ({ name: t.querySelector('code').textContent, box: t.getBoundingClientRect() }));
+      const inCols = (n) => !!document.querySelector(`.desk .cols [data-panel="${n}"]`);
+      return {
+        chat: shown.some((x) => x.name === 'desk.chat'),
+        chatDrawn: drawn('desk.chat'),
+        toast: shown.some((x) => x.name === 'desk.toast'),
+        orphans: shown.filter((x) => !drawn(x.name)).map((x) => x.name),
+        outside: shown.filter((x) => inCols(x.name) && (x.box.bottom > cols.bottom + 1 || x.box.top < cols.top - x.box.height - 6)).map((x) => x.name),
+        audit: (document.getElementById('pn-audit')?.textContent ?? '').split('\n'),
+      };
+    });
+  const over = (a) => a.audit.filter((l) => l.includes('OVER'));
+  {
+    const st = new HostStation({ step: 'full' });
+    st.join('eilidh', 'Eilidh Fraser-MacLeod', 'presenter');
+    // Playout down brings the desk's tallest toast, which leaves the chat glance no room at Full.
+    let down = false;
+    const view = st.viewNow.bind(st);
+    st.viewNow = () => (down ? { ...view(), desk: { ...view().desk, playout: { connected: false, for_ms: 14_000 } } } : view());
+    const d = await openDesk(st);
+    const first = await platesNow(d.page);
+    check('on the Desk every plate is pinned: the chat glance has its plate, over no control', first.chat && first.chatDrawn && over(first).length === 0 && first.orphans.length === 0, JSON.stringify({ ...first, audit: over(first) }));
+    down = true;
+    await d.page.locator('[data-panel="desk.toast"]').waitFor({ timeout: 5000 });
+    await sleep(800);
+    const told = await platesNow(d.page);
+    check('a toast comes: it has its plate, and no plate lies over a control', told.toast && over(told).length === 0, over(told).join(' | '));
+    check('no plate is shown for a panel that is not drawn', told.orphans.length === 0, told.orphans.join(', '));
+    if (SIZE.width === 1440 && SIZE.height === 900 && SIZE.text === 1) check('at 1,440 × 900 the toast leaves the chat glance no room: the chat is left out, and its plate with it', !told.chatDrawn && !told.chat, JSON.stringify({ chatDrawn: told.chatDrawn, chat: told.chat }));
+    await shot(d.page, '32-plates-desk-toast');
+    down = false;
+    await d.page.locator('[data-panel="desk.toast"]').waitFor({ state: 'detached', timeout: 5000 });
+    await sleep(800);
+    const back = await platesNow(d.page);
+    check('the toast goes: the chat glance and its plate are back, over no control', back.chat && back.chatDrawn && over(back).length === 0 && back.orphans.length === 0, JSON.stringify({ ...back, audit: over(back) }));
+    await d.ctx.close();
+  }
+  {
+    // Large text in this window is one column that scrolls: the panels below the fold are drawn
+    // and cannot be seen. Their plates used to be held at the window's foot, over the status bar.
+    const st = new HostStation({ step: 'full' });
+    st.join('eilidh', 'Eilidh Fraser-MacLeod', 'presenter');
+    let down = false;
+    const view = st.viewNow.bind(st);
+    st.viewNow = () => (down ? { ...view(), desk: { ...view().desk, playout: { connected: false, for_ms: 14_000 } } } : view());
+    const d = await openDesk(st, { text: Math.max(SIZE.text, 1.2) });
+    const one = await d.page.evaluate(() => getComputedStyle(document.querySelector('.desk .cols')).gridTemplateColumns.split(' ').length === 1);
+    if (one) {
+      const top = await platesNow(d.page);
+      check('one column: no plate is drawn outside the column for a panel scrolled out of sight', top.outside.length === 0 && over(top).length === 0, JSON.stringify({ outside: top.outside, over: over(top) }));
+      check('…the chat glance is below the fold, has no plate, and the audit lists it as not in view', !top.chat && top.audit.includes('desk.chat  not in view'), top.audit.filter((l) => l.includes('not in view')).join(' | '));
+      await shot(d.page, '33-plates-desk-one-column');
+      await d.page.locator('.desk .cols').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await sleep(600);
+      const foot = await platesNow(d.page);
+      check('scrolled to the foot, the chat glance has its plate, and none is outside the column', foot.chat && foot.outside.length === 0 && over(foot).length === 0, JSON.stringify({ chat: foot.chat, outside: foot.outside, over: over(foot) }));
+      await shot(d.page, '34-plates-desk-one-column-foot');
+      // Every row is its content's height here: a toast is not shortened and the chat stays under it.
+      down = true;
+      await d.page.locator('[data-panel="desk.toast"]').waitFor({ timeout: 5000 });
+      await d.page.locator('.desk .cols').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await sleep(800);
+      const both = await d.page.evaluate(() => {
+        const msg = document.querySelector('.col.right .toast .msg');
+        const chat = document.querySelector('.col.right .chat');
+        const toast = document.querySelector('.col.right .toast').getBoundingClientRect();
+        return { whole: msg.scrollHeight - msg.clientHeight <= 1, chat: chat.getClientRects().length > 0, under: chat.getClientRects().length > 0 && chat.getBoundingClientRect().top >= toast.bottom };
+      });
+      const withToast = await platesNow(d.page);
+      check('one column, a toast: its message is whole, the chat is drawn under it, and both have their plates', both.whole && both.chat && both.under && withToast.chat && withToast.toast && withToast.outside.length === 0 && over(withToast).length === 0, JSON.stringify({ ...both, plates: [withToast.chat, withToast.toast], outside: withToast.outside, over: over(withToast) }));
+      await shot(d.page, '35-plates-desk-one-column-toast');
+    } else log('SKIP one column: this window is three columns at this text size; the default 1,440 × 900 run covers it');
+    await d.ctx.close();
+  }
 }
 
 await browser.close();

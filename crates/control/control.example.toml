@@ -75,7 +75,12 @@ worker_timeout_s = 120
 show = ""
 rundown = []             # [[studio.rundown]] at = "14:00", title = "News", detail = "...", hard_post = true, key = "F2"
 banned = []              # [[studio.banned]] identity = "...", date = "2026-09-12", reason = "..."
-listener_delay_ms = 13000  # the part of the listener delay nothing reads: the mount's hold and a player's buffer (ADR-0103, ADR-0272)
+# The part of the listener delay nothing reads (ADR-0103, ADR-0272, ADR-0289): what a listener's
+# player adds, on top of the Icecast mount's own fixed 12 s hold (not a setting). The desk's
+# profanity delay and the listener process's buffer are read live and added.
+player_allowance_ms = 500
+# listener_delay_ms = 13000  # the older way to say the hold and the allowance as one figure, with
+#                            # the buffer's 0.5 s inside it; used only while the allowance is not set
 
 # The video slate's still (ADR-0010): a picture uploaded in the studio, made into a clean PNG by
 # the media worker, which the desk (its `video.still_file`) shows on the slate.

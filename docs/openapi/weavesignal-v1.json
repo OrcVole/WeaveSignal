@@ -15193,10 +15193,28 @@
             "type": "boolean",
             "description": "True only when no part of `ms` is a setting. Nothing measures the mount's hold or a\nplayer's buffer, so it is false in this build; the app words the figure as an estimate\nand names the parts that are read."
           },
+          "mount_hold_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Of `set_ms`, the listener mount's own hold (fixed, 12 s; not a setting); `null` when the\nstation gives the older single figure (`studio.listener_delay_ms`), which cannot be\nsplit (ADR-0289).",
+            "minimum": 0
+          },
           "ms": {
             "type": "integer",
             "format": "int64",
             "description": "The total: `desk_ms` plus `process_ms` plus `rest_ms`.",
+            "minimum": 0
+          },
+          "player_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Of `set_ms`, what a listener's player is taken to add (`studio.player_allowance_ms`);\n`null` with the older single figure. While the listener process's buffer is not read,\n`set_ms` also holds its nominal 0.5 s, so the parts do not always add up to it.",
             "minimum": 0
           },
           "process_ms": {
@@ -15217,7 +15235,7 @@
           "rest_ms": {
             "type": "integer",
             "format": "int64",
-            "description": "The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own\nhold, playout and a listener's player. Never read.",
+            "description": "The rest of the path as the settings say it (the mount's fixed 12 s and\n`studio.player_allowance_ms`, or the older `studio.listener_delay_ms`): the mount's own\nhold, playout and a listener's player. Never read.",
             "minimum": 0
           },
           "set_ms": {

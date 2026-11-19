@@ -5094,10 +5094,12 @@ The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts t
 | `basis` | [DelayBasis](#schema-delaybasis) | yes | `estimate` while `set_ms` is not 0; `measured` only when the whole path was measured (issue 17). The same fact as `measured`, as a word a client can show. |
 | `desk_ms` | integer (int64) | yes | How much the desk's profanity delay holds now (read live from the desk), to 0.1 s. |
 | `measured` | boolean | yes | True only when no part of `ms` is a setting. Nothing measures the mount's hold or a player's buffer, so it is false in this build; the app words the figure as an estimate and names the parts that are read. |
+| `mount_hold_ms` | integer (int64), or null | no | Of `set_ms`, the listener mount's own hold (fixed, 12 s; not a setting); `null` when the station gives the older single figure (`studio.listener_delay_ms`), which cannot be split (ADR-0289). |
 | `ms` | integer (int64) | yes | The total: `desk_ms` plus `process_ms` plus `rest_ms`. |
+| `player_ms` | integer (int64), or null | no | Of `set_ms`, what a listener's player is taken to add (`studio.player_allowance_ms`); `null` with the older single figure. While the listener process's buffer is not read, `set_ms` also holds its nominal 0.5 s, so the parts do not always add up to it. |
 | `process_ms` | integer (int64), or null | no | How much of playout's feed the listener process holds now (read live from it, to 0.1 s); `None` while it does not answer. |
 | `read_ms` | integer (int64) | yes | The part of `ms` that is read live now: `desk_ms` plus `process_ms` (the latter 0 while the listener process does not answer). |
-| `rest_ms` | integer (int64) | yes | The rest of the path as the `studio.listener_delay_ms` setting says: the mount's own hold, playout and a listener's player. Never read. |
+| `rest_ms` | integer (int64) | yes | The rest of the path as the settings say it (the mount's fixed 12 s and `studio.player_allowance_ms`, or the older `studio.listener_delay_ms`): the mount's own hold, playout and a listener's player. Never read. |
 | `set_ms` | integer (int64) | yes | The part of `ms` that is a setting and never read: the same as `rest_ms`. |
 
 ### Schema: ListenerHour

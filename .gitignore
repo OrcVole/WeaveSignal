@@ -40,3 +40,4 @@ __pycache__/
 /tests/sources/run/
 /tests/calendar-path/run/
 /tests/monitor/run/
+/tests/cc/run/

@@ -17,6 +17,14 @@
 // pinned plate with no room even for that is left out, and the audit lists it as `no room`: a
 // plate is never drawn over a control to make a screenshot complete. With nothing pinned,
 // pointing at its title shows it as ever: alone, it has the room the pinned plates took.
+//
+// A plate is for a title a person can see. A pinned panel that is not drawn (the desk's chat
+// glance when a toast leaves it no room, a closed dialog) has no plate, as a panel that is not
+// on the page has none. It used to keep the plate where its title had last been, which by then
+// was the cart wall (the M2 drive, 2026-11-17). A pinned panel that is drawn but scrolled or
+// squeezed out of its column's sight has no plate either, and the audit lists it as `not in
+// view`; its plate used to be held at the window's edge, over the status bar. The plates are
+// placed again whenever a panel changes size, since a column can move with no node added.
 
 import { fixedScale } from '../../../../packages/ui/fixed.ts';
 
@@ -58,6 +66,39 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
     if (t === p) return p;
     const h = t.closest(HEAD);
     return h && p.contains(h) && h !== p ? h : h === p ? p : t;
+  };
+  /** Whether a person can see this title: it has a box, and at least half its height is left
+   *  inside the window and inside every ancestor that cuts off what runs out of it. A dialog
+   *  shown over the page, and anything fixed to the window, is cut by nothing outside itself. */
+  const inView = (t: Element): boolean => {
+    if (!t.getClientRects().length) return false;
+    const tr = t.getBoundingClientRect();
+    if (!tr.width && !tr.height) return false;
+    if (win.getComputedStyle(t).visibility !== 'visible') return false;
+    let { left, top, right, bottom } = tr;
+    left = Math.max(left, 0);
+    top = Math.max(top, 0);
+    right = Math.min(right, win.innerWidth);
+    bottom = Math.min(bottom, win.innerHeight);
+    const free = (e: Element, cs: CSSStyleDeclaration) => cs.position === 'fixed' || e.matches('dialog:modal');
+    for (let a = free(t, win.getComputedStyle(t)) ? null : t.parentElement; a && a !== doc.documentElement; a = a.parentElement) {
+      const cs = win.getComputedStyle(a);
+      const cutX = cs.overflowX !== 'visible';
+      const cutY = cs.overflowY !== 'visible';
+      if (cutX || cutY) {
+        const b = a.getBoundingClientRect();
+        if (cutX) {
+          left = Math.max(left, b.left);
+          right = Math.min(right, b.right);
+        }
+        if (cutY) {
+          top = Math.max(top, b.top);
+          bottom = Math.min(bottom, b.bottom);
+        }
+      }
+      if (free(a, cs)) break;
+    }
+    return right - left >= Math.min(tr.width, 8) && bottom - top >= tr.height / 2;
   };
   const plate = (name: string): HTMLElement => {
     let tag = doc.getElementById(id(name));
@@ -129,8 +170,8 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
   /** Place a title's plate. With `later`, a plate that finds no room by its title is left out
    *  and the answer is false: the caller places it after the others (`far`). */
   const show = (p: Element, t: HTMLElement, tag: HTMLElement, later = false, far = false): boolean => {
+    if (!inView(t)) return true;
     const tr = t.getBoundingClientRect();
-    if (!tr.width && !tr.height) return true;
     const hr = headOf(t, p).getBoundingClientRect();
     tag.classList.add('show');
     tag.style.maxWidth = 'none';
@@ -202,11 +243,16 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
   };
   const hide = (tag: HTMLElement) => tag.classList.remove('show');
   const pinned = (name: string) => all || pin.includes(name);
+  // A panel that changes size moves the ones after it, with no node added or removed (a line of
+  // text that arrives, a class that changes a column's rows): the pinned plates follow. Only a
+  // window that pins plates watches for it; with none pinned there is nothing to place again.
+  const sizes = (all || pin.length) && typeof win.ResizeObserver === 'function' ? new win.ResizeObserver(() => schedule()) : null;
 
   const bind = () => {
     for (const p of doc.querySelectorAll('[data-panel]')) {
       if (bound.has(p)) continue;
       bound.add(p);
+      sizes?.observe(p);
       const name = p.getAttribute('data-panel')!;
       const tag = plate(name);
       for (const t of titles(p)) {
@@ -236,21 +282,39 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
     // The plates with no room by their titles go last, clear of the ones that have.
     const last: [Element, HTMLElement, HTMLElement][] = [];
     for (const tag of doc.querySelectorAll<HTMLElement>('.pn-tag[data-no-room]')) delete tag.dataset.noRoom;
-    for (const p of doc.querySelectorAll('[data-panel]')) {
+    // Each pinned panel's titles that can be seen. A name drawn twice shares one plate (the
+    // lamp, a toast slot), so a name is out of view only when every title under it is.
+    const panels = [...doc.querySelectorAll('[data-panel]')].map((p) => {
       const name = p.getAttribute('data-panel')!;
-      if (pinned(name) && (p as HTMLElement).offsetParent !== null) {
-        // A panel with several titles has one plate, and the last title's place is the one it
-        // keeps: it waits only when that one has no room.
-        let waits: [Element, HTMLElement, HTMLElement] | null = null;
-        for (const t of titles(p)) waits = show(p, t, plate(name), true) ? null : [p, t, plate(name)];
-        if (waits) last.push(waits);
-      } else if (!pinned(name)) hide(plate(name));
+      const mine = pinned(name) ? titles(p) : [];
+      return { p, name, seen: mine.filter(inView), drawn: mine.some((t) => t.getClientRects().length > 0) };
+    });
+    const inSight = new Set(panels.filter((x) => x.seen.length).map((x) => x.name));
+    const drawn = new Set(panels.filter((x) => x.drawn).map((x) => x.name));
+    // First the plates that go: one left where its title used to be would lie over whatever
+    // is there now, and the plates still to be placed would keep clear of it.
+    for (const { name } of panels) {
+      const tag = plate(name);
+      const gone = pinned(name) && !inSight.has(name);
+      if (gone && drawn.has(name)) tag.dataset.away = '1';
+      else delete tag.dataset.away;
+      if (gone || !pinned(name)) hide(tag);
+    }
+    for (const { p, name, seen } of panels) {
+      // A panel with several titles has one plate, and the last title's place is the one it
+      // keeps: it waits only when that one has no room.
+      let waits: [Element, HTMLElement, HTMLElement] | null = null;
+      for (const t of seen) waits = show(p, t, plate(name), true) ? null : [p, t, plate(name)];
+      if (waits) last.push(waits);
     }
     for (const [p, t, tag] of last) show(p, t, tag, false, true);
     // A plate whose panel left the page goes with it.
-    for (const tag of doc.querySelectorAll<HTMLElement>('.pn-tag.show')) {
+    for (const tag of doc.querySelectorAll<HTMLElement>('.pn-tag.show, .pn-tag[data-away]')) {
       const name = tag.querySelector('code')?.textContent ?? '';
-      if (!doc.querySelector(`[data-panel="${name}"]`)) hide(tag);
+      if (!doc.querySelector(`[data-panel="${name}"]`)) {
+        hide(tag);
+        delete tag.dataset.away;
+      }
     }
     if (audit) writeAudit();
   };
@@ -265,6 +329,8 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
     }
     // A pinned plate that found no room is not drawn; it is listed, so the count stays honest.
     for (const tag of doc.querySelectorAll<HTMLElement>('.pn-tag[data-no-room]:not(.show)')) out.push(`${tag.firstChild?.textContent}  no room`);
+    // So is a pinned panel that is drawn where its title cannot be seen: out of its column's sight.
+    for (const tag of doc.querySelectorAll<HTMLElement>('.pn-tag[data-away]:not(.show)')) out.push(`${tag.firstChild?.textContent}  not in view`);
     let pre = doc.getElementById('pn-audit');
     if (!pre) {
       pre = doc.createElement('pre');
@@ -297,6 +363,7 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
     refresh: schedule,
     destroy() {
       observer.disconnect();
+      sizes?.disconnect();
       win.removeEventListener('scroll', replace, { capture: true });
       win.removeEventListener('resize', replace);
       all = false;

@@ -82,8 +82,8 @@ Pictures and documents that trusted chatters post in the chat wait in the same q
 
 ## The room
 
-`screener.room` is the chat in real time; listeners are about 23 s behind: the `studio.listener_delay_ms` setting (15 s by default) plus what the profanity delay holds (8 s by default) (ADR-0103, ADR-0165).
-The 15 s is a setting, not a measurement ([What release one does](/docs/reference/release-one-status/)).
+`screener.room` is the chat in real time; listeners are about 21 s behind: the mount's fixed 12 s and the setting `studio.player_allowance_ms` (13 s together by default, with the listener process's buffer) plus what the profanity delay holds (8 s by default) (ADR-0103, ADR-0165).
+The delay is a setting, not a measurement ([What release one does](/docs/reference/release-one-status/)).
 Select a line for its actions: `F` features it on the player page, `⇧P` pins it, `I` invites, `H` hides, `O` times out; **Remove picture** shows where the sender has a picture of their own.
 Post as the station with `⌃⏎`.
 

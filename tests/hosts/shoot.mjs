@@ -57,7 +57,7 @@ const browser = await chromium.launch({ headless: true, executablePath: process.
 
 /** A window on a station: every /api and /health request is the stand-in's to answer, and the
  *  studio's view is the stand-in's desk as it stands (asked again each second). */
-async function open(station, { theme = 'dark', settings = false, schedule = false } = {}) {
+async function open(station, { theme = 'dark', settings = false, schedule = false, query = '', before = null } = {}) {
   const ctx = await browser.newContext({ viewport: { width: SIZE.width, height: SIZE.height }, deviceScaleFactor: 1, timezoneId: 'Europe/London' });
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
   await ctx.addInitScript(([t, z]) => {
@@ -82,7 +82,9 @@ async function open(station, { theme = 'dark', settings = false, schedule = fals
     const [status, body] = station.handle(req.method(), url.pathname + url.search, req.postData() ? JSON.parse(req.postData()) : undefined);
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  await page.goto(`http://127.0.0.1:${PORT}/`);
+  // A section's own routes (the carts, a chat) go on last, so they answer first.
+  if (before) await before(page);
+  await page.goto(`http://127.0.0.1:${PORT}/${query}`);
   await page.locator('[data-panel="studio.frame"]').waitFor({ timeout: 15000 });
   if (settings) {
     await page.locator('button.settings-tab').click();
@@ -1327,15 +1329,21 @@ for (const theme of ['dark', 'light', 'night']) {
     ['not-counted-waiting', { audience: { listeners: null, by_mount: [], error: null, edges: false, scope: 'origin' } }, {}],
     ['edges', { audience: { listeners: 412, by_mount: [{ mount: '/programme.opus', listeners: 280 }, { mount: '/programme.mp3', listeners: 132 }], error: null, edges: true, scope: 'origin' } }, {}],
     ['measured', { listenerDelay: { ms: 21_200, measured: true, basis: 'measured', desk_ms: 8000, process_ms: 500, rest_ms: 0, read_ms: 21_200, set_ms: 0 } }, {}],
-    ['desk-only', { listenerDelay: { ms: 21_000, measured: false, basis: 'estimate', desk_ms: 8000, process_ms: null, rest_ms: 13_000, read_ms: 8000, set_ms: 13_000 } }, {}],
+    // The listener process does not answer: the rest also holds its buffer's nominal 0.5 s.
+    ['desk-only', { listenerDelay: { ms: 21_000, measured: false, basis: 'estimate', desk_ms: 8000, process_ms: null, rest_ms: 13_000, read_ms: 8000, set_ms: 13_000, mount_hold_ms: 12_000, player_ms: 500 } }, {}],
+    // A station that still gives the older single figure (15 s here), which cannot be split: both parts null.
+    ['older-figure', { listenerDelay: { ms: 23_000, measured: false, basis: 'estimate', desk_ms: 8000, process_ms: 500, rest_ms: 14_500, read_ms: 8500, set_ms: 14_500, mount_hold_ms: null, player_ms: null } }, {}],
+    ['older-figure-desk-only', { listenerDelay: { ms: 23_000, measured: false, basis: 'estimate', desk_ms: 8000, process_ms: null, rest_ms: 15_000, read_ms: 8000, set_ms: 15_000, mount_hold_ms: null, player_ms: null } }, {}],
   ];
   const want = {
-    counted: ['138 listeners now', 'programme.opus 138', 'about 23 s behind 8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners’ players (estimated)'],
+    counted: ['138 listeners now', 'programme.opus 138', 'about 21 s behind 8.0 s profanity delay, 0.5 s buffer, 12 s held by the stream, about 0.5 s in listeners’ players (estimated)'],
     'not-counted-error': ['Not counted: the listener process did not answer.'],
     'not-counted-waiting': ['Waiting for the first answer from the listener process.'],
     edges: ['412 listeners now', 'programme.opus 280 · programme.mp3 132', 'This counts this station’s own stream only'],
     measured: ['· 21 s behind 8.0 s profanity delay, 0.5 s buffer, 12.7 s in listeners’ players'],
-    'desk-only': ['about 21 s behind 8.0 s profanity delay, about 13 s in listeners’ players (estimated)'],
+    'desk-only': ['about 21 s behind 8.0 s profanity delay, 12 s held by the stream, about 1 s in the buffer and listeners’ players (estimated)'],
+    'older-figure': ['about 23 s behind 8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners’ players (estimated)'],
+    'older-figure-desk-only': ['about 23 s behind 8.0 s profanity delay, about 15 s in listeners’ players (estimated)'],
   };
   for (const [name, over] of states) {
     const st = new HostStation({ step: 'full', nowMinutes: 14 * 60 + 10 });
@@ -1359,6 +1367,232 @@ for (const theme of ['dark', 'light', 'night']) {
     await shotOf(page, aud, `D1-${name}-listeners`);
     await shotOf(page, page.locator('[data-panel="desk.clock"]'), `D2-${name}-clock`);
     if (name === 'counted') await shotOf(page, head, 'D3-counted-stage-head');
+    await ctx.close();
+  }
+}
+
+// ---- 2t. The right column's height: the slot's floor, a toast and the chat glance (1.1.1) ----
+// Until 1.1.1 the column's rows were three `auto` and a remainder from nothing. In a 1,440 × 900
+// window with video on the slot had no height, so a toast was not drawn at all and the Picture
+// panel ran under the carts; with three callers waiting the chat was its header alone; and a
+// toast always took the chat's place. Now the slot keeps a floor, the panel above the carts
+// gives way and scrolls inside itself, the chat keeps what is left under a toast, and a toast
+// in a short slot holds its message to two lines, or one, so its answer is whole.
+{
+  const CHAT = [['Morag', 'Morning all from Leith'], ['Tavish', 'that bus lane story again, is it'], ['Jessie', 'Play the hurray one more time'], ['Niall', 'Is the phone line open yet? It only rings out.'], ['Dougal', 'Good show today'], ['Morag', 'agreed, the weather bed is lovely'], ['Kirsty', 'who is on after the news?'], ['Tavish', 'Finlay, I think. Steeped.']];
+  const cart = (slot, label, ms) => ({ id: `c${slot}`, bank: 1, slot, label, detail: '', mode: 'one_shot', file: `c${slot}.flac`, duration_ms: ms, gain_db: 0, loudness_lufs: -16, true_peak_dbtp: -1, ramp_ms: null, origin: 'demo pack', licence: 'CC0-1.0', missing: false, show: null });
+  const CATALOGUE = { version: 1, show: null, banks: [{ number: 1, name: 'Reactions and comedy', colour_slot: 3, show: null }], carts: [cart(1, 'Applause after a joke', 12000), cart(2, 'Applause, short', 11000), cart(3, 'Crowd hurray', 4000), cart(4, 'Clapping and hurray', 12000), cart(5, 'Crowd ooh-aah', 5000), cart(6, 'Audience laugh, small', 3000)], loudness_lufs: -16 };
+  const RULES = { slow: false, hold_new: false, links_trusted: false, accounts_only: false, min_age_24h: false, influx: false, comments_only: false, guests: false, slow_s: 0, min_age_minutes: 0, max_chars: 300, hold_ms: 0 };
+  /** A station whose desk has what a real one has in this column: a bank of carts with
+   *  two-line names and a chat with people in it. `over` changes the view it gives. */
+  function busy(o = {}) {
+    const st = new HostStation({ step: 'full', ...o });
+    st.join('eilidh', 'Eilidh Fraser-MacLeod', 'presenter');
+    st.join('gregor', 'Gregor Stewart', 'guest', { on_air: true });
+    st.over = (v) => v;
+    const view = st.viewNow.bind(st);
+    st.viewNow = () => st.over(view());
+    const before = async (page) => {
+      await page.routeWebSocket(/\/api\/v1\/chat\/socket/, (ws) => {
+        ws.onMessage(() =>
+          ws.send(JSON.stringify({ t: 'welcome', epoch: 'e', offset: CHAT.length, recovered: false, missed: [], history: CHAT.map(([name, body], i) => ({ id: i + 1, kind: 'chat', body, author: { id: `a${i}`, name, kind: 'account', standing: 'regular', moderator: false }, reply_to: null, server_ms: st.now * 1000 - (CHAT.length - i) * 9000, playhead_ms: null, state: 'visible', pinned: false, featured: false, reactions: [] })), station: 'Kettle FM', show: 'The Long Lunch', me: null, rules: RULES, listener_delay_ms: 20000, server_now_ms: st.now * 1000, pinned: null, count: 41, statements: [], moderation: null })),
+        );
+      });
+      await page.route(/\/api\/v1\/(carts$|carts\?|chat\/staff\/session)/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(route.request().url().includes('/carts') ? CATALOGUE : { session: 's', me: null }) }));
+    };
+    return { st, before };
+  }
+  const NOTICE = (st) => ({ id: 9001, at_ms: st.now * 1000 - 1000, surface: 'desk', tone: 'good', kind: 'air.back', subject: null, title: 'Back on air', message: 'The desk is on air again.' });
+  const downed = (v) => ({ ...v, desk: { ...v.desk, playout: { connected: false, for_ms: 14_000 } } });
+  const VIDEO = { mode: { mode: 'auto' }, shot: 'person', identity: 'eilidh', cameras: ['eilidh', 'gregor'], hls: true, room: true, still: true };
+  const waiting = (st) => ['Niall Anderson|the bus lanes on Leith Walk', 'Dougal Thomson|the bins', 'Jessie Robertson|the ferry timetable', 'Tavish Murray|a request'].map((c, i) => ({ identity: `caller-${i}`, name: c.split('|')[0], ordinal: i + 1, state: 'waiting', since_ms: st.now * 1000 - (400 - i * 60) * 1000, arrived_ms: st.now * 1000 - 400_000, line: '', note: '', name_on_air: '', declined: null, banned_before: null, topic: c.split('|')[1], consent: { at_ms: 1, words: 'x' }, dropped_ms: null, slot: null, on_air: false, cue: false, linked: true, present: true, lufs: -24 }));
+
+  /** The right column as drawn, in window pixels: each panel's box (null when it is not drawn),
+   *  how many of the chat's lines are whole, and where its newest line ends. */
+  const rail = (page) =>
+    page.evaluate(() => {
+      const box = (e) => {
+        if (!e || !e.getClientRects().length) return null;
+        const b = e.getBoundingClientRect();
+        return { top: Math.round(b.top * 10) / 10, bottom: Math.round(b.bottom * 10) / 10, height: Math.round(b.height * 10) / 10 };
+      };
+      const q = (s) => document.querySelector(s);
+      const root = document.documentElement;
+      const msgs = q('.col.right .chat .msgs');
+      const mb = msgs?.getClientRects().length ? msgs.getBoundingClientRect() : null;
+      const lines = mb ? [...msgs.querySelectorAll('.msg')].map((m) => m.getBoundingClientRect()).filter((b) => b.top >= mb.top - 0.5 && b.bottom <= mb.bottom + 0.5) : [];
+      const fold = q('.col.right > .panel > .fold');
+      return {
+        rem: parseFloat(getComputedStyle(root).fontSize) * (Number(root.style.zoom) || 1),
+        column: box(q('.col.right')),
+        status: box(q('.statusbar')),
+        audience: box(q('[data-panel="desk.audience"]')),
+        middle: box(q('[data-panel="desk.picture"], [data-panel="desk.callers"]')),
+        carts: box(q('[data-panel="desk.carts"]')),
+        slot: box(q('.col.right .slot')),
+        toast: box(q('.col.right .toast')),
+        answer: box(q('.col.right .toast .acts')),
+        chat: box(q('.col.right .chat')),
+        lines: lines.length,
+        newest: lines.length ? Math.round(lines.at(-1).bottom * 10) / 10 : null,
+        fold: fold ? { box: box(fold), scrolls: fold.scrollHeight - fold.clientHeight > 1, stop: fold.getAttribute('tabindex') } : null,
+      };
+    });
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const FLOOR = 7.5; // rem: `--slot-floor` in styles/desk-b.css
+  /** The checks every state of the column must pass: `r` as drawn now. */
+  function sound(r, what) {
+    const j = JSON.stringify(r);
+    check(`${what}: the slot keeps its floor of ${FLOOR} rem`, !!r.slot && r.slot.height >= FLOOR * r.rem - 1, j);
+    check(`${what}: the column ends above the status bar, and the slot inside the column`, r.slot.bottom <= r.column.bottom + 0.5 && r.column.bottom <= r.status.top + 0.5, j);
+    check(`${what}: no panel runs under the next (Listeners, ${r.middle ? 'the panel between, ' : ''}the carts, the slot)`, (!r.middle || (r.audience.bottom <= r.middle.top && r.middle.bottom <= r.carts.top)) && r.audience.bottom <= r.carts.top && r.carts.bottom <= r.slot.top, j);
+    if (r.toast) check(`${what}: the toast is whole inside the slot${r.answer ? ', its answer too' : ''}`, r.toast.top >= r.slot.top - 0.5 && r.toast.bottom <= r.slot.bottom + 0.5 && (!r.answer || r.answer.bottom <= r.toast.bottom), j);
+    check(`${what}: the chat glance is whole, with two lines or more to read, or left out: never a header alone`, r.chat === null ? !!r.toast : r.lines >= 2 && r.chat.bottom <= r.slot.bottom + 0.5 && (!r.toast || r.chat.top >= r.toast.bottom), j);
+  }
+  const above = (r) => ({ audience: r.audience, middle: r.middle, carts: r.carts, slot: r.slot });
+
+  // Full, video off: a notice, then the tallest toast the desk has (Playout down, with its answer).
+  {
+    const { st, before } = busy();
+    const { ctx, page } = await open(st, { before });
+    await page.locator('.col.right .chat .msg').first().waitFor({ timeout: 8000 });
+    const quiet = await rail(page);
+    sound(quiet, 'Full, no toast');
+    check('Full, no toast: the chat glance is drawn', quiet.chat !== null && quiet.toast === null, JSON.stringify(quiet));
+    await shot(page, 'R1-rail-full');
+    st.notices.push(NOTICE(st));
+    await toastOf(page).waitFor({ timeout: 5000 });
+    await sleep(400);
+    const told = await rail(page);
+    sound(told, 'Full, a notice');
+    check('Full: a toast arrives and nothing above the slot moves, nor the slot', same(above(quiet), above(told)), `${JSON.stringify(above(quiet))} then ${JSON.stringify(above(told))}`);
+    await shot(page, 'R2-rail-full-notice');
+    st.notices.length = 0;
+    st.over = downed;
+    await page.getByRole('button', { name: /Restart playout/ }).first().waitFor({ timeout: 5000 });
+    await sleep(400);
+    const down = await rail(page);
+    sound(down, 'Full, Playout down');
+    check('Full: Playout down’s toast has its answer, and the carts have not moved', !!down.answer && same(quiet.carts, down.carts), JSON.stringify(down));
+    await inView(page, toastOf(page).getByRole('button', { name: /Restart playout/ }), 'Restart playout, in the toast');
+    await shot(page, 'R3-rail-full-playout-down');
+    await ctx.close();
+  }
+
+  // Full with video on: the Picture panel is the one that gives way, and its switch stays in sight.
+  {
+    const { st, before } = busy();
+    st.over = (v) => ({ ...v, desk: { ...v.desk, picture: VIDEO } });
+    const { ctx, page } = await open(st, { before });
+    await page.locator('.col.right .chat .msg').first().waitFor({ timeout: 8000 });
+    await page.getByRole('button', { name: /Live picture/ }).waitFor();
+    const quiet = await rail(page);
+    sound(quiet, 'Full, video on');
+    const sw = await page.locator('[data-panel="desk.picture"] .sw').boundingBox();
+    const inside = quiet.fold?.box ?? quiet.middle;
+    check('Full, video on: the picture’s switch is in sight, inside its panel', !!sw && sw.y >= inside.top - 0.5 && sw.y + sw.height <= inside.bottom + 0.5 && inside.bottom <= quiet.carts.top, `${JSON.stringify(sw)} in ${JSON.stringify(inside)}`);
+    await shot(page, 'R4-rail-video');
+    st.over = (v) => downed({ ...v, desk: { ...v.desk, picture: VIDEO } });
+    await page.getByRole('button', { name: /Restart playout/ }).first().waitFor({ timeout: 5000 });
+    await sleep(400);
+    const down = await rail(page);
+    sound(down, 'Full, video on, Playout down');
+    check('Full, video on: the toast is drawn, and nothing above the slot moved for it', !!down.toast && down.toast.height > 20 && same(above(quiet), above(down)), JSON.stringify(down));
+    await inView(page, toastOf(page).getByRole('button', { name: /Restart playout/ }), 'Restart playout with video on');
+    // A toast with no answer keeps its words at the floor: the station's Dead air notice (three
+    // lines in this column) and the longest of four are whole, not shortened as a toast with keys is.
+    st.over = (v) => ({ ...v, desk: { ...v.desk, picture: VIDEO } });
+    for (const [title, message] of [
+      ['Dead air', 'The desk was silent too long while live; Kettle Overnight is on air until it sounds again.'],
+      ['Automation did not take the air', 'Eilidh went back on air while the delay played out, so the show carries on. Press End show again when it is over.'],
+    ]) {
+      st.notices.length = 0;
+      st.notices.push({ id: 9100 + title.length, at_ms: st.now * 1000 - 1000, surface: 'desk', tone: 'serious', kind: 'playout.dead_air', subject: null, title, message });
+      await toastOf(page).getByText(title, { exact: true }).waitFor({ timeout: 5000 });
+      await sleep(400);
+      const r = await rail(page);
+      sound(r, `Full, video on, the notice “${title}”`);
+      const cut = await toastOf(page).locator('.msg').evaluate((el) => el.scrollHeight - el.clientHeight > 1 || el.scrollWidth - el.clientWidth > 1);
+      check(`Full, video on: the notice “${title}” has all its words, and nothing above the slot moved`, !cut && !r.answer && same(above(quiet), above(r)), JSON.stringify(r.toast));
+      if (title === 'Dead air') await shot(page, 'R5b-rail-video-dead-air');
+    }
+    st.notices.length = 0;
+    st.over = (v) => downed({ ...v, desk: { ...v.desk, picture: VIDEO } });
+    await page.getByRole('button', { name: /Restart playout/ }).first().waitFor({ timeout: 5000 });
+    if (quiet.fold?.scrolls) {
+      // What gave way is reached by scrolling inside the panel: the slate's picture is its last part.
+      await page.locator('[data-panel="desk.picture"] .fold').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await sleep(200);
+      const still = await page.locator('[data-panel="desk.picture"] .still').boundingBox();
+      const after = await rail(page);
+      check('Full, video on: the cameras and the slate’s picture are reached by scrolling inside the panel', !!still && still.y + still.height <= after.fold.box.bottom + 0.5 && same(above(down), above(after)), JSON.stringify(still));
+    }
+    await shot(page, 'R5-rail-video-playout-down');
+    await ctx.close();
+  }
+
+  // Callers with four waiting: the list gives way, Take stays, the chat is to read.
+  {
+    const { st, before } = busy({ step: 'callers' });
+    st.over = (v) => ({ ...v, callers: waiting(st) });
+    const { ctx, page } = await open(st, { before });
+    await page.locator('.col.right .chat .msg').first().waitFor({ timeout: 8000 });
+    const take = page.getByRole('button', { name: /Take Niall/ });
+    await take.waitFor();
+    const r = await rail(page);
+    sound(r, 'Callers, four waiting');
+    const tb = await take.boundingBox();
+    check('Callers: Take is whole inside its panel, above the carts', !!tb && tb.y + tb.height <= r.middle.bottom && r.middle.bottom <= r.carts.top, `${JSON.stringify(tb)} in ${JSON.stringify(r.middle)}`);
+    check('Callers: the list is a tab stop while a row is out of sight, and only then', !!r.fold && (r.fold.stop === '0') === r.fold.scrolls, JSON.stringify(r.fold));
+    await shot(page, 'R6-rail-callers');
+    await ctx.close();
+  }
+
+  // Solo and Guests have no panel between: the chat stays under every toast, its newest line where it was.
+  for (const theme of ['dark', 'light']) {
+    const { st, before } = busy({ step: 'solo' });
+    const { ctx, page } = await open(st, { before, theme });
+    await page.locator('.col.right .chat .msg').first().waitFor({ timeout: 8000 });
+    const quiet = await rail(page);
+    sound(quiet, `Solo (${theme}), no toast`);
+    st.over = downed;
+    await page.getByRole('button', { name: /Restart playout/ }).first().waitFor({ timeout: 5000 });
+    await sleep(400);
+    const down = await rail(page);
+    sound(down, `Solo (${theme}), Playout down`);
+    check(`Solo (${theme}): the chat stays under the toast, and its newest line has not moved`, down.chat !== null && down.toast !== null && down.newest === quiet.newest && same(above(quiet), above(down)), `${quiet.newest} then ${down.newest} · ${JSON.stringify(down)}`);
+    await shot(page, `R7-rail-solo-playout-down-${theme}`);
+    await shotOf(page, page.locator('.col.right .slot'), `R8-slot-solo-playout-down-${theme}`);
+    await ctx.close();
+  }
+
+  // With every plate pinned: the chat glance's plate goes when the chat is left out, and comes back with it.
+  {
+    const { st, before } = busy();
+    const { ctx, page } = await open(st, { before, query: '?audit=1' });
+    await page.locator('.col.right .chat .msg').first().waitFor({ timeout: 8000 });
+    const plates = () =>
+      page.evaluate(() => {
+        const drawn = (n) => [...document.querySelectorAll(`[data-panel="${n}"]`)].some((p) => p.getClientRects().length > 0);
+        const shown = [...document.querySelectorAll('.pn-tag.show code')].map((c) => c.textContent);
+        return { chat: document.getElementById('pn-desk-chat')?.classList.contains('show') ?? false, orphans: shown.filter((n) => !drawn(n)), audit: (document.getElementById('pn-audit')?.textContent ?? '').split('\n').filter((l) => /OVER|desk\.(chat|toast)/.test(l)) };
+      });
+    const first = await plates();
+    check('plates pinned: the chat glance has its plate', first.chat && first.orphans.length === 0, JSON.stringify(first));
+    st.notices.push(NOTICE(st));
+    await toastOf(page).waitFor({ timeout: 5000 });
+    await sleep(600);
+    const told = await plates();
+    const r = await rail(page);
+    if (r.chat === null) check('plates pinned: the chat is left out under the toast, and its plate with it', !told.chat, JSON.stringify(told));
+    else check('plates pinned: the chat is under the toast, with its plate', told.chat, JSON.stringify(told));
+    check('plates pinned: no plate is drawn for a panel that is not, and none lies over a control', told.orphans.length === 0 && !told.audit.some((l) => l.includes('OVER')), JSON.stringify(told));
+    await shot(page, 'R9-rail-plates-toast');
+    st.notices.length = 0;
+    await toastOf(page).waitFor({ state: 'detached', timeout: 5000 });
+    await sleep(600);
+    const back = await plates();
+    check('plates pinned: when the toast goes the chat has its plate again', back.chat && back.orphans.length === 0, JSON.stringify(back));
     await ctx.close();
   }
 }

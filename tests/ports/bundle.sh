@@ -13,6 +13,8 @@
 # its volumes.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# shellcheck source=tests/oom-score-adj.sh
+. "$root/tests/oom-score-adj.sh"
 run="$root/tests/room/run"; mkdir -p "$run"
 env="$run/bundle.env"
 project=${WEAVESIGNAL_TEST_PREFIX:-weavesignal-m1}-bundle

@@ -9,7 +9,9 @@
 #
 # The settings (every one optional):
 #   STUDIO_SHOW                the show the desk heads: plain text (quotes and backslashes are escaped)
-#   STUDIO_LISTENER_DELAY_MS   how far behind listeners hear, in ms (default 13000)
+#   STUDIO_PLAYER_ALLOWANCE_MS what a listener's player adds, in ms (default 500)
+#   STUDIO_LISTENER_DELAY_MS   the mount's fixed 12 s and the allowance as one figure, in ms
+#                              (default 13000); the allowance wins when it is set
 #   STUDIO_RUNDOWN, STUDIO_BANNED, STEERING_EDGES
 #                              TOML inline tables, comma-separated, in single quotes in the file
 #   STEERING_TTL_S, STEERING_CHECK_EVERY_S, STEERING_CHECK_TIMEOUT_MS, STEERING_DOWN_AFTER
@@ -32,7 +34,7 @@ station_toml_string() { # name value
 station_sections() {
     local n s studio='' steering=''
     # Whole numbers, written as they are.
-    for n in STUDIO_LISTENER_DELAY_MS STEERING_TTL_S STEERING_CHECK_EVERY_S STEERING_CHECK_TIMEOUT_MS STEERING_DOWN_AFTER; do
+    for n in STUDIO_LISTENER_DELAY_MS STUDIO_PLAYER_ALLOWANCE_MS STEERING_TTL_S STEERING_CHECK_EVERY_S STEERING_CHECK_TIMEOUT_MS STEERING_DOWN_AFTER; do
         [[ -z ${!n:-} || ${!n} =~ ^[0-9]+$ ]] || { log "$n=${!n} in weavesignal.env is not a whole number"; return 1; }
     done
     if [[ -n ${STUDIO_SHOW:-} ]]; then
@@ -40,6 +42,7 @@ station_sections() {
         studio+="show = $s"$'\n'
     fi
     [[ -z ${STUDIO_LISTENER_DELAY_MS:-} ]] || studio+="listener_delay_ms = $STUDIO_LISTENER_DELAY_MS"$'\n'
+    [[ -z ${STUDIO_PLAYER_ALLOWANCE_MS:-} ]] || studio+="player_allowance_ms = $STUDIO_PLAYER_ALLOWANCE_MS"$'\n'
     [[ -z ${STUDIO_RUNDOWN:-} ]] || studio+="rundown = [$STUDIO_RUNDOWN]"$'\n'
     [[ -z ${STUDIO_BANNED:-} ]] || studio+="banned = [$STUDIO_BANNED]"$'\n'
     [[ -z ${STEERING_TTL_S:-} ]] || steering+="ttl_s = $STEERING_TTL_S"$'\n'

@@ -403,13 +403,37 @@ describe('the listener figures (issue 17)', () => {
     expect(delayWords({ ms: 21_200, measured: true, basis: 'measured' })).toBe('21 s behind');
   });
   it('names the parts in one place, the line under it, in a presenter’s words: never read or set', () => {
-    const counted = { ms: 23_000, measured: false, basis: 'estimate' as const, desk_ms: 8_000, process_ms: 500, rest_ms: 14_500, read_ms: 8_500, set_ms: 14_500 };
+    // A station that still gives the older single figure (15 s here) cannot split it: both parts are null.
+    const counted = { ms: 23_000, measured: false, basis: 'estimate' as const, desk_ms: 8_000, process_ms: 500, rest_ms: 14_500, read_ms: 8_500, set_ms: 14_500, mount_hold_ms: null, player_ms: null };
     expect(delayParts(counted)).toBe('8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners’ players (estimated)');
     // The listener process does not answer: its buffer is not named, and the rest stands for it.
     expect(delayParts({ ...counted, ms: 21_000, process_ms: null, rest_ms: 13_000, read_ms: 8_000, set_ms: 13_000 })).toBe('8.0 s profanity delay, about 13 s in listeners’ players (estimated)');
     // Measured end to end: the same parts, and nothing is called estimated.
     expect(delayParts({ ms: 21_200, measured: true, basis: 'measured', desk_ms: 8_000, process_ms: 500, rest_ms: 0 })).toBe('8.0 s profanity delay, 0.5 s buffer, 12.7 s in listeners’ players');
     for (const d of [counted, { ...counted, process_ms: null }, { ...counted, measured: true, basis: 'measured' as const }]) expect(`${delayLine(d)} ${delayParts(d)}`).not.toMatch(/\b(read|set)\b/i);
+  });
+  it('names the stream’s own hold apart from listeners’ players once the station says both (1.1.1, ADR-0289)', () => {
+    // What a default station sends: 12 s of mount, 0.5 s of player, and the buffer as read.
+    const parts = { ms: 21_000, measured: false, basis: 'estimate' as const, desk_ms: 8_000, process_ms: 500, rest_ms: 12_500, read_ms: 8_500, set_ms: 12_500, mount_hold_ms: 12_000, player_ms: 500 };
+    expect(delayParts(parts)).toBe('8.0 s profanity delay, 0.5 s buffer, 12 s held by the stream, about 0.5 s in listeners’ players (estimated)');
+    // The listener process does not answer: the rest then holds the buffer's nominal 0.5 s too,
+    // so that share is named with the players', and nothing is counted twice.
+    const unread = { ...parts, process_ms: null, rest_ms: 13_000, read_ms: 8_000, set_ms: 13_000 };
+    expect(delayParts(unread)).toBe('8.0 s profanity delay, 12 s held by the stream, about 1 s in the buffer and listeners’ players (estimated)');
+    // Both null (the older single figure): the one sentence it had.
+    const whole = { ...parts, ms: 23_000, rest_ms: 14_500, set_ms: 14_500, mount_hold_ms: null, player_ms: null };
+    expect(delayParts(whole)).toBe('8.0 s profanity delay, 0.5 s buffer, about 14.5 s in listeners’ players (estimated)');
+    for (const d of [parts, unread, whole]) {
+      const line = delayParts(d);
+      // The parts add up to the figure above them, only the last is an estimate, and the figure's own words are not said again.
+      const secs = [...line.matchAll(/([\d.]+) s\b/g)].map((m) => Number(m[1]));
+      expect(Math.round(secs.reduce((a, b) => a + b, 0) * 1000)).toBe(d.ms);
+      expect(line.match(/about/g)).toHaveLength(1);
+      expect(line).toMatch(/, about [\d.]+ s in [^,]*listeners’ players \(estimated\)$/);
+      expect(delayLine(d)).toBe(`about ${d.ms / 1000} s behind`);
+      expect(`${delayLine(d)} ${line}`).not.toMatch(/\b(read|set)\b/i);
+      expect(line).not.toMatch(/behind/);
+    }
   });
   it('keeps the old words for a station before 1.1, which sends no parts: nothing under the line would say it is an estimate', () => {
     expect(delayLine({ ms: 15_000, measured: false })).toBe('about 15 s behind (an estimate)');
@@ -420,18 +444,18 @@ describe('the listener figures (issue 17)', () => {
 
   it('states the delay once in each panel of the desk: the clock’s line and its parts, the stage’s subline, and DELAY says what it holds', () => {
     const delay = { delay_ms: 8_000, target_ms: 8_000, rebuilding: false, dumps: 0, dumped_at_ms: null };
-    const v = view(at(14, 10, 5), [shona], { listener_delay: { ms: 23_000, measured: false, basis: 'estimate', desk_ms: 8_000, process_ms: 500, rest_ms: 14_500, read_ms: 8_500, set_ms: 14_500 } });
+    const v = view(at(14, 10, 5), [shona], { listener_delay: { ms: 21_000, measured: false, basis: 'estimate', desk_ms: 8_000, process_ms: 500, rest_ms: 12_500, read_ms: 8_500, set_ms: 12_500, mount_hold_ms: 12_000, player_ms: 500 } });
     show({ ...v, desk: { ...v.desk, delay } });
     let body = render(DeskB).body;
     const clock = panel(body, 'desk.clock', '</section>');
-    expect(text(clock)).toMatch(/Listeners hear \d\d:\d\d:\d\d · about 23 s behind 8\.0 s profanity delay, 0\.5 s buffer, about 14\.5 s in listeners’ players \(estimated\)$/);
+    expect(text(clock)).toMatch(/Listeners hear \d\d:\d\d:\d\d · about 21 s behind 8\.0 s profanity delay, 0\.5 s buffer, 12 s held by the stream, about 0\.5 s in listeners’ players \(estimated\)$/);
     // Once: the figure is not said twice, the parts are in no tooltip, and no line says read or set.
     expect(text(clock).match(/behind/g)).toHaveLength(1);
     expect(text(clock).match(/profanity delay/g)).toHaveLength(1);
     expect(clock).not.toMatch(/title="[^"]*profanity delay/);
     expect(text(clock)).not.toMatch(/\b(read|set)\b/i);
     const head = body.slice(body.indexOf('<header class="stage-head"'), body.indexOf('</header>'));
-    expect(text(head)).toContain('1 on air · listeners about 23 s behind (an estimate)');
+    expect(text(head)).toContain('1 on air · listeners about 21 s behind (an estimate)');
     expect(text(head).match(/behind/g)).toHaveLength(1);
     // Under DELAY: what the delay holds, not where listeners are.
     expect(text(panel(body, 'desk.delay', '</button>'))).toContain('Delay 8.0 s full · 8.0 s held');
