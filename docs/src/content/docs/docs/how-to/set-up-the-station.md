@@ -42,7 +42,7 @@ Nothing is saved yet: check each part and save it.
 ## Name and takedown contact
 
 1. Give the **station name** as listeners should read it.
-2. Give the **takedown contact**: an email address or a link where a caller can ask for their call to be taken down. Call-in stays closed until there is one (ADR-0124).
+2. Give the **takedown contact**: an email address or a link where a caller can ask for their call to be taken down. Call-in stays closed until there is one (ADR-0124). A role address that someone reads (`calls@…`) serves; whether your station must also name a person, and whom, is a step-by-step chart in [Decide whose contact to give callers](/docs/how-to/decide-whose-contact-to-give/).
 3. Choose **Save name and contact**.
 
 Both are in force at once: the player, the consent words, podcast feeds, show cards and the studio's view.

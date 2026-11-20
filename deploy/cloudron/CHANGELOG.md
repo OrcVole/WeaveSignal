@@ -2,6 +2,18 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.2.0]
+
+- **A show can pull a stream**: a partner's Icecast mount, any HTTP or HTTPS audio, an HLS playlist or an SRT listener, opened before the show's time and standing by like a host's own studio. Migration 0042.
+- **The rota and the handover window**: the shows of the next twelve hours with who is down for each, and a window before each start (300 s by default) that names the next host and gives them one heads-up. Migration 0043.
+- **A host can send from OBS over WHIP**, sound only (OBS's picture is taken and discarded). New optional port `SOURCE_WHIP_PORT` (UDP, 9712), off by default; it needs the public pages domain. Migration 0044.
+- **The bridge**: a host's studio app carries their sound to the station over one WebSocket on 443, with no source port. Migration 0045 (its VBAN half is for Compose and the Quadlets only).
+- **Video's encoder is a setting**, `VIDEO_ENCODER`, added as `svt`: a Cloudron app has no GPU, so the desk encodes on the CPU with SVT-AV1 (`auto` and `nvenc` fall back to it).
+- **No outside STUN server unless you name one** (`STUN_SERVERS`), and **your own consent words** (`CONSENT_TEXT`) in `/app/data/weavesignal.env`.
+- **The desk's congestion control is a setting**, `CONGESTION_CONTROL` (`gcc`, the default as before, `homegrown` or `disabled`), added to `/app/data/weavesignal.env`.
+- **The studio app** shows the handover window under the desk's clock and the rota on the Schedule tab, makes a show from a stream the station pulls, and has Settings › Bridge; Settings › Presenter kit says VBAN is not offered on Cloudron.
+- The desk keeps its controls in view at 1,440 by 900, with a compact Picture and Callers. The phone line (migrations 0046 and 0047) is not on Cloudron yet; its shipped voice is already a setting, `PHONE_DEFAULT_VOICE` (`alba`, `edinburgh` or `own`).
+
 [1.1.1]
 
 - **A notice no longer hides the desk's chat**: a toast and Chat share the right column's slot, and a toast is always drawn, even in a small window with video on.

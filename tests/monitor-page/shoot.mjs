@@ -238,6 +238,7 @@ const scenarios = {
     const cnt = await text(lamp.locator('.cnt'));
     check('standing by: the count is to the post, on the station’s clock', /On air at 14:00:00/.test(cnt) && /2:[0-4]\d/.test(cnt), cnt);
     check('the title is the show and the host', (await p.title()) === 'Steeped · Finlay Grant', await p.title());
+    check('standing by with no heads-up from the station: none is drawn', (await p.locator('[data-says="heads-up"]').count()) === 0);
     const clock = await text(panel(p, 'clock'));
     check('the clock is the station’s, with its zone, the same as the device’s here', /13:57:[1-5]\d/.test(clock) && clock.includes('Europe/London · the same as yours'), clock);
     check('the header names the station', (await text(p.locator('.top .station'))) === 'Kettle FM');
@@ -305,6 +306,44 @@ const scenarios = {
     await shotAll('standby');
     await docShot(windows[3], 'how-to-monitor-standing-by', true);
     await clean(st, 'standing by');
+  },
+
+  // 13:55:10, the handover window (1.2): the station has given the host coming on next their
+  // heads-up, once. It sits above the lamp's sentence and the count, and goes when they are on air.
+  async headsup() {
+    const st = server.use(new MonitorStation({ now: at('13:55:10') }));
+    st.post = { mine: true, show_name: 'Steeped', start_ms: at('14:00'), host: 'Finlay Grant', host_state: 'standing_by', on_air_at_ms: at('14:00'), heads_up: { at_ms: at('13:55:00'), words: 'You are on next, at the start of Steeped.' } };
+    st.rows = { before: row('The Long Lunch', 'Duncan Boyd', 'in_room', '12:00', '14:00'), after: row('Kettle Drive', 'Heather Douglas', 'not_connected', '16:00', '18:00') };
+    describedAs('view with a heads-up', 'MonitorView', st.view());
+    await everyone(st);
+    for (const w of windows) {
+      const p = w.page;
+      await lampIs(p, 'standby');
+      const h = panel(p, 'lamp').locator('[data-says="heads-up"]');
+      await h.waitFor({ timeout: 8000 });
+      const said = await text(h);
+      check(`heads-up (${w.tag}): the station’s line and when it was given, on the station’s clock`, said === 'You are on next, at the start of Steeped. Heads-up at 13:55', said);
+      const box = await h.boundingBox();
+      const say = await panel(p, 'lamp').locator('.say').boundingBox();
+      const cnt = await panel(p, 'lamp').locator('.cnt').boundingBox();
+      check(`heads-up (${w.tag}): it sits above the lamp’s sentence and the count to the post`, !!box && !!say && !!cnt && box.y + box.height <= say.y + 0.5 && box.y + box.height <= cnt.y + 0.5, JSON.stringify({ box, say, cnt }));
+    }
+    const h = panel(main.page, 'lamp').locator('[data-says="heads-up"]');
+    check('heads-up: it is a status of its own, said once, and not an alert', (await h.getAttribute('role')) === 'status' && (await main.page.locator('[data-says="heads-up"][role="alert"]').count()) === 0);
+    check('heads-up: the count to the post stands as it did', /On air at 14:00:00/.test(await text(panel(main.page, 'lamp').locator('.cnt'))));
+    await shotAll('heads-up');
+    // On air: the lamp says it now, and the line goes.
+    Object.assign(st, { on_air: true });
+    st.post = { ...st.post, on_air_at_ms: null };
+    st.push();
+    await lampIs(main.page, 'on_air');
+    check('heads-up: once on air it is gone', (await main.page.locator('[data-says="heads-up"]').count()) === 0);
+    // A station that sends none (older than 1.2, or a host who is not next) draws none.
+    st.post = null;
+    st.push();
+    await sleep(300);
+    check('heads-up: nothing is drawn when the station sends none', (await main.page.locator('[data-says="heads-up"]').count()) === 0);
+    await clean(st, 'the heads-up');
   },
 
   // Heather in Berlin, behind a DJ who is running over, on a device whose clock is years wrong.

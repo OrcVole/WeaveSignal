@@ -25,6 +25,7 @@ srt_ingest = 7313      # udp, loopback: the programme; the desk listens, Liquids
 playout_feed = 7315    # tcp, loopback: playout's programme to the listener process (and 7316). Or 17315, 27315.
 desk_feed = 7317       # tcp, loopback: playout's programme back to the desk, the video's sound (ADR-0172). Or 17317, 27317.
 desk_sources = 7318    # tcp, loopback: hosts' own studios from the ingest to the desk (ADR-0280). Or 17318, 27318.
+ingest_whip = 7319     # tcp, loopback: WHIP's requests from the control plane to the ingest (17d). Or 17319, 27319.
 livekit_http = 7880    # tcp, loopback: LiveKit's signalling, behind the proxy. Or 17880, 27880.
 livekit_media = 7882   # udp, public: LiveKit's one media port. Or a port in 52000-60000 (not 50000-51000, Cloudron's TURN relays), or 443.
 livekit_tcp = 7881     # tcp, public: LiveKit's ICE over TCP. Or 17881, 27881.
@@ -35,6 +36,12 @@ turn_tls = 5349        # tcp, public: TURN over TLS, on by default (ADR-0080). O
 # cannot change them, and 0 turns that way in off. Left out, the rules' own ports apply.
 # source_icecast = 8005   # tcp, public: Icecast sources. Or 18005, 28005.
 # source_srt = 9710       # udp, public: SRT sources. Or 19710, 29710.
+# source_whip = 9712      # udp, public: WHIP's media from OBS (17d; the offer comes over HTTPS
+#                         # on the public domain). Or 19712, 29712. Needs the ingest's
+#                         # WEAVESIGNAL_INGEST_PUBLIC_IP.
+# The bridge (Phase 17g): the studio app's WebSocket, which the proxy passes from the station's
+# public address (`/api/v1/sources/bridge`) to the ingest on loopback. 0 turns it off.
+source_bridge = 7320   # tcp, loopback: the bridge from the studio app, behind the proxy. Or 17320, 27320.
 
 # The live room. LiveKit's API secret comes from WEAVESIGNAL_LIVEKIT_API_SECRET, never this file.
 [room]
@@ -103,8 +110,10 @@ stream_kbps = 96                 # the Opus stream's rate (the listener process'
 # ]
 call_in = true                   # the player page offers "call in" (ADR-0006)
 # What a caller agrees to before they can call: {station} becomes the station's name, {kept} how
-# long its recordings are kept (from the Jurisdiction setting), {contact} the line below. Changing
-# the words changes their version, and the consent log keeps the words each caller agreed to.
+# long its recordings are kept (from the Jurisdiction setting), {contact} the line below, and
+# {presenter} the show on air's presenter, else the station's name (not in the default words).
+# Changing the words changes their version, and the consent log keeps the words each caller
+# agreed to.
 consent_text = "You'll be live on {station}, and we may keep your call in our archive and podcast {kept}. To have it taken down, contact {contact}."
 consent_contact = ""             # an email address or a link; call-in stays closed until it is set
 call_pass_ttl_s = 14400          # a caller's pass: the wait, the call and a rejoin (4 hours)
@@ -112,6 +121,10 @@ invite_ttl_s = 14400             # an invite link works for 4 hours unless it as
 calls_per_address_per_hour = 6
 calls_per_minute = 30
 forwarded_for = false            # true only behind the station's own proxy, which sets X-Forwarded-For
+# STUN servers the join pages may ask (ADR-0290), host:port, comma-separated or a list. Empty: none.
+# The station's own STUN_SERVERS setting, which LiveKit and the desk read too. The pages strip every
+# STUN server LiveKit hands them (its default is Twilio's and Google's) that is not named here.
+stun_servers = ""
 # Call-in's challenge (ADR-0006): a proof of work the caller's browser does while they type, in
 # place of a CAPTCHA; nothing to see or solve. Each bit doubles the work; 0 turns it off.
 challenge_bits = 18              # about 260,000 hashes: well under a second on a recent phone
@@ -210,3 +223,9 @@ public_per_minute = 120
 token_per_minute = 600
 streams_per_address = 4
 webhooks_allow_private = false
+
+# The presenter kit's server half (Phase 17g). VBAN is unauthenticated UDP for one local network:
+# off unless set here, and never on Cloudron whatever this says. Its addresses and streams are set
+# in the studio (Settings, Presenter kit), bound to show keys.
+[kit]
+vban = false

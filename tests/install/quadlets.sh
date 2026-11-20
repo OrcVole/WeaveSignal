@@ -14,21 +14,40 @@ quadlet=${QUADLET:-/usr/libexec/podman/quadlet}
 [ -x "$quadlet" ] || { echo "Podman's quadlet generator is not at $quadlet (set QUADLET)" >&2; exit 2; }
 rm -rf -- "$run"; mkdir -p "$run"
 trap 'rm -rf -- "$run"' EXIT
-# Twice: the loopback bundle, and a public station (the proxy joins with its health check, and LiveKit's unit waits for it).
-for variant in loopback public; do
+# A GPU (17e): weavesignal.sh looks for an NVIDIA CDI spec only where it is told, never in this
+# machine's own /etc/cdi; the gpu station is given a stand-in spec, the others none.
+mkdir -p "$run/cdi-none" "$run/cdi"
+printf '%s\n' '---' 'cdiVersion: 0.5.0' 'kind: nvidia.com/gpu' 'devices:' '  - name: all' '    containerEdits: {}' > "$run/cdi/nvidia.yaml"
+# A station's own consent words (issue #26) with apostrophes, quotes, commas, braces and a " #":
+# they must reach the control plane's unit whole.
+consent='You'"'"'ll be on {presenter}'"'"'s show, "live", on {station}; kept {kept} # all. Ask {contact}.'
+# Four times: the loopback bundle, a public station (the proxy joins with its health check, and
+# LiveKit's unit waits for it), a loopback station with the telephone line (17f: phone.yaml), and
+# one with video on an NVIDIA card (17e: gpu.yaml, the card by its CDI name).
+for variant in loopback public phone gpu; do
   dir="$run/$variant"; mkdir -p "$dir"
-  extra=(); [ "$variant" = loopback ] || extra=(--public station.example)
+  # A public station's LiveKit address is the name's A record unless NODE_IP is given (ADR-0290),
+  # and station.example has none: a documentation address stands in, as nothing is started.
+  extra=(); [ "$variant" != public ] || extra=(--public station.example)
+  node_ip=; [ "$variant" != public ] || node_ip=203.0.113.7
+  phone=false; [ "$variant" != phone ] || phone=true
+  cdi="$run/cdi-none"; gpu=auto; [ "$variant" != gpu ] || { cdi="$run/cdi"; gpu=nvidia; }
   # The settings only: ports are written, not bound, so the defaults' alternatives may be chosen.
   # The proxy's 443 and 80 are not bindable by a rootless Podman, so a public station's ports are
   # given above 1024 here (nothing is bound).
-  PROXY_HTTPS_PORT=18443 PROXY_HTTP_PORT=18080 \
+  # The phone station's trunk is a documentation one (RFC 5737 addresses, an Ofcom drama number).
+  PHONE_NUMBERS='"+441314960000"' PHONE_ALLOWED_ADDRESSES='"198.51.100.0/24"' PHONE_PUBLIC_IP=203.0.113.7 \
+  PROXY_HTTPS_PORT=18443 PROXY_HTTP_PORT=18080 NODE_IP=$node_ip CONSENT_TEXT="$consent" PHONE=$phone \
+  WEAVESIGNAL_CDI_DIRS=$cdi GPU=$gpu \
     "$root/deploy/compose/weavesignal.sh" --project "$project" --env-file "$dir/station.env" --no-start "${extra[@]}" >/dev/null
+  [ "$variant" != gpu ] || echo VIDEO=true >> "$dir/station.env"
   # icecast-out (ADR-0226): the remote server's password is a Podman secret like the rest.
   printf 'ICECAST_OUT=true\nICECAST_OUT_HOST=azuracast.example\nICECAST_OUT_USER=dj\nICECAST_OUT_PASSWORD=quadlet-test-streamer-password\n' >> "$dir/station.env"
   "$root/deploy/quadlets/generate.sh" --project "$project" --env-file "$dir/station.env" --out "$dir/out" 2>/dev/null | tail -1
   units="$dir/out/containers/systemd"
-  for key in LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY ICECAST_OUT_PASSWORD INGEST_TOKEN DESK_SOURCES_PASSWORD; do
-    value=$(grep "^$key=" "$dir/station.env" | cut -d= -f2-)
+  for key in LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY ICECAST_OUT_PASSWORD INGEST_TOKEN DESK_SOURCES_PASSWORD PHONE_REDIS_PASSWORD; do
+    value=$(grep "^$key=" "$dir/station.env" | cut -d= -f2- || true)
+    [ -n "$value" ] || continue  # PHONE_REDIS_PASSWORD is made only with the line on
     ! grep -rqF -- "$value" "$dir/out" || { echo "$key is written into a unit or a settings file" >&2; exit 1; }
   done
   QUADLET_UNIT_DIRS="$units" "$quadlet" -dryrun -user > "$dir/dryrun.txt" 2> "$dir/dryrun.err" \
@@ -47,6 +66,20 @@ for variant in loopback public; do
   grep -qx '\[studio\]' "$dir/out/config/control" && grep -qx 'show = ""' "$dir/out/config/control" \
     && grep -qx '\[steering\]' "$dir/out/config/control" && grep -qx 'edges = \[\]' "$dir/out/config/control" \
     || { echo "the control plane's settings lack [studio] or [steering]" >&2; exit 1; }
+  # No STUN server unless the station names one (ADR-0290): LiveKit, the desk and the control plane
+  # read the same empty setting, and LiveKit never asks for its address (use_external_ip off).
+  grep -q 'stun_servers: \[\]' "$dir/out/config/livekit" && grep -q 'use_external_ip: false' "$dir/out/config/livekit" \
+    && grep -qx 'stun_servers = ""' "$dir/out/config/desk" && grep -qx 'stun_servers = ""' "$dir/out/config/control" \
+    || { echo "a Quadlets station would ask a STUN server by default" >&2; exit 1; }
+  # The desk's congestion control reaches the desk's settings, gcc unless the station chose (16c).
+  grep -qx 'congestion_control = "gcc"' "$dir/out/config/desk" \
+    || { echo "the Quadlets desk's settings lack congestion_control = \"gcc\"" >&2; exit 1; }
+  [ "$variant" != public ] || grep -q 'node_ip: 203.0.113.7' "$dir/out/config/livekit" \
+    || { echo "a public Quadlets station's LiveKit lacks the address weavesignal.sh chose" >&2; exit 1; }
+  # The words as Podman will be given them: systemd's quoting undone (\xNN, \", \\).
+  got=$(grep -o -- '--env "WEAVESIGNAL_CONSENT_TEXT=\([^"\\]\|\\.\)*"' "$dir/dryrun.txt" \
+    | python3 -I -c 'import re,sys; a=sys.stdin.read().strip()[len("--env \"WEAVESIGNAL_CONSENT_TEXT="):-1]; print(re.sub(r"\\(x[0-9a-fA-F]{2}|.)", lambda m: chr(int(m[1][1:], 16)) if m[1][0] == "x" else m[1], a), end="")')
+  [ "$got" = "$consent" ] || { echo "the consent words reach the control plane's unit as: $got" >&2; exit 1; }
   grep -q -- "--health-cmd" "$dir/dryrun.txt"
   # Hosts' own studios (ADR-0280): the ingest's unit, its bearer shared with the control plane only,
   # and the desk's password with the desk only.
@@ -61,6 +94,35 @@ for variant in loopback public; do
   [ "$(grep -l 'WEAVESIGNAL_DESK_SOURCES_PASSWORD' "$units"/*.container | wc -l)" = 2 ] || { echo "the desk's sources password reaches a unit beyond the ingest and the desk" >&2; exit 1; }
   # rtmp-out: the desk's settings carry RTMP out's block (ADR-0230).
   grep -rq '^\[video.rtmp\]' "$dir/out" || { echo "the desk's settings have no [video.rtmp]" >&2; exit 1; }
+  # A GPU (17e): only the gpu station's desk is handed the card, by its CDI name, labelling off,
+  # and Podman's generator passes it on as --device; every desk is told the encoder.
+  grep -qx 'encoder = "auto"' "$dir/out/config/desk" || { echo "the desk's settings lack encoder = \"auto\"" >&2; exit 1; }
+  if [ "$variant" = gpu ]; then
+    grep -qx 'GPU=nvidia' "$dir/station.env" || { echo "weavesignal.sh did not take GPU=nvidia with a CDI spec there" >&2; exit 1; }
+    grep -qx 'AddDevice=nvidia.com/gpu=all' "$units/$project-desk.container" && grep -qx 'SecurityLabelDisable=true' "$units/$project-desk.container" \
+      || { echo "the gpu station's desk unit is not given the card with labelling off" >&2; exit 1; }
+    grep -q -- '--device nvidia.com/gpu=all' "$dir/dryrun.txt" || { echo "Podman's generator dropped the desk's card" >&2; exit 1; }
+    [ "$(grep -l '^AddDevice=' "$units"/*.container | wc -l)" = 1 ] || { echo "the card reaches a unit beyond the desk" >&2; exit 1; }
+  else
+    ! grep -q '^AddDevice=' "$units"/*.container || { echo "a $variant station without a GPU hands a device to a container" >&2; exit 1; }
+    ! grep -q -- '--device ' "$dir/dryrun.txt" || { echo "a $variant station's units pass a device" >&2; exit 1; }
+    grep -qx 'GPU=none' "$dir/station.env" || { echo "a $variant station with no CDI spec is not GPU=none" >&2; exit 1; }
+  fi
+  if [ "$variant" = phone ]; then
+    # The telephone line (17f): Valkey and LiveKit's SIP service, the SIP log one small file
+    # (never the journal), and the desk reading the words.
+    for unit in valkey livekit-sip; do
+      [ -f "$units/$project-$unit.container" ] || { echo "the phone station has no $unit unit" >&2; exit 1; }
+    done
+    grep -qx 'LogDriver=json-file' "$units/$project-livekit-sip.container" && grep -qx 'LogOpt=max-size=512k' "$units/$project-livekit-sip.container" \
+      || { echo "the SIP service's log is not kept brief" >&2; exit 1; }
+    grep -q -- '--log-driver json-file' "$dir/dryrun.txt" && grep -q -- '--log-opt max-size=512k' "$dir/dryrun.txt" \
+      || { echo "Podman's generator dropped the SIP service's log options" >&2; exit 1; }
+    grep -q '^Volume=.*phone-words.volume:/var/lib/weavesignal/phone-words:ro$' "$units/$project-desk.container" \
+      || { echo "the desk does not read the phone words" >&2; exit 1; }
+  else
+    [ ! -f "$units/$project-livekit-sip.container" ] || { echo "a station without the line has a SIP unit" >&2; exit 1; }
+  fi
   if [ "$variant" = public ]; then
     grep -q "^Environment=WEAVESIGNAL_INGEST_BIND=0.0.0.0$" "$units/$project-ingest.container" || { echo "the public station's ingest does not take every address" >&2; exit 1; }
     [ -f "$units/$project-proxy.container" ] || { echo "the public station has no proxy unit" >&2; exit 1; }

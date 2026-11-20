@@ -120,7 +120,7 @@ export type Action =
   // arrows move a week in the Week view and a day in the Day view, T is today, D and W the views
   | { type: 'week'; delta: number }
   | { type: 'today' }
-  | { type: 'view'; view: 'week' | 'day' }
+  | { type: 'view'; view: 'week' | 'day' | 'rota' }
   // the statement of reasons dialog
   | { type: 'sor-then'; then: SorThen }
   | { type: 'sor-reason'; reason: SorReason }
@@ -322,7 +322,8 @@ export class KeyEngine {
   }
 
   /** The schedule tab (calendar.md §5, week-clashes.md §5, ADR-0283): `←` `→` the previous and
-   *  next week (a day in the Day view), `T` today, `D` the Day view, `W` the Week view. Nothing
+   *  next week (a day in the Day view), `T` today, `D` the Day view, `W` the Week view, `R` the
+   *  rota (1.2). Nothing
    *  here is live, so no key is two-press; the global layer (F1–F6, Del Del, ⌃D ⌃D) still fires.
    *  `Esc` is the global layer's `escape`, as on every tab: here it closes what the editor column
    *  holds and clears the selection (the studio's `run`), after it has left a text field. */
@@ -339,6 +340,9 @@ export class KeyEngine {
         return handled({ type: 'view', view: 'day' });
       case 'KeyW':
         return handled({ type: 'view', view: 'week' });
+      // The rota of the coming twelve hours (1.2, handover-window.md), in the calendar's place.
+      case 'KeyR':
+        return handled({ type: 'view', view: 'rota' });
       default:
         return NONE;
     }

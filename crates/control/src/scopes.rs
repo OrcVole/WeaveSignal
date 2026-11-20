@@ -73,7 +73,7 @@ pub const SCOPES: &[(&str, &str)] = &[
     ("video:write", "Change or remove the video slate's still."),
     (
         "sources:read",
-        "Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level. Never a key.",
+        "Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key.",
     ),
 ];
 
@@ -189,6 +189,7 @@ pub const TABLE: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/cards/preview", "shows:write"),
     ("POST", "/api/v1/cards/words", "shows:write"),
     ("GET", "/api/v1/sources", "sources:read"),
+    ("GET", "/api/v1/rota", "sources:read"),
 ];
 
 /// Routes a token never reaches, named so that a new route has to be placed in one list or
@@ -248,6 +249,7 @@ pub const NEVER: &[&str] = &[
     "/api/v1/setup",
     "/api/v1/setup/finish",
     "/api/v1/setup/stream-password",
+    "/api/v1/setup/stun",
     "/api/v1/branding",
     "/api/v1/branding/accent",
     "/api/v1/branding/icon",
@@ -258,6 +260,14 @@ pub const NEVER: &[&str] = &[
     "/api/v1/retention/holds",
     "/api/v1/retention/holds/{id}/release",
     "/api/v1/retention/holds/{id}/extend",
+    // The telephone line (17f): bans and the takedown search act on callers' personal data.
+    "/api/v1/phone",
+    "/api/v1/phone/words",
+    "/api/v1/phone/consent",
+    "/api/v1/phone/consent/default/{file}",
+    "/api/v1/phone/bans",
+    "/api/v1/phone/bans/{ban_key}",
+    "/api/v1/phone/takedown",
     "/api/v1/retention/recordings",
     "/api/v1/retention/recordings/{id}/end",
     "/api/v1/retention/consents/{id}/recordings",
@@ -297,6 +307,11 @@ pub const NEVER: &[&str] = &[
     "/api/v1/internal/sources/admit",
     "/api/v1/internal/sources/report",
     "/api/v1/internal/sources/events",
+    // The presenter kit (Phase 17g): VBAN's bindings and outputs are an admin's, and the clock's
+    // figures a staff member's; none a token's.
+    "/api/v1/kit",
+    "/api/v1/kit/preset",
+    "/api/v1/kit/clock",
     // The monitor link (ADR-0280): its own secret is the bearer, and a token never holds it.
     "/api/v1/monitor",
     "/api/v1/monitor/events",
@@ -307,6 +322,10 @@ pub const NEVER: &[&str] = &[
     "/api/v1/monitor/handover",
     "/api/v1/monitor/end-show",
     "/api/v1/monitor/dump",
+    // WHIP from a host's OBS (17d): the show key's secret is the bearer, and a token never holds
+    // it.
+    "/whip/{key}",
+    "/whip/{key}/{session}",
 ];
 
 /// A method on a route whose other methods a scope opens, which no scope opens: a token never
@@ -368,6 +387,9 @@ mod tests {
             ("webhooks.rs", include_str!("webhooks.rs")),
             ("open.rs", include_str!("open.rs")),
             ("rtmp.rs", include_str!("rtmp.rs")),
+            ("rota.rs", include_str!("rota.rs")),
+            ("whip_route.rs", include_str!("whip_route.rs")),
+            ("phone/api.rs", include_str!("phone/api.rs")),
         ];
         let mut unplaced = Vec::new();
         let mut seen = 0;

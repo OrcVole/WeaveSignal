@@ -21,9 +21,14 @@
   import Room from './Room.svelte';
   import { nudge, preparing } from '../lib/prepare.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
+  import { phone, watchPhone } from '../lib/phone.svelte.ts';
+  import { WITHHELD_BAN, WITHHELD_WHY, callerName, lineWords, phoneLine } from '../lib/phone.ts';
+  import BanNumber from './BanNumber.svelte';
 
   // The chat link starts with the screener and keeps going on the other tabs.
   onMount(startChat);
+  // The phone line's state (1.2), read while the screener is open: whether it takes calls.
+  onMount(() => watchPhone());
 
   const v = $derived(studio.view);
   /** This window is preparing (ADR-0276): the queue is to read; talking to a caller, their notes,
@@ -50,7 +55,15 @@
   const presenter = $derived(v ? firstName(v.seats.presenter_name, v.seats.presenter ?? 'the presenter') : 'the presenter');
   const talking = $derived(!!sel && studio.talking.includes(sel.identity));
   const talkingToPresenter = $derived(studio.talking.includes('presenter'));
-  const who = (c: { name: string; identity: string; name_on_air: string }) => c.name_on_air || firstName(c.name, c.identity);
+  // A phone caller has no name until the screener types one (17f): they are *the caller* in a
+  // sentence, and their line (*Phone ···0123*) where a name would head a row or the card.
+  const who = (c: { name: string; identity: string; name_on_air: string; phone?: unknown }) => c.name_on_air || (c.phone && !c.name ? 'the caller' : firstName(c.name, c.identity));
+  /** The same, where it starts a sentence: *The caller hears the programme*. */
+  const Who = (c: Parameters<typeof who>[0]) => who(c).replace(/^the caller$/, 'The caller');
+  /** The phone line as the queue says it: null on a station with none, or one that has never
+   *  turned it on and has nobody ringing (the queue then says nothing of a line it does not have). */
+  const line12 = $derived(phone.status ? lineWords(phone.status) : null);
+  let banEl = $state<BanNumber | null>(null);
 
   // The first caller is selected when nothing is.
   $effect(() => {
@@ -115,7 +128,7 @@
       return {
         tone: 'warning',
         glyph: 'g-link-degraded',
-        title: `${n}'s link dropped at ${hms(dropped.dropped_ms!)}`,
+        title: `${Who(dropped)}'s link dropped at ${hms(dropped.dropped_ms!)}`,
         msg: `Their place in the queue is held for 5 min; if they call in again they come back as number ${dropped.ordinal}. ${presenter} has not been told.`,
         acts: [{ label: 'Let the place go', keys: ['⇧', 'C'], air: true, go: () => run({ type: 'release-place' }) }, tellPresenter],
       };
@@ -190,7 +203,7 @@
       <div class="panel" data-panel="screener.queue">
         <div class="head nowrap">
           <h2>Callers <span class="count" class:attn={callers.length > 0}>{callers.length}</span></h2>
-          <span class="sub">from the player page</span>
+          <span class="sub">{line12?.state === 'open' ? 'from the player page and the phone line' : 'from the player page'}</span>
           <span class="spacer"></span>
         </div>
         <div class="body">
@@ -210,9 +223,9 @@
                 >
                   <span class="ord"><kbd>{c.ordinal}</kbd></span>
                   <span class="who"
-                    ><span class="name">{c.name || c.identity}</span>
+                    ><span class="name">{callerName(c)}</span>
                     <span class="where"
-                      >{c.banned_before ? `the account banned ${c.banned_before.date}` : c.identity}{c.dropped_ms !== null
+                      >{c.banned_before ? `${c.phone ? 'the number' : 'the account'} banned ${c.banned_before.date}` : c.phone ? (c.name ? phoneLine(c) : 'on the phone line') : c.identity}{c.dropped_ms !== null
                         ? ` · dropped ${hms(c.dropped_ms)}`
                         : ''}</span
                     ></span
@@ -229,16 +242,24 @@
                     {/if}
                     <span class="topic"
                       >{c.banned_before ? `${c.banned_before.reason}, ${c.banned_before.date}.` : ''}
-                      {c.dropped_ms !== null ? 'Comes back here, not at the back, within 5 min.' : c.line || c.topic}</span
+                      {c.dropped_ms !== null ? (c.phone?.withheld ? 'A withheld number’s place cannot be kept: if they ring again they join at the back.' : 'Comes back here, not at the back, within 5 min.') : c.line || c.topic}</span
                     >
                   </span>
                 </li>
               {/each}
             </ol>
           {:else}
-            <p class="empty">Nobody is calling. Callers join from the player page; they appear here in the order they call.</p>
+            <p class="empty">Nobody is calling. Callers join from the player page{line12?.state === 'open' ? ' or ring the phone line' : ''}; they appear here in the order they call.</p>
           {/if}
         </div>
+        {#if line12}
+          <!-- The phone line (17f): one quiet line on whether it takes calls. Off until a trunk is
+               set, which is an admin's to do where the station is installed. -->
+          <div class="phoneline" data-phone={line12.state} data-testid="screener-phone" title={line12.fix ?? undefined}>
+            <svg class="g" aria-hidden="true"><use href="#g-phone" /></svg>
+            <span><b>Phone line {line12.state === 'open' ? 'open' : line12.state === 'off' ? 'off' : 'closed'}</b> · {line12.state === 'off' ? 'no trunk is set' : line12.line.replace(/^Taking calls on /, '').replace(/^The line /, 'it ').replace(/\.$/, '')}</span>
+          </div>
+        {/if}
         <div class="qfoot"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>1</kbd>–<kbd>9</kbd> jump · <kbd>T</kbd> talk · <kbd>P</kbd> to desk · <kbd>⌃D</kbd><kbd>⌃D</kbd> drop</div>
       </div>
 
@@ -246,7 +267,7 @@
         <div class="head nowrap">
           {#if sel}
             {@const st = callerChips(sel, up, v?.mode ?? null)[0]}
-            <h2 data-panel-title><StateChip chip={st} sm /><span class="nm">{sel.name || sel.identity}</span></h2>
+            <h2 data-panel-title><StateChip chip={st} sm /><span class="nm">{callerName(sel)}</span></h2>
             <span class="sub"><span class="num">{dur(now - sel.since_ms)}</span> · off air</span>
             <span class="spacer"></span>
             <button
@@ -276,8 +297,12 @@
                 {#if sel.consent}
                   <span class="chk-box" data-consent="given"
                     ><i class="on"><svg aria-hidden="true"><use href="#g-check" /></svg></i>Consent to record · {sel.consent.by === 'caller'
-                      ? `accepted ${hms(sel.consent.at_ms)} on the player page`
-                      : `given for them by the station ${hms(sel.consent.at_ms)}`}</span
+                      ? sel.phone
+                        ? `accepted ${hms(sel.consent.at_ms)} with a key on the phone`
+                        : `accepted ${hms(sel.consent.at_ms)} on the player page`
+                      : sel.consent.by === 'not_asked'
+                        ? `not asked: the station's phone words are off`
+                        : `given for them by the station ${hms(sel.consent.at_ms)}`}</span
                   >
                 {:else}
                   <span class="chk-box" data-consent="missing"><i class="missing"></i>No consent to record on file</span>
@@ -290,11 +315,17 @@
               <div class="two-up">
                 <div class="field">
                   <label for="f-name">Name on air <kbd>N</kbd></label>
-                  <input class="in" id="f-name" readonly={prep} title={prepWhy} bind:value={nameOnAir} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }} placeholder={firstName(sel.name, sel.identity)} />
+                  <input class="in" id="f-name" readonly={prep} title={prepWhy} bind:value={nameOnAir} oninput={typed} onfocus={() => (editing = true)} onblur={() => { editing = false; save(); }} placeholder={sel.phone && !sel.name ? 'Ask their name' : firstName(sel.name, sel.identity)} />
                 </div>
                 <div class="field">
-                  <span class="lbl">Signed in as</span>
-                  <div class="in ro">{sel.identity}</div>
+                  {#if sel.phone}
+                    <!-- A phone caller (17f): the last four digits at most, never the number. -->
+                    <span class="lbl">Calling from</span>
+                    <div class="in ro" data-testid="caller-phone" title={sel.phone.withheld ? 'This caller withheld their number.' : 'The last four digits. The station never keeps the whole number.'}>{phoneLine(sel)}</div>
+                  {:else}
+                    <span class="lbl">Signed in as</span>
+                    <div class="in ro">{sel.identity}</div>
+                  {/if}
                 </div>
               </div>
             </div>
@@ -307,7 +338,7 @@
             {#if !sel.consent}
               <div class="notice" role="note">
                 <svg class="g-serious" aria-hidden="true"><use href="#g-fault" /></svg>
-                <span><b>No consent to record</b>{who(sel)} did not agree to be recorded, so they cannot go to the desk. Screen them if you like, then drop them; they can call again from the player page.</span>
+                <span><b>No consent to record</b>{Who(sel)} did not agree to be recorded, so they cannot go to the desk. Screen them if you like, then drop them; they can {sel.phone ? 'ring again' : 'call again from the player page'}.</span>
               </div>
             {/if}
             {#if sel.banned_before}
@@ -318,10 +349,10 @@
             {/if}
             <div class="hear">
               <span
-                >{who(sel)} hears <b>{talking ? 'you and the programme' : 'the programme'}</b>{talking ? '' : '; hold T to talk to them'}. Listeners hear <b>none of this</b>.</span
+                >{Who(sel)} hears <b>{talking ? 'you and the programme' : 'the programme'}</b>{talking ? '' : '; hold T to talk to them'}. Listeners hear <b>none of this</b>.</span
               >
               <span class="lvl"
-                >{who(sel)} <span class="bar" role="img" aria-label="{who(sel)}'s level"><i style:width="{meterPct(sel.lufs)}%"></i></span></span
+                >{Who(sel)} <span class="bar" role="img" aria-label="{Who(sel)}'s level"><i style:width="{meterPct(sel.lufs)}%"></i></span></span
               >
             </div>
           {:else}
@@ -340,6 +371,15 @@
             >
             <button type="button" class="btn" disabled={prep || !sel || sel.on_air} title={prepWhy} onclick={() => run({ type: 'back' })}>To queue <kbd>W</kbd></button>
             <span class="grow"></span>
+            {#if sel?.phone}
+              <!-- A phone caller's number can be banned from their card; a withheld one cannot,
+                   and the button says so in the place where the ban would be. -->
+              {#if sel.phone.can_ban}
+                <button type="button" class="btn quiet" data-testid="ban-number" disabled={prep} title={prepWhy ?? 'Marks this number BANNED BEFORE when it rings again. The caller stays in the queue.'} onclick={() => banEl?.open(sel.identity, phoneLine(sel) ?? 'this number')}>Ban this number…</button>
+              {:else}
+                <button type="button" class="btn quiet" data-testid="ban-number" aria-disabled="true" title={WITHHELD_WHY} onclick={() => say('warning', WITHHELD_BAN, WITHHELD_WHY)}>{WITHHELD_BAN}</button>
+              {/if}
+            {/if}
             <button
               type="button"
               class="btn danger-hollow"
@@ -356,7 +396,7 @@
               <span
                 ><b>Desk busy: {presenter} is not taking callers</b>Declined {who(sel)} at {hms(sel.declined.at_ms)}{sel.declined.reason
                   ? `: “${sel.declined.reason}”`
-                  : ''}. {who(sel)} stays ready and hears the programme.</span
+                  : ''}. {Who(sel)} stays ready and hears the programme.</span
               >
             </div>
           {/if}
@@ -371,6 +411,7 @@
       <AttachmentView />
     </section>
 
+    <BanNumber bind:this={banEl} onBanned={(l) => say('good', `${l} is banned`, 'It is marked BANNED BEFORE when it rings again. To end this call, drop the caller.')} />
     <Room>
       {#if toast}
         <div class="toast {toast.tone}" data-panel="screener.toast" role={toast.tone === 'good' ? 'status' : 'alert'}>

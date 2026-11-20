@@ -2900,6 +2900,25 @@ Request body: [StreamPasswordChange](#schema-streampasswordchange).
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### PUT /api/v1/setup/stun
+
+**Name the station's STUN servers**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+The STUN servers LiveKit, the desk and the join pages may ask (ADR-0290): `host:port` each, at most four; an empty list is none, the default. Only where the install route lets the studio write a setting its start script reads (the Cloudron package; elsewhere `409`, and the settings file's `STUN_SERVERS` decides). The answer applies to all three when the station next restarts, never to one alone; `stun.in_use` in the setup's view says what runs now. Each server named learns the address of every browser and of the station that asks it.
+
+Request body: [StunChange](#schema-stunchange).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The setup as it is now. | [SetupView](#schema-setupview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ## Routes: sources
 
 Hosts in their own studios (ADR-0280): show keys, the sources connected or due, disconnecting one, and the station's rules for them.
@@ -2935,6 +2954,22 @@ Lets the held handover go: the grace runs again, counted from where the post and
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### GET /api/v1/rota
+
+**The rota of the coming hours**
+
+Needs: staff: any staff session, or the station key; or an API token with `sources:read`.
+
+Every airing from now to twelve hours on, the one on air included, in start order: the show, who is down for it (the labels of its show keys that have not ended, else its presenter; empty when nobody is), where they come from (`room` or `push`, their own studio), and how far they have got (`not_connected`, `connecting`, `ready`, `on_air`). A source is ready once steady for the rules' `steady_s`; a presenter in the room once at the desk. Read from the same facts as the handover window; it changes nothing. It answers while the desk is down. For staff; an API token with `sources:read`.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rota. | [RotaView](#schema-rotaview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ### GET /api/v1/settings/sources
 
 **The rules for sources**
@@ -2956,7 +2991,7 @@ The station's rules for hosts in their own studios: the door, the grace, tests o
 
 Needs: staff: any staff session, or the station key.
 
-Every rule at once. The ingest takes new ports within seconds (it listens afresh). A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.
+Every rule at once. The ingest takes new ports within seconds (it listens afresh). A body without `window_s` (the handover window, from 1.2) keeps the stored one. A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.
 
 Request body: [SourceSettings](#schema-sourcesettings).
 
@@ -2994,7 +3029,7 @@ Every key the show has, live and ended, newest first, never a secret; where the 
 
 Needs: staff: any staff session, or the station key.
 
-A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`). For an admin, a producer or the show's presenter; an API token never.
+A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`). With `hint` `pull` and a `url`, the station opens the stream itself while the slot's door is open (`source: pull`): `http://` or `https://` (Icecast or any HTTP audio in MP3, AAC, Ogg or FLAC), an HLS playlist (`.m3u8`, MPEG-TS, AAC or MP3 segments), or `srt://host:port` with any `streamid=` (the station calls the listener; MPEG-TS). The address may hold no user name, password or SRT passphrase (422). Its name is resolved when it is saved, and an address inside the station's own network is refused (422) unless the installation sets `WEAVESIGNAL_PULL_ALLOW_PRIVATE`. The reply's secret is unused for a pull; its monitor link works as any key's. For an admin, a producer or the show's presenter; an API token never.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -3174,6 +3209,52 @@ The desk toast's *Off air* for a source whose link was lost while it was on air 
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### POST /whip/{key}
+
+**Send from OBS over WHIP**
+
+Needs: staff: any staff session, or the station key.
+
+WHIP (RFC 9725) for a host's own software (17d): the body is an SDP offer (`application/sdp`) and the bearer is the show key's secret (OBS's *Bearer Token*; `<key id>-<secret>` is taken too). The reply is `201` with the SDP answer and the session's address in `Location`. The station answers ICE-lite with one host candidate, its public IPv4 address and its WHIP port (`ports.source_whip`, UDP, off unless the installation turns it on), and takes the Opus sound only: a picture the software sends is received and discarded, so OBS needs no change. From there the source is a host's own studio like Icecast and SRT (ADR-0280): standing by in its show's slot, a private test outside it, refused with a wrong key (five wrong keys from an address in a minute refuse it for ten minutes). No trickle ICE.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The show key's id (8 characters) |
+
+Request body (`application/sdp`): string. The SDP offer.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The SDP answer; `Location` is the session's address. | string (`application/sdp`) |
+| 400 | The offer has no Opus sound, or is not one the station can read. | string (`text/plain`) |
+| 401 | No bearer, or the wrong key. | string (`text/plain`) |
+| 403 | Refused: not the key's slot with tests off, the key ended, or turned away. | string (`text/plain`) |
+| 409 | Another connection is using this key. | string (`text/plain`) |
+| 413 | The offer is over 32 KB. | string (`text/plain`) |
+| 415 | Not `application/sdp`. | string (`text/plain`) |
+| 429 | Too many wrong keys from this address. | string (`text/plain`) |
+| 503 | WHIP is off at this station, or the ingest or the desk is busy or away. | string (`text/plain`) |
+
+### DELETE /whip/{key}/{session}
+
+**End a WHIP session**
+
+Needs: staff: any staff session, or the station key.
+
+The host's software ends its WHIP session (the address `Location` gave), with the same bearer as its offer: the source ends as when Icecast or SRT disconnects.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `key` | path | string | yes | The show key's id |
+| `session` | path | string | yes | The session, from `Location` |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Ended. |  |
+| 401 | No bearer, or the wrong key. | string (`text/plain`) |
+| 404 | No such session: it has ended already. | string (`text/plain`) |
+| 503 | WHIP is off at this station. | string (`text/plain`) |
+
 ## Routes: monitor
 
 A host's monitor link (ADR-0280): their own source's state and the station's clock, and a listen-only room token for the sound of the programme without them. The bearer is the monitor secret from the key's making; it needs no account.
@@ -3346,7 +3427,7 @@ Routes for the station's own processes on the same machine; never reachable thro
 
 Needs: staff: any staff session, or the station key.
 
-For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.
+For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret; for a pull, way `pull` and no secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.
 
 Request body: [AdmitRequest](#schema-admitrequest).
 
@@ -3363,7 +3444,7 @@ Request body: [AdmitRequest](#schema-admitrequest).
 
 Needs: staff: any staff session, or the station key.
 
-For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports. The ingest asks every few seconds.
+For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports; and the pulls to hold open now (each pull whose slot's door is open). The ingest asks every few seconds.
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -3405,6 +3486,167 @@ Request body: [IngestReport](#schema-ingestreport).
 | 200 | What to close. | [ReportReply](#schema-reportreply) |
 | 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+## Routes: phone
+
+The telephone line (17f): its state, number bans and the takedown search. A person's, never an API token's; no number is kept or echoed.
+
+### GET /api/v1/phone
+
+**The phone line's state**
+
+Needs: staff: any staff session, or the station key.
+
+Whether the line takes calls and why not, the calls at the gate and in the queue, and the words a caller hears first. For staff.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The line. | [PhoneStatus](#schema-phonestatus) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+
+### GET /api/v1/phone/bans
+
+**Number bans**
+
+Needs: staff: any staff session, or the station key.
+
+Every number ban that has not lapsed: its ban key, the last digits as the screener saw them, the day and the reason. Never a number. For staff.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The bans. | array of [PhoneBan](#schema-phoneban) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+
+### POST /api/v1/phone/bans
+
+**Ban a number**
+
+Needs: staff: any staff session, or the station key.
+
+Ban a phone caller in the queue by `identity` (staff), or a number by `number` (an admin; every form it may arrive in is banned). The station keeps the ban key and the last digits, never the number. A withheld caller cannot be banned by number (409: "Cannot ban a withheld number"). Caller ID can be spoofed: a ban is advisory.
+
+Request body: [BanRequest](#schema-banrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The bans made. | array of [PhoneBan](#schema-phoneban) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/phone/bans/{ban_key}
+
+**Lift a number ban**
+
+Needs: staff: any staff session, or the station key.
+
+Lift the ban with this ban key. An admin's.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `ban_key` | path | string | yes | `pb_` and 32 hex digits. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 204 | Lifted. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/phone/consent
+
+**Change whether the consent words play, and which shipped voice**
+
+Needs: staff: any staff session, or the station key.
+
+Change `consent_words` (play the words before a caller joins the queue) or `default_voice` (`alba`, `edinburgh` or `own`: which shipped recording plays until the station records its own), or both; a field left out stays as it is. Each wins over the installation's setting (`PHONE_CONSENT_WORDS`, `PHONE_DEFAULT_VOICE`) from the next call, and is kept in the database. The station's own recording, once made, plays instead of either voice; `own` with no recording closes the line while the words are on. An admin's.
+
+Request body: [PhoneConsentChange](#schema-phoneconsentchange).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The line with its new settings. | [PhoneStatus](#schema-phonestatus) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/phone/consent/default/{file}
+
+**Hear a shipped voice**
+
+Needs: staff: any staff session, or the station key.
+
+One of the two recordings of the phone words that ship with WeaveSignal, for the studio's Play: `alba.opus` (a Scottish woman, the default) or `edinburgh.opus` (a man from Edinburgh), Ogg Opus, CC BY 4.0 (NOTICES.md). For staff.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `file` | path | string | yes | `alba.opus` or `edinburgh.opus`. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The recording. | [File](#schema-file) (`audio/ogg`) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+
+### POST /api/v1/phone/takedown
+
+**Find a number's calls**
+
+Needs: staff: any staff session, or the station key.
+
+The consent records of the calls a number may have made, found by its ban keys (every form the number may have arrived in). The number is used for this request only. A withheld call cannot be found by number: find it by its date, time and show. An admin's.
+
+Request body: [TakedownRequest](#schema-takedownrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The calls. | [TakedownAnswer](#schema-takedownanswer) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/phone/words
+
+**Keep the station's recording of the phone words**
+
+Needs: staff: any staff session, or the station key.
+
+The body is the recording, in any format the media worker reads (at most 8 MB, 1.5 s to 2 minutes). It must say `words_to_record` from `GET /api/v1/phone`; the station keeps those words beside it, and the line closes when they change until the words are recorded again. It replaces the recording before, and takes the place of the shipped default. An admin's.
+
+Request body (`application/octet-stream`): [File](#schema-file).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The line with its new words. | [PhoneStatus](#schema-phonestatus) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/phone/words
+
+**Remove the station's recording of the phone words**
+
+Needs: staff: any staff session, or the station key.
+
+The shipped default plays again. An admin's.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The line with the default words. | [PhoneStatus](#schema-phonestatus) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: rtmp
@@ -3511,6 +3753,74 @@ Request body: [RtmpTurnBody](#schema-rtmpturnbody).
 | 404 | There is no such thing. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+## Routes: kit
+
+### GET /api/v1/kit
+
+**The presenter kit's settings**
+
+Needs: staff: any staff session, or the station key.
+
+VBAN in (each bound to a show key) and out, the address they use, the preset, and whether this installation may use VBAN at all (never on Cloudron; elsewhere only with `[kit] vban = true` in the settings file). Admin only.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The kit. | [KitView](#schema-kitview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/kit
+
+**Change the presenter kit's settings**
+
+Needs: staff: any staff session, or the station key.
+
+The whole kit at once, checked: at most four VBAN ins and four outs; a named address of the station's, refused when public unless `allow_public`; each input a sender's address and stream name bound to a show key; each output one receiver (never broadcast or multicast). The ingest listens afresh and the desk sends afresh within seconds. 409 when the kit asks for VBAN and this installation does not allow it. Admin only.
+
+Request body: [Kit](#schema-kit).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The kit now. | [KitView](#schema-kitview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/kit/clock
+
+**One clock: each source against the desk's**
+
+Needs: staff: any staff session, or the station key.
+
+For the clock badge: every host's own studio at the desk with its clock against the desk's in ppm (the desk resamples it once to follow it), the times it was placed afresh, VBAN's lost and dropped packets, and VBAN out's counts. Any staff member.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The figures now. | [Clock](#schema-clock) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+
+### POST /api/v1/kit/preset
+
+**Apply a preset**
+
+Needs: staff: any staff session, or the station key.
+
+A radio preset's routing in one press: `studio_lan` sends the live programme (before the delay) back to the studio PC; `transmitter` sends the programme after the delay, what listeners hear; `local_guest` sends the first VBAN in's sender the monitor mix the desk makes for it; `custom` changes nothing but the name. VBAN ins are kept (each needs its show key). Checked and saved as `PUT` is. Admin only.
+
+Request body: [PresetRequest](#schema-presetrequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The kit now. | [KitView](#schema-kitview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ## Schemas
 
 The shapes the routes take and answer. A field marked *Needed: no* may be left out of a request (it has a default) or may be absent or `null` in an answer.
@@ -3561,11 +3871,12 @@ A staff account as the routes show it (never the hash).
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `address` | string | yes | The address the connection came from, as the ingest saw it. |
+| `address` | string | yes | The address the connection came from, as the ingest saw it (for the bridge, the station's proxy's last `X-Forwarded-For` entry). |
 | `again` | boolean | no | The ingest asks again for a connection it already holds (a test, to see whether the slot's door has opened); nothing is counted or logged. |
 | `key_id` | string | yes | The key id the host's software gave (the SRT stream id, or the Icecast password's first part). |
-| `secret` | string, or null | no | The secret it gave, for Icecast; left out for SRT, whose handshake proves it. |
-| `way` | string | yes | `icecast` or `srt`. |
+| `secret` | string, or null | no | The secret it gave, for Icecast and WHIP; left out for SRT, whose handshake proves it, and for a pull, which the station opened itself. |
+| `stream` | string, or null | no | For `vban`: the stream's name, which with the address must be bound to the key. |
+| `way` | string | yes | `icecast`, `srt`, `whip`, `bridge` (the studio app's WebSocket), `vban`, or `pull`. A pull's key is admitted only as `pull`, and only a pull's key is. |
 
 ### Schema: ApiToken
 
@@ -3617,7 +3928,7 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 |---|---|---|---|
 | `by_mount` | array of [MountCount](#schema-mountcount) | yes | The same by mount, most listeners first; empty while not counted. |
 | `edges` | boolean | yes | The station has edges or a CDN configured: steering has a pathway beside the origin, or `join.hls_url` points the player at another address. |
-| `error` | string, or null | no | Why there is no count, in words the studio can show: the listener process does not answer, or the control plane has no playout layer to ask it. `None` while counted. |
+| `error` | string, or null | no | Why there is no count, in words the studio can show: the listener process does not answer on its status address, or its answer could not be read. The count does not need the playout layer. `None` while counted, and before the first look (`listeners` is `None` too, and the studio waits for the first answer). |
 | `listeners` | integer (int32), or null | no | Listeners connected to the station's stream now, every mount together; `None` while not counted (see `error`). |
 | `scope` | [AudienceScope](#schema-audiencescope) | yes | What the count covers (issue 17): always `origin` today, the listeners connected to this station's own listener process, every mount together. Not counted: listeners on an edge or a CDN (an edge's relay is one connection here, so with `edges` true the figure is a floor), and video viewers on HLS. |
 
@@ -3635,6 +3946,17 @@ The audience as the app shows it, and the figures its CDN warning (ADR-0017) rea
 |---|---|---|---|
 | `date` | string | yes | The day it was made, as the screener reads it (`2026-09-12`). |
 | `reason` | string | yes |  |
+
+### Schema: BanRequest
+
+A ban: of a phone caller in the queue (the screener's), or of a number typed (an admin's).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `days` | integer (int32), or null | no | Days until it lapses; absent, it does not. |
+| `identity` | string, or null | no | A phone caller's person key (`phone-…`) in the queue now. |
+| `number` | string, or null | no | A number as a caller or the provider gave it; an admin's only. Never kept. |
+| `reason` | string | no |  |
 
 ### Schema: Bank
 
@@ -3715,6 +4037,7 @@ one of `waiting`, `screening`, `ready`
 | `note` | string | yes |  |
 | `on_air` | boolean | yes |  |
 | `ordinal` | integer | yes | 1, 2, 3...: their place in the queue, the screener's jump key. |
+| `phone` | [PhoneView](#schema-phoneview), or null | no |  |
 | `present` | boolean | yes |  |
 | `since_ms` | integer (int64) | yes |  |
 | `slot` | integer, or null | no |  |
@@ -4010,6 +4333,17 @@ A start the studio offers in place of the rule's own, clear of the other shows.
 | `minutes` | integer (int32) | yes | The length in minutes, the rule's. |
 | `start` | integer (int32) | yes | Minutes after midnight. |
 
+### Schema: Clock
+
+The clock badge's figures.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `rate` | integer (int32) | yes | The desk's rate: everything is resampled to it once, at the desk's edge. |
+| `sources` | array of [SourceClock](#schema-sourceclock) | yes |  |
+| `vban_dropped` | map of integer (int64) | yes | VBAN packets the ingest dropped, by reason (`address`, `name`, `late`, `too_fast`, …). |
+| `vban_out` | array of [DeskKitOut](#schema-deskkitout) | yes | VBAN out, as the desk reports it. |
+
 ### Schema: ClockBody
 
 | Field | Type | Needed | Meaning |
@@ -4058,6 +4392,24 @@ One of:
 |---|---|---|---|
 | `clocks` | array of [ClockView](#schema-clockview) | yes |  |
 
+### Schema: Closed
+
+Why the line takes no calls now.
+
+One of:
+
+- one of `off` `phone.enabled` is off, or no trunk is set.
+
+- one of `no_key` No key to make ban keys with (neither the token key nor the station key is set).
+
+- **a variant**. The words cannot play (the station's recording is of older words, or the default recording is missing).
+
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `words` | [WordsProblem](#schema-wordsproblem) | yes | The words cannot play (the station's recording is of older words, or the default recording is missing). |
+
+
 ### Schema: CodeAsked
 
 | Field | Type | Needed | Meaning |
@@ -4088,7 +4440,7 @@ A caller's consent to record: when, to which words, and who gave it.
 
 Who gave the consent: the caller on the player page, or the station on their behalf (an admin's token request, for a test or a consent taken another way).
 
-one of `caller`, `station`
+one of `caller`, `station`, `not_asked`
 
 ### Schema: ConsentErased
 
@@ -4328,6 +4680,19 @@ One of:
 | `mode` | [StationMode](#schema-stationmode) | yes |  |
 
 
+### Schema: DeskKitOut
+
+One VBAN out.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `address` | string | yes |  |
+| `dropped` | integer (int64) | no | Blocks the mixing pass could not hand it (its sender fell behind). |
+| `name` | string | yes |  |
+| `packets` | integer (int64) | no | Packets sent since it started. |
+| `problem` | string, or null | no | Why it is not sending, when it is not (`its source is not at the desk`, a socket error). |
+| `source` | string | yes |  |
+
 ### Schema: DeskPerson
 
 A person as the desk reports them.
@@ -4398,14 +4763,17 @@ A host's own studio as the desk reports it.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `clock_ppm` | number (float), or null | no | Its clock against the desk's in ppm, as the desk follows it (Phase 17g); `None` before the first estimate or from a desk that does not follow. |
 | `connected_ms` | integer (int64) | yes | How long the desk has had it, unbroken: its steady time. |
 | `format` | string | yes | What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`). |
 | `key` | string | yes | The show key's public id. |
 | `level_db` | number (float), or null | no | Its own level over the leveller's ten seconds, before the gain, in dBFS RMS; `None` until it has sounded. |
 | `leveller_db` | number (float) | yes | What the leveller is doing to bring it to the desk's level, in dB (±12). |
+| `lost` | integer (int64) | no | For VBAN: packets lost on the way, filled with silence. |
 | `monitor` | boolean | no | Its monitor link is open: the desk is making its monitor mix (someone listens). |
+| `replaced` | integer (int64) | no | Times it was placed afresh since it connected (a gap, or drift past the cushion). |
 | `show` | string | yes | The show's slug. |
-| `way` | string | yes | `icecast` or `srt`. |
+| `way` | string | yes | `icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software), or `pull` (the station opened it). |
 
 ### Schema: DeskVideo
 
@@ -4440,7 +4808,9 @@ How a host's software reaches the station (design section 3.1). The secret is in
 |---|---|---|---|
 | `host` | string, or null | no | The station's address as listeners reach it, when the settings give one; else the studio fills in the address it knows. |
 | `icecast` | [IcecastDetails](#schema-icecastdetails) | yes |  |
+| `pull` | [PullDetails](#schema-pulldetails), or null | no |  |
 | `srt` | [SrtDetails](#schema-srtdetails) | yes |  |
+| `whip` | [WhipDetails](#schema-whipdetails) | yes |  |
 
 ### Schema: DirectoryBody
 
@@ -4711,6 +5081,12 @@ The least a rule requires, in days, and the rule.
 | `gaps` | array of string | yes | What could not be filled, in words. |
 | `items` | integer | yes | How many items the log now holds for the span. |
 
+### Schema: HandoverReadiness
+
+How ready the incoming host is.
+
+one of `not_connected`, `connecting`, `ready`, `on_air`
+
 ### Schema: HandoverRequest
 
 The body of `POST /api/v1/monitor/handover`.
@@ -4722,6 +5098,36 @@ The body of `POST /api/v1/monitor/handover`.
 ### Schema: HandoverStep
 
 one of `bring`, `hand_over`
+
+### Schema: HandoverWindow
+
+The handover window as `GET /studio` and `GET /sources` carry it, inside `post`.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `from` | [HostOrigin](#schema-hostorigin) | yes | `room` or `push`. |
+| `heads_up_ms` | integer (int64), or null | no | When the incoming host was given their heads-up for this airing (once an airing). |
+| `host` | string | yes | Who is down for it, by name: the source the post's rule names, else every name down. |
+| `opens_ms` | integer (int64) | yes | When the window opens (`start_ms` less the rules' `window_s`). |
+| `show` | string | yes | The show it is about: the post's show (`post.show`), or the next show once that one's window has opened while the post's show is still waiting for a host who never came. |
+| `show_name` | string | yes |  |
+| `start_ms` | integer (int64) | yes | The post: the show's start. |
+| `state` | [HandoverWindowState](#schema-handoverwindowstate) | yes | `quiet` (before the window opens), `announced` (not here yet), `cueing` (connecting), `ready`, `overrun` (the post has come and the outgoing host still presents) or `held`. |
+
+### Schema: HandoverWindowState
+
+What the handover window is doing at `now_s`.
+
+one of `quiet`, `announced`, `cueing`, `ready`, `overrun`, `held`
+
+### Schema: HeadsUpLine
+
+The station's one line to the incoming host before their post.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_ms` | integer (int64) | yes | When the station gave it. |
+| `words` | string | yes | What the page says. |
 
 ### Schema: Health
 
@@ -4764,6 +5170,12 @@ one of `bring`, `hand_over`
 What a hold can name one by one in this release.
 
 one of `recording`, `consent`
+
+### Schema: HostOrigin
+
+Where a show's host comes from.
+
+one of `room`, `push`
 
 ### Schema: IcecastDetails
 
@@ -4903,9 +5315,13 @@ What the ingest needs to listen.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `listen` | boolean | yes | Whether to listen at all: only once a key exists that has not ended. |
+| `port_bridge` | integer (int32) | no | The bridge's WebSocket, on loopback behind the proxy (Phase 17g); 0: off. |
 | `port_icecast` | integer (int32) | yes | 0: this way is off (the installation turned it off). |
 | `port_srt` | integer (int32) | yes | 0: this way is off. |
+| `port_whip` | integer (int32) | yes | WHIP's media port (UDP); 0: this way is off. |
+| `pulls` | array of [PullJob](#schema-pulljob) | no | The pulls to hold open now: every pull whose slot's door is open and that is not turned away. The ingest opens those it does not hold and closes those no longer named. |
 | `test_max_ms` | integer (int64) | yes | A test's longest life, in ms. |
+| `vban` | [IngestVban](#schema-ingestvban), or null | no |  |
 
 ### Schema: IngestConn
 
@@ -4917,10 +5333,11 @@ A connection as the ingest reports it.
 | `kbps` | integer (int32) | no | What arrives, in kbit/s, over the last few seconds. |
 | `key_id` | string | yes |  |
 | `level_db` | number (float), or null | no | Its level, dBFS RMS over the last few seconds, as decoded; `None` while silent. |
+| `lost` | integer (int64), or null | no | VBAN: packets lost on the way since it opened and filled with silence (the clock readout's `lost`); absent for every other way. |
 | `mode` | string | yes | `standby` (on the desk) or `test` (never on the desk). |
 | `since_ms` | integer (int64) | yes | When the connection was taken, on the station's clock. |
 | `title` | string, or null | no | What the host's software says is playing (Icecast's metadata), cleaned and cut. |
-| `way` | string | yes | `icecast` or `srt`. |
+| `way` | string | yes | `icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software connected), or `pull` (the station opened it). |
 
 ### Schema: IngestEvent
 
@@ -4938,6 +5355,17 @@ A connection as the ingest reports it.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `connections` | array of [IngestConn](#schema-ingestconn) | yes | Every connection the ingest holds now, standing by or in a test. |
+| `vban_dropped` | map of integer (int64) | no | VBAN packets dropped since the ingest started, by reason (Phase 17g). |
+
+### Schema: IngestVban
+
+What the ingest needs for VBAN in: `None` when it should not listen.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bind` | string | yes |  |
+| `port` | integer (int32) | yes |  |
+| `rules` | array of [VbanIn](#schema-vbanin) | yes |  |
 
 ### Schema: Insert
 
@@ -5007,7 +5435,7 @@ What a person gets to join: a room token, its pass, and the one track to listen 
 |---|---|---|---|
 | `keys` | array of [KeyRow](#schema-keyrow) | yes |  |
 | `show` | string | yes |  |
-| `source` | string | yes | `room` or `push`: where the show comes from. |
+| `source` | string | yes | `room`, `push` (a host's own software) or `pull` (a stream the station opens): where the show comes from. |
 
 ### Schema: KeyRow
 
@@ -5018,11 +5446,12 @@ A key with what the studio's row shows.
 | `created_by` | string | yes |  |
 | `created_ms` | integer (int64) | yes |  |
 | `ends_on_disconnect` | boolean | yes | It ends when its connection closes (made again with `old: on-disconnect`). |
-| `hint` | string | yes | How the host means to send: `icecast` or `srt` (a hint, not a lock). |
+| `hint` | string | yes | How the host means to send: `icecast`, `srt`, `whip`, `bridge` or `vban` (a hint, not a lock); or `pull`, when the station opens the stream itself from `pull_url` (a lock: no host connects with it). |
 | `id` | string (uuid) | yes |  |
 | `key_id` | string | yes | The public part: the SRT stream id, and the Icecast password's first part. |
 | `label` | string | yes | Who it is for: their name on the desk. |
 | `last_used_ms` | integer (int64), or null | no |  |
+| `pull_url` | string, or null | no | For a pull (migration 0042): the address the station opens while the slot's door is open, as it was saved (plain HTTP, an HLS playlist, or an SRT listener with its stream id). |
 | `revoked_ms` | integer (int64), or null | no | When it ended, if it has. |
 | `show_id` | string (uuid) | yes |  |
 | `staff_id` | string (uuid), or null | no | The member of staff it is for, if one. |
@@ -5036,6 +5465,32 @@ A key with what the studio's row shows.
 The kinds of record a preset sets a period for (ADR-0113's list, recce 27's columns).
 
 one of `programme_recordings`, `per_play_log`, `chat_messages`, `moderation_records`, `consent`, `call_recordings`, `listener_statistics`, `access_logs`
+
+### Schema: Kit
+
+The kit's settings.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `allow_public` | boolean | no | Allow a public address (VBAN has no authentication or encryption: carry it through WireGuard instead). |
+| `bind` | string, or null | no | The station's own address on the network VBAN uses: VBAN in listens there, VBAN out sends from it. Needed for either. |
+| `port` | integer (int32) | no | VBAN in's port. |
+| `preset` | string | no | The preset last applied: `studio_lan`, `transmitter`, `local_guest` or `custom`. |
+| `vban_in` | array of [VbanIn](#schema-vbanin) | no |  |
+| `vban_out` | array of [VbanOut](#schema-vbanout) | no |  |
+
+### Schema: KitView
+
+The kit as the screen shows it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `allowed` | boolean | yes | Whether this installation may use VBAN. |
+| `kit` | [Kit](#schema-kit) | yes |  |
+| `out_sources` | string | yes | What VBAN out may send. |
+| `presets` | array of [PresetInfo](#schema-presetinfo) | yes |  |
+| `warning` | string, or null | no | A warning to show: the address is public. |
+| `why_not` | string, or null | no | Why not, when it may not. |
 
 ### Schema: LastRefusal
 
@@ -5236,6 +5691,7 @@ The post, as far as it is this host's: the show whose post it is, and its clocks
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `grace_ends_ms` | integer (int64), or null | no | When the grace ends and the schedule hands the air over from whoever holds it. |
+| `heads_up` | [HeadsUpLine](#schema-headsupline), or null | no |  |
 | `held_by` | string, or null | no | Who holds this handover (a producer's Hold): the grace does not run. |
 | `host` | string, or null | no | The host who takes the air at this post, by name, and where they have got to: `standing_by`, `connecting`, `not_connected`, `link_lost` or `on_air`. |
 | `host_state` | string, or null | no |  |
@@ -5289,7 +5745,7 @@ The monitor link's view: this host's own, and nothing of anyone else's.
 | `step` | [StepInfo](#schema-stepinfo) | yes |  |
 | `then` | [Then](#schema-then), or null | no |  |
 | `title` | string, or null | no | What their software says is playing. |
-| `way` | string, or null | no | `icecast` or `srt`, while connected. |
+| `way` | string, or null | no | `icecast`, `srt`, `whip`, `bridge` or `vban`, while connected; `pull` while the station holds a pull open. |
 
 ### Schema: MountCount
 
@@ -5357,9 +5813,10 @@ The new episodes' own fields; the rest is filled in or inherited.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `hint` | string | yes | `icecast` or `srt`: how they will send (a hint, not a lock). |
+| `hint` | string | yes | `icecast`, `srt`, `whip`, `bridge` or `vban`: how they will send (a hint, not a lock); or `pull`: the station opens the stream at `url` itself while the slot's door is open. |
 | `label` | string | yes | Who it is for: their name on the desk, 1 to 120 characters. |
 | `staff_id` | string (uuid), or null | no | The member of staff it is for, if one. |
+| `url` | string, or null | no | For `pull` only: `http://` or `https://` (Icecast or any HTTP audio), a playlist ending `.m3u8` (HLS), or `srt://host:port` with any `streamid=` (the station is the caller). No user name, password or SRT passphrase. An address inside the station's own network is refused unless the installation allows it. |
 
 ### Schema: NewRecording
 
@@ -5427,9 +5884,9 @@ one of `none`, `once_passed`, `ended`, `complete`
 | `at_ms` | integer (int64) | yes |  |
 | `change` | string, or null | no | For `rule.changed`: the token the saving window sent with its save (1.0.5), so that window knows the notice for its own. Null for every other kind, and for a save sent without one. |
 | `id` | integer (int64) | yes |  |
-| `kind` | string | yes | What it is about (`caller.ready`, `caller.declined`, ...), for the app to pick keys. |
+| `kind` | string | yes | What it is about (`caller.ready`, `caller.declined`, `handover.heads_up`, ...), for the app to pick keys. |
 | `message` | string | yes |  |
-| `subject` | string, or null | no | The person it is about, if any; for `rule.changed`, the show's path (1.0.5). |
+| `subject` | string, or null | no | The person it is about, if any (for `handover.heads_up`, the incoming host's desk identity while they are at the desk); for `rule.changed`, the show's path (1.0.5). |
 | `surface` | [Surface](#schema-surface) | yes |  |
 | `title` | string | yes |  |
 | `tone` | [Tone](#schema-tone) | yes |  |
@@ -5547,6 +6004,72 @@ A period for each kind of record.
 |---|---|---|---|
 | `id` | string (uuid) | yes |  |
 | `name` | string | yes |  |
+
+### Schema: PhoneBan
+
+A number's ban.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `ban_key` | string | yes | `pb_` and 32 hex digits; never the number. |
+| `date` | string | yes | The day it was made (`2026-11-20`). |
+| `expires_ms` | integer (int64), or null | no | When it lapses (milliseconds since the epoch); none, never. |
+| `reason` | string | yes |  |
+| `tail` | string | yes | The last digits as the screener saw them (at most four). |
+
+### Schema: PhoneConsentChange
+
+A change to the phone line's consent settings; a field left out stays as it is.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `consent_words` | boolean, or null | no | Play the consent words before a caller joins the queue (`phone.consent_words`). |
+| `default_voice` | [PhoneVoice](#schema-phonevoice), or null | no |  |
+
+### Schema: PhoneStatus
+
+The phone line's state.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `at_gate` | integer | yes | Calls hearing the words now. |
+| `closed` | [Closed](#schema-closed), or null | no |  |
+| `consent_words` | boolean | yes | Whether the consent words play: the setting an admin changed in the studio (`PUT /api/v1/phone/consent`), else `phone.consent_words`. With the line off, false. |
+| `consent_words_help` | string | yes | The description of the consent words setting (`phone.consent_words`, `PHONE_CONSENT_WORDS` on Compose and the Quadlets), for the studio to show beside its switch: what the words are, when to leave them on (a licensed broadcaster, calls recorded or kept) and when an internet-only station may turn them off. Plain words, not legal advice. |
+| `default_voice` | [PhoneVoice](#schema-phonevoice) | yes | Which shipped recording plays until the station records its own: the setting an admin changed in the studio (`PUT /api/v1/phone/consent`), else `phone.default_voice` (`PHONE_DEFAULT_VOICE` on every install route): `alba` (the default), `edinburgh` or `own`. The station's own recording, once made, plays instead of either. With the line off, the default. |
+| `default_voice_help` | string | yes | The description of `default_voice`, for the studio beside its choice. |
+| `in_queue` | integer | yes | Phone callers in the queue. |
+| `lines` | integer (int32) | yes | Calls at once (`phone.lines`); 0 with the line off. |
+| `open` | boolean | yes | Whether the line takes calls now. |
+| `recording` | [RecordingView](#schema-recordingview), or null | no |  |
+| `words` | [PhoneWordsView](#schema-phonewordsview), or null | no |  |
+| `words_to_record` | string, or null | no | What the station's own recording should say today (its takedown contact is the station's, not the show's, so it does not go out of date at each change of show); absent with the line off. |
+
+### Schema: PhoneView
+
+A phone caller's line on the screener's caller card (17f).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `can_ban` | boolean | yes | Whether the screener's ban can single this caller out; a withheld caller cannot be banned by number ("Cannot ban a withheld number"). |
+| `number` | string | yes | `···4471`, or `Withheld`: the last four digits at most, never the number. |
+| `withheld` | boolean | yes |  |
+
+### Schema: PhoneVoice
+
+Which recording plays when the station has none of its own (`phone.default_voice`; the operator's pick of 2026-11-20: Alba by default, Edinburgh the alternative).
+
+one of `alba`, `edinburgh`, `own`
+
+### Schema: PhoneWordsView
+
+What the line's words are now.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `kind` | string | yes | `off`, `default` (the recording that ships with WeaveSignal) or `station` (its own). |
+| `text` | string | yes | What the caller hears (with the words off, the sentence the records keep instead). |
+| `version` | string | yes |  |
 
 ### Schema: PictureView
 
@@ -5681,6 +6204,7 @@ What `/studio` and `GET /sources` say of the post (design section 10).
 | `source_name` | string, or null | no | Its source's name. |
 | `standing_since_ms` | integer (int64), or null | no | When the source became steady (standing by). |
 | `state` | [SourceState](#schema-sourcestate), or null | no |  |
+| `window` | [HandoverWindow](#schema-handoverwindow), or null | no |  |
 
 ### Schema: Preset
 
@@ -5694,6 +6218,24 @@ A Jurisdiction preset (ADR-0114).
 | `licensed` | boolean | yes | For a station that holds a broadcast licence. |
 | `name` | string | yes |  |
 | `summary` | string | yes | The rule each period follows, in a line (recce 27's last column). |
+
+### Schema: PresetInfo
+
+A preset as the screen offers it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `name` | string | yes |  |
+| `words` | string | yes |  |
+
+### Schema: PresetRequest
+
+A preset to apply.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `address` | string, or null | no | Where its output goes (the studio PC, the transmitter); for `local_guest`, the first VBAN in's sender when left out. |
+| `preset` | string | yes | `studio_lan`, `transmitter`, `local_guest` or `custom`. |
 
 ### Schema: PresetView
 
@@ -5912,6 +6454,31 @@ An aired episode with its published files.
 |---|---|---|---|
 | `episodes` | array of [PublishedEpisode](#schema-publishedepisode) | yes | Newest first. |
 
+### Schema: PullDetails
+
+What a pull opens.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `kind` | [PullKind](#schema-pullkind) | yes | `http` (Icecast or any HTTP audio), `hls` (a playlist) or `srt` (the station calls an SRT listener). |
+| `url` | string | yes | The address, as it was saved (normalised: the host in lower case, the port written). |
+
+### Schema: PullJob
+
+A pull the ingest is to hold open.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `allow_private` | boolean | yes | Whether it may open an address inside the station's own network. |
+| `key_id` | string | yes |  |
+| `url` | string | yes | The address as saved; the ingest checks it again, and every address its name resolves to, at each connection. |
+
+### Schema: PullKind
+
+How a pulled source is reached.
+
+one of `http`, `hls`, `srt`
+
 ### Schema: Recording
 
 A recording of the legal logger: the hour (UTC) it starts, its path and size.
@@ -5934,6 +6501,17 @@ What kind of recording: the programme (logger, archive) or the screener's off-ai
 
 one of `programme`, `call`
 
+### Schema: RecordingView
+
+The station's own recording, as `GET /api/v1/phone` shows it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `duration_ms` | integer (int32) | yes |  |
+| `out_of_date` | boolean | yes | Made from other words than today's: the line is closed until it is recorded again. |
+| `recorded_at_ms` | integer (int64) | yes |  |
+| `recorded_by` | string | yes |  |
+
 ### Schema: Refusal
 
 Why a connection was refused: a word for the log and the API, and the sentence the monitor link and Settings show (design section 9).
@@ -5944,6 +6522,7 @@ one of `wrong_key`, `ended`, `not_your_slot`, `in_use`, `too_many`, `turned_away
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `stun_servers` | array of string | yes | The STUN servers (`host:port`) the page may use, as the station's operator named them (ADR-0290). Empty by default: the page asks no STUN server, whatever LiveKit offers it. |
 | `turn_tls_port` | integer (int32) | yes |  |
 
 ### Schema: Release
@@ -6087,6 +6666,32 @@ What retention decides for the playout layer.
 What a participant does in the room; the desk routes their voice by it.
 
 one of `presenter`, `dj`, `guest`, `caller`, `screener`, `producer`, `listener`, `source`
+
+### Schema: RotaRow
+
+One airing on the rota.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `end_ms` | integer (int64) | yes |  |
+| `from` | [HostOrigin](#schema-hostorigin) | yes | `room` or `push`. |
+| `hosts` | array of string | yes | Who is down for it, by name: a key's label each, or the show's presenter. Empty when nobody is (automation, or a show nobody has been put down for). |
+| `now` | boolean | yes | On air by the schedule now. |
+| `ready` | boolean | yes | Ready or on air. |
+| `show` | string | yes |  |
+| `show_name` | string | yes |  |
+| `start_ms` | integer (int64) | yes |  |
+| `state` | [HandoverReadiness](#schema-handoverreadiness) | yes | How far the host has got now: `not_connected`, `connecting`, `ready` or `on_air`. |
+
+### Schema: RotaView
+
+The coming hours.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `airings` | array of [RotaRow](#schema-rotarow) | yes | One row an airing, in start order: the one on air now (`now`), then the rest. |
+| `now_ms` | integer (int64) | yes | The station's clock when it was read. |
+| `until_ms` | integer (int64) | yes | The end of the stretch the rota covers (twelve hours on). |
 
 ### Schema: Row
 
@@ -6450,6 +7055,7 @@ One answer that the settings file starts and the page may override.
 | `name` | [SetupAnswer](#schema-setupanswer) | yes |  |
 | `status` | string | yes | `pending`: setup is offered. `done`: it is not. |
 | `stream_password` | [StreamPassword](#schema-streampassword) | yes |  |
+| `stun` | [StunView](#schema-stunview) | yes |  |
 | `updated_at_ms` | integer (int64), or null | no |  |
 | `updated_by` | string, or null | no |  |
 
@@ -6523,11 +7129,12 @@ A show key as it is kept (never its secret).
 | `created_by` | string | yes |  |
 | `created_ms` | integer (int64) | yes |  |
 | `ends_on_disconnect` | boolean | yes | It ends when its connection closes (made again with `old: on-disconnect`). |
-| `hint` | string | yes | How the host means to send: `icecast` or `srt` (a hint, not a lock). |
+| `hint` | string | yes | How the host means to send: `icecast`, `srt`, `whip`, `bridge` or `vban` (a hint, not a lock); or `pull`, when the station opens the stream itself from `pull_url` (a lock: no host connects with it). |
 | `id` | string (uuid) | yes |  |
 | `key_id` | string | yes | The public part: the SRT stream id, and the Icecast password's first part. |
 | `label` | string | yes | Who it is for: their name on the desk. |
 | `last_used_ms` | integer (int64), or null | no |  |
+| `pull_url` | string, or null | no | For a pull (migration 0042): the address the station opens while the slot's door is open, as it was saved (plain HTTP, an HLS playlist, or an SRT listener with its stream id). |
 | `revoked_ms` | integer (int64), or null | no | When it ended, if it has. |
 | `show_id` | string (uuid) | yes |  |
 | `staff_id` | string (uuid), or null | no | The member of staff it is for, if one. |
@@ -6654,6 +7261,19 @@ One cart sounding, as the control plane keeps it.
 | `caller` | [CallerNote](#schema-callernote), or null | no |  |
 | `slot` | integer | yes |  |
 
+### Schema: SourceClock
+
+One source's clock, as the desk follows it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `identity` | string | yes |  |
+| `lost` | integer (int64) | yes | For VBAN: packets lost on the way and filled with silence. |
+| `name` | string | yes |  |
+| `ppm` | number (float), or null | no | Its clock against the desk's, in parts per million; `None` before the first estimate (about 20 s), or from a desk that does not follow. |
+| `replaced` | integer (int64) | yes | Times it was placed afresh (a gap, or drift past the cushion) since it connected. |
+| `way` | string | yes |  |
+
 ### Schema: SourceLogEntry
 
 One line of what happened to a source connection.
@@ -6662,10 +7282,10 @@ One line of what happened to a source connection.
 |---|---|---|---|
 | `at_ms` | integer (int64) | yes |  |
 | `detail` | string | no |  |
-| `event` | string | yes | `admitted`, `test`, `refused`, `ended`, `disconnected`, `let_back`, or one the post's rule writes (`on_air`, `off_air`, `link_lost`, `back`, `place_let_go`, `covered`, `go`, `not_yet`, `hold`, `hold_released`). |
+| `event` | string | yes | `admitted`, `test`, `refused`, `ended`, `disconnected`, `let_back`, or one the post's rule writes (`on_air`, `off_air`, `link_lost`, `back`, `place_let_go`, `covered`, `go`, `not_yet`, `hold`, `hold_released`), or the handover window's `heads_up` (under the key `post`). |
 | `key_id` | string | yes |  |
 | `reason` | string, or null | no | For a refusal: its word (`Refusal::as_str`). |
-| `way` | string, or null | no | `icecast` or `srt`. |
+| `way` | string, or null | no | `icecast`, `srt`, `whip`, `bridge`, `vban` or `pull`. |
 
 ### Schema: SourceSettings
 
@@ -6680,10 +7300,12 @@ The station's rules for sources (design section 10).
 | `place_kept_s` | integer (int32) | yes | How long a lost source's place is kept, in seconds. |
 | `port_icecast` | integer (int32) | yes | The ingest's Icecast port (TCP). |
 | `port_srt` | integer (int32) | yes | The ingest's SRT port (UDP). |
+| `port_whip` | integer (int32) | no | The ingest's WHIP media port (UDP; 17d). Left out of a request, 9712. |
 | `silence_s` | integer (int32) | yes | How long a link may be lost before automation covers, in seconds. |
 | `steady_s` | integer (int32) | yes | How long a source must be steady to stand by, in seconds. |
 | `test_max_min` | integer (int32) | yes | How long a test lasts at most, in minutes. |
 | `test_outside` | boolean | yes | Outside the slot, take a connection as a private test. |
+| `window_s` | integer (int32) | no | The handover window (design note `handover-window.md`): how long before a show's post the desk names the incoming host and gives them one heads-up, in seconds: 0 (off) to 1,800. A body without it keeps the station's stored value. |
 
 ### Schema: SourceState
 
@@ -6706,6 +7328,7 @@ A source connected or due, as the studio sees it.
 | `leveller_db` | number (float), or null | no | What the leveller does, in dB, while it is at the desk. |
 | `monitor_open` | boolean | yes | Whether the host's monitor link is open: someone listens, and the desk makes their monitor mix. |
 | `place_kept_until_ms` | integer (int64), or null | no | While `link_lost`: until when its place is kept. |
+| `pull` | boolean | yes | Whether the station opens this source itself (a pull): there is no host's software to wait for, and `not_connected` means the station cannot reach the address yet. |
 | `show` | string | yes |  |
 | `show_name` | string | yes |  |
 | `slot` | integer, or null | no | The desk slot it holds, while it is at the desk. |
@@ -6713,7 +7336,7 @@ A source connected or due, as the studio sees it.
 | `steady_ms` | integer (int64), or null | no | How long it has been connected, in ms. |
 | `title` | string, or null | no | What the host's software says is playing (Icecast's metadata), while connected. |
 | `turned_away_until_ms` | integer (int64), or null | no | Turned away from the desk until then (the tile's Disconnect). |
-| `way` | string, or null | no | `icecast` or `srt`, while connected. |
+| `way` | string, or null | no | `icecast`, `srt`, `whip`, `bridge` or `vban`, while connected; `pull` while the station holds a pull open. |
 
 ### Schema: SourcesView
 
@@ -6917,6 +7540,25 @@ The listener stream's password, where the install route has one.
 | `rundown` | array of [RundownItem](#schema-rundownitem) | yes |  |
 | `title` | string | yes |  |
 
+### Schema: StunChange
+
+The STUN servers Settings names (ADR-0290).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `servers` | array of string | yes | `host:port` each (a DNS name or an IPv4 address, without `stun:`), at most four; an empty list is none, the default: no STUN server is contacted. |
+
+### Schema: StunView
+
+The station's STUN servers (ADR-0290): none unless the station names some. LiveKit, the desk and the join pages read one setting at start, so a change applies to all three at once, at the next restart, and never to the pages alone.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `asked` | array of string, or null | no | What Settings last asked for (an empty list is none); `null`: Settings never named any, and the settings file decides. It applies when the station restarts, and from then on wins over the settings file (delete `STUN_SERVERS=` from the app's `setup.env` to go back). |
+| `available` | boolean | yes | Whether this install route lets Settings name them (the Cloudron package). Elsewhere they are the settings file's `STUN_SERVERS`, applied by `weavesignal.sh` and a restart. |
+| `in_use` | array of string | yes | `host:port` each, as this station was started; empty: no STUN server is contacted. |
+| `restart_needed` | boolean | yes | Whether an answer is waiting for a restart. |
+
 ### Schema: Surface
 
 one of `desk`, `screener`
@@ -6935,6 +7577,22 @@ What one sweep did, or (dry run) would do.
 | `holds_deleted` | integer (int32) | yes | Released holds whose own record went, the moderation-records period after their release (ADR-0157). |
 | `preset` | string | yes |  |
 | `recordings_deleted` | integer (int32) | yes |  |
+
+### Schema: TakedownAnswer
+
+The calls a number may have made.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `consents` | array of integer (int64) | yes | Their consent records, newest first: erase each with `POST /api/v1/retention/consents/{id}/erase`. |
+
+### Schema: TakedownRequest
+
+A takedown's number.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `number` | string | yes | The number as the caller gives it. Never kept or logged. |
 
 ### Schema: TeamMember
 
@@ -7037,6 +7695,30 @@ A track in the library.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `tracks` | array of [Track](#schema-track) | yes |  |
+
+### Schema: VbanIn
+
+A VBAN stream the station takes: a sender's address and stream name, bound to a show key.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `address` | string | yes | The sender's address on the station's network (`192.168.1.20`). |
+| `channels` | array of integer (int32) | no | The channels taken, left then right, counted from 1; mono is heard in both ears. |
+| `key_id` | string | yes | The show key whose source it is. |
+| `name` | string | yes | The stream's name as the sender sends it (Voicemeeter's `Stream1`), 1 to 16 characters. |
+
+### Schema: VbanOut
+
+A VBAN stream the desk sends.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `address` | string | yes | One receiver's address; never broadcast or multicast. |
+| `enabled` | boolean | no |  |
+| `format` | string | no | `s16` (the default; 240 frames a packet), `s24` (160) or `f32` (120, by choice only: Voicemeeter's support is not stated). |
+| `name` | string | yes | The stream's name the receiver listens for. |
+| `port` | integer (int32) | no |  |
+| `source` | string | no | What is sent: see `OUT_SOURCES`. |
 
 ### Schema: VideoInfo
 
@@ -7143,6 +7825,22 @@ A webhook as it is kept.
 | `clock` | string (uuid) | yes |  |
 | `hour` | integer (int32) | yes |  |
 | `weekday` | integer (int32) | yes | Monday is 0. |
+
+### Schema: WhipDetails
+
+WHIP (17d), as OBS asks for it: a server address and a bearer token. Sound only.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bearer_token` | string | yes | OBS's *Bearer Token*: the secret. |
+| `port` | integer (int32) | yes | The station's UDP port for WHIP's media; 0 when WHIP is off. |
+| `url` | string, or null | no | `https://<public address>/whip/<key id>`, OBS's *Server*; `None` when WHIP is off or the station has no public address (its studio domain may sit behind a login). |
+
+### Schema: WordsProblem
+
+Why the line is closed, if it is, as far as the words go.
+
+one of `recording_out_of_date`, `default_missing`, `no_recording`
 
 ### Schema: ZoneBody
 

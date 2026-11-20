@@ -94,7 +94,7 @@ A relay for people whose networks block WebRTC's direct connections; WeaveSignal
 
 **WHIP.**
 A standard way to send a live stream into a WebRTC server from an encoder such as OBS.
-WHIP for remote DJs is planned, not in release one.
+From 1.2 a host can send their show's sound from OBS over WHIP with their show key ([Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)).
 
 ## On air
 

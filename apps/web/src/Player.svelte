@@ -15,7 +15,7 @@
   import type { Call } from './lib/call.svelte.ts';
   import CallPanel from './lib/CallPanel.svelte';
   import * as challenge from './lib/challenge.ts';
-  import { useTurnPort } from './lib/turn.ts';
+  import { useStationIce } from './lib/turn.ts';
   import ChatPanel from './lib/chat/ChatPanel.svelte';
   import OnAirLine from './lib/chat/OnAirLine.svelte';
   import { check, firstError, request, type LobbyErrors } from './lib/lobby.ts';
@@ -246,7 +246,7 @@
   async function startCall(joined: api.Joined) {
     pauseAll();
     const { Call } = await import('./lib/call.svelte.ts');
-    if (info) useTurnPort(info.relay.turn_tls_port);
+    useStationIce(info?.relay);
     call = new Call(joined);
     view = 'call';
     kept = null;

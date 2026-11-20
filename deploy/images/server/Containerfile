@@ -86,6 +86,9 @@ RUN dnf -y install --setopt=install_weak_deps=False gstreamer1-plugin-openh264 \
     && rm -rf /root/.cache/gstreamer-1.0
 # The placeholder cart pack (ADR-0020), loaded as the demo banks when a station has none.
 COPY assets/carts-demo /opt/weavesignal/carts-demo
+# The phone line's shipped consent words (17f; CC BY 4.0, NOTICES.md): the control plane copies
+# them into the phone-words volume, where the desk plays them.
+COPY assets/phone/phone-words-alba.opus assets/phone/phone-words-edinburgh.opus /opt/weavesignal/phone-words/
 # The demo station's slate pictures (ADR-0200): video.demo_still points at the kettle.
 COPY assets/stills-demo/kettle-fm.png assets/stills-demo/night-show.png /opt/weavesignal/stills-demo/
 COPY --from=web /src/apps/web/dist /opt/weavesignal/web

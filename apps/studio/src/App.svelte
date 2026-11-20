@@ -30,6 +30,7 @@
   import StepControl from './lib/StepControl.svelte';
   import PrepareControl from './lib/PrepareControl.svelte';
   import SessionEnded from './lib/SessionEnded.svelte';
+  import CloseAsk from './lib/CloseAsk.svelte';
   import ShowWizard from './settings/ShowWizard.svelte';
   import Schedule from './schedule/Schedule.svelte';
   import Tip from '../../../packages/ui/Tip.svelte';
@@ -426,6 +427,7 @@
     <Screener />
   {/if}
   <SessionEnded />
+  <CloseAsk />
   {#if setup.open && account.me?.kind === 'staff'}
     <ShowWizard
       me={account.me}

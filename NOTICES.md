@@ -152,6 +152,14 @@ landlock 0.4.7 and rustix 1.1.5 (MIT OR Apache-2.0) for its sandbox. Two faults 
 are worked around in our code, not patched: opus-decoder's multistream packet split
 (`crates/media/src/multistream.rs`) and flacenc's STREAMINFO minimum block size.
 
+WHIP for remote DJs (17d) brings a WebRTC stack into the ingest (`crates/ingest`), which runs
+it on what a host's OBS sends: str0m 0.25.0 (MIT OR Apache-2.0; ICE-lite, DTLS, SRTP and RTP, sans
+I/O) with its sub-crates str0m-proto, str0m-aws-lc-rs, dimpl and sctp-proto (MIT OR Apache-2.0),
+all unmodified, and for its cryptography aws-lc-rs (ISC AND Apache-2.0) over aws-lc-sys (ISC,
+Apache-2.0, MIT, BSD-3-Clause and MIT-0 for the parts of AWS-LC and BoringSSL it builds), each
+inside `deny.toml`'s list. Only the Opus payloads leave the supervisor; the decoding worker reads
+them as before.
+
 Pictures posted in the chat (ADR-0262) bring two more crates into the media worker, both pure
 Rust, single-threaded and unmodified: image-webp 0.2.4 (MIT OR Apache-2.0), which reads a WebP,
 and jpeg-encoder 0.7.1 ((MIT OR Apache-2.0) AND IJG), which writes a photograph as a JPEG.
@@ -166,6 +174,31 @@ It is WeaveSignal's own work: 32 seconds of sine tones, synthesised by `make.sh`
 sample or recording of anyone else's in it. The recording is released under CC0-1.0
 (`LICENSES/CC0-1.0.txt`), so a station may keep it, change it or replace it freely; `make.sh` is
 code and AGPL-3.0-only.
+
+## The phone line's consent words in `assets/phone/`
+
+`phone-words-alba.opus` and `phone-words-edinburgh.opus` are the words a phone caller hears until
+a station records its own (17f; the operator chose them on 2026-11-20). Each says "You're through
+to the studio, and your call may go on air and be recorded. Press any key to carry on." in about
+7 seconds, Ogg Opus at 64 kbit/s, mono 48 kHz, set to −18 LUFS. Both were synthesised with Piper
+(piper-tts 1.8.0, GPL-3.0-or-later; the program is not shipped, only the audio it made) and the
+voices of rhasspy/piper-voices (MIT), at commit `42301ec547bc2939386cf0ae9f9050ca05b1d3af`:
+
+- `phone-words-alba.opus`: the voice `en_GB-alba-medium`, trained on the Alba speech corpus,
+  C. Valentini-Botinhao and J. Yamagishi, University of Edinburgh, 2019,
+  <https://doi.org/10.7488/ds/2506>, CC BY 4.0. **The corpus adds: "The Creative Commons licence
+  does not affect the moral rights of the voice talent with respect to the recordings. Any use
+  derogatory to the voice talent is prohibited."**
+- `phone-words-edinburgh.opus`: the voice `en_GB-vctk-medium`, speaker p285, trained on the CSTR
+  VCTK Corpus 0.92, J. Yamagishi, C. Veaux and K. MacDonald, University of Edinburgh, 2019,
+  <https://doi.org/10.7488/ds/2645>, CC BY 4.0.
+- Both voices were finetuned from a base trained on the Hi-Fi Multi-Speaker English TTS Dataset
+  (NVIDIA, reader 92, Cori Samuel, from LibriVox), <https://www.openslr.org/109/>, CC BY 4.0.
+
+The recordings are released under CC BY 4.0 (`LICENSES/CC-BY-4.0.txt`; each file's `.license`
+beside it). Whether CC BY reaches a model's output is a legal question: the attribution above is
+given as if it does. That the GPL of the program that made them does not reach them is the
+maintainers' inference (the usual reading of the GPL FAQ), not yet confirmed.
 
 ## In `spike/`
 

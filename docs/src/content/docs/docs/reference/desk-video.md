@@ -3,7 +3,7 @@ title: "Video in the desk"
 description: "The video path: cameras subscribed by the desk, the vision mixer following the audio, the slate and captions, AV1 to CMAF HLS behind the same delay as the sound, the picture in the room for the people on the show, the player's audio-only toggle, and what it costs."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-20
 ---
 
 Video is off unless a station turns it on (ADR-0009): `[video] enabled = true` in the desk's settings, `VIDEO=true` in the Compose bundle's `.env`, or `VIDEO=true` in the Cloudron package's `weavesignal.env` ([Install on Cloudron](/docs/how-to/install-on-cloudron/#video)).
@@ -14,7 +14,7 @@ Sound comes first: nothing on the video path runs in the desk's audio pipeline o
 1. **Cameras.** The desk subscribes to each person as before; their camera arrives on the same room connection and is handed over still encoded (VP8, VP9 or AV1; never H.264 or H.265, which LiveKit is told to refuse) to a small decoding pipeline of its own, which scales it to the picture's size with borders kept.
 2. **The vision mixer.** Twenty times a second one thread picks the shot: the loudest person on air with a camera, cut to once they have been at least 3 dB louder than the shot for 600 ms and the shot has held 2 s. Taking the shot's person off air cuts away at once. Nobody on air on camera: the slate.
 3. **The delay.** Every frame goes into a short history; the frame sent on is the one from the profanity delay's length ago, read afresh each frame, so pictures are dumped with the sound and build back up with it (ADR-0008).
-4. **The encoders.** AV1, one encoder per rung: NVENC where the desk can reach an NVIDIA GPU, SVT-AV1 on the CPU otherwise, a keyframe every 2 s, no B-frames. The Compose bundle does not hand the desk's container the GPU, so there it is SVT-AV1 ([planned](/docs/reference/release-one-status/#not-in-release-one)). The Cloudron package is SVT-AV1 too, Ubuntu's 2.3.0 (a Cloudron app cannot reach a GPU yet, ADR-0228).
+4. **The encoders.** AV1, one encoder per rung: NVENC where the desk can reach an NVIDIA GPU, SVT-AV1 on the CPU otherwise, a keyframe every 2 s, no B-frames. From 1.2 the Compose bundle and the Quadlets hand the desk's container an NVIDIA card by its CDI name when the station says `GPU=nvidia` or `weavesignal.sh` finds one ([A GPU](#a-gpu)). The Cloudron package is SVT-AV1, Ubuntu's 2.3.0 (a Cloudron app cannot reach a GPU, ADR-0228).
 5. **CMAF HLS.** `hlscmafsink` writes 2 s segments per rung and for the sound: Opus at 96 kbit/s, stamped on the same clock as the pictures. The sound is the desk's delayed programme while someone is live, and playout's output while nobody is ([The sound](#the-sound)). The desk writes `live.m3u8` (each rung, with the audio) and `audio.m3u8` (the audio alone). While [content steering](/docs/reference/steering/) has edges, the control plane adds the steering line to both as it serves them.
 6. **The room.** The live picture, before the delay, is published into the room as `desk-pgm` in VP8, with small pictures of the other cameras along the bottom: what the people on the show see (ADR-0028).
 
@@ -120,6 +120,39 @@ It watches `desk-pgm` and no other camera, so one guest's browser cannot pull ev
 The same delayed picture and sound can also go to RTMP servers such as Rumble, Odysee and PeerTube, as H.264 and AAC or as AV1 and Opus over Enhanced RTMP, each destination on its own and off until an admin turns it on (ADR-0230).
 `[video] canvas` lets the desk compose a larger picture than the first HLS rung (720p30, say), which HLS is scaled down from.
 See [RTMP out](/docs/reference/rtmp-out/).
+
+## A GPU
+
+The desk's `[video] encoder` chooses: `auto` (the default) uses NVENC's AV1 (`nvav1enc`, with `cudaupload`) when GStreamer finds both, else SVT-AV1; `nvenc` asks for NVENC and falls back the same way, with a warning; `svt` keeps every rung on the CPU.
+`nvenc_sessions` (12) caps the NVENC sessions the desk opens, one per rung and one for RTMP out's encode; a rung past it is encoded by SVT-AV1, and an NVENC encoder that fails while running hands its rungs to SVT-AV1 for the rest of the desk's run.
+RTMP out's H.264 follows its own `h264` setting ([RTMP out](/docs/reference/rtmp-out/)).
+
+How the card reaches the desk, on each route ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)):
+
+| Route | The card | Settings |
+|---|---|---|
+| Compose (`weavesignal.sh`) | `gpu.yaml`: `devices: [${GPU_DEVICE}]` and SELinux labelling off for the desk, added when `GPU=nvidia` and `VIDEO=true` | `GPU` (`auto`, `nvidia`, `none`), `GPU_DEVICE` (`nvidia.com/gpu=all`), `VIDEO_ENCODER` (`auto`), `NVENC_SESSIONS` (12) |
+| Quadlets (`generate.sh`) | the same overlay, as the desk unit's `AddDevice=` and `SecurityLabelDisable=true` | the same settings file |
+| Cloudron | none: a Cloudron app is given no GPU | `VIDEO_ENCODER` (`svt`; `auto` and `nvenc` fall back) |
+
+`weavesignal.sh` with `GPU` unset or `auto` looks for a CDI spec that declares `nvidia.com/gpu` in `/etc/cdi` and `/var/run/cdi` and writes `GPU=nvidia` or `GPU=none`; `GPU=nvidia` with no spec stops it.
+The image needs no driver of its own: Fedora's GStreamer `nvcodec` plugin opens the driver's libraries that the CDI spec mounts, and the image keeps no plugin registry, so a run with the card finds the plugin.
+
+Measured on a card so far only by the M5 bench (below); `tests/gpu/measure.sh` runs the desk's chain on a card at each rung and several at once, with the kernel log watched for the driver's Xid faults, and stops at the first.
+
+## A host's own picture
+
+**Designed, not built (1.2).** A host in their own studio often encodes a picture already, with their own card. The design is that the desk passes that picture through to viewers without encoding it again, where the codecs allow, so the host's GPU does the work and the station's server does none.
+
+What the desk does today: a host's software reaches the ingest over Icecast, SRT, WHIP, the bridge or VBAN; the ingest takes **the sound only** (an SRT stream's picture is skipped by its MPEG-TS reader, OBS's WHIP picture is accepted and thrown away), decodes it to 48 kHz and hands the desk PCM over one loopback connection per source. The picture viewers see is always the desk's own: the vision mixer's shot, or the slate, encoded at the station.
+
+How it would work:
+
+1. **In.** SRT carrying MPEG-TS with the picture beside the sound: H.264, or AV1 where the host's encoder can put AV1 in MPEG-TS (which OBS versions do is not checked yet). The ingest would keep the picture's elementary stream and hand it to the desk on a second loopback connection beside the sound, with each access unit's timestamp on the source's clock.
+2. **At the desk.** While that source is the only one on air, HLS's rung (and RTMP out's open profile) would take the host's AV1 as it is, re-timed onto the desk's clock and held behind the profanity delay with the sound; the vision mixer, captions and the slate would not touch it. Anyone else on air with them, or a dump, would switch back to the desk's own encode at the next keyframe.
+3. **Where the codecs do not allow it.** H.264 from the host can go to RTMP out's compatible profile as it is, but HLS here is AV1 only, so it would be decoded and encoded again (on the station's card if it has one). A picture larger than the rung, or a keyframe interval other than the segment length, also needs encoding again.
+
+What is missing before it can be built: the picture through the ingest (its MPEG-TS reader skips every picture stream, and the source wire to the desk carries PCM only); a picture path in the desk that bypasses the vision mixer and switches at keyframes without a gap; the delay's picture history for compressed frames (it holds raw frames now); segmenting a stream the desk did not encode (the host's keyframes must land on segment boundaries, which the host's settings decide); the rules for a host whose picture stops while their sound goes on; and tests with OBS's own output. Until then a host's picture is not used, and the station's own card ([A GPU](#a-gpu)) is the way to take encoding off the server's CPU.
 
 ## What it costs
 

@@ -14,6 +14,7 @@ pub mod desk;
 pub mod events;
 pub mod hub;
 pub mod join;
+pub mod kit;
 pub mod mail;
 pub mod mailkey;
 pub mod media;
@@ -24,11 +25,13 @@ pub mod onair_api;
 pub mod open;
 pub mod openapi;
 mod openapi_page;
+pub mod phone;
 pub mod playout;
 pub mod ports;
 pub mod post;
 pub mod public;
 pub mod retention;
+pub mod rota;
 pub mod rules;
 pub mod schedule;
 pub mod scopes;
@@ -44,6 +47,7 @@ pub mod tokens;
 pub mod video;
 pub mod web;
 pub mod webhooks;
+pub mod whip_route;
 pub mod zone;
 // rtmp-out (ADR-0230)
 pub mod rtmp;
@@ -163,6 +167,16 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         );
     }
     studio.set_listener_path(config.studio.listener_path());
+    // Words a caller would read with a `{word}` left in (issue #26's `{presenter}` misspelt):
+    // warned, not refused, so words a station already runs with keep working.
+    let unknown = join::unknown_placeholders(&config.join.consent_text);
+    if !unknown.is_empty() {
+        tracing::warn!(
+            unknown = %unknown.join(" "),
+            known = %join::CONSENT_PLACEHOLDERS.join(" "),
+            "`join.consent_text` has fill-ins the control plane does not know; callers read them as written"
+        );
+    }
     // Viewers are served by more than this server when steering has edges, or when the
     // player's HLS is on another address, an edge or a CDN (issue 4).
     studio.set_edges(config.steering.enabled() || web::hls_elsewhere(&config.join.hls_url));
@@ -188,6 +202,54 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         std::time::Duration::from_millis(config.desk.poll_ms),
         carts,
     );
+    // The telephone line (17f): only when it is on and a trunk is set.
+    if config.phone.on() {
+        let keys = config.api_key.as_ref().map(|k| k.phone_ban_keys());
+        if keys.is_none() {
+            tracing::warn!(
+                "the phone line is on but no key is set to make ban keys with: it takes no calls"
+            );
+        }
+        // The shipped recordings, from the image into the folder the desk plays from.
+        if let Err(e) =
+            phone::words::install_shipped(&config.phone.defaults_dir, &config.phone.words_dir)
+        {
+            tracing::warn!(error = %format!("{e:#}"), "cannot copy the shipped phone words");
+        }
+        // Both shipped voices: an admin may switch between them from the studio.
+        let default_present = phone::words::SHIPPED
+            .iter()
+            .all(|f| config.phone.words_dir.join(f).is_file());
+        let line = phone::line::Line::new(config.phone.clone(), keys);
+        // The station's own recording of the words is not read yet (its upload is a later
+        // step), so today's browser words are not needed: only the default or no words play.
+        line.set_context(phone::line::Context {
+            call_in_open: config.join.call_in,
+            consent_today: String::new(),
+            station_recording: None,
+            default_present,
+            settings: Default::default(),
+        });
+        if let Some(c) = line.closed(&phone::line::Line::moment(
+            &line.context(),
+            &phone::limits::Bans::default(),
+            0,
+        )) {
+            tracing::warn!(why = ?c, "the phone line is on but closed");
+        }
+        let _ = hub.phone.set(std::sync::Arc::new(line));
+    }
+    if let Some(pool) = &db {
+        let now = i64::try_from(hub::now_ms()).unwrap_or(i64::MAX);
+        match weavesignal_model::phone::bans(pool, station.id, now).await {
+            Ok(rows) => hub.with_studio(|s, _| {
+                *s.phone_bans_mut() = phone::limits::Bans::from_rows(
+                    rows.into_iter().map(phone::limits::PhoneBan::from_record),
+                );
+            }),
+            Err(e) => tracing::error!(error = %e, "cannot read the phone line's bans"),
+        }
+    }
     hub.spawn_poller();
     hub.start_carts().await;
     onair_api::LIBRARY_UPLOAD_MB.store(
@@ -331,10 +393,27 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     // (returned above) is the one in force.
     hub.live.set_file_name(&config.station()?.name);
     // Hosts' own studios (ADR-0280): the ports the installation publishes win over the rules'.
-    hub.sources.set_fixed_ports(
-        config.ports.given("source_icecast"),
-        config.ports.given("source_srt"),
+    hub.sources.set_fixed_ports(sources::FixedPorts {
+        icecast: config.ports.given("source_icecast"),
+        srt: config.ports.given("source_srt"),
+        whip: config.ports.given("source_whip"),
+    });
+    // WHIP's requests go on to the ingest on loopback (17d).
+    hub.sources.set_ingest_whip(config.ports.get("ingest_whip"));
+    // The bridge (Phase 17g) on its loopback port; VBAN as the installation allows it, never
+    // on Cloudron.
+    hub.sources
+        .set_bridge_port(config.ports.get("source_bridge"));
+    let vban = kit::allowed(
+        config.kit.vban,
+        std::env::var_os(kit::CLOUDRON_ENV).is_some(),
     );
+    if let Err(why) = &vban
+        && config.kit.vban
+    {
+        tracing::warn!("{why}");
+    }
+    hub.sources.set_vban_allowed(vban);
     let setup_state = Arc::new(setup::SetupState {
         station: station.id,
         db: db.clone(),
@@ -358,6 +437,7 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
             .to_owned(),
             listed: config.web.listed,
         },
+        stun_in_use: config.join.stun_servers.clone(),
         carts: config.carts.clone(),
         started: std::time::SystemTime::now(),
     });
@@ -409,6 +489,7 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     video::spawn_slate_still(state.clone());
     // rtmp-out: RTMP out's destinations, kept in the database, to the desk (ADR-0230).
     rtmp::spawn_sync(state.clone());
+    kit::spawn_sync(state.clone());
     if let Some(pool) = &state.db {
         retention::warn_at_start(pool, state.station.id).await;
         retention::spawn_sweeper(pool.clone(), state.station.id, link.clone());
@@ -424,6 +505,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
             .with_staff(state.staff.clone()),
     );
     steering::spawn_checker(steering_state.clone());
+    // The phone line's words (17f): today's, and the station's recording, every half minute.
+    phone::api::spawn_refresher(state.clone());
     // The public pages, when a build is configured (M3's known fault: nothing served them).
     let site = match &config.web.dir {
         Some(dir) => {

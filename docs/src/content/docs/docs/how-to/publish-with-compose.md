@@ -16,7 +16,7 @@ The bundle is otherwise the one in [Install a station with weavesignal.sh](/docs
 
 ## Before you start
 
-- **A domain name that reaches this machine**: an A record for, say, `station.example`.
+- **A domain name that reaches this machine**: an A record for, say, `station.example`. The script reads that record to tell LiveKit its public address, so give it one that points at this machine's public address, and no proxy that hides it; otherwise set `NODE_IP`.
   One name serves everything, TURN included; there is no second name for the stream or the room.
   **Give it no AAAA record.** LiveKit's built-in TURN refuses a client that reaches it over IPv6 (an allocation error, 508), so with an AAAA record a guest who can join only through TURN, on an IPv6 network, cannot join at all ([Known limits](/docs/reference/release-one-status/#known-limits)).
 - **A server of its own**, not a busy shared one: on a heavily shared server the listener stream ran dry ([Memory and CPU](/docs/reference/resources/#what-this-means-for-a-host)).
@@ -30,7 +30,7 @@ The bundle is otherwise the one in [Install a station with weavesignal.sh](/docs
   | 5349 | TCP | LiveKit's TURN over TLS (ADR-0080) |
 
   TURN over UDP and ICE over TCP are off unless you set their ports (below); open those too if you do.
-  So are the two ports for hosts' own studios: `SOURCE_ICECAST_PORT` (TCP, 8005 suggested) and `SOURCE_SRT_PORT` (UDP, 9710).
+  So are the ports for hosts' own studios: `SOURCE_ICECAST_PORT` (TCP, 8005 suggested), `SOURCE_SRT_PORT` (UDP, 9710) and `SOURCE_WHIP_PORT` (UDP, 9712).
   Nothing else is published. The control plane, the chat and the listener process stay on loopback behind the proxy.
 - **Ports 80 and 443 free**, and bindable by your user. A rootless Podman may not bind ports below 1024 unless the machine allows it. If yours does not, the script stops and prints the line to run:
 
@@ -51,7 +51,7 @@ deploy/compose/weavesignal.sh --public station.example
 This does everything the plain script does, and then:
 
 1. Checks the new ports (`PROXY_HTTPS_PORT` 443, `PROXY_HTTP_PORT` 80, `TURN_TLS_PORT` 5349, and `TURN_UDP_PORT` and `LIVEKIT_TCP_PORT` if you set them) as it checks the others ([Ports](/docs/reference/ports/#with-weavesignalsh)).
-2. Writes the public settings into the settings file, and works out from them the addresses the services are given: the room as `wss://station.example`, the listener stream as `https://station.example/programme.opus`, and `forwarded_for` on in the control plane and the chat, so each caller is counted by their own address and not the proxy's.
+2. Writes the public settings into the settings file, and works out from them the addresses the services are given (LiveKit's own is `NODE_IP`, else the A record of the name, which the script reads now; it asks no STUN server, and says which it used): the room as `wss://station.example`, the listener stream as `https://station.example/programme.opus`, and `forwarded_for` on in the control plane and the chat, so each caller is counted by their own address and not the proxy's.
 3. Starts the bundle with `public.yaml`. **The proxy starts first and LiveKit waits for the certificate**, because TURN over TLS needs it; the first start therefore takes as long as the certificate authority does, usually under a minute.
 4. Asks the proxy, on this machine, for `/health`, and prints the addresses and what to open.
 
@@ -89,9 +89,10 @@ All are in the settings file (`deploy/compose/.env`), or in the environment of t
 | `PROXY_HTTPS_PORT`, `PROXY_HTTP_PORT` | 443, 80 | a certificate authority reaches 443 and 80 only, so any other pair needs those forwarded to it |
 | `TURN_TLS_PORT` | 5349 | 15349 where 5349 is taken; not 443, which is the proxy's |
 | `TURN_UDP_PORT`, `LIVEKIT_TCP_PORT` | 0 (off) | TURN over UDP and ICE over TCP; guests who need either are reached by TURN over TLS |
-| `SOURCE_ICECAST_PORT`, `SOURCE_SRT_PORT` | 0 (off) | Icecast (TCP) and SRT (UDP) from hosts' own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)); 8005 and 9710 are usual. The ingest listens on every address on them while a show key exists. They reach the ingest directly, not through the proxy, so it counts wrong keys by the host's own address |
-| `NODE_IP` | empty | LiveKit's public address; empty, it finds it by asking a STUN server. Set it where discovery picks the wrong address |
+| `SOURCE_ICECAST_PORT`, `SOURCE_SRT_PORT`, `SOURCE_WHIP_PORT` | 0 (off) | Icecast (TCP), SRT (UDP) and WHIP's sound (UDP) from hosts' own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/), [Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)); 8005, 9710 and 9712 are usual. WHIP's offer comes through the proxy (`/whip/`). The ingest listens on every address on them while a show key exists. They reach the ingest directly, not through the proxy, so it counts wrong keys by the host's own address |
+| `NODE_IP` | empty | LiveKit's public IPv4 address; empty, `weavesignal.sh` uses the A record of `PUBLIC_DOMAIN`, read on each run. No STUN server is asked (ADR-0290). Set it where the record is not the address guests reach: a name behind a proxy such as Cloudflare's, or a router that does not forward the media port to this machine. If the name has no A record the script stops and says so ([LiveKit's public address](/docs/reference/packages/#livekits-public-address)) |
 | `TURN_ALLOW_CIDRS` | empty | LiveKit's TURN refuses to relay to private addresses, its own included. A `NODE_IP` that is private (the machine is behind NAT) must be listed here, such as `10.0.0.5/32` |
+| `STUN_SERVERS` | empty | STUN servers the station may ask: up to four `host:port`, comma-separated. Empty, the default: the station contacts none. LiveKit, the desk and the join pages all read it; run the script again after changing it ([STUN servers](/docs/reference/packages/#stun-servers), with servers that answered a request) |
 | `SEARCH_LISTING`, `DIRECTORY_LISTING` | `false` | the station is unlisted until you turn these on: search engines may list the pages (ADR-0133), and the stream asks internet radio directories to list it (ADR-0129) |
 
 LiveKit tells browsers that TURN over TLS is on port 443 whatever port it listens on; the pages replace it with `TURN_TLS_PORT` before the browser sees it.

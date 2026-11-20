@@ -22,14 +22,69 @@ use crate::desk::DeskStatus;
 use crate::studio::{CallerState, PLACE_HELD_MS, View};
 
 /// The consent words as the caller reads them: the station's name, how long a call is kept
-/// (`kept`, a phrase from [`kept_phrase`]) and how to ask for it to be taken down.
+/// (`kept`, a phrase from [`kept_phrase`]) and how to ask for it to be taken down. With no
+/// presenter known: a `{presenter}` in the words becomes the station's name
+/// ([`consent_words_with_presenter`]).
 pub fn consent_words(template: &str, station: &str, kept: &str, contact: &str) -> String {
+    consent_words_with_presenter(template, station, kept, contact, "")
+}
+
+/// [`consent_words`], and `{presenter}` (issue #26) as [`presenter_phrase`] gives it: the show on
+/// air's presenter, else the station's name. The default words have no `{presenter}`, so they
+/// and their version are the same whoever presents; a station that wants the name writes it
+/// into `join.consent_text`. The presenter's name goes in last, so nothing in it is read as a
+/// placeholder.
+pub fn consent_words_with_presenter(
+    template: &str,
+    station: &str,
+    kept: &str,
+    contact: &str,
+    presenter: &str,
+) -> String {
     template
         .replace("{station}", station)
         .replace("{kept}", kept)
         .replace("{contact}", contact.trim())
+        .replace("{presenter}", &presenter_phrase(presenter, station))
         .trim()
         .to_owned()
+}
+
+/// The `{presenter}` phrase: the show on air's presenter as the show names them (ADR-0214),
+/// trimmed; the station's name when the show has none or nothing is on air. Never an invented
+/// "the presenter": the caller is told who they will be live with, and the station always is.
+pub fn presenter_phrase(show_presenter: &str, station: &str) -> String {
+    match show_presenter.trim() {
+        "" => station.trim().to_owned(),
+        name => name.to_owned(),
+    }
+}
+
+/// The fill-ins the consent words understand.
+pub const CONSENT_PLACEHOLDERS: [&str; 4] = ["{station}", "{kept}", "{contact}", "{presenter}"];
+
+/// Every `{word}` in the consent words that is not one of [`CONSENT_PLACEHOLDERS`]: a caller
+/// would read it as it stands, so the control plane warns at start (`{presenter}` misspelt as
+/// `{presentor}`, say). Only lower-case letters and `_` between the braces count, so prose
+/// with braces in it is left alone.
+pub fn unknown_placeholders(template: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('}') else { break };
+        let word = &after[..close];
+        if !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+            let token = format!("{{{word}}}");
+            if !CONSENT_PLACEHOLDERS.contains(&token.as_str()) && !found.contains(&token) {
+                found.push(token);
+            }
+            rest = &after[close + 1..];
+        } else {
+            rest = after;
+        }
+    }
+    found
 }
 
 /// The `{contact}` phrase (ADR-0215): the show on air's takedown contact first, then the
@@ -349,6 +404,101 @@ mod contact_tests {
 }
 
 #[cfg(test)]
+mod presenter_tests {
+    //! Issue #26: a `{presenter}` the station may use; the default words unchanged.
+    use super::{
+        consent_version, consent_words, consent_words_with_presenter, presenter_phrase,
+        unknown_placeholders,
+    };
+
+    /// The default words exactly as they stood before `{presenter}` (1.1.1, `7619f21`).
+    const DEFAULT_BEFORE: &str = "You'll be live on {station}, and we may keep your call in our archive and podcast {kept}. To have it taken down, contact {contact}.";
+
+    /// Their version for Kettle FM, two years and calls@kettle.example, computed outside this
+    /// code: `printf '%s' "You'll be live on Kettle FM, … contact calls@kettle.example." |
+    /// sha256sum | cut -c1-16`.
+    const VERSION_BEFORE: &str = "a218fd849af55f85";
+
+    #[test]
+    fn the_default_words_and_their_version_are_unchanged_whoever_presents() {
+        assert_eq!(crate::config::CONSENT_TEXT, DEFAULT_BEFORE);
+        let args = ("Kettle FM", "for two years", "calls@kettle.example");
+        let old = consent_words(crate::config::CONSENT_TEXT, args.0, args.1, args.2);
+        assert_eq!(consent_version(&old), VERSION_BEFORE);
+        for presenter in ["", "  ", "Shona MacLeod", "{station} {kept}"] {
+            let w = consent_words_with_presenter(
+                crate::config::CONSENT_TEXT,
+                args.0,
+                args.1,
+                args.2,
+                presenter,
+            );
+            assert_eq!(w, old, "with presenter {presenter:?}");
+            assert_eq!(consent_version(&w), VERSION_BEFORE);
+        }
+    }
+
+    #[test]
+    fn a_stations_words_name_the_presenter_on_air() {
+        let t = "You'll be live with {presenter} on {station}. Recordings are kept {kept}.";
+        let w = consent_words_with_presenter(t, "Kettle FM", "for 30 days", "", " Shona MacLeod ");
+        assert_eq!(
+            w,
+            "You'll be live with Shona MacLeod on Kettle FM. Recordings are kept for 30 days."
+        );
+        // A different presenter is different words, so a caller agrees again at the boundary.
+        let other = consent_words_with_presenter(t, "Kettle FM", "for 30 days", "", "Iain Murray");
+        assert_ne!(consent_version(&w), consent_version(&other));
+    }
+
+    #[test]
+    fn with_no_presenter_known_the_station_is_named() {
+        let t = "You'll be live with {presenter}.";
+        for nobody in ["", "   "] {
+            assert_eq!(
+                consent_words_with_presenter(t, "Kettle FM", "", "", nobody),
+                "You'll be live with Kettle FM."
+            );
+        }
+        // The four-argument words know no presenter either.
+        assert_eq!(
+            consent_words(t, "Kettle FM", "", ""),
+            "You'll be live with Kettle FM."
+        );
+        assert_eq!(presenter_phrase(" ", " Kettle FM "), "Kettle FM");
+        assert_eq!(presenter_phrase("Ailsa Grant", "Kettle FM"), "Ailsa Grant");
+    }
+
+    #[test]
+    fn nothing_in_a_presenters_name_is_read_as_a_fill_in() {
+        let w = consent_words_with_presenter(
+            "With {presenter}, kept {kept}.",
+            "Kettle FM",
+            "for two years",
+            "",
+            "{kept} {contact}",
+        );
+        assert_eq!(w, "With {kept} {contact}, kept for two years.");
+    }
+
+    #[test]
+    fn unknown_fill_ins_are_found_and_prose_braces_are_not() {
+        assert!(unknown_placeholders(crate::config::CONSENT_TEXT).is_empty());
+        assert!(
+            unknown_placeholders("With {presenter} on {station}; {contact}, {kept}.").is_empty()
+        );
+        assert_eq!(
+            unknown_placeholders("With {presentor} and {presentor} on {Station} {} {a b} {"),
+            vec!["{presentor}".to_owned()]
+        );
+        assert_eq!(
+            unknown_placeholders("{show_name}{station}"),
+            vec!["{show_name}".to_owned()]
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::desk::{DeskPerson, PlayoutLink};
@@ -407,6 +557,8 @@ mod tests {
                 delay: None,
                 carts: None,
                 video: None,
+                kit: None,
+                phone: None,
             };
             studio.sync(&desk, 0);
             World { studio, desk }

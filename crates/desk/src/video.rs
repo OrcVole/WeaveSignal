@@ -337,6 +337,7 @@ struct Vision {
 struct Inner {
     settings: Settings,
     livekit: crate::config::LiveKit,
+    congestion_control: crate::config::CongestionControl,
     desk_identity: String,
     /// Publish the picture into the room (tests without a room do not).
     to_room: bool,
@@ -688,6 +689,7 @@ impl Video {
         Video {
             inner: Arc::new(Inner {
                 livekit: config.livekit.clone(),
+                congestion_control: config.desk.congestion_control,
                 desk_identity: config.desk.identity.clone(),
                 to_room: to_room && settings.room.publish,
                 canvas,
@@ -1318,6 +1320,7 @@ impl Video {
         let sink = named("livekitwebrtcsink", "room-picture")?;
         sink.set_property("video-caps", gst::Caps::builder("video/x-vp8").build());
         sink.set_property("max-bitrate", 1_200_000u32);
+        crate::pipeline::set_congestion_control(&sink, self.inner.congestion_control);
         let identity = format!("{}-pgm", self.inner.desk_identity);
         // Anyone in the room may watch the picture: it is the programme, and who watches it
         // changes as people join (ADR-0118).
@@ -1332,7 +1335,7 @@ impl Video {
         gst::Element::link_many([src.upcast_ref(), &q, &sink])?;
         p.set_state(gst::State::Playing)
             .context("the room picture would not start")?;
-        tracing::info!(%identity, "video: the programme picture published to the room (VP8)");
+        tracing::info!(%identity, congestion_control = %self.inner.congestion_control.nick(), "video: the programme picture published to the room (VP8)");
         *self.inner.room.lock().expect("room lock") = Some(RoomOut { pipeline: p, src });
         Ok(())
     }

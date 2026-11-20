@@ -10,7 +10,7 @@ import { run } from './lib/actions.ts';
 import { studio } from './lib/studio.svelte.ts';
 import type { DeskPerson, View } from './lib/api.ts';
 
-vi.mock('./lib/api.ts', async (orig) => ({ ...(await orig<typeof api>()), endPass: vi.fn(), desk: vi.fn(), restartPlayout: vi.fn() }));
+vi.mock('./lib/api.ts', async (orig) => ({ ...(await orig<typeof api>()), endPass: vi.fn(), desk: vi.fn(), restartPlayout: vi.fn(), screener: vi.fn() }));
 
 const person = (identity: string, name: string, role: DeskPerson['role']): DeskPerson => ({
   identity,
@@ -138,6 +138,61 @@ describe('a held talk key', () => {
     await run({ type: 'talk', slot: 3, held: true });
     await run({ type: 'talk', slot: 3, held: false });
     expect(api.desk).not.toHaveBeenCalled();
+  });
+  // Issue 25: with nobody screening, T on the Screener tab is the presenter's talk to the
+  // selected caller; the desk carries the caller's answer back to the presenter alone.
+  it('talks as the screener on the Screener tab, else as the presenter, else not at all', async () => {
+    const waiting = (v: View): View => ({
+      ...v,
+      callers: [{ identity: 'niall', name: 'Niall Anderson', state: 'waiting' } as unknown as View['callers'][number]],
+    });
+    vi.mocked(api.desk).mockImplementation(async () => studio.view!);
+    vi.mocked(api.screener).mockImplementation(async () => studio.view!);
+    studio.selected = 'niall';
+    studio.view = waiting(view(false));
+    await run({ type: 'screen-talk', held: true });
+    await run({ type: 'screen-talk', held: false });
+    const alone = waiting(view(false));
+    alone.seats = { ...alone.seats, screener: null, screener_name: '' };
+    studio.view = alone;
+    await run({ type: 'screen-talk', held: true });
+    await run({ type: 'screen-talk', held: false });
+    expect(vi.mocked(api.desk).mock.calls.map((c) => c[0])).toEqual([
+      { op: 'talk_to', identity: 'moira', to: 'niall', on: true },
+      { op: 'talk_to', identity: 'moira', to: 'niall', on: false },
+      { op: 'talk_to', identity: 'eilidh', to: 'niall', on: true },
+      { op: 'talk_to', identity: 'eilidh', to: 'niall', on: false },
+    ]);
+    const nobody = waiting(view(false));
+    nobody.seats = { ...nobody.seats, screener: null, presenter: null };
+    studio.view = nobody;
+    vi.mocked(api.desk).mockClear();
+    await run({ type: 'screen-talk', held: true });
+    expect(api.desk).not.toHaveBeenCalled();
+    expect(studio.note).toMatchObject({ title: 'Nobody to talk to' });
+    await run({ type: 'screen-talk', held: false });
+    expect(api.desk).not.toHaveBeenCalled();
+  });
+
+  it('lets go of the Screener tab’s talk it opened, even if a screener joined or the selection moved meanwhile', async () => {
+    const queue = (v: View): View => ({
+      ...v,
+      callers: ['niall', 'jessie'].map((identity) => ({ identity, name: identity, state: 'screening' }) as unknown as View['callers'][number]),
+    });
+    const alone = queue(view(false));
+    alone.seats = { ...alone.seats, screener: null, screener_name: '' };
+    vi.mocked(api.desk).mockImplementation(async () => studio.view!);
+    studio.view = alone;
+    studio.selected = 'niall';
+    await run({ type: 'screen-talk', held: true });
+    // While T is held Moira joins as the screener and the selection moves to Jessie.
+    studio.view = queue(view(false));
+    studio.selected = 'jessie';
+    await run({ type: 'screen-talk', held: false });
+    expect(vi.mocked(api.desk).mock.calls.map((c) => c[0])).toEqual([
+      { op: 'talk_to', identity: 'eilidh', to: 'niall', on: true },
+      { op: 'talk_to', identity: 'eilidh', to: 'niall', on: false },
+    ]);
   });
 });
 

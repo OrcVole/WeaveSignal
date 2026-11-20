@@ -769,7 +769,14 @@ async fn the_installations_ports_win_over_the_rules() {
     // `ports.source_icecast` and `ports.source_srt` are the ones in force; 0 is a way turned off.
     let p = plane().await;
     p.state.hub.sources.set_ingest_token(Some(INGEST.into()));
-    p.state.hub.sources.set_fixed_ports(Some(28005), Some(0));
+    p.state
+        .hub
+        .sources
+        .set_fixed_ports(weavesignal_control::sources::FixedPorts {
+            icecast: Some(28005),
+            srt: Some(0),
+            whip: None,
+        });
     let (code, rules) = send(
         &p.app,
         "GET",
@@ -832,6 +839,197 @@ async fn the_installations_ports_win_over_the_rules() {
         text.contains("Port: 28005") && !text.contains("SRT ("),
         "{text}"
     );
+}
+
+/// A request with a text body, as a WHIP client sends it; the answer's status and text.
+async fn whip_call(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    bearer: &str,
+    body: &str,
+) -> (StatusCode, String) {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/sdp")
+        .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+        .body(Body::from(body.to_owned()))
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "192.0.2.60:5000".parse::<SocketAddr>().unwrap(),
+    ));
+    let res = app.clone().oneshot(req).await.unwrap();
+    let code = res.status();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (code, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn whip_is_a_third_way_in_with_the_keys_secret_as_its_bearer() {
+    // 17d: a key may be made for WHIP; the ingest admits a WHIP connection with the bearer's
+    // secret as it does Icecast's password; the log keeps `whip`; WHIP's port is a rule and an
+    // installation's setting, never SRT's number; the public route says when WHIP is off.
+    let p = plane().await;
+    p.state.hub.sources.set_ingest_token(Some(INGEST.into()));
+    make_show(&p.app, "steeped", "Steeped").await;
+    episode(&p.app, "steeped", -600, 120).await;
+    let made = make_key(&p, "steeped", "Morag Campbell", "whip").await;
+    assert_eq!(made["key"]["hint"], "whip");
+    let key_id = made["key"]["key_id"].as_str().unwrap().to_owned();
+    let secret = made["secret"].as_str().unwrap().to_owned();
+    assert_eq!(made["details"]["whip"]["port"], 9712, "{made}");
+    assert_eq!(made["details"]["whip"]["bearer_token"], secret.as_str());
+    assert!(
+        made["details"]["whip"]["url"].is_null(),
+        "no public address in this plane: no WHIP address is made up"
+    );
+    assert!(made["as_text"].as_str().unwrap().contains("WHIP"), "{made}");
+
+    let (_, cfg) = ingest(
+        &p.app,
+        "GET",
+        "/api/v1/internal/sources/config",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(cfg["port_whip"], 9712, "{cfg}");
+
+    let a = admit(&p, &key_id, Some(&secret), "whip", "198.51.100.14").await;
+    assert_eq!(a["decision"], "standby", "{a}");
+    assert_eq!(a["identity"], format!("source-{key_id}"));
+    assert!(a["passphrase"].is_null(), "WHIP is never sent the secret");
+    let wrong = admit(
+        &p,
+        &key_id,
+        Some("WRONGWRONGWRONGWRONGWRON"),
+        "whip",
+        "198.51.100.15",
+    )
+    .await;
+    assert_eq!(
+        (wrong["decision"].as_str(), wrong["reason"].as_str()),
+        (Some("refused"), Some("wrong_key")),
+        "{wrong}"
+    );
+    let bare = admit(&p, &key_id, None, "whip", "198.51.100.15").await;
+    assert_eq!(
+        bare["reason"], "wrong_key",
+        "WHIP without a secret is a wrong key: {bare}"
+    );
+    let way: Option<String> = sqlx::query_scalar(
+        "SELECT way FROM source_log WHERE key_id = $1 AND event = 'refused' ORDER BY id DESC LIMIT 1",
+    )
+    .bind(&key_id)
+    .fetch_one(&p.pool)
+    .await
+    .unwrap();
+    assert_eq!(way.as_deref(), Some("whip"));
+    let (code, v) = ingest(
+        &p.app,
+        "POST",
+        "/api/v1/internal/sources/events",
+        json!({"key_id": key_id, "event": "ended", "detail": "the host's software disconnected", "way": "whip", "address": "198.51.100.14"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NO_CONTENT, "{v}");
+
+    // WHIP's port: kept, and refused when it is SRT's.
+    let mut rules: Value = send(
+        &p.app,
+        "GET",
+        "/api/v1/settings/sources",
+        Some(ADMIN),
+        Value::Null,
+    )
+    .await
+    .1;
+    assert_eq!(rules["port_whip"], 9712, "{rules}");
+    rules["port_whip"] = json!(19712);
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/settings/sources",
+        Some(ADMIN),
+        rules.clone(),
+    )
+    .await;
+    assert_eq!(
+        (code, v["port_whip"].as_i64()),
+        (StatusCode::OK, Some(19712)),
+        "{v}"
+    );
+    rules["port_whip"] = rules["port_srt"].clone();
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/settings/sources",
+        Some(ADMIN),
+        rules.clone(),
+    )
+    .await;
+    assert_eq!(
+        (code, v["field"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("port_whip")),
+        "{v}"
+    );
+    // A studio that does not know WHIP yet sends no `port_whip`: the default is taken.
+    let mut older = rules.clone();
+    older.as_object_mut().unwrap().remove("port_whip");
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/settings/sources",
+        Some(ADMIN),
+        older,
+    )
+    .await;
+    assert_eq!(
+        (code, v["port_whip"].as_i64()),
+        (StatusCode::OK, Some(9712)),
+        "{v}"
+    );
+
+    // The public route: no ingest listening, it says so; the installation's 0, WHIP is off.
+    p.state.hub.sources.set_ingest_whip(1);
+    let (code, text) = whip_call(
+        &p.app,
+        "POST",
+        &format!("/whip/{key_id}"),
+        &secret,
+        "v=0\r\n",
+    )
+    .await;
+    assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{text}");
+    assert!(text.contains("cannot take WHIP just now"), "{text}");
+    p.state
+        .hub
+        .sources
+        .set_fixed_ports(weavesignal_control::sources::FixedPorts {
+            whip: Some(0),
+            ..Default::default()
+        });
+    let (code, text) = whip_call(
+        &p.app,
+        "POST",
+        &format!("/whip/{key_id}"),
+        &secret,
+        "v=0\r\n",
+    )
+    .await;
+    assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{text}");
+    assert!(text.contains("has not turned WHIP on"), "{text}");
+    let (_, cfg) = ingest(
+        &p.app,
+        "GET",
+        "/api/v1/internal/sources/config",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(cfg["port_whip"], 0, "{cfg}");
+    let key = make_key(&p, "steeped", "Morag Campbell", "whip").await;
+    assert!(!key["as_text"].as_str().unwrap().contains("WHIP"), "{key}");
 }
 
 /// A desk that holds one source, as the real desk reports it (`tests/source_in.rs` drives the
@@ -1797,4 +1995,130 @@ async fn someone_on_air_before_the_post_and_taken_off_after_it_is_left_alone() {
     assert_eq!(code, StatusCode::OK, "{v}");
     assert_eq!(v["passed_to"], Value::Null, "{v}");
     assert!(commands(&desk).is_empty(), "{:?}", commands(&desk));
+}
+
+/// Phase 17g: the bridge and VBAN as ways of their own (migration 0045's CHECKs), and the kit's
+/// settings that bind a VBAN stream to a key.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn the_bridge_and_vban_come_in_as_ways_of_their_own() {
+    let p = plane().await;
+    p.state.hub.sources.set_ingest_token(Some(INGEST.into()));
+    p.state.hub.sources.set_bridge_port(7320);
+    make_show(&p.app, "steeped", "Steeped").await;
+    episode(&p.app, "steeped", -600, 120).await;
+    // A key made for the bridge: the hint is a way of its own.
+    let made = make_key(&p, "steeped", "Finlay Grant", "bridge").await;
+    assert_eq!(made["key"]["hint"], "bridge", "{made}");
+    let (k, s) = (
+        made["key"]["key_id"].as_str().unwrap().to_owned(),
+        made["secret"].as_str().unwrap().to_owned(),
+    );
+
+    // The bridge carries the Icecast password: right, it stands by; wrong, it is logged.
+    let a = admit(&p, &k, Some(&s), "bridge", "198.51.100.4").await;
+    assert_eq!(a["decision"], "standby", "{a}");
+    assert!(a["passphrase"].is_null());
+    let w = admit(
+        &p,
+        &k,
+        Some("not-the-secret-at-all"),
+        "bridge",
+        "198.51.100.9",
+    )
+    .await;
+    assert_eq!(w["reason"], "wrong_key", "{w}");
+    assert_eq!(
+        admit(&p, &k, None, "bridge", "198.51.100.4").await["decision"],
+        "refused"
+    );
+
+    // VBAN: refused until the installation allows it and the kit binds the stream.
+    let vban = |stream: &str, addr: &str| json!({"key_id": k, "way": "vban", "address": addr, "stream": stream});
+    let (_, r) = ingest(
+        &p.app,
+        "POST",
+        "/api/v1/internal/sources/admit",
+        vban("Stream1", "192.168.1.20"),
+    )
+    .await;
+    assert_eq!(r["decision"], "refused", "{r}");
+    let kit = json!({"bind": "192.168.1.10",
+        "vban_in": [{"address": "192.168.1.20", "name": "Stream1", "key_id": k}]});
+    let (code, v) = send(&p.app, "PUT", "/api/v1/kit", Some(ADMIN), kit.clone()).await;
+    assert_eq!(code, StatusCode::CONFLICT, "not allowed here yet: {v}");
+    p.state.hub.sources.set_vban_allowed(Ok(()));
+    let (code, v) = send(&p.app, "PUT", "/api/v1/kit", Some(ADMIN), kit.clone()).await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["allowed"], true);
+    let (_, r) = ingest(
+        &p.app,
+        "POST",
+        "/api/v1/internal/sources/admit",
+        vban("Stream1", "192.168.1.20"),
+    )
+    .await;
+    assert_eq!(r["decision"], "standby", "{r}");
+    for (stream, addr) in [("Stream2", "192.168.1.20"), ("Stream1", "192.168.1.21")] {
+        let (_, r) = ingest(
+            &p.app,
+            "POST",
+            "/api/v1/internal/sources/admit",
+            vban(stream, addr),
+        )
+        .await;
+        assert_eq!(r["decision"], "refused", "{stream} from {addr}: {r}");
+    }
+    // A VBAN event is logged with its way.
+    let (code, v) = ingest(
+        &p.app,
+        "POST",
+        "/api/v1/internal/sources/events",
+        json!({"key_id": k, "event": "admitted", "reason": null, "detail": "", "way": "vban", "address": "192.168.1.20"}),
+    )
+    .await;
+    assert!(code.is_success(), "{v}");
+
+    // The ingest is told the bridge's port and the bindings.
+    let (_, cfg) = ingest(
+        &p.app,
+        "GET",
+        "/api/v1/internal/sources/config",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(cfg["port_bridge"], 7320);
+    assert_eq!(cfg["vban"]["bind"], "192.168.1.10");
+    assert_eq!(cfg["vban"]["rules"][0]["name"], "Stream1");
+
+    // The kit is checked, and a preset sets its routing.
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/kit",
+        Some(ADMIN),
+        json!({"bind": "203.0.113.5", "vban_in": kit["vban_in"]}),
+    )
+    .await;
+    assert_eq!(
+        (code, v["field"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bind")),
+        "{v}"
+    );
+    let (code, v) = send(
+        &p.app,
+        "POST",
+        "/api/v1/kit/preset",
+        Some(ADMIN),
+        json!({"preset": "transmitter", "address": "192.168.1.40"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["kit"]["vban_out"][0]["source"], "programme");
+    assert_eq!(v["kit"]["vban_in"][0]["key_id"], k.as_str());
+    let (code, _) = send(&p.app, "GET", "/api/v1/kit/clock", Some(ADMIN), Value::Null).await;
+    assert_eq!(code, StatusCode::OK);
+    // Not an API token's, and not without a bearer.
+    let (code, _) = send(&p.app, "GET", "/api/v1/kit", None, Value::Null).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
 }

@@ -177,7 +177,7 @@ Measured on the workstation (`just test-rtmp-cost`, a release build, one person 
 | both | 44.0 % (+23.3) | 64.2 % (+38.1) |
 
 The 720p30 canvas itself costs about 5 points more than 480p20 before RTMP, because every frame is composed at that size.
-With NVENC (the desk given the GPU) the encodes move off the CPU, counted against the station's NVENC sessions (`nvenc_sessions`).
+With NVENC (the desk given the GPU: [Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)) the encodes move off the CPU, counted against the station's NVENC sessions (`nvenc_sessions`).
 
 ## Tests
 

@@ -37,6 +37,8 @@
   import { slotKeys } from '../../../../packages/ui/keymap.ts';
   import { look, studio, stationNow } from '../lib/studio.svelte.ts';
   import { deskToastNow, dismissGrace, dismissLost, holdPost, notYet, run, readyCaller } from '../lib/actions.ts';
+  import { nextSeat, readinessChip, windowRows } from '../lib/window.ts';
+  import { deskName } from '../lib/phone.ts';
   import { arrivals, countPct, countWords, endsToWords, goNow, graceToast, handNext, heldBy, hurry, keptPlace, keptSub, lateCount, lateToast, lostToast, mayHold, nextCard, ownStudiosLost, postLine, postRow, withKept, withoutNext } from '../lib/post.ts';
   import { account } from '../lib/account.svelte.ts';
   import { sandboxed } from '../lib/api.ts';
@@ -58,7 +60,9 @@
   } from '../lib/steps.ts';
   import { atToday, delayLine, delayParts, delayWords, dur, firstName, hm, hms, listenerDelayMs, meterPct, signed } from '../lib/format.ts';
   import { arrival, arrivalWords, ownStudiosWords, tileLink } from '../lib/hosts.ts';
-  import { sched } from '../lib/schedule.svelte.ts';
+  import { guessOneColumn, oneColumn } from '../lib/columns.ts';
+  import { zoom } from '../lib/zoom.svelte.ts';
+  import { openRota, sched } from '../lib/schedule.svelte.ts';
   import { setup } from '../lib/wizard.svelte.ts';
   import { bankAt, bankOwner, cartAt, cartNow } from '../../../../packages/ui/carts.ts';
   import { audienceWords, cdnWarning } from '../lib/audience.ts';
@@ -175,7 +179,20 @@
     return l?.kind === 'post' && hardPost && hardPost.ms < l.at_ms ? null : l;
   });
   const post = $derived(line ? null : hardPost);
+  /** The handover window (1.2): who is next and how far they have got, in rows of their own
+   *  under the post line. The count above keeps Hold and its figure; the window changes no act. */
+  const win = $derived(windowRows(v?.post, now));
+  /** The show the line above already names with its time: its row leaves them out. */
+  const lineShow = $derived(line && (line.kind === 'post' || line.kind === 'count') ? (v?.post?.show?.slug ?? null) : null);
+  /** The tile of the host who is on next: it says so until their post (the seat notice). */
+  const seat = $derived(nextSeat(v, now));
   const count = $derived(line?.kind === 'count' ? { is: line.why, ...countWords(line), left: Math.max(0, line.at_ms - now), pct: countPct(line, now) } : null);
+  /** The rota, on the Schedule tab (1.2). */
+  function seeRota() {
+    openRota();
+    studio.settings = false;
+    studio.tab = 'schedule';
+  }
   const canHold = $derived(mayHold(account.me));
   const holding = $derived(!!studio.holdAsked);
   /** The rundown's row for the show whose post it is: where it comes from and how it stands. */
@@ -262,7 +279,7 @@
       };
     }
     if (kind === 'caller' && caller) {
-      const n = caller.caller?.name_on_air || firstName(caller.name, caller.identity);
+      const n = deskName(caller, caller.caller?.name_on_air);
       const k = slotKeys(caller.slot);
       return {
         tone: 'good',
@@ -340,7 +357,12 @@
         ],
       };
     }
-    if (lastNotice) return { tone: lastNotice.tone, glyph: 'g-good', title: lastNotice.title, msg: lastNotice.message, acts: [] };
+    if (lastNotice) {
+      // The heads-up (handover-window.md) is the clock's news, once an airing: calm, with the
+      // clock's mark, and nothing to answer. The host's own tile keeps saying it until the post.
+      const headsUp = lastNotice.kind === 'handover.heads_up';
+      return { tone: headsUp ? 'plain' : lastNotice.tone, glyph: headsUp ? 'g-delay' : 'g-good', title: lastNotice.title, msg: lastNotice.message, acts: [] };
+    }
     return null;
   });
   const toast: Toast | null = $derived.by(() => {
@@ -363,6 +385,27 @@
   const screenerSeat = $derived(v?.seats.screener ?? null);
   const screenerName = $derived(screenerSeat ? firstName(v?.seats.screener_name ?? '', screenerSeat) : null);
 
+  // ---- one column: where the toast goes ----
+  // In three columns the toast has the slot at the right column's foot, which is always in view.
+  // In one column (a narrow window, or large text) that slot is the foot of a page some 2,000 px
+  // long: until 1.2.0 a notice arrived there unseen (Playout down's at y 2,287 of a 900 px
+  // window). There the toast has a row of its own above the status bar, in view wherever the
+  // page is scrolled, and it takes that row from the foot of the scrolling part, so nothing above
+  // moves and no control is covered. The style sheet decides which layout is drawn; this asks it,
+  // again whenever the desk changes size (the window, or the text size).
+  let deskEl: HTMLDivElement | undefined = $state();
+  let folded = $state(guessOneColumn(globalThis.innerWidth, zoom.level * zoom.fit));
+  onMount(() => {
+    if (!deskEl) return;
+    const desk = deskEl;
+    const read = () => (folded = oneColumn(desk));
+    read();
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(read);
+    watch.observe(desk);
+    return () => watch.disconnect();
+  });
+
   // ---- the chat glance: the room's last messages, to read, at every step ----
   // The chat's link starts with the desk now (at Solo there is no Screener tab to start it).
   // The sandbox has no chat service, so it says so instead of trying.
@@ -384,7 +427,36 @@
   });
 </script>
 
-<div class="desk">
+{#snippet toastBox()}
+  {#if toast}
+    <!-- A toast with a count keeps its own glyph, the clock, in the count's last seconds: it
+         takes the level's colour, and the stripe stops at the warning colour. A count that
+         runs out is going to plan, so the toast never takes a critical alert's look. -->
+    {@const th = toast.count ? hurry(toast.count.left_ms) : null}
+    <div class="toast {toast.tone}" data-panel="desk.toast" data-hurry={th?.level} role={toast.tone === 'good' || toast.tone === 'plain' ? 'status' : 'alert'}>
+      <div class="stripe"></div>
+      <div class="body">
+        <svg aria-hidden="true"><use href="#{toast.glyph}" /></svg><span class="title" data-panel-title
+          >{#if toast.count}{toast.count.lead} <span aria-hidden="true">{toast.count.tick}</span><span class="sr-only">{toast.count.said}</span>{#if th}<span class="sr-only"> {th.word}.</span>{/if}{:else}{toast.title}{/if}</span
+        >
+        <!-- In a short slot the message is held to fewer lines (styles/desk-b.css); its title has it whole. -->
+        <span class="msg" title={toast.msg}>{toast.msg}</span>
+        {#if toast.acts.length}
+          <span class="acts">
+            {#each toast.acts as a (a.label)}
+              <button type="button" class="btn" class:primary={a.primary} aria-disabled={a.off ? 'true' : undefined} title={a.off} onclick={a.go}
+                >{a.label}
+                {#each a.keys as k, i (i)}<kbd>{k}</kbd>{/each}</button
+              >
+            {/each}
+          </span>
+        {/if}
+      </div>
+    </div>
+  {/if}
+{/snippet}
+
+<div class="desk" bind:this={deskEl}>
   <div class="cols">
     <!-- left: time -->
     <div class="col left">
@@ -432,6 +504,22 @@
         {:else}
           <div class="post"><span class="name">No hard post ahead</span></div>
         {/if}
+        {#if win.length}
+          <!-- The handover window (handover-window.md): who is next, from where, ready or not. Two
+               rows when the show under way still waits for a late host and the next show's window
+               has opened: the late one first. A state is a mark and a word, never a colour alone. -->
+          <ul class="win" data-testid="handover-window" aria-label="The handover window">
+            {#each win as r (r.is + r.show)}
+              {@const c = r.readiness ? readinessChip(r.readiness) : null}
+              <li data-win={r.is} data-ready={r.readiness ?? undefined} title={r.said}>
+                <span class="lab">{r.label}</span>
+                <span class="who">{r.who}</span>
+                {#if c}<StateChip chip={c.chip} word={c.word} sm focusable={false} hoverable={false} />{/if}
+                <span class="what">{[r.is === 'next' && r.show === lineShow ? null : r.what, r.from, r.note].filter(Boolean).join(' · ')}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
         <!-- The listener delay, once: the figure on this line, its parts on the line under it and
              nowhere else (no tooltip repeats them), in words a presenter reads on air. -->
         <div class="listen">
@@ -445,6 +533,9 @@
         <div class="ph">
           <h2>Coming up</h2>
           <span class="spacer"></span><span class="small">{v?.show.title || 'No show set'}</span>
+          <!-- The rota (1.2): the coming twelve hours, on the Schedule tab. A way there from where
+               the desk says what is next. The sandbox's station has no rota. -->
+          {#if !sandboxed()}<button type="button" class="btn sm quiet rota-link" data-testid="desk-rota" title="The next twelve hours: who is down for each show, and whether they are ready. Opens on the Schedule tab." onclick={seeRota}>Rota</button>{/if}
         </div>
         <div class="rundown">
           {#snippet scheduleRow()}
@@ -635,6 +726,10 @@
         </div>
       </header>
 
+      <!-- Under the head, the stage's height is shared out in this order (styles/desk-b.css): the
+           tiles on air keep what their rows need, notes and all; Not on air has the rest and
+           scrolls inside itself where that is less than it needs. -->
+      <div class="stage-body">
       <div class="tiles">
         {#if ownHead}
           <!-- Before the DJ has joined (ADR-0274): one button, no name to type and no role to choose. -->
@@ -645,7 +740,7 @@
           </div>
         {/if}
         {#each onStage as s (s.identity)}
-          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} kept={kept?.identity === s.identity ? kept : null} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} {othersOnAir} />
+          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} kept={kept?.identity === s.identity ? kept : null} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} {othersOnAir} />
         {:else}
           {#if !ownHead}
             <!-- Says why the stage is empty and what to do (the operator's 1.0.2 run: "Nobody is
@@ -742,11 +837,12 @@
             {#if off('invite')}<span class="offtag">invitations {tag}</span>{:else}<Invite />{/if}
           </div>
           {#each offStage as s (s.identity)}
-            <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} />
+            <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} />
           {/each}
           <Tile source={null} slot={6} playoutUp={up} playoutForMs={playout.for_ms} {mode} />
         </div>
       {/if}
+      </div>
     </main>
 
     <!-- right: the station -->
@@ -795,7 +891,7 @@
                 {#each queue.rows as r (r.identity)}
                   <li>
                     <span class="n">{r.n}</span>
-                    <span class="who"><b>{r.name}</b><span>{r.topic || 'no topic given'}</span></span>
+                    <span class="who" title={r.topic ? `${r.name}: ${r.topic}` : undefined}><b>{r.name}</b><span>{r.topic || 'no topic given'}</span></span>
                     <span class="t num">{r.dropped ? 'link lost' : dur(now - r.since_ms)}</span>
                   </li>
                 {/each}
@@ -845,7 +941,9 @@
                 >Slate <kbd>F7</kbd></button
               >
             </div>
-            <p class="small">{pic.cameras.length} {pic.cameras.length === 1 ? 'camera' : 'cameras'}{pic.hls ? '' : ' · encoders restarting'}</p>
+            <!-- The cameras say how many there are: the line is kept for when there are none, or the
+                 encoders are restarting (16d: a more compact Picture). -->
+            {#if !pic.cameras.length || !pic.hls}<p class="small">{pic.cameras.length} {pic.cameras.length === 1 ? 'camera' : 'cameras'}{pic.hls ? '' : ' · encoders restarting'}</p>{/if}
             <Cameras
               cameras={pic.cameras}
               onair={pic.shot === 'person' ? (pic.identity ?? null) : null}
@@ -931,32 +1029,8 @@
            it, and where that would not hold two lines it is left out whole, never drawn as a
            header with nothing to read (styles/desk-b.css). -->
       <div class="slot">
-        {#if toast}
-          <!-- A toast with a count keeps its own glyph, the clock, in the count's last seconds: it
-               takes the level's colour, and the stripe stops at the warning colour. A count that
-               runs out is going to plan, so the toast never takes a critical alert's look. -->
-          {@const th = toast.count ? hurry(toast.count.left_ms) : null}
-          <div class="toast {toast.tone}" data-panel="desk.toast" data-hurry={th?.level} role={toast.tone === 'good' || toast.tone === 'plain' ? 'status' : 'alert'}>
-            <div class="stripe"></div>
-            <div class="body">
-              <svg aria-hidden="true"><use href="#{toast.glyph}" /></svg><span class="title" data-panel-title
-                >{#if toast.count}{toast.count.lead} <span aria-hidden="true">{toast.count.tick}</span><span class="sr-only">{toast.count.said}</span>{#if th}<span class="sr-only"> {th.word}.</span>{/if}{:else}{toast.title}{/if}</span
-              >
-              <!-- In a short slot the message is held to fewer lines (styles/desk-b.css); its title has it whole. -->
-              <span class="msg" title={toast.msg}>{toast.msg}</span>
-              {#if toast.acts.length}
-                <span class="acts">
-                  {#each toast.acts as a (a.label)}
-                    <button type="button" class="btn" class:primary={a.primary} aria-disabled={a.off ? 'true' : undefined} title={a.off} onclick={a.go}
-                      >{a.label}
-                      {#each a.keys as k, i (i)}<kbd>{k}</kbd>{/each}</button
-                    >
-                  {/each}
-                </span>
-              {/if}
-            </div>
-          </div>
-        {/if}
+        <!-- In one column the toast is not here: it has its row above the status bar, below. -->
+        {#if !folded}{@render toastBox()}{/if}
         <div class="chat-cell">
           <!-- The chat to read, at every step: the room's last messages, and one line when something
                waits for a moderator (the chat's rules keep working out of sight, ADR-0274). -->
@@ -982,6 +1056,13 @@
       </div>
     </div>
   </div>
+
+  {#if folded && toast}
+    <!-- One column: the toast's own row, in view wherever the page above is scrolled. It is the
+         same toast in the same place in the order of the keys (after everything in the columns,
+         before the status bar), whole, with its answer beside its words. -->
+    <div class="toast-row">{@render toastBox()}</div>
+  {/if}
 
   <footer class="statusbar" data-panel="desk.status" aria-label="Station status">
     <span class="item" data-panel-title

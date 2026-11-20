@@ -26,6 +26,9 @@ Your station is installed. The guide is at https://weavesignal.top/docs/how-to/i
   station identifier, LiveKit's key, the control plane's admin token, the listener password,
   and the keys that hash chatters' and staff's email addresses) are in `/app/data/secrets.env`.
   Keep the email keys: a new one finds none of the accounts made before. Open them with the File Manager; restart the app after an edit.
+* The consent words a caller agrees to are the shipped two sentences until you set
+  `CONSENT_TEXT` in `weavesignal.env`, in double quotes (`\"` for a quote); they may name
+  `{station}`, `{kept}`, `{contact}` and the show's `{presenter}`.
 * The listener stream is at `https://<listener domain>/programme.opus`. It is in no directory
   and open to anyone with the address; set `LISTENERS_AUTH=on` in `weavesignal.env` to ask for
   the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`.

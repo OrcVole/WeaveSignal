@@ -6,13 +6,17 @@
 //! The station identifier is in the model from the first migration (ADR-0047): release one
 //! shows one station, and every table that follows carries a `station_id`.
 
+pub mod caller_id;
 pub mod carts;
 pub mod chat;
+pub mod handover_window;
 pub mod ics;
 pub mod passes;
+pub mod phone;
 pub mod planner;
 pub mod playout;
 pub mod post;
+pub mod pull;
 pub mod retention;
 pub mod rule;
 pub mod ruleplan;
@@ -154,7 +158,8 @@ pub struct ConsentRecord {
     pub identity: String,
     pub name: String,
     pub topic: String,
-    /// `caller` (the player page) or `station` (given on their behalf).
+    /// `caller` (the player page or a phone key), `station` (given on their behalf), or
+    /// `not_asked` (a phone call with the station's phone words off; migration 0046).
     pub given_by: &'static str,
     pub words: String,
     pub words_version: String,

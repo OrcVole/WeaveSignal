@@ -15,7 +15,7 @@
   import MicCheck from './lib/MicCheck.svelte';
   import { CameraPreview } from './lib/camera-preview.svelte.ts';
   import { wantsCameraPreview } from './lib/rules.ts';
-  import { useTurnPort } from './lib/turn.ts';
+  import { useStationIce } from './lib/turn.ts';
 
   const pass = (globalThis.location?.hash ?? '').replace(/^#/, '').trim();
   let info = $state<api.PassInfo | null>(null);
@@ -89,7 +89,7 @@
     try {
       const joined = await api.passToken(pass);
       const { Call } = await import('./lib/call.svelte.ts');
-      if (info) useTurnPort(info.relay.turn_tls_port);
+      useStationIce(info?.relay);
       call = new Call(joined, relay, previewing ? preview.handOver() : null);
       void call.start();
     } catch (e) {

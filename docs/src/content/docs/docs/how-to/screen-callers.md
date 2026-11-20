@@ -27,6 +27,12 @@ Hold `T`.
 The first `T` on a waiting caller starts screening: their state becomes SCREENING (ADR-0100).
 While you hold it, the caller hears you and the programme; let go, and they hear only the programme.
 
+### When nobody screens
+
+A presenter alone in the room can screen from this tab too (issue 25): with no screener in the room, `T` is the presenter's.
+While it is held the caller hears the presenter, and the presenter hears the caller's answer in their own headphones only: the caller stays off air and out of the cue, and nobody else hears either of you.
+Holding it takes the presenter's own voice off the programme until they let go, as every Talk key does, so do it while music or a cart plays.
+
 ## Write for the presenter
 
 ![The screener with Niall SCREENING: the one line for the presenter, the note, and the keys to send him to the desk.](../../../../assets/screens/how-to-screen-callers-screening.png)

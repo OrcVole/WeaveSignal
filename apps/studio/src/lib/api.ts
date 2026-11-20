@@ -21,7 +21,7 @@ export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'produ
 
 /** A host's own studio as the desk reports it on its tile (`sources[].source`, ADR-0280). */
 export interface DeskSource {
-  way: SourceWay;
+  way: SourceVia;
   /** What the host's software sends, as the station read it: `mp3 44.1 kHz stereo`. */
   format: string;
   /** The show key's public id. */
@@ -39,8 +39,14 @@ export interface DeskSource {
   monitor?: boolean;
 }
 
-/** The two ways in for a host's software. */
-export type SourceWay = 'icecast' | 'srt';
+/** The ways in for a host's software that it is given details for. */
+export type SourceWay = 'icecast' | 'srt' | 'whip';
+/** How a source arrived: those, the studio app's bridge, or VBAN on the station's network
+ *  (Phase 17g). */
+export type ArrivalWay = SourceWay | 'bridge' | 'vban';
+/** How a source reaches the desk: one of the ways it arrives, or `pull`, a stream the station
+ *  opens itself from an address kept with the show's key (PLAN 17b). */
+export type SourceVia = ArrivalWay | 'pull';
 
 export interface DeskPerson {
   identity: string;
@@ -78,6 +84,9 @@ export interface Caller {
   name_on_air: string;
   declined: { at_ms: number; reason: string } | null;
   banned_before: { date: string; reason: string } | null;
+  /** A phone caller's line (17f): the last four digits at most, never the number; absent or
+   *  null for a browser caller. A withheld caller cannot be banned by number. */
+  phone?: { number: string; withheld: boolean; can_ban: boolean } | null;
   /** What they typed on the player page. */
   topic: string;
   /** Their consent to record (M3); null means they cannot go to the desk. */
@@ -96,7 +105,8 @@ export interface Caller {
 export interface Consent {
   at_ms: number;
   version: string;
-  by: 'caller' | 'station';
+  /** `not_asked`: a phone caller let in with the station's phone words off (17f). */
+  by: 'caller' | 'station' | 'not_asked';
 }
 
 export interface RundownItem {
@@ -236,6 +246,54 @@ export interface PostView {
   /** Who presents now, on air at the desk, by name. */
   holders: string[];
   link_lost?: LinkLost | null;
+  /** The handover window before this post (1.2; handover-window.md). */
+  window?: HandoverWindow | null;
+}
+
+/** What the handover window is doing (1.2). */
+export type HandoverWindowState = 'quiet' | 'announced' | 'cueing' | 'ready' | 'overrun' | 'held';
+/** How far a host has got, for the window and the rota. */
+export type HandoverReadiness = 'not_connected' | 'connecting' | 'ready' | 'on_air';
+/** Where a show's host comes from. */
+export type HostOrigin = 'room' | 'push';
+
+/** The handover window: who is next, from where, ready or not, and their heads-up. */
+export interface HandoverWindow {
+  state: HandoverWindowState;
+  /** The show's slug (the same as the post's). */
+  show: string;
+  show_name: string;
+  /** The post: the show's start. */
+  start_ms: number;
+  /** When the window opens. */
+  opens_ms: number;
+  /** Who is down for it, by name. */
+  host: string;
+  from: HostOrigin;
+  /** When the incoming host was given their heads-up (once an airing). */
+  heads_up_ms?: number | null;
+}
+
+/** One airing on the rota. */
+export interface RotaRow {
+  show: string;
+  show_name: string;
+  start_ms: number;
+  end_ms: number;
+  /** Who is down for it; empty when nobody is. */
+  hosts: string[];
+  from: HostOrigin;
+  state: HandoverReadiness;
+  ready: boolean;
+  /** On air by the schedule now. */
+  now: boolean;
+}
+
+/** `GET /api/v1/rota`: the coming twelve hours. */
+export interface RotaView {
+  now_ms: number;
+  until_ms: number;
+  airings: RotaRow[];
 }
 
 /** How much of the studio a show uses (ADR-0271): each step adds one kind of person. */
@@ -1589,8 +1647,10 @@ export interface ShowKey {
   staff_id: string | null;
   /** The public part: the SRT stream id, and the first part of the Icecast password. */
   key_id: string;
-  /** How the host means to send: a hint, not a lock. */
-  hint: SourceWay;
+  /** How the host means to send: a hint, not a lock. `pull`: the station opens `pull_url` itself. */
+  hint: SourceVia;
+  /** For a pull: the address the station opens while the slot's door is open. */
+  pull_url?: string | null;
   created_by: string;
   created_ms: number;
   last_used_ms: number | null;
@@ -1612,7 +1672,7 @@ export interface SourceLogEntry {
    *  `turned_away`, `format`, `desk_full`, `too_fast`). */
   reason: string | null;
   detail?: string;
-  way: SourceWay | null;
+  way: SourceVia | null;
 }
 
 /** How a host's software reaches the station. Outside the reply that makes a key, the two
@@ -1622,6 +1682,11 @@ export interface SourceDetails {
   host: string | null;
   icecast: { port: number; mount: string; user: string; password: string };
   srt: { port: number; streamid: string; passphrase: string; pbkeylen: number; url: string | null };
+  /** For a pull: what the station opens. Absent from a control plane older than 1.2. */
+  pull?: { url: string; kind: 'http' | 'hls' | 'srt' } | null;
+  /** WHIP (17d), as OBS asks for it: port 0 when the station has it off; `url` null when off or
+   *  the station has no public address. */
+  whip: { port: number; url: string | null; bearer_token: string };
 }
 
 /** A key with what its row shows. */
@@ -1633,7 +1698,7 @@ export interface KeyRow extends ShowKey {
 /** A show's keys, live and ended, newest first, and where the show comes from. */
 export interface KeyList {
   show: string;
-  source: 'room' | 'push';
+  source: 'room' | 'push' | 'pull';
   keys: KeyRow[];
 }
 
@@ -1659,7 +1724,9 @@ export interface SourceNow {
    *  slot's door is open and whose host has not connected. */
   state: 'on_air' | 'standby' | 'test' | 'not_connected';
   slot: number | null;
-  way: SourceWay | null;
+  way: SourceVia | null;
+  /** The station opens this source itself (a pull). Absent from a control plane older than 1.2. */
+  pull?: boolean;
   format: string | null;
   /** At the desk: short-term LUFS after the leveller. For a test: the station's reading in dBFS RMS. */
   level: number | null;
@@ -1694,6 +1761,10 @@ export interface SourceSettings {
   fade_ms: number;
   port_icecast: number;
   port_srt: number;
+  /** The handover window, in seconds: 0 (off) to 1,800 (1.2). Left out, the stored one is kept. */
+  window_s?: number;
+  /** WHIP's media port (UDP, 17d); 0 is off. */
+  port_whip: number;
 }
 
 const showKeys = (slug: string) => `/api/v1/shows/${encodeURIComponent(slug)}/keys`;
@@ -1701,8 +1772,12 @@ const showKeys = (slug: string) => `/api/v1/shows/${encodeURIComponent(slug)}/ke
 /** A show's keys and where it comes from. For an admin, a producer or the show's presenter. */
 export const listShowKeys = (slug: string) => call<KeyList>('GET', showKeys(slug));
 /** Make a key: the reply holds its secrets, once. Errors name `label`, `hint` or `staff_id`. */
-export const makeShowKey = (slug: string, k: { label: string; hint: SourceWay; staff_id?: string | null }) =>
-  call<MadeKey>('POST', showKeys(slug), { label: k.label, hint: k.hint, ...(k.staff_id ? { staff_id: k.staff_id } : {}) });
+export function makeShowKey(slug: string, k: { label: string; hint: SourceWay; staff_id?: string | null }): Promise<MadeKey>;
+/** A pull (1.2): the station opens `url` itself while the show's door is open. */
+export function makeShowKey(slug: string, k: { label: string; hint: 'pull'; url: string }): Promise<MadeKey>;
+export function makeShowKey(slug: string, k: { label: string; hint: SourceWay | 'pull'; staff_id?: string | null; url?: string }): Promise<MadeKey> {
+  return call<MadeKey>('POST', showKeys(slug), { label: k.label, hint: k.hint, ...(k.staff_id ? { staff_id: k.staff_id } : {}), ...(k.hint === 'pull' ? { url: k.url } : {}) });
+}
 /** A new key in place of one, for the same person: the old one ends now, or when its connection closes. */
 export const renewShowKey = (slug: string, keyId: string, old: 'now' | 'on_disconnect') =>
   call<MadeKey>('POST', `${showKeys(slug)}/${encodeURIComponent(keyId)}/renew`, { old });
@@ -1728,6 +1803,8 @@ export const sourceNotYet = (keyId: string) => call<unknown>('POST', `/api/v1/so
 export const sourceOffAir = (keyId: string) => call<{ let_go: boolean; covered: boolean }>('POST', `/api/v1/sources/${encodeURIComponent(keyId)}/off-air`);
 /** Let back in: the key is taken again at once. */
 export const letSourceBack = (keyId: string) => call<{ let_back: boolean }>('DELETE', `/api/v1/sources/${encodeURIComponent(keyId)}/disconnect`);
+/** The rota of the coming twelve hours (staff). */
+export const getRota = () => call<RotaView>('GET', '/api/v1/rota');
 /** The rules for sources (an admin's). */
 export const getSourceSettings = () => call<SourceSettings>('GET', '/api/v1/settings/sources');
 /** Every rule at once (an admin's). Errors name the field. */

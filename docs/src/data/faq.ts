@@ -87,7 +87,7 @@ export const questions: Question[] = [
     home: true,
     q: 'Is it ready for a real station?',
     a: [
-      'Release 1.1.1 is the eighth public release; 1.0.0 came out on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has been run on Windows 11 once, unsigned.',
+      'Release 1.2.0 is the ninth public release; 1.0.0 came out on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has been run on Windows 11 once, unsigned.',
       'So: run a test show before you put a real one on air, on a server of its own, and read <a href="/docs/reference/release-one-status/">what release one does and leaves out</a>.',
     ],
   },
@@ -95,7 +95,8 @@ export const questions: Question[] = [
     id: 'telephone',
     q: 'Can callers phone in from a telephone?',
     a: [
-      'Not in release one. Callers press Call the studio on the station\'s page and talk through their phone\'s or computer\'s browser; there is no telephone number, no SIP line and no phone hybrid. If callers must dial a number, see the <a href="/compare/">comparison</a> for the phone systems that do that.',
+      'From 1.2, on a station installed with Compose or the Quadlets: the station connects to a SIP trunk you rent from a telephone provider, and a caller who dials its number hears a few words, presses a key and waits in the screener\'s queue like any other caller. It is off until a trunk is set, has not yet been tried through a provider\'s trunk, and is not on Cloudron yet. See <a href="/docs/how-to/take-phone-calls/">Take phone calls</a>.',
+      'Every station also takes callers from its own page: they press Call the studio and talk through their phone\'s or computer\'s browser, with no number. If your studio already runs a broadcast console and a phone hybrid, the <a href="/compare/">comparison</a> names the systems that work with them.',
     ],
   },
   {

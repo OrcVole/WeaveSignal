@@ -41,7 +41,8 @@
   import CardEditor from './CardEditor.svelte';
   import * as api from '../lib/schedule.ts';
   import { legendFit, type LegendForm } from './legendFit.ts';
-  import { backToShows, closeOpen, keyView, loadWeek, openDay, openShow, sched, select, setView, showInWeek, step, today, weekBlocks } from '../lib/schedule.svelte.ts';
+  import { backToShows, closeOpen, keyView, loadWeek, openDay, openRota, openShow, sched, select, setView, showInWeek, step, today, weekBlocks } from '../lib/schedule.svelte.ts';
+  import Rota from './Rota.svelte';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { load as loadRetention } from '../lib/retention.ts';
   import { dayLength, dayRangeWords, hm, longDayWords, rangeWords, whenWords, zonedString } from './model.ts';
@@ -111,11 +112,14 @@
   onMount(() => {
     // The week is the default every time the tab opens; the Day view is not remembered.
     sched.view = 'week';
-    if (!live) return;
+    // Nor is the rota, unless the desk's Coming up asked for it on the way in.
+    const leave = () => void (sched.rota = false);
+    if (!live) return leave;
     void refresh();
     void loadRetention()
       .then((v) => (sched.us = v.setting.us_statutory_licence))
       .catch(() => {});
+    return leave;
   });
 
   // The week is fetched again when the anchor moves or something was saved.
@@ -451,19 +455,26 @@
 <svelte:document onpointerdown={pressOutside} />
 <div class="schedule" data-surface="schedule">
   <div class="toolbar" data-panel="calendar.toolbar">
-    {#if inDay}
+    <!-- The rota is of the coming twelve hours, whatever week the calendar is on: the week's
+         own controls and its legend wait with it. -->
+    {#if sched.rota}
+      <span class="range" data-panel-title>The next twelve hours</span>
+    {:else if inDay}
       <button type="button" class="btn quiet" aria-label="Previous day" title="Previous day (←)" onclick={() => step(-1)}>‹</button>
       <button type="button" class="btn quiet" aria-label="Next day" title="Next day (→)" onclick={() => step(1)}>›</button>
     {:else}
       <button type="button" class="btn quiet" aria-label="Previous week" title="Previous week (←)" onclick={() => step(-1)}>‹</button>
       <button type="button" class="btn quiet" aria-label="Next week" title="Next week (→)" onclick={() => step(1)}>›</button>
     {/if}
-    <button type="button" class="btn" onclick={() => today(now)}>Today <kbd>T</kbd></button>
-    <span class="range num" data-panel-title>{inDay ? dayRangeWords(week.days[dayIdx], sched.zone) : rangeWords(week.days, sched.zone)}</span>
+    {#if !sched.rota}
+      <button type="button" class="btn" onclick={() => today(now)}>Today <kbd>T</kbd></button>
+      <span class="range num" data-panel-title>{inDay ? dayRangeWords(week.days[dayIdx], sched.zone) : rangeWords(week.days, sched.zone)}</span>
+    {/if}
     <span class="seg" role="group" aria-label="View">
-      <button type="button" aria-pressed={sched.view === 'week'} title="The week (W)" aria-keyshortcuts="W" onclick={() => setView('week')}>Week</button>
-      <button type="button" aria-pressed={inDay} title="One day, with a lane for each show (D)" aria-keyshortcuts="D" onclick={() => keyView('day', now)}>Day</button>
-      <button type="button" aria-pressed={sched.view === 'studios'} aria-disabled="true" title="Studios are not in the model yet" onclick={() => tell('Not in this build.', 'Studios as columns wait for a studio on each show (a choice for the operator).')}>Studios</button>
+      <button type="button" aria-pressed={!sched.rota && sched.view === 'week'} title="The week (W)" aria-keyshortcuts="W" onclick={() => setView('week')}>Week</button>
+      <button type="button" aria-pressed={!sched.rota && inDay} title="One day, with a lane for each show (D)" aria-keyshortcuts="D" onclick={() => keyView('day', now)}>Day</button>
+      <button type="button" aria-pressed={sched.rota} title="The next twelve hours: who is down for each show, and whether they are ready (R)" aria-keyshortcuts="R" onclick={openRota}>Rota</button>
+      <button type="button" aria-pressed={sched.view === 'studios'} aria-disabled="true" title="Not in this version: a show has no studio of its own yet" onclick={() => tell('Studios are not in this version.', 'The week will show each studio as a column once a show can be given a studio. Until then every show is in the one studio.')}>Studios</button>
     </span>
     <span class="tz">{sched.zone}{dst ? ` · ${dst}` : ''}</span>
     {#if sched.zoneSet === false && canChooseZone}
@@ -489,6 +500,7 @@
     {/if}
     {#if sched.loading}<span class="load" role="status">Loading…</span>{/if}
     {#if sched.error}<span class="load g-warning" role="alert">{sched.error}</span>{/if}
+    {#if !sched.rota}
     <div class="legend" aria-label="Legend" data-fit="words" use:legendFit={(f) => (legendForm = f)}>
       {#each LEGEND as l (l.full)}
         <!-- Shortened, an item's full words are its tooltip, and stay for a screen reader. -->
@@ -498,6 +510,7 @@
         >
       {/each}
     </div>
+    {/if}
   </div>
 
   {#if toast || heard}
@@ -507,7 +520,11 @@
       {#if toast?.undo}<button type="button" class="btn sm" onclick={async () => { const undo = toast?.undo; const way = toast?.label === 'Undo'; toast = null; try { await undo?.(); } catch (e) { tell(way ? 'Not put back' : 'Not opened', e instanceof Error ? e.message : String(e)); } }}>{toast.label}</button>{/if}
     </div>
   {/if}
-  <div class="body">
+  {#if sched.rota}
+    <!-- The rota (1.2) in the calendar's place: the week and its editor wait under it. -->
+    <div class="body rota-body"><Rota onweek={() => setView('week')} /></div>
+  {/if}
+  <div class="body" hidden={sched.rota}>
     <section class="cal" data-panel={inDay ? 'calendar.day' : 'calendar.week'} aria-label={inDay ? `${longDayWords(week.days[dayIdx], sched.zone)}, one day` : `Week of ${rangeWords(week.days, sched.zone)}`}>
       <div class="corner" data-panel-title><span class="sr-only">{inDay ? 'Day grid' : 'Week grid'}</span></div>
       <div class="grid-host">

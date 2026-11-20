@@ -56,8 +56,9 @@ pub const STATE_EVENTS: [&str; 7] = [
     "disconnected",
     "let_back",
 ];
-/// Every event the rule reads (the state ones, and the rest).
-pub const POST_EVENTS: [&str; 11] = [
+/// Every event the rule reads (the state ones, and the rest), and the handover window's
+/// `heads_up` (written under [`POST_KEY`], read by [`crate::handover_window`], never by [`plan`]).
+pub const POST_EVENTS: [&str; 12] = [
     "on_air",
     "back",
     "off_air",
@@ -69,6 +70,7 @@ pub const POST_EVENTS: [&str; 11] = [
     "go",
     "not_yet",
     "hold",
+    "heads_up",
 ];
 
 /// One line of the log, as the rule reads it.
@@ -294,6 +296,11 @@ pub struct PostView {
     pub holders: Vec<String>,
     /// A lost link and the place kept for it, whichever show it belonged to.
     pub link_lost: Option<LinkLostView>,
+    /// The handover window before this post (design note `handover-window.md`): who is next,
+    /// from where, ready or not, and when they were given their heads-up. [`plan`] leaves it
+    /// empty; the control plane fills it from [`crate::handover_window::for_post`]. Absent when
+    /// the window is off or nobody is down for the show.
+    pub window: Option<crate::handover_window::WindowView>,
 }
 
 /// The rule's answer: what to do, what to show, and who End show would pass the air to.
@@ -527,6 +534,7 @@ pub fn plan(f: &Facts<'_>) -> Plan {
         late_ends_ms: None,
         holders: f.holders.iter().map(|h| h.name.clone()).collect(),
         link_lost: None,
+        window: None,
     };
 
     if let (Some(p), Some(h)) = (post, &f.hold)

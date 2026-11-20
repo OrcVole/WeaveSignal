@@ -221,6 +221,9 @@ COPY assets/carts-demo /app/code/carts-demo
 # The default loop (ADR-0130, CC0-1.0): playout and the listener process play it while the
 # fallback folder holds nothing, so a new station is never silent.
 COPY assets/default-loop/default-loop.flac /app/code/default-loop/default-loop.flac
+# The phone line's shipped consent words (17f; CC BY 4.0, NOTICES.md). The line is not on
+# Cloudron yet; the voice is a setting here already, as on every route.
+COPY assets/phone/phone-words-alba.opus assets/phone/phone-words-edinburgh.opus /app/code/phone-words/
 RUN chmod 0755 /app/code/start.sh /app/code/station-sections.sh
 
 LABEL org.opencontainers.image.title="weavesignal-cloudron" \

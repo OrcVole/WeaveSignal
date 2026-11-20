@@ -94,7 +94,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
@@ -113,6 +113,8 @@ services:
       - desk-control:/run/weavesignal
       # The cart files the media worker wrote: the desk decodes and plays them (ADR-0117).
       - carts-media:/var/lib/weavesignal/carts:ro
+      # The phone line's words (17f) the control plane wrote: the desk plays them to callers.
+      - phone-words:/var/lib/weavesignal/phone-words:ro
       # The CMAF HLS the desk writes with video on; the control plane serves it at /hls/.
       - hls-media:/var/lib/weavesignal/hls
     depends_on: [livekit]
@@ -143,7 +145,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
@@ -157,6 +159,12 @@ services:
       WEAVESIGNAL_CONTROL_TOKEN_KEY: ${CONTROL_TOKEN_KEY:-}
       # The ingest's bearer for the internal routes (ADR-0280): only the ingest and this hold it.
       WEAVESIGNAL_INGEST_TOKEN: ${INGEST_TOKEN:-}
+      # The station's own consent words (CONSENT_TEXT; empty, the default words). An environment
+      # variable rather than a line in control.toml below: Compose cannot escape a quote into
+      # that file, and consent words have quotes.
+      WEAVESIGNAL_CONSENT_TEXT: ${CONSENT_TEXT:-}
+      # The phone line's trunk password (17f), when the provider uses digest auth.
+      WEAVESIGNAL_PHONE_TRUNK_PASSWORD: ${PHONE_TRUNK_PASSWORD:-}
     configs:
       - source: control
         target: /etc/weavesignal/control.toml
@@ -168,6 +176,8 @@ services:
       - listeners-control:/run/weavesignal-listeners
       - carts-media:/var/lib/weavesignal/carts
       - library-media:/var/lib/weavesignal/library
+      # The phone line's words (17f): the control plane writes the station's recording.
+      - phone-words:/var/lib/weavesignal/phone-words
       - recordings:/var/lib/weavesignal/recordings
       - hls-media:/var/lib/weavesignal/hls:ro
       - show-cards:/var/lib/weavesignal/show-cards
@@ -183,7 +193,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
@@ -216,7 +226,9 @@ services:
   # software, a sandboxed decoding worker per connection, and the hand-over to the desk on
   # loopback. It listens on SOURCE_ICECAST_PORT and SOURCE_SRT_PORT only when they are set (0 or
   # unset is off) and only while a show key exists, on INGEST_BIND: loopback, or every address
-  # on the public route. The control plane gives it the ports; it holds no other setting.
+  # on the public route. The control plane gives it the ports. WHIP (17d) is the same on
+  # SOURCE_WHIP_PORT, its offers passed on by the control plane to INGEST_WHIP_PORT on loopback,
+  # and its one ICE candidate LiveKit's address (LIVEKIT_NODE_IP, which weavesignal.sh sets).
   ingest:
     image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.4}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
@@ -228,6 +240,8 @@ services:
       WEAVESIGNAL_INGEST_CONTROL: http://127.0.0.1:${CONTROL_PORT:-7310}
       WEAVESIGNAL_INGEST_DESK: 127.0.0.1:${DESK_SOURCES_PORT:-7318}
       WEAVESIGNAL_INGEST_BIND: ${INGEST_BIND:-127.0.0.1}
+      WEAVESIGNAL_INGEST_WHIP: 127.0.0.1:${INGEST_WHIP_PORT:-7319}
+      WEAVESIGNAL_INGEST_PUBLIC_IP: ${LIVEKIT_NODE_IP:-127.0.0.1}
       RUST_LOG: ${RUST_LOG:-info}
       NO_COLOR: "1"
     depends_on: [control, desk]
@@ -257,6 +271,8 @@ volumes:
   # /media/episodes/ while the station has a public address (PUBLIC_ORIGIN, the public route).
   show-cards:
   episodes-media:
+  # The phone line's words (17f): the shipped default and the station's own recording.
+  phone-words:
 
 configs:
   livekit:
@@ -271,6 +287,11 @@ configs:
         tcp_port: ${LIVEKIT_TCP_PORT:-0}
         use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-false}
         node_ip: ${LIVEKIT_NODE_IP-127.0.0.1}
+        # What LiveKit tells browsers to ask (STUN_SERVERS, host:port each; none by default,
+        # ADR-0290). Never leave use_external_ip true (it asks Twilio's and Google's STUN for the
+        # address, even with a node_ip) or node_ip empty (LiveKit then asks Google's for its own
+        # connections): weavesignal.sh writes an address of its own.
+        stun_servers: [${STUN_SERVERS:-}]
       # TURN over TLS (ADR-0059, ADR-0080) with the proxy's certificate for the station's name,
       # read from the proxy's data volume (public.yaml mounts it at /caddy-data). LiveKit reads
       # the certificate once, when it starts. LiveKit's TURN refuses relay to private and loopback
@@ -318,6 +339,12 @@ configs:
       url = "ws://127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}"
       api_key = "${LIVEKIT_API_KEY}"
       room = "${ROOM:-studio}"
+      # The desk asks no STUN server unless the station names one (ADR-0290).
+      stun_servers = "${STUN_SERVERS:-}"
+
+      # How the desk's senders control congestion: gcc (the default), homegrown or disabled.
+      [desk]
+      congestion_control = "${CONGESTION_CONTROL:-gcc}"
 
       [programme]
       srt_bind = "127.0.0.1"
@@ -329,10 +356,18 @@ configs:
       [carts]
       dir = "/var/lib/weavesignal/carts"
 
+      # The phone line's words (17f): the desk plays them into a phone caller's return.
+      [phone]
+      words_dir = "/var/lib/weavesignal/phone-words"
+
       # Video (ADR-0009): off unless VIDEO=true. NVENC needs the GPU handed to the desk's
-      # container (devices: nvidia.com/gpu=all); without it, SVT-AV1 on the CPU.
+      # container (gpu.yaml, which weavesignal.sh adds with GPU=nvidia); without it, SVT-AV1 on
+      # the CPU. VIDEO_ENCODER: auto (NVENC when the desk has a card, else SVT-AV1), nvenc or svt.
       [video]
       enabled = ${VIDEO:-false}
+      encoder = "${VIDEO_ENCODER:-auto}"
+      # NVENC sessions the desk may open; a consumer card's driver allows a few for the whole machine.
+      nvenc_sessions = ${NVENC_SESSIONS:-12}
       station = "${STATION_NAME:-This station}"
       # rtmp-out: the picture composed; empty, 480p20. 720p30 (or 720p25, 1080p30) lets RTMP out
       # send more than HLS's 480p20, which is scaled down from it; every camera costs more.
@@ -385,6 +420,13 @@ configs:
       # and cannot change; 0 (unset) is off.
       source_icecast = ${SOURCE_ICECAST_PORT:-0}
       source_srt = ${SOURCE_SRT_PORT:-0}
+      # WHIP from a host's OBS (17d): its media's UDP port (0, unset, is off), and where the ingest
+      # takes WHIP's requests from the control plane, on loopback.
+      source_whip = ${SOURCE_WHIP_PORT:-0}
+      ingest_whip = ${INGEST_WHIP_PORT:-7319}
+      # The bridge from the studio app (Phase 17g), on loopback: the public route's proxy passes
+      # /api/v1/sources/bridge to it. 0 is off.
+      source_bridge = ${SOURCE_BRIDGE_PORT:-7320}
 
       [room]
       # As browsers reach LiveKit: through the proxy on the public route.
@@ -425,6 +467,8 @@ configs:
       # the consent words. Call-in stays closed until it is set (ADR-0124).
       [join]
       consent_contact = "${CONSENT_CONTACT:-}"
+      # The STUN servers the join pages may ask (ADR-0290); none unless named.
+      stun_servers = "${STUN_SERVERS:-}"
       # The player's Listen live: the listener process on loopback, or through the proxy.
       stream_url = "${STREAM_URL:-http://127.0.0.1:${LISTENERS_PORT:-7312}/programme.opus}"
       # The Opus stream's rate, and the MP3 streams beside it (ADR-0232, ADR-0233): the player
@@ -437,6 +481,11 @@ configs:
       # True only behind the station's own proxy, which sets X-Forwarded-For (otherwise every
       # caller shares the proxy's address and the per-address call-in limit caps the station).
       forwarded_for = ${FORWARDED_FOR:-false}
+
+      # The presenter kit (Phase 17g): VBAN is unauthenticated UDP for one local network, off
+      # unless KIT_VBAN=true; its addresses are set in the studio (Settings, Presenter kit).
+      [kit]
+      vban = ${KIT_VBAN:-false}
 
       # Staff sign-in by an emailed code (ADR-0127), beside the password: on when the station
       # can send email, as for the chat's codes (MAIL_MODE, MAIL_FROM).
@@ -453,6 +502,25 @@ configs:
       player_allowance_ms = "${STUDIO_PLAYER_ALLOWANCE_MS:-}"
       rundown = [${STUDIO_RUNDOWN:-}]
       banned = [${STUDIO_BANNED:-}]
+
+      # The telephone line (17f): off, and refused on until a trunk is set. phone.yaml adds
+      # Valkey and LiveKit's SIP service; PHONE_NUMBERS and PHONE_ALLOWED_ADDRESSES are TOML
+      # strings, comma-separated, as .env.example says.
+      [phone]
+      enabled = ${PHONE:-false}
+      numbers = [${PHONE_NUMBERS:-}]
+      allowed_addresses = [${PHONE_ALLOWED_ADDRESSES:-}]
+      auth_username = "${PHONE_AUTH_USERNAME:-}"
+      public_ip = "${PHONE_PUBLIC_IP:-}"
+      country_code = "${PHONE_COUNTRY_CODE:-}"
+      lines = ${PHONE_LINES:-8}
+      sip_port = ${PHONE_SIP_PORT:-5060}
+      rtp_port = ${PHONE_RTP_PORT:-7340}
+      consent_words = ${PHONE_CONSENT_WORDS:-true}
+      # The shipped recording until the station records its own: alba, edinburgh or own.
+      default_voice = "${PHONE_DEFAULT_VOICE:-alba}"
+      defaults_dir = "/opt/weavesignal/phone-words"
+      words_dir = "/var/lib/weavesignal/phone-words"
 
       # HLS content steering among the station's edges (ADR-0051): off while STEERING_EDGES is empty.
       [steering]

@@ -12,6 +12,7 @@
   // and a show this window may not read is left out. What is connected now comes from one
   // request (`/sources`), asked again every five seconds while the panel is open. A station
   // older than 1.1 has none of these routes, and the panel is then not drawn at all.
+  import { windowChoices } from '../lib/window.ts';
   import { onMount, untrack } from 'svelte';
   import {
     getSourceSettings,
@@ -354,7 +355,7 @@
               <select id="hr-grace_s" value={rules.grace_s} onchange={(e) => (rules!.grace_s = Number(e.currentTarget.value))} aria-describedby="hr-grace-hint">
                 {#each GRACES as g (g.s)}<option value={g.s}>{g.label}</option>{/each}
               </select>
-              <span id="hr-grace-hint" class="hint">The DJ on air keeps the air until the next is standing by; then the schedule waits this long. Off: the schedule never takes the air from a DJ. This build does not hand over by the schedule yet.</span>
+              <span id="hr-grace-hint" class="hint">The DJ on air keeps the air until the next is standing by; then the schedule waits this long. Off: the schedule never takes the air from a DJ.</span>
             </div>
             <div class="field">
               <label for="hr-late_count_s">A late host goes on air after</label>
@@ -362,14 +363,28 @@
                 ><input id="hr-late_count_s" type="number" min="0" max="120" step="1" inputmode="numeric" value={rules.late_count_s} oninput={(e) => (rules!.late_count_s = num(e.currentTarget.value))} aria-invalid={ruleErrors.late_count_s ? true : undefined} aria-describedby="hr-late-hint" />
                 seconds</span
               >
-              <span id="hr-late-hint" class="hint">With automation holding their air. 0 is off: someone presses. This build does not count yet.</span>
+              <span id="hr-late-hint" class="hint">With automation holding their air. 0 is off: someone presses.</span>
               {#if ruleErrors.late_count_s}<p class="err">{ruleErrors.late_count_s}</p>{/if}
             </div>
+            {#if rules.window_s !== undefined}
+              <!-- The handover window (1.2, handover-window.md): absent from a station older than
+                   1.2, which is then not drawn and not sent. A length set through the API that is
+                   none of the five is shown as it is. -->
+              <div class="field">
+                <label for="hr-window_s">The desk says who is next</label>
+                <select id="hr-window_s" value={rules.window_s} onchange={(e) => (rules!.window_s = Number(e.currentTarget.value))} aria-invalid={ruleErrors.window_s ? true : undefined} aria-describedby="hr-window-hint">
+                  {#each windowChoices(stored?.window_s) as w (w.s)}<option value={w.s}>{w.label}</option>{/each}
+                </select>
+                <span id="hr-window-hint" class="hint">The handover window. From then the desk’s clock names the next host, where they come from and whether they are ready, and the host gets one heads-up. It changes nothing on air. Off: the desk says nothing before the post.</span>
+                {#if ruleErrors.window_s}<p class="err">{ruleErrors.window_s}</p>{/if}
+              </div>
+            {/if}
             <div class="field ports">
-              <span class="lab">The two ports</span>
+              <span class="lab">The ports</span>
               <span class="unit"><span>Icecast, TCP</span> <output id="hr-port_icecast" aria-describedby="hr-ports-hint">{rules.port_icecast || 'Off'}</output></span>
               <span class="unit"><span>SRT, UDP</span> <output id="hr-port_srt" aria-describedby="hr-ports-hint">{rules.port_srt || 'Off'}</output></span>
-              <span id="hr-ports-hint" class="hint">Set where the station is installed: <code>SOURCE_ICECAST_PORT</code> and <code>SOURCE_SRT_PORT</code> with weavesignal.sh, or the two <i>Hosts’ own studios</i> ports in Cloudron’s Location settings. Off until set; the server’s firewall must let the same numbers in.</span>
+              <span class="unit"><span>WHIP, UDP</span> <output id="hr-port_whip" aria-describedby="hr-ports-hint">{rules.port_whip || 'Off'}</output></span>
+              <span id="hr-ports-hint" class="hint">Set where the station is installed: <code>SOURCE_ICECAST_PORT</code>, <code>SOURCE_SRT_PORT</code> and <code>SOURCE_WHIP_PORT</code> with weavesignal.sh, or the <i>Hosts’ own studios</i> ports in Cloudron’s Location settings. Off until set; the server’s firewall must let the same numbers in.</span>
             </div>
           </div>
           {#if ruleErrors.form}<p class="err" role="alert">{ruleErrors.form}</p>{/if}

@@ -67,6 +67,14 @@ struct Plane {
 }
 
 async fn plane() -> Plane {
+    plane_with(JoinConfig {
+        consent_contact: STATION_CONTACT.into(),
+        ..JoinConfig::default()
+    })
+    .await
+}
+
+async fn plane_with(join: JoinConfig) -> Plane {
     let url =
         std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
     let pool = sqlx::PgPool::connect(&url).await.expect("connect");
@@ -102,10 +110,7 @@ async fn plane() -> Plane {
         admin_token: Some(ADMIN.into()),
         staff: staff.clone(),
         hub,
-        join: JoinConfig {
-            consent_contact: STATION_CONTACT.into(),
-            ..JoinConfig::default()
-        },
+        join,
         video: Default::default(),
         joins: Default::default(),
         turn_tls_port: 5349,
@@ -214,6 +219,47 @@ async fn on_air_now(app: &Router, slug: &str) {
     )
     .await;
     assert_eq!(code, StatusCode::OK, "{body}");
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn words_with_a_presenter_name_the_show_on_airs_else_the_station() {
+    // Issue #26: a station's own words with `{presenter}`.
+    let p = plane_with(JoinConfig {
+        consent_text: "You'll be live with {presenter} on {station}. Ask {contact}.".into(),
+        consent_contact: STATION_CONTACT.into(),
+        ..JoinConfig::default()
+    })
+    .await;
+    let app = &p.app;
+
+    // Nothing on air: the station is named.
+    let (text, before) = words(app).await;
+    assert_eq!(
+        text,
+        format!("You'll be live with Kettle FM on Kettle FM. Ask {STATION_CONTACT}.")
+    );
+
+    // A show with a presenter, on air now: the presenter is named, and the version moves.
+    let (code, body) = send(
+        app,
+        Some(ADMIN),
+        "PUT",
+        "/api/v1/shows/morning-show",
+        json!({
+            "name": "The Morning Show", "colour_slot": 2, "layout": "poster",
+            "presenter": "Moira Fraser"
+        }),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    on_air_now(app, "morning-show").await;
+    let (text, after) = words(app).await;
+    assert_eq!(
+        text,
+        format!("You'll be live with Moira Fraser on Kettle FM. Ask {STATION_CONTACT}.")
+    );
+    assert_ne!(before, after, "a new presenter is new words");
 }
 
 #[tokio::test]

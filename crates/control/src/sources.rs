@@ -15,6 +15,15 @@
 //! | `GET`, `PUT /api/v1/settings/sources` | admin | the station's rules for sources |
 //! | `/api/v1/internal/sources/…` | the ingest only | `config`, `admit`, `report`, `events` |
 //!
+//! **A pull** (migration 0042, PLAN 17b) is a show key with `hint` `pull` and an address the
+//! station opens itself: HTTP or HTTPS (Icecast or any HTTP audio), an HLS playlist, or an SRT
+//! listener. The address is checked when it is saved ([`check_pull_url`]: the parse, then every
+//! address the name resolves to against the private ranges) and again by the ingest at every
+//! connection. `config` hands the ingest the pulls whose slot's door is open, and the ingest
+//! admits each with way `pull` and no secret, so from there on it is a source like any other:
+//! the same tile, STANDBY, post, grace, LINK LOST and monitor link. A pull is never a test, and
+//! when its door closes it is closed, not made a test.
+//!
 //! **Secrets.** A key's secret is derived under the token key from its id and a salt
 //! ([`ApiKey::show_key_secret`]); the monitor link's is kept as a keyed hash. Both are shown once,
 //! in the reply that makes the key, and no route shows either again. The SRT listener needs the
@@ -25,6 +34,10 @@
 //! or `X-Real-IP` header (every proxy in the bundles adds one, so a request from outside never
 //! passes), and the bearer in `WEAVESIGNAL_INGEST_TOKEN`. Without that variable they refuse: behind
 //! a proxy every peer is loopback, so the address alone proves nothing.
+//!
+//! **WHIP** (17d) comes in through the public route `/whip/{key id}` ([`crate::whip_route`]),
+//! which hands the request to the ingest; the ingest then asks `admit` with the bearer's secret,
+//! as Icecast does with its password, so its slot is promised at once.
 //!
 //! **Two phases for SRT.** A key id is public. `admit` for SRT decides without a proof and hands
 //! back the passphrase; nothing is claimed for good until the ingest reports the handshake done
@@ -66,10 +79,23 @@ pub const INGEST_TOKEN_ENV: &str = "WEAVESIGNAL_INGEST_TOKEN";
 pub const INGEST_TOKEN_MIN: usize = 32;
 /// Keys a show may have that have not ended.
 pub const MAX_LIVE_KEYS: usize = 8;
+/// Set to `1` or `true`, a pull may open an address inside the station's own network (loopback,
+/// private, link-local, carrier-grade NAT, unique-local): for a test station, or an encoder on
+/// the station's own network. Off by default: an admin could otherwise point a pull at a service
+/// only the station can reach.
+pub const PULL_PRIVATE_ENV: &str = "WEAVESIGNAL_PULL_ALLOW_PRIVATE";
+/// How long saving a pull waits for its name to resolve.
+const RESOLVE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// A report older than this means the ingest has gone: nothing it said is shown.
 const REPORT_STALE_MS: u128 = 5_000;
 /// How far ahead the schedule is read for a key's next door.
 const LOOK_AHEAD_S: i64 = 62 * 24 * 3600;
+
+/// The ways a host's own studio comes in: Icecast and SRT straight to the ingest's ports, WHIP
+/// from OBS (17d), the bridge (the studio app's WebSocket on the public address) and VBAN (a
+/// studio PC on the station's network, Phase 17g). A pull (17b) is not among them: the station
+/// opens it itself, and its way is `pull`.
+pub const WAYS: [&str; 5] = ["icecast", "srt", "whip", "bridge", "vban"];
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -103,7 +129,8 @@ pub struct IngestConn {
     pub key_id: String,
     /// `standby` (on the desk) or `test` (never on the desk).
     pub mode: String,
-    /// `icecast` or `srt`.
+    /// `icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software connected), or `pull` (the
+    /// station opened it).
     pub way: String,
     /// What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`); empty
     /// until the first sound is decoded.
@@ -120,6 +147,10 @@ pub struct IngestConn {
     /// What the host's software says is playing (Icecast's metadata), cleaned and cut.
     #[serde(default)]
     pub title: Option<String>,
+    /// VBAN: packets lost on the way since it opened and filled with silence (the clock
+    /// readout's `lost`); absent for every other way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lost: Option<u64>,
 }
 
 #[derive(Default)]
@@ -135,9 +166,20 @@ pub struct Live {
     wrong: Mutex<WrongKeys>,
     report: Mutex<Report>,
     close: Mutex<BTreeSet<String>>,
-    /// The two ports the installation named (`ports.source_icecast`, `ports.source_srt`), which
-    /// win over the rules' own: the installation is what publishes them. 0 is a way turned off.
-    fixed: Mutex<(Option<u16>, Option<u16>)>,
+    /// The ports the installation named (`ports.source_icecast`, `ports.source_srt`,
+    /// `ports.source_whip`), which win over the rules' own: the installation is what publishes
+    /// them. 0 is a way turned off.
+    fixed: Mutex<FixedPorts>,
+    /// Where the ingest takes WHIP's requests on loopback (`ports.ingest_whip`).
+    ingest_whip: Mutex<u16>,
+    /// Whether a pull may open an address inside the station's own network ([`PULL_PRIVATE_ENV`]).
+    pull_private: Mutex<bool>,
+    /// The bridge's port on loopback (`ports.source_bridge`), behind the proxy; 0 is off.
+    bridge_port: Mutex<u16>,
+    /// Whether the installation allows VBAN (Phase 17g): `Err` with why not.
+    vban: Mutex<Result<(), String>>,
+    /// VBAN packets the ingest dropped, by reason, from its last report.
+    vban_dropped: Mutex<BTreeMap<String, u64>>,
 }
 
 impl Live {
@@ -157,7 +199,17 @@ impl Live {
             }
             t => t,
         };
-        Self::with_token(token)
+        let live = Self::with_token(token);
+        let private = std::env::var(PULL_PRIVATE_ENV)
+            .is_ok_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+        if private {
+            tracing::warn!(
+                env = PULL_PRIVATE_ENV,
+                "pulls may open addresses inside the station's own network"
+            );
+        }
+        live.set_pull_private(private);
+        live
     }
 
     pub fn with_token(token: Option<String>) -> Self {
@@ -166,30 +218,94 @@ impl Live {
             wrong: Mutex::new(WrongKeys::default()),
             report: Mutex::new(Report::default()),
             close: Mutex::new(BTreeSet::new()),
-            fixed: Mutex::new((None, None)),
+            fixed: Mutex::new(FixedPorts::default()),
+            ingest_whip: Mutex::new(7319),
+            pull_private: Mutex::new(false),
+            bridge_port: Mutex::new(0),
+            vban: Mutex::new(Err("VBAN is off for this installation.".into())),
+            vban_dropped: Mutex::new(BTreeMap::new()),
         }
     }
 
-    /// The ports the installation named for Icecast and SRT, which the rules cannot change.
-    pub fn set_fixed_ports(&self, icecast: Option<u16>, srt: Option<u16>) {
-        *self.fixed.lock().expect("sources lock") = (icecast, srt);
+    /// The bridge's port on loopback; 0 turns the bridge off.
+    pub fn set_bridge_port(&self, port: u16) {
+        *self.bridge_port.lock().expect("sources lock") = port;
+    }
+
+    pub fn bridge_port(&self) -> u16 {
+        *self.bridge_port.lock().expect("sources lock")
+    }
+
+    /// The installation's word on VBAN ([`crate::kit::allowed`]).
+    pub fn set_vban_allowed(&self, allowed: Result<(), String>) {
+        *self.vban.lock().expect("sources lock") = allowed;
+    }
+
+    pub fn vban_allowed(&self) -> Result<(), String> {
+        self.vban.lock().expect("sources lock").clone()
+    }
+
+    /// VBAN packets the ingest dropped, by reason.
+    pub fn vban_dropped(&self) -> BTreeMap<String, u64> {
+        self.vban_dropped.lock().expect("sources lock").clone()
+    }
+
+    /// Let pulls open addresses inside the station's own network, or not.
+    pub fn set_pull_private(&self, allow: bool) {
+        *self.pull_private.lock().expect("sources lock") = allow;
+    }
+
+    /// Whether pulls may open addresses inside the station's own network.
+    pub fn pull_private(&self) -> bool {
+        *self.pull_private.lock().expect("sources lock")
+    }
+
+    /// The ports the installation named for Icecast, SRT and WHIP, which the rules cannot change.
+    pub fn set_fixed_ports(&self, fixed: FixedPorts) {
+        *self.fixed.lock().expect("sources lock") = fixed;
     }
 
     /// The ports the installation named, if it named them.
-    pub fn fixed_ports(&self) -> (Option<u16>, Option<u16>) {
+    pub fn fixed_ports(&self) -> FixedPorts {
         *self.fixed.lock().expect("sources lock")
+    }
+
+    /// Where the ingest takes WHIP's requests on loopback.
+    pub fn set_ingest_whip(&self, port: u16) {
+        *self.ingest_whip.lock().expect("sources lock") = port;
+    }
+
+    /// The ingest's loopback port for WHIP's requests.
+    pub fn ingest_whip(&self) -> u16 {
+        *self.ingest_whip.lock().expect("sources lock")
     }
 
     /// The rules with the installation's ports in place of their own.
     pub fn in_force(&self, mut settings: SourceSettings) -> SourceSettings {
-        let (ice, srt) = self.fixed_ports();
-        if let Some(p) = ice {
+        let f = self.fixed_ports();
+        if let Some(p) = f.icecast {
             settings.port_icecast = i32::from(p);
         }
-        if let Some(p) = srt {
+        if let Some(p) = f.srt {
             settings.port_srt = i32::from(p);
         }
+        if let Some(p) = f.whip {
+            settings.port_whip = i32::from(p);
+        }
         settings
+    }
+
+    /// The ingest's bearer, when it is set.
+    pub(crate) fn ingest_token(&self) -> Option<String> {
+        self.ingest_token.lock().expect("sources lock").clone()
+    }
+
+    /// Until when an address is refused for wrong keys, if it is.
+    pub(crate) fn blocked_until(&self, addr: &str, now: i64) -> Option<i64> {
+        self.wrong
+            .lock()
+            .expect("sources lock")
+            .blocked_until(addr, now)
     }
 
     /// Set the ingest's bearer (tests, and a station that sets it after starting).
@@ -226,6 +342,20 @@ impl Live {
 impl Default for Live {
     fn default() -> Self {
         Self::with_token(None)
+    }
+}
+
+/// The ports for hosts' own studios that the installation named; `None` leaves the rules' own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FixedPorts {
+    pub icecast: Option<u16>,
+    pub srt: Option<u16>,
+    pub whip: Option<u16>,
+}
+
+impl FixedPorts {
+    fn any(&self) -> bool {
+        self.icecast.is_some() || self.srt.is_some() || self.whip.is_some()
     }
 }
 
@@ -352,6 +482,31 @@ pub struct Details {
     pub host: Option<String>,
     pub icecast: IcecastDetails,
     pub srt: SrtDetails,
+    /// For a pull: the address the station opens, and how.
+    pub pull: Option<PullDetails>,
+    pub whip: WhipDetails,
+}
+
+/// WHIP (17d), as OBS asks for it: a server address and a bearer token. Sound only.
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+pub struct WhipDetails {
+    /// The station's UDP port for WHIP's media; 0 when WHIP is off.
+    pub port: u16,
+    /// `https://<public address>/whip/<key id>`, OBS's *Server*; `None` when WHIP is off or the
+    /// station has no public address (its studio domain may sit behind a login).
+    pub url: Option<String>,
+    /// OBS's *Bearer Token*: the secret.
+    pub bearer_token: String,
+}
+
+/// What a pull opens.
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
+pub struct PullDetails {
+    /// The address, as it was saved (normalised: the host in lower case, the port written).
+    pub url: String,
+    /// `http` (Icecast or any HTTP audio), `hls` (a playlist) or `srt` (the station calls an
+    /// SRT listener).
+    pub kind: weavesignal_model::pull::PullKind,
 }
 
 #[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
@@ -400,8 +555,15 @@ pub struct NewKey {
     /// The member of staff it is for, if one.
     #[serde(default)]
     pub staff_id: Option<Uuid>,
-    /// `icecast` or `srt`: how they will send (a hint, not a lock).
+    /// `icecast`, `srt`, `whip`, `bridge` or `vban`: how they will send (a hint, not a lock); or
+    /// `pull`: the station opens the stream at `url` itself while the slot's door is open.
     pub hint: String,
+    /// For `pull` only: `http://` or `https://` (Icecast or any HTTP audio), a playlist ending
+    /// `.m3u8` (HLS), or `srt://host:port` with any `streamid=` (the station is the caller). No
+    /// user name, password or SRT passphrase. An address inside the station's own network is
+    /// refused unless the installation allows it.
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -425,7 +587,8 @@ pub struct KeyRow {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct KeyList {
     pub show: String,
-    /// `room` or `push`: where the show comes from.
+    /// `room`, `push` (a host's own software) or `pull` (a stream the station opens): where the
+    /// show comes from.
     pub source: String,
     pub keys: Vec<KeyRow>,
 }
@@ -435,12 +598,15 @@ fn details(
     settings: &SourceSettings,
     key_id: &str,
     secret: Option<&str>,
+    pull_url: Option<&str>,
 ) -> Details {
     let host = url::Url::parse(&state.join.stream_url)
         .ok()
         .and_then(|u| u.host_str().map(str::to_owned));
     let shown = secret.unwrap_or("(shown once, when the key was made)");
     let (ice, srt) = (settings.port_icecast as u16, settings.port_srt as u16);
+    let whip = settings.port_whip as u16;
+    let public = state.join.public_url.trim_end_matches('/');
     Details {
         icecast: IcecastDetails {
             port: ice,
@@ -460,11 +626,27 @@ fn details(
                 _ => None,
             },
         },
+        pull: pull_url.map(|u| PullDetails {
+            url: u.to_owned(),
+            kind: weavesignal_model::pull::parse_pull_url(u, true)
+                .map_or(weavesignal_model::pull::PullKind::Http, |t| t.kind),
+        }),
+        whip: WhipDetails {
+            port: whip,
+            url: (whip != 0 && !public.is_empty()).then(|| format!("{public}/whip/{key_id}")),
+            bearer_token: shown.to_owned(),
+        },
         host,
     }
 }
 
 fn as_text(label: &str, show: &str, d: &Details, monitor: &str) -> String {
+    if let Some(p) = &d.pull {
+        return format!(
+            "{label}'s monitor link for {show}\n\nThe station opens {} itself while the show's slot is open (from before its time), and the source stands by on the desk until its time.\n\nMonitor link secret: {monitor}\n\nOpen the monitor link to hear the station's return.\n",
+            p.url
+        );
+    }
     let host = d.host.as_deref().unwrap_or("(the station's address)");
     // A way the installation turned off (port 0) is left out, rather than offered on port 0.
     let icecast = if d.icecast.port == 0 {
@@ -483,14 +665,64 @@ fn as_text(label: &str, show: &str, d: &Details, monitor: &str) -> String {
             d.srt.port, d.srt.streamid, d.srt.passphrase
         )
     };
-    let none = if icecast.is_empty() && srt.is_empty() {
+    let whip = match (&d.whip.url, d.whip.port) {
+        (_, 0) => String::new(),
+        (Some(url), _) => format!(
+            "WHIP (OBS 30 and later: Settings, Stream, Service WHIP; sound only)\n  Server: {url}\n  Bearer Token: {}\n  UDP port {} must reach the station\n\n",
+            d.whip.bearer_token, d.whip.port
+        ),
+        (None, _) => format!(
+            "WHIP (sound only)\n  Server: the station's public address, then /whip/{}\n  Bearer Token: {}\n\n",
+            d.srt.streamid, d.whip.bearer_token
+        ),
+    };
+    let none = if icecast.is_empty() && srt.is_empty() && whip.is_empty() {
         "The station has not turned on its ports for hosts' own studios yet: ask its administrator.\n\n"
     } else {
         ""
     };
     format!(
-        "{label}'s details for {show}\n\n{icecast}{srt}{none}Monitor link secret: {monitor}\n\nPut these into your software, open the monitor link, and press connect. You can test at any time. You go on air at your show's time, not when you connect.\n"
+        "{label}'s details for {show}\n\n{icecast}{srt}{whip}{none}Monitor link secret: {monitor}\n\nPut these into your software, open the monitor link, and press connect. You can test at any time. You go on air at your show's time, not when you connect.\n"
     )
+}
+
+/// A pull's address, checked to be saved: the parse ([`weavesignal_model::pull`]; `http`,
+/// `https` and `srt`), what this release cannot keep (an SRT passphrase), then the name resolved and every address it gave checked against the
+/// station's own network (`allow_private` lets those through). The normalised address, or the
+/// 422 that says what is wrong.
+pub async fn check_pull_url(raw: &str, allow_private: bool) -> Result<String, Response> {
+    use weavesignal_model::pull::{PullKind, check_resolved, parse_pull_url};
+    let bad = |detail: String| field_problem("url", detail);
+    let t = parse_pull_url(raw, allow_private).map_err(|e| bad(e.to_string()))?;
+    if t.kind == PullKind::Srt && t.query_value("passphrase").is_some() {
+        return Err(bad(
+            "an SRT passphrase cannot be kept yet: pull from a listener without one, or have the host send to the station with a show key instead".into(),
+        ));
+    }
+    if t.kind == PullKind::Srt
+        && t.query_value("mode")
+            .is_some_and(|m| !matches!(m.as_str(), "caller" | "client"))
+    {
+        return Err(bad(
+            "the station calls the SRT address, so it must be a listener's (leave out `mode`, or set `mode=caller`)".into(),
+        ));
+    }
+    let host = t.host.clone();
+    let resolved = tokio::time::timeout(
+        RESOLVE_WAIT,
+        tokio::net::lookup_host((host.as_str(), t.port)),
+    )
+    .await;
+    let addrs: Vec<std::net::IpAddr> = match resolved {
+        Ok(Ok(it)) => it.map(|a| a.ip()).collect(),
+        Ok(Err(_)) | Err(_) => {
+            return Err(bad(format!(
+                "the name `{host}` does not resolve: check the address"
+            )));
+        }
+    };
+    check_resolved(&addrs, allow_private).map_err(|e| bad(e.to_string()))?;
+    Ok(t.url)
 }
 
 /// The rules, with the installation's ports in force where it named them.
@@ -549,7 +781,13 @@ async fn list_keys(
             Err(e) => return db_failed(&e),
         };
         rows.push(KeyRow {
-            details: details(&state, &settings, &key.key_id, None),
+            details: details(
+                &state,
+                &settings,
+                &key.key_id,
+                None,
+                key.pull_url.as_deref(),
+            ),
             key,
             last_refusal,
         });
@@ -570,6 +808,7 @@ async fn make(
     label: &str,
     staff_id: Option<Uuid>,
     hint: &str,
+    url: Option<&str>,
 ) -> Result<MadeKey, Response> {
     let pool = pool(state)?;
     let key = token_key(state)?;
@@ -581,9 +820,25 @@ async fn make(
             "who the key is for: 1 to 120 characters, no control characters",
         ));
     }
-    if !matches!(hint, "icecast" | "srt") {
-        return Err(field_problem("hint", "`icecast` or `srt`"));
-    }
+    let pull_url = match (hint, url) {
+        ("pull", Some(u)) => Some(check_pull_url(u, state.hub.sources.pull_private()).await?),
+        ("pull", None) => {
+            return Err(field_problem("url", "a pull needs the address to open"));
+        }
+        (h, None) if WAYS.contains(&h) => None,
+        (h, Some(_)) if WAYS.contains(&h) => {
+            return Err(field_problem(
+                "url",
+                "only a pull (`hint`: `pull`) has an address",
+            ));
+        }
+        _ => {
+            return Err(field_problem(
+                "hint",
+                "`icecast`, `srt`, `whip`, `bridge`, `vban` or `pull`",
+            ));
+        }
+    };
     let now = now_ms() as i64;
     let live = model::live_keys(pool, state.station.id, now)
         .await
@@ -612,6 +867,7 @@ async fn make(
                 key_salt: &salt,
                 monitor_hash: &monitor_hash,
                 hint,
+                pull_url: pull_url.as_deref(),
                 created_by: &actor.label(),
                 created_ms: now,
             },
@@ -620,7 +876,13 @@ async fn make(
         match made {
             Ok(k) => {
                 let secret = key.show_key_secret(&k.key_id, &k.key_salt);
-                let d = details(state, &settings, &k.key_id, Some(&secret));
+                let d = details(
+                    state,
+                    &settings,
+                    &k.key_id,
+                    Some(&secret),
+                    k.pull_url.as_deref(),
+                );
                 tracing::info!(show = %show.slug, key = %k.key_id, by = %actor.label(), "a show key was made");
                 return Ok(MadeKey {
                     as_text: as_text(&k.label, &show.name, &d, &monitor_secret),
@@ -649,7 +911,7 @@ async fn make(
     operation_id = "sources_keys_make",
     tag = "sources",
     summary = "Make a show key",
-    description = "A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`). For an admin, a producer or the show's presenter; an API token never.",
+    description = "A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`).\n\nWith `hint` `pull` and a `url`, the station opens the stream itself while the slot's door is open (`source: pull`): `http://` or `https://` (Icecast or any HTTP audio in MP3, AAC, Ogg or FLAC), an HLS playlist (`.m3u8`, MPEG-TS, AAC or MP3 segments), or `srt://host:port` with any `streamid=` (the station calls the listener; MPEG-TS). The address may hold no user name, password or SRT passphrase (422). Its name is resolved when it is saved, and an address inside the station's own network is refused (422) unless the installation sets `WEAVESIGNAL_PULL_ALLOW_PRIVATE`. The reply's secret is unused for a pull; its monitor link works as any key's. For an admin, a producer or the show's presenter; an API token never.",
     params(("show" = String, Path, description = "The show's slug")),
     request_body = NewKey,
     responses(
@@ -680,6 +942,7 @@ async fn make_key(
         &body.label,
         body.staff_id,
         &body.hint,
+        body.url.as_deref(),
     )
     .await
     {
@@ -744,7 +1007,17 @@ async fn renew_key(
     if old.revoked_ms.is_some() {
         return problem(StatusCode::CONFLICT, "that key has ended already");
     }
-    let made = match make(&state, &actor, &show, &old.label, old.staff_id, &old.hint).await {
+    let made = match make(
+        &state,
+        &actor,
+        &show,
+        &old.label,
+        old.staff_id,
+        &old.hint,
+        old.pull_url.as_deref(),
+    )
+    .await
+    {
         Ok(m) => m,
         Err(r) => return r,
     };
@@ -833,8 +1106,11 @@ pub struct SourceView {
     pub state: String,
     /// The desk slot it holds, while it is at the desk.
     pub slot: Option<usize>,
-    /// `icecast` or `srt`, while connected.
+    /// `icecast`, `srt`, `whip`, `bridge` or `vban`, while connected; `pull` while the station holds a pull open.
     pub way: Option<String>,
+    /// Whether the station opens this source itself (a pull): there is no host's software to
+    /// wait for, and `not_connected` means the station cannot reach the address yet.
+    pub pull: bool,
     /// What the host's software sends, while connected.
     pub format: Option<String>,
     /// Its level at the desk (short-term LUFS, after the leveller); for a test, the ingest's
@@ -950,6 +1226,7 @@ pub async fn sources_now(
             show_name: show.name.clone(),
             state: state_word.to_owned(),
             way: conn.map(|c| c.way.clone()),
+            pull: k.is_pull(),
             format: conn.map(|c| c.format.clone()).filter(|f| !f.is_empty()),
             level: at_desk
                 .and_then(|p| p.lufs)
@@ -1164,7 +1441,7 @@ async fn get_settings(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
     operation_id = "sources_settings_put",
     tag = "sources",
     summary = "Change the rules for sources",
-    description = "Every rule at once. The ingest takes new ports within seconds (it listens afresh). A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.",
+    description = "Every rule at once. The ingest takes new ports within seconds (it listens afresh). A body without `window_s` (the handover window, from 1.2) keeps the stored one. A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.",
     request_body = SourceSettings,
     responses(
         (status = 200, description = "The rules now.", body = SourceSettings),
@@ -1178,7 +1455,7 @@ async fn get_settings(State(state): State<Arc<AppState>>, headers: HeaderMap) ->
 async fn put_settings(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(body): Json<SourceSettings>,
+    Json(raw): Json<serde_json::Value>,
 ) -> Response {
     let actor = match state.check(&headers, Need::Admin) {
         Ok(a) => a,
@@ -1188,29 +1465,39 @@ async fn put_settings(
         Ok(p) => p,
         Err(r) => return r,
     };
+    let stored = match model::get_settings(pool, state.station.id).await {
+        Ok(s) => s,
+        Err(e) => return db_failed(&e),
+    };
+    let mut body = match settings_body(raw, &stored) {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
     // A port the installation names stays as it is: the same number is taken (and the stored
     // rule kept under it), another is refused.
-    let mut body = body;
-    let (fixed_ice, fixed_srt) = state.hub.sources.fixed_ports();
-    if fixed_ice.is_some() || fixed_srt.is_some() {
-        let stored = match model::get_settings(pool, state.station.id).await {
-            Ok(s) => s,
-            Err(e) => return db_failed(&e),
-        };
+    let fixed = state.hub.sources.fixed_ports();
+    if fixed.any() {
         for (fixed, field, given, kept, setting) in [
             (
-                fixed_ice,
+                fixed.icecast,
                 "port_icecast",
                 &mut body.port_icecast,
                 stored.port_icecast,
                 "ports.source_icecast",
             ),
             (
-                fixed_srt,
+                fixed.srt,
                 "port_srt",
                 &mut body.port_srt,
                 stored.port_srt,
                 "ports.source_srt",
+            ),
+            (
+                fixed.whip,
+                "port_whip",
+                &mut body.port_whip,
+                stored.port_whip,
+                "ports.source_whip",
             ),
         ] {
             if let Some(p) = fixed {
@@ -1235,6 +1522,10 @@ async fn put_settings(
         // because a host who types one into the wrong field then gets no answer at all.
         return field_problem("port_srt", "use a different number from the Icecast port");
     }
+    if shown.port_whip == shown.port_srt && shown.port_whip != 0 {
+        // Both are UDP: one port cannot serve both.
+        return field_problem("port_whip", "use a different number from the SRT port");
+    }
     match model::put_settings(
         pool,
         state.station.id,
@@ -1247,6 +1538,25 @@ async fn put_settings(
         Ok(()) => Json(shown).into_response(),
         Err(e) => db_failed(&e),
     }
+}
+
+/// The rules a `PUT` sends, with the stored handover window where the body has none (a studio
+/// app or a script from before 1.2 sends every rule it knew, and no `window_s`).
+fn settings_body(
+    mut raw: serde_json::Value,
+    stored: &SourceSettings,
+) -> Result<SourceSettings, Response> {
+    if let Some(o) = raw.as_object_mut()
+        && !o.contains_key("window_s")
+    {
+        o.insert("window_s".into(), json!(stored.window_s));
+    }
+    serde_json::from_value(raw).map_err(|e| {
+        problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("the rules could not be read: {e}"),
+        )
+    })
 }
 
 // ---- the ingest's routes ----
@@ -1300,8 +1610,31 @@ pub struct IngestConfig {
     pub port_icecast: u16,
     /// 0: this way is off.
     pub port_srt: u16,
+    /// WHIP's media port (UDP); 0: this way is off.
+    pub port_whip: u16,
+    /// The bridge's WebSocket, on loopback behind the proxy (Phase 17g); 0: off.
+    #[serde(default)]
+    pub port_bridge: u16,
+    /// VBAN in (Phase 17g): where to listen and the bindings; `None`: not at all.
+    #[serde(default)]
+    pub vban: Option<crate::kit::IngestVban>,
     /// A test's longest life, in ms.
     pub test_max_ms: u64,
+    /// The pulls to hold open now: every pull whose slot's door is open and that is not turned
+    /// away. The ingest opens those it does not hold and closes those no longer named.
+    #[serde(default)]
+    pub pulls: Vec<PullJob>,
+}
+
+/// A pull the ingest is to hold open.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+pub struct PullJob {
+    pub key_id: String,
+    /// The address as saved; the ingest checks it again, and every address its name resolves to,
+    /// at each connection.
+    pub url: String,
+    /// Whether it may open an address inside the station's own network.
+    pub allow_private: bool,
 }
 
 #[utoipa::path(
@@ -1310,7 +1643,7 @@ pub struct IngestConfig {
     operation_id = "internal_sources_config",
     tag = "internal",
     summary = "The ingest's settings",
-    description = "For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports. The ingest asks every few seconds.",
+    description = "For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports; and the pulls to hold open now (each pull whose slot's door is open). The ingest asks every few seconds.",
     responses(
         (status = 200, description = "The ingest's settings.", body = IngestConfig),
         (status = 401, response = crate::openapi::Unauthorized),
@@ -1340,13 +1673,93 @@ async fn internal_config(
         Err(e) => return db_failed(&e),
     };
     let settings = state.hub.sources.in_force(settings);
+    let pulls = if keys.iter().any(ShowKey::is_pull) {
+        let air = match airings(&state, pool, now / 1000).await {
+            Ok(a) => a,
+            Err(e) => return db_failed(&e),
+        };
+        // A pull on air is never cut when its door closes (as a pushed source on air is never
+        // touched); without the desk's word, every pull the ingest holds is kept.
+        let keep: BTreeSet<String> = match state.hub.desk_status() {
+            Some(desk) => keys
+                .iter()
+                .filter(|k| {
+                    let identity = source_wire::identity(&k.key_id);
+                    desk.people
+                        .iter()
+                        .any(|p| p.identity == identity && p.on_air)
+                })
+                .map(|k| k.key_id.clone())
+                .collect(),
+            None => state
+                .hub
+                .sources
+                .connections()
+                .into_iter()
+                .filter(|c| c.way == "pull")
+                .map(|c| c.key_id)
+                .collect(),
+        };
+        due_pulls(
+            &keys,
+            &air,
+            &settings,
+            now,
+            state.hub.sources.pull_private(),
+            &keep,
+        )
+    } else {
+        Vec::new()
+    };
+    let vban = crate::kit::for_ingest(&state, pool).await;
     Json(IngestConfig {
-        listen: !keys.is_empty(),
+        // The public ports are for hosts' software: a pull alone opens none.
+        listen: keys.iter().any(|k| !k.is_pull()),
         port_icecast: settings.port_icecast as u16,
         port_srt: settings.port_srt as u16,
+        port_whip: settings.port_whip as u16,
+        port_bridge: state.hub.sources.bridge_port(),
+        vban,
         test_max_ms: settings.test_max_min as u64 * 60_000,
+        pulls,
     })
     .into_response()
+}
+
+/// The pulls due now: live pull keys, not turned away, whose slot's door is open (it opens the
+/// rules' `door_before_min` before each airing, so a pull is open and standing by before the
+/// post), and those in `keep` (on air) whatever their door.
+pub fn due_pulls(
+    keys: &[ShowKey],
+    air: &[Airing],
+    settings: &SourceSettings,
+    now_ms: i64,
+    allow_private: bool,
+    keep: &BTreeSet<String>,
+) -> Vec<PullJob> {
+    keys.iter()
+        .filter(|k| k.is_pull() && k.revoked_ms.is_none_or(|r| r > now_ms))
+        .filter(|k| k.turned_away_until_ms.is_none_or(|t| now_ms >= t))
+        .filter(|k| {
+            keep.contains(&k.key_id)
+                || matches!(
+                    model::door(
+                        k.show_id,
+                        air,
+                        now_ms / 1000,
+                        i64::from(settings.door_before_min) * 60
+                    ),
+                    Door::Open { .. }
+                )
+        })
+        .filter_map(|k| {
+            k.pull_url.as_ref().map(|u| PullJob {
+                key_id: k.key_id.clone(),
+                url: u.clone(),
+                allow_private,
+            })
+        })
+        .collect()
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -1355,13 +1768,19 @@ pub struct AdmitRequest {
     /// The key id the host's software gave (the SRT stream id, or the Icecast password's first
     /// part).
     pub key_id: String,
-    /// The secret it gave, for Icecast; left out for SRT, whose handshake proves it.
+    /// The secret it gave, for Icecast and WHIP; left out for SRT, whose handshake proves it, and
+    /// for a pull, which the station opened itself.
     #[serde(default)]
     pub secret: Option<String>,
-    /// `icecast` or `srt`.
+    /// `icecast`, `srt`, `whip`, `bridge` (the studio app's WebSocket), `vban`, or `pull`. A
+    /// pull's key is admitted only as `pull`, and only a pull's key is.
     pub way: String,
-    /// The address the connection came from, as the ingest saw it.
+    /// The address the connection came from, as the ingest saw it (for the bridge, the
+    /// station's proxy's last `X-Forwarded-For` entry).
     pub address: String,
+    /// For `vban`: the stream's name, which with the address must be bound to the key.
+    #[serde(default)]
+    pub stream: Option<String>,
     /// The ingest asks again for a connection it already holds (a test, to see whether the
     /// slot's door has opened); nothing is counted or logged.
     #[serde(default)]
@@ -1417,7 +1836,7 @@ impl AdmitReply {
     operation_id = "internal_sources_admit",
     tag = "internal",
     summary = "May this connection stand by?",
-    description = "For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.",
+    description = "For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret; for a pull, way `pull` and no secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.",
     request_body = AdmitRequest,
     responses(
         (status = 200, description = "The decision.", body = AdmitReply),
@@ -1519,8 +1938,17 @@ async fn admit(
     };
     let secret = tk.show_key_secret(&key.key_id, &key.key_salt);
     match (req.way.as_str(), &req.secret) {
-        ("icecast", Some(given)) if crate::app::same(given.as_bytes(), secret.as_bytes()) => {}
-        ("srt", None) => {}
+        // The bridge carries the Icecast push's password.
+        ("icecast" | "whip" | "bridge", Some(given))
+            if !key.is_pull() && crate::app::same(given.as_bytes(), secret.as_bytes()) => {}
+        ("srt", None) if !key.is_pull() => {}
+        // VBAN has no secret: only a binding in the kit's settings (the sender's address and
+        // stream name, to this key) lets it in, and it only ever stands by.
+        ("vban", None)
+            if !key.is_pull()
+                && crate::kit::binds(state, pool, &key.key_id, &addr, req.stream.as_deref())
+                    .await => {}
+        ("pull", None) if key.is_pull() => {}
         _ => return wrong(Some(key.show_id)).await,
     }
     let settings = model::get_settings(pool, state.station.id).await?;
@@ -1642,7 +2070,7 @@ async fn log_refusal(
         event: "refused".into(),
         reason: Some(r.as_str().into()),
         detail: String::new(),
-        way: matches!(way, "icecast" | "srt").then(|| way.to_owned()),
+        way: (WAYS.contains(&way) || way == "pull").then(|| way.to_owned()),
         address: Some(addr.to_owned()),
     };
     if let Err(e) = model::log(pool, state.station.id, show, &entry).await {
@@ -1655,6 +2083,9 @@ async fn log_refusal(
 pub struct IngestReport {
     /// Every connection the ingest holds now, standing by or in a test.
     pub connections: Vec<IngestConn>,
+    /// VBAN packets dropped since the ingest started, by reason (Phase 17g).
+    #[serde(default)]
+    pub vban_dropped: BTreeMap<String, u64>,
 }
 
 #[derive(Serialize, Deserialize, utoipa::ToSchema)]
@@ -1703,6 +2134,7 @@ async fn internal_report(
     }
     let live = &state.hub.sources;
     let now = now_ms() as i64;
+    *live.vban_dropped.lock().expect("sources lock") = body.vban_dropped.clone();
     let mut to_test: Vec<ToTest> = Vec::new();
     let mut close: BTreeSet<String> = {
         let mut pending = live.close.lock().expect("sources lock");
@@ -1798,6 +2230,10 @@ async fn after_the_door(
         );
         match model::after_door(on_air, door, &settings) {
             AfterDoor::Stay => {}
+            // A pull is never a test: the station stops opening it.
+            AfterDoor::Test { .. } if k.is_pull() => {
+                close.insert(c.key_id.clone());
+            }
             AfterDoor::Test { max_ms } => to_test.push(ToTest {
                 key_id: c.key_id.clone(),
                 max_ms,
@@ -1890,7 +2326,7 @@ async fn internal_events(
         event: e.event.clone(),
         reason: e.reason.map(|r| r.as_str().to_owned()),
         detail: source_wire::clean(&e.detail),
-        way: matches!(e.way.as_str(), "icecast" | "srt").then(|| e.way.clone()),
+        way: (WAYS.contains(&e.way.as_str()) || e.way == "pull").then(|| e.way.clone()),
         address: addr,
     };
     let show = key.as_ref().map(|k| k.show_id);
@@ -1932,7 +2368,7 @@ async fn internal_events(
         internal_report,
         internal_events
     ),
-    components(schemas(IngestConn))
+    components(schemas(IngestConn, PullJob))
 )]
 pub struct Api;
 
@@ -1943,5 +2379,166 @@ mod tests {
     #[test]
     fn only_staff_who_run_the_show_manage_its_keys() {
         assert!(may_manage(&Actor::Station, None));
+    }
+
+    async fn refused(raw: &str, allow: bool) -> String {
+        let r = check_pull_url(raw, allow).await.expect_err(raw);
+        assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "{raw}");
+        let body = axum::body::to_bytes(r.into_body(), 1 << 16).await.unwrap();
+        String::from_utf8_lossy(&body).into_owned()
+    }
+
+    #[tokio::test]
+    async fn a_pull_address_is_checked_before_it_is_kept() {
+        // Literal addresses resolve without the network.
+        assert_eq!(
+            check_pull_url(" HTTP://192.0.2.10:8000/Live ", false)
+                .await
+                .unwrap(),
+            "http://192.0.2.10:8000/Live"
+        );
+        assert_eq!(
+            check_pull_url("srt://192.0.2.10:9000?streamid=kettle", false)
+                .await
+                .unwrap(),
+            "srt://192.0.2.10:9000?streamid=kettle"
+        );
+        assert_eq!(
+            check_pull_url("https://192.0.2.10/live.m3u8", false)
+                .await
+                .unwrap(),
+            "https://192.0.2.10:443/live.m3u8"
+        );
+        assert!(
+            refused("srt://192.0.2.10:9000?passphrase=secret123", false)
+                .await
+                .contains("passphrase")
+        );
+        assert!(
+            refused("srt://192.0.2.10:9000?mode=listener", false)
+                .await
+                .contains("listener")
+        );
+        assert!(
+            refused("http://127.0.0.1:8000/live", false)
+                .await
+                .contains("own network")
+        );
+        assert!(
+            refused("http://localhost:8000/live", false)
+                .await
+                .contains("own network")
+        );
+        assert!(
+            refused("http://u:p@192.0.2.10/live", false)
+                .await
+                .contains("user name")
+        );
+        // The installation may allow its own network (a test station, an encoder beside it).
+        assert_eq!(
+            check_pull_url("http://127.0.0.1:8000/live", true)
+                .await
+                .unwrap(),
+            "http://127.0.0.1:8000/live"
+        );
+    }
+
+    fn pull_key(show: Uuid, key_id: &str) -> ShowKey {
+        ShowKey {
+            id: Uuid::new_v4(),
+            show_id: show,
+            label: "Kettle FM".into(),
+            staff_id: None,
+            key_id: key_id.into(),
+            hint: "pull".into(),
+            pull_url: Some("http://192.0.2.10:8000/live".into()),
+            created_by: "test".into(),
+            created_ms: 0,
+            last_used_ms: None,
+            revoked_ms: None,
+            ends_on_disconnect: false,
+            turned_away_until_ms: None,
+            turned_away_by: None,
+            key_salt: vec![0; 16],
+            monitor_hash: vec![0; 32],
+        }
+    }
+
+    #[test]
+    fn a_pull_is_due_from_its_door_until_it_closes() {
+        const H: i64 = 3600;
+        let (show, other) = (Uuid::new_v4(), Uuid::new_v4());
+        let air = [
+            Airing {
+                show,
+                start: 10 * H,
+                end: 11 * H,
+            },
+            Airing {
+                show: other,
+                start: 11 * H,
+                end: 12 * H,
+            },
+        ];
+        let settings = SourceSettings::default(); // the door opens 30 minutes before
+        let pull = pull_key(show, "pullaaaa");
+        let mut push = pull_key(show, "pushaaaa");
+        push.hint = "srt".into();
+        push.pull_url = None;
+        let keys = [pull.clone(), push];
+        let none = BTreeSet::new();
+        let due = |at_s: i64| due_pulls(&keys, &air, &settings, at_s * 1000, false, &none);
+        assert!(due(9 * H).is_empty(), "before the door opens");
+        let open = due(10 * H - 20 * 60);
+        assert_eq!(
+            open,
+            vec![PullJob {
+                key_id: "pullaaaa".into(),
+                url: "http://192.0.2.10:8000/live".into(),
+                allow_private: false,
+            }],
+            "twenty minutes before the post, the pull alone"
+        );
+        assert_eq!(due(10 * H + 30 * 60).len(), 1, "during the show");
+        assert!(due(11 * H + 60).is_empty(), "the next show has the air");
+        // On air (or held by the ingest while the desk is not heard from), it stays open.
+        let on_air = BTreeSet::from(["pullaaaa".to_owned()]);
+        assert_eq!(
+            due_pulls(&keys, &air, &settings, (11 * H + 60) * 1000, false, &on_air).len(),
+            1,
+            "on air past its door"
+        );
+        let away = ShowKey {
+            turned_away_until_ms: Some(11 * H * 1000),
+            ..pull.clone()
+        };
+        assert!(due_pulls(&[away], &air, &settings, 10 * H * 1000, false, &none).is_empty());
+        let ended = ShowKey {
+            revoked_ms: Some(1),
+            ..pull
+        };
+        assert!(due_pulls(&[ended], &air, &settings, 10 * H * 1000, false, &none).is_empty());
+    }
+
+    #[test]
+    fn a_body_without_the_window_keeps_the_stored_one() {
+        let stored = SourceSettings {
+            window_s: 900,
+            ..Default::default()
+        };
+        let mut old = serde_json::to_value(SourceSettings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("window_s");
+        assert_eq!(settings_body(old, &stored).unwrap().window_s, 900);
+        // Sent, it is taken (and checked afterwards like any rule).
+        let mut new = serde_json::to_value(SourceSettings::default()).unwrap();
+        new["window_s"] = json!(0);
+        assert_eq!(settings_body(new, &stored).unwrap().window_s, 0);
+        // An unknown field is still refused.
+        let mut odd = serde_json::to_value(SourceSettings::default()).unwrap();
+        odd["windows"] = json!(1);
+        assert_eq!(
+            settings_body(odd, &stored).unwrap_err().status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }

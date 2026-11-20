@@ -19,6 +19,8 @@
 #   LIVEKIT_TCP_PORT     tcp, LiveKit's ICE over TCP (off by default)
 #   SOURCE_ICECAST_PORT  tcp, the ingest's Icecast sources, hosts' own studios (1.1, off by default)
 #   SOURCE_SRT_PORT      udp, the ingest's SRT sources (1.1, off by default)
+#   SOURCE_WHIP_PORT     udp, the ingest's WHIP media from OBS (17d, off by default); the offer
+#                        comes over HTTPS on PUBLIC_DOMAIN (/whip/), so WHIP needs that domain
 # The public ports have no containerPort in the manifest, so the number inside the container is
 # the number outside: LiveKit advertises the port it binds, and guests must reach that number.
 #
@@ -44,8 +46,10 @@ ROOM_NAME=studio
 # "on" asks for the user `listener` and the password in secrets.env.
 LISTENERS_AUTH=off
 LISTENERS_MOUNT=programme.opus
-# LiveKit's public address for ICE candidates. Empty: discovered by STUN at start. Set it to the
-# server's public IPv4 address if discovery picks the wrong one.
+# LiveKit's public IPv4 address for ICE candidates. Empty: the A record of this app's domain,
+# read at every start; no STUN server is asked (ADR-0290). Set it to the server's public IPv4
+# address where that is not the address guests reach: a name behind a proxy such as Cloudflare's,
+# or a server behind NAT.
 NODE_IP=
 # Internal ports, on loopback inside the container (ADR-0075). Change only on a clash.
 CONTROL_PORT=7310
@@ -66,6 +70,8 @@ setting() {   # name, default, comment
 }
 setting CHAT_PORT 7311 "The chat's port, on loopback (ADR-0075)."
 setting PLAYOUT_FEED_PORT 7315 "Playout's programme to the listener process, on loopback (it also takes the next port)."
+setting STUN_SERVERS "" "STUN servers the station may ask (ADR-0290), host:port each, comma-separated, at most four; LiveKit, the desk and the join pages all use them. Empty, the default: no STUN server is contacted. A list of servers that answered is in the packages reference (STUN servers)."
+setting CONGESTION_CONTROL gcc "How the desk's senders (each return, the programme picture) control congestion: gcc (the default; GStreamer's free implementation of Google's published algorithm), homegrown (GStreamer's own simple heuristic) or disabled. It looks only at the desk-to-room hop on this server. See the settings reference."
 setting FEED_BUFFER_S 1.5 "The listener process's cushion of playout's feed, in seconds (ADR-0182). Each second is a second more listener delay; too little on a busy server and listeners hear the fallback for moments."
 setting MAIL_MODE cloudron "The chat's sign-in codes: cloudron (Cloudron's mail, else the outbox), outbox (files in /app/data/chat-outbox), or off."
 setting AVATAR_UPLOADS true "Chat avatars (ADR-0235): true lets a signed-in chatter upload a picture, held until staff approve it on the Screener tab; false leaves the shipped avatars only. It is the default until an admin uses the switch in Settings > Chat pictures, which then decides (ADR-0259)."
@@ -76,6 +82,8 @@ setting PUBLISHING_URL "" "The address cards and feeds print. Empty: https:// an
 setting PUBLISHING_PLACE "" "Where the station is, printed on the show cards."
 setting PUBLISHING_ZONE Europe/London "The station's time zone, for air times on cards and the series' weekly rule."
 setting CONSENT_CONTACT "" "How a caller asks for their call to be taken down (an email address or a link), said in the consent words. Call-in stays closed until it is set."
+setting CONSENT_TEXT "" "The consent words a caller agrees to (issue #26). Empty, the default: the shipped two sentences. {station}, {kept}, {contact} and {presenter} are filled in. Write them in double quotes, with \\\" for a quote and \\\$ for a dollar sign, e.g. CONSENT_TEXT=\"You'll be live with {presenter} on {station}, and we may keep your call {kept}. To have it taken down, contact {contact}.\" Changing them asks every caller to agree again."
+setting PHONE_DEFAULT_VOICE alba "The phone line's consent words until the station records its own (17f; the line itself is not on Cloudron yet): alba, a Scottish woman's voice (the default), edinburgh, a man's voice from Edinburgh, or own, the station's own recording only. The station's own recording, once made, always plays instead."
 setting SEARCH_LISTING false "Whether search engines may list the public pages, feeds and cards (ADR-0133): true or false. The studio, the invite page and the echo test are never listed."
 setting DIRECTORY_LISTING false "Whether the stream asks internet radio directories to list it (ADR-0129): true or false."
 setting COMPAT_STREAM false "The MP3 compatibility stream (ADR-0002) for players that do not take Opus, on the listener domain beside the Opus mount: true or false."
@@ -101,7 +109,8 @@ fi
 setting PROCESSING_MAX_GAIN_DB 6 "The most the gain control may raise the programme, in dB."
 setting DESK_FEED_PORT 7317 "Playout's programme back to the desk, the video's sound (ADR-0172), on loopback; used only with VIDEO=true."
 # --- 1.1: hosts in their own studios (ADR-0280) ---
-setting DESK_SOURCES_PORT 7318 "Hosts' own studios from the ingest to the desk (ADR-0280), on loopback. The two public ports for hosts' software are chosen in Cloudron's dashboard."
+setting DESK_SOURCES_PORT 7318 "Hosts' own studios from the ingest to the desk (ADR-0280), on loopback. The public ports for hosts' software are chosen in Cloudron's dashboard."
+setting INGEST_WHIP_PORT 7319 "WHIP's requests from the control plane to the ingest (17d), on loopback; WHIP's own UDP port is chosen in Cloudron's dashboard."
 # --- cloudron-video (ADR-0227): the video path, off by default ---------------------------------
 setting VIDEO false "The desk's video path (ADR-0009, ADR-0227): true or false. On, the desk takes guests' cameras, mixes the picture, encodes AV1 on the CPU with SVT-AV1 and writes CMAF HLS that the public domain serves at /hls/; the join pages offer a camera check. It costs memory and CPU (see the install guide); restart the app after changing it."
 # --- icecast-out (ADR-0226): send the programme to another Icecast server ---------------------
@@ -120,6 +129,8 @@ setting VIDEO_CANVAS "" "RTMP out (with video on): the picture composed; empty i
 setting RTMP_RUNG "" "RTMP out: the picture sent, at most the canvas; empty is the canvas."
 setting RTMP_H264 openh264 "RTMP out's H.264 encoder: openh264 on the CPU (a Cloudron app has no GPU), auto or nvenc."
 setting RTMP_VIDEO_KBPS 0 "RTMP out's H.264 bitrate in kbit/s; 0 is the picture's default (480p20: 700, 720p30: 2500)."
+# --- 1.2: video's encoder (17e). A Cloudron app is given no GPU, so SVT-AV1 on the CPU encodes. ---
+setting VIDEO_ENCODER svt "Video's AV1 encoder (with VIDEO=true): svt, SVT-AV1 on the CPU (the default: a Cloudron app has no GPU), or auto and nvenc, which find no NVIDIA card here and fall back to SVT-AV1, saying so in the log. The GPU route is Compose or the Quadlets on a server of your own (Use a GPU for video)."
 # --- 1.1: the show, the rundown and steering (issue 5) ---
 # Empty is the control plane's own default; station.toml, when it exists, replaces a whole section.
 setting STUDIO_SHOW "" "The show the desk heads, as plain text. Empty: the desk says No show set."
@@ -149,6 +160,7 @@ for n in COMPAT_BITRATE PROCESSING_TARGET_LUFS PROCESSING_MAX_GAIN_DB DESK_FEED_
 # rtmp-out
 is_number RTMP_VIDEO_KBPS
 [[ $RTMP_H264 == openh264 || $RTMP_H264 == auto || $RTMP_H264 == nvenc ]] || { log "RTMP_H264=$RTMP_H264 in weavesignal.env is not openh264, auto or nvenc"; exit 1; }
+[[ $VIDEO_ENCODER == svt || $VIDEO_ENCODER == auto || $VIDEO_ENCODER == nvenc ]] || { log "VIDEO_ENCODER=$VIDEO_ENCODER in weavesignal.env is not svt, auto or nvenc"; exit 1; }
 # The desk refuses a picture it does not know and would restart in a loop, video on or off.
 for r in VIDEO_CANVAS RTMP_RUNG; do
     [[ ${!r} =~ ^(|480p20|360p20|240p15|720p30|720p25|1080p30)$ ]] \
@@ -165,6 +177,61 @@ is_int_in COMPAT_HIGH_BITRATE 32 320
 [[ $COMPAT_HIGH_MOUNT =~ ^[A-Za-z0-9._-]+$ && $COMPAT_HIGH_MOUNT != "$LISTENERS_MOUNT" ]] \
     && [[ $COMPAT_HIGH_STREAM != true || $COMPAT_STREAM != true || $COMPAT_HIGH_MOUNT != "$COMPAT_MOUNT" ]] \
     || { log "COMPAT_HIGH_MOUNT=$COMPAT_HIGH_MOUNT is not a mount name (letters, digits, . _ -) other than LISTENERS_MOUNT and COMPAT_MOUNT"; exit 1; }
+# --- STUN servers from Settings (ADR-0290) ---------------------------------------------------
+# The studio's Settings may name the STUN servers (PUT /api/v1/setup/stun); the control plane
+# writes the answer to setup.env (see the setup page's block below), and it applies here, at the
+# next start, over weavesignal.env. Read as text, never sourced: the last STUN_SERVERS= line is
+# taken only if every entry is host:port as the check below wants it and there are at most four;
+# otherwise it is ignored and weavesignal.env decides, so a bad file never stops the station.
+if [[ -f $data/setup.env ]] && grep -q '^STUN_SERVERS=' "$data/setup.env"; then
+    v=$(sed -n 's/^STUN_SERVERS=//p' "$data/setup.env" | tail -n 1)
+    ok=true
+    IFS=',' read -ra stun_items <<< "$v"
+    (( ${#stun_items[@]} <= 4 )) || ok=false
+    for s in "${stun_items[@]}"; do
+        if [[ ! $s =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*:[0-9]{1,5}$ ]] \
+            || (( 10#${s##*:} < 1 || 10#${s##*:} > 65535 )); then
+            ok=false
+        fi
+    done
+    if [[ $ok == true ]]; then
+        STUN_SERVERS=$v
+    else
+        log "setup.env: STUN_SERVERS is not up to four host:port entries; ignored"
+    fi
+fi
+# STUN (ADR-0290): none unless the administrator names a server. The one setting is written as
+# LiveKit's list, the desk's and the control plane's alike; the rule is weavesignal-proto's
+# parse_stun_servers (host:port each, a DNS name or an IPv4 address, at most four).
+stun_servers=
+IFS=', ' read -ra stun_items <<< "${STUN_SERVERS:-}"
+for s in "${stun_items[@]}"; do
+    s=${s,,}
+    if [[ ! $s =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*:[0-9]{1,5}$ ]] \
+        || (( 10#${s##*:} < 1 || 10#${s##*:} > 65535 )); then
+        log "STUN_SERVERS in weavesignal.env: '$s' is not host:port (a DNS name or an IPv4 address, a colon and a port, without stun:)"
+        exit 1
+    fi
+    [[ ,$stun_servers, == *",$s,"* ]] || stun_servers+=${stun_servers:+,}$s
+done
+stun_commas=${stun_servers//[^,]/}
+(( ${#stun_commas} < 4 )) || { log "STUN_SERVERS in weavesignal.env names more than four servers"; exit 1; }
+
+# The desk's congestion control: gcc (the default), homegrown or disabled.
+congestion_control=${CONGESTION_CONTROL:-gcc}
+congestion_control=${congestion_control,,}
+case $congestion_control in
+    gcc|homegrown|disabled) ;;
+    *) log "CONGESTION_CONTROL in weavesignal.env is '$congestion_control'; it must be gcc, homegrown or disabled"; exit 1 ;;
+esac
+[[ -z ${NODE_IP:-} || $NODE_IP =~ ^[0-9a-fA-F:.,]+$ ]] || { log "NODE_IP=$NODE_IP in weavesignal.env is not an IP address"; exit 1; }
+# The phone line's shipped voice (17f): alba (the default), edinburgh or own.
+phone_default_voice=${PHONE_DEFAULT_VOICE:-alba}
+phone_default_voice=${phone_default_voice,,}
+case $phone_default_voice in
+    alba|edinburgh|own) ;;
+    *) log "PHONE_DEFAULT_VOICE in weavesignal.env is '$phone_default_voice'; it must be alba, edinburgh or own"; exit 1 ;;
+esac
 # icecast-out: words that go into JSON as they are.
 is_bool ICECAST_OUT; is_bool ICECAST_OUT_TLS
 for n in ICECAST_OUT_PORT ICECAST_OUT_BITRATE; do is_number "$n"; done
@@ -289,6 +356,14 @@ TURN_UDP_PORT=${TURN_UDP_PORT:-}
 # an enabled one only while a show key exists. Disabled is 0 to the control plane: that way is off.
 SOURCE_ICECAST_PORT=${SOURCE_ICECAST_PORT:-}
 SOURCE_SRT_PORT=${SOURCE_SRT_PORT:-}
+SOURCE_WHIP_PORT=${SOURCE_WHIP_PORT:-}
+if [[ -n $SOURCE_WHIP_PORT && -z $PUBLIC_DOMAIN ]]; then
+    log "WARNING: SOURCE_WHIP_PORT is enabled but the public domain is not: OBS posts its WHIP offer to https://<public domain>/whip/, so WHIP cannot be reached. Enable the public domain in the app's Location settings."
+fi
+# The bridge (Phase 17g): the studio app's WebSocket reaches the ingest on this loopback port
+# through the public domain's nginx (no Cloudron port: it rides 443). VBAN is never offered on
+# Cloudron (no [kit] here, and the control plane refuses it whenever CLOUDRON is set).
+SOURCE_BRIDGE_PORT=7320
 if [[ -z $LIVEKIT_MEDIA_PORT ]]; then
     log "LIVEKIT_MEDIA_PORT is disabled: media only through TURN"
 fi
@@ -307,6 +382,45 @@ if [[ -n $turn_tls ]]; then
 fi
 
 # --- LiveKit ----------------------------------------------------------------------------------
+# Its public address, the one in its ICE candidates (ADR-0290): NODE_IP; else the A record of this
+# app's own domain, read now; no STUN server is asked. IPv4 only: LiveKit's TURN relays from it.
+a_record() {   # name: its first IPv4 address, not a loopback or link-local one (a hosts-file entry)
+    local ip _
+    while read -r ip _; do
+        [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && ! $ip =~ ^(0|127)\. && ! $ip =~ ^169\.254\. ]] && { echo "$ip"; return 0; }
+    done < <(timeout 5 getent ahostsv4 "$1" 2>/dev/null)
+    return 1
+}
+node_ip=${NODE_IP:-}; node_from=NODE_IP
+# The last address the name gave. DNS may not be up yet when a server restarts, and without this a
+# moment's failure would leave calls from outside broken until the app's next restart.
+last_node_ip=$data/livekit-node-ip
+if [[ -z $node_ip ]]; then
+    for attempt in 1 2 3; do
+        for name in "${ROOM_DOMAIN:-}" "$CLOUDRON_APP_DOMAIN"; do
+            [[ -n $name ]] || continue
+            if node_ip=$(a_record "$name"); then node_from="the A record of $name"; break; fi
+            node_ip=
+        done
+        [[ -n $node_ip ]] && break
+        (( attempt == 3 )) || sleep 2
+    done
+    if [[ -n $node_ip ]]; then
+        echo "$node_ip" > "$last_node_ip" || log "WARNING: could not keep LiveKit's address in $last_node_ip"
+    elif [[ -r $last_node_ip ]] && read -r kept < "$last_node_ip" && [[ $kept =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        node_ip=$kept; node_from="the last address the name gave"
+        log "WARNING: ${ROOM_DOMAIN:-$CLOUDRON_APP_DOMAIN} gave no IPv4 address at this start, so LiveKit keeps the last one it had, $node_ip. If the server's address has changed, calls from outside will not connect until the name answers and the app restarts."
+    fi
+fi
+if [[ -z $node_ip ]]; then
+    # The stream, the chat and the studio need none of this, so the app starts without it: calls
+    # from outside cannot connect until the address is known, and the desk, on this machine, can.
+    log "WARNING: no IPv4 address for LiveKit: ${ROOM_DOMAIN:-$CLOUDRON_APP_DOMAIN} has no A record this app can read. Calls from outside will not connect. Give the name an A record, or set NODE_IP in weavesignal.env to the server's public IPv4 address, and restart the app."
+    node_ip=127.0.0.1; node_from="none found; loopback"
+elif [[ $node_from != NODE_IP && $node_ip =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.) ]]; then
+    log "WARNING: LiveKit's address $node_ip ($node_from) is a private one: guests outside reach it only if this server forwards it. If the server's public address differs (a name behind a proxy, or NAT), set NODE_IP in weavesignal.env."
+fi
+log "LiveKit's public address is $node_ip ($node_from); STUN servers: ${stun_servers:-none}"
 {
     echo "# Written by start.sh on every start; edit /app/data/weavesignal.env instead."
     echo "port: $LIVEKIT_HTTP_PORT"
@@ -314,12 +428,14 @@ fi
     echo "rtc:"
     echo "  udp_port: ${LIVEKIT_MEDIA_PORT:-0}"
     echo "  tcp_port: ${LIVEKIT_TCP_PORT:-0}"
-    if [[ -n ${NODE_IP:-} ]]; then
-        echo "  use_external_ip: false"
-        echo "  node_ip: $NODE_IP"
-    else
-        echo "  use_external_ip: true"
-    fi
+    # Always an address of its own and never `use_external_ip`: LiveKit then asks no STUN server
+    # for it (with it set, even beside a node_ip, it asks Twilio's and Google's), and with no
+    # node_ip it gives its own connections Google's by default (ADR-0290).
+    echo "  use_external_ip: false"
+    echo "  node_ip: $node_ip"
+    # What LiveKit tells browsers to ask. Empty, it tells them Twilio's and Google's unless UDP
+    # TURN is on; the pages drop every one the station did not name.
+    echo "  stun_servers: [$stun_servers]"
     if [[ -n $turn_tls || -n $TURN_UDP_PORT ]]; then
         echo "turn:"
         echo "  enabled: true"
@@ -377,6 +493,12 @@ cat > "$run/desk.toml" <<TOML
 url = "ws://127.0.0.1:$LIVEKIT_HTTP_PORT"
 api_key = "$LIVEKIT_API_KEY"
 room = "$ROOM_NAME"
+# The desk asks no STUN server unless the station names one (ADR-0290).
+stun_servers = "$stun_servers"
+
+# How the desk's senders control congestion (CONGESTION_CONTROL in weavesignal.env).
+[desk]
+congestion_control = "$congestion_control"
 
 [programme]
 srt_bind = "127.0.0.1"
@@ -404,6 +526,8 @@ cat >> "$run/desk.toml" <<TOML
 
 [video]
 enabled = $VIDEO
+# A Cloudron app has no GPU: SVT-AV1 on the CPU, whatever VIDEO_ENCODER asks (the desk falls back).
+encoder = "$VIDEO_ENCODER"
 station = "$station_toml"
 still_file = "$data/carts/stills/slate.png"
 canvas = "$VIDEO_CANVAS"
@@ -434,6 +558,21 @@ stream_url=
 consent_contact=${CONSENT_CONTACT:-}
 consent_contact=${consent_contact//\\/\\\\}
 consent_contact=${consent_contact//\"/\\\"}
+# --- The consent words (issue #26) ---
+# The station's own words as a TOML line in [join], or no line (the default words) when
+# CONSENT_TEXT is empty or blank. Backslashes, quotes, tabs and line breaks are escaped; any
+# other control character stops the start here, as the control plane would refuse the file.
+consent_text_line=
+if [[ ${CONSENT_TEXT:-} == *[![:space:]]* ]]; then
+    consent_text=${CONSENT_TEXT//\\/\\\\}
+    consent_text=${consent_text//\"/\\\"}
+    consent_text=${consent_text//$'\n'/\\n}
+    consent_text=${consent_text//$'\r'/\\r}
+    consent_text=${consent_text//$'\t'/\\t}
+    [[ $consent_text != *[[:cntrl:]]* ]] \
+        || { log "CONSENT_TEXT in weavesignal.env holds a control character; write the words as text"; exit 1; }
+    consent_text_line="consent_text = \"$consent_text\""
+fi
 cat > "$run/control.toml" <<TOML
 # Written by start.sh on every start.
 [station]
@@ -451,6 +590,7 @@ srt_ingest = $SRT_INGEST_PORT
 playout_feed = $PLAYOUT_FEED_PORT
 desk_feed = $DESK_FEED_PORT
 desk_sources = $DESK_SOURCES_PORT
+ingest_whip = $INGEST_WHIP_PORT
 livekit_http = $LIVEKIT_HTTP_PORT
 livekit_media = ${LIVEKIT_MEDIA_PORT:-7882}
 livekit_tcp = ${LIVEKIT_TCP_PORT:-7881}
@@ -459,6 +599,8 @@ turn_tls = ${TURN_TLS_PORT:-15349}
 # Hosts' own studios: the dashboard's ports, which the station's rules cannot change; 0 is off.
 source_icecast = ${SOURCE_ICECAST_PORT:-0}
 source_srt = ${SOURCE_SRT_PORT:-0}
+source_whip = ${SOURCE_WHIP_PORT:-0}
+source_bridge = $SOURCE_BRIDGE_PORT
 
 [room]
 public_url = "wss://${ROOM_DOMAIN:-$CLOUDRON_APP_DOMAIN}"
@@ -504,6 +646,9 @@ mp3 = [
   { enabled = $COMPAT_HIGH_STREAM, mount = "$COMPAT_HIGH_MOUNT", kbps = $COMPAT_HIGH_BITRATE },
 ]
 consent_contact = "$consent_contact"
+$consent_text_line
+# The STUN servers the join pages may ask (ADR-0290); none unless named.
+stun_servers = "$stun_servers"
 # nginx in this container resolves the client from Cloudron's X-Forwarded-For (the rightmost
 # address that is not private) and sends each service that one address only, so it does not
 # matter whether a service reads the header's first entry or its last.
@@ -518,6 +663,12 @@ episodes_dir = "$data/episodes"
 
 [retention]
 recordings_dir = "$data/recordings"
+
+# The telephone line (17f): off on Cloudron for now; its shipped voice is a setting already.
+[phone]
+default_voice = "$phone_default_voice"
+defaults_dir = "/app/code/phone-words"
+words_dir = "$data/phone-words"
 
 [log]
 format = "json"
@@ -625,6 +776,9 @@ chat_public='^/api/v1/chat/(info|socket|signin/start|signin/finish|guest|notices
 # (their PUT and DELETE are an admin's, on the app's own domain).
 control_public='^/api/v1/(station|player|call-in|call-in/challenge|pass|pass/token|pass/events|pass/leave|now-playing|now-playing/events|steering)$'
 branding_public='^/api/v1/branding(/icon|/banner)?$'
+# WHIP from a host's OBS (17d): the show key's secret is the bearer, so it needs no login; the
+# control plane passes the offer on to the ingest. POST an offer, DELETE a session, OPTIONS.
+whip_public='^/whip/[a-z2-7]+(/[0-9a-zA-Z]+)?$'
 # A host's monitor link (ADR-0280): its own secret is the bearer, so it needs no login. The
 # page itself (monitor/) is served beside the join and echo-test pages.
 monitor_public='^/api/v1/monitor(/(token|events|go|not-yet|cue|handover|end-show|dump))?$'
@@ -832,6 +986,23 @@ $stream_locations
             proxy_read_timeout 1d;
             proxy_send_timeout 1d;
         }
+        # The bridge (Phase 17g): the studio app's one WebSocket, a host's own software carried
+        # to the ingest on loopback. The upgrade only; the ingest counts wrong keys by the
+        # client's address, restated here (nginx's inheritance rule, as above).
+        location = /api/v1/sources/bridge {
+            $pub_never
+            limit_except GET { deny all; }
+            proxy_pass http://127.0.0.1:$SOURCE_BRIDGE_PORT;
+            proxy_http_version 1.1;
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection \$connection_upgrade;
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_read_timeout 1h;
+            proxy_send_timeout 1h;
+        }
         location ~ $control_public {
             $pub_never
             proxy_pass http://127.0.0.1:$CONTROL_PORT;
@@ -856,6 +1027,17 @@ $stream_locations
             proxy_buffering off;
             # monitor/events is a stream that stays open for the show.
             proxy_read_timeout 1d;
+        }
+        # WHIP's offers and ends (17d). The client's address is restated, as for the monitor link:
+        # the control plane counts wrong keys by it.
+        location ~ $whip_public {
+            $pub_never
+            limit_except POST DELETE OPTIONS { deny all; }
+            client_max_body_size 64k;
+            proxy_pass http://127.0.0.1:$CONTROL_PORT;
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
+            proxy_set_header Connection "";
         }
         location ~ $branding_public {
             $pub_never
@@ -919,8 +1101,17 @@ export WEAVESIGNAL_INGEST_TOKEN=$INGEST_TOKEN
 export WEAVESIGNAL_DESK_SOURCES_PASSWORD=$DESK_SOURCES_PASSWORD
 export WEAVESIGNAL_INGEST_CONTROL=http://127.0.0.1:$CONTROL_PORT
 export WEAVESIGNAL_INGEST_DESK=127.0.0.1:$DESK_SOURCES_PORT
-# Every address in the container: Cloudron forwards the two ports to it.
+# Every address in the container: Cloudron forwards the ports to it.
 export WEAVESIGNAL_INGEST_BIND=0.0.0.0
+# WHIP (17d): the requests from the control plane on loopback, and the station's public IPv4
+# address as WHIP's one ICE candidate, the one LiveKit uses (ADR-0290). Without one, WHIP stays off.
+export WEAVESIGNAL_INGEST_WHIP=127.0.0.1:$INGEST_WHIP_PORT
+# Loopback only when NODE_IP says so (a test bench), never as the fallback for no address.
+if [[ $node_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && ( $node_from == NODE_IP || $node_ip != 127.0.0.1 ) ]]; then
+    export WEAVESIGNAL_INGEST_PUBLIC_IP=$node_ip
+elif [[ -n $SOURCE_WHIP_PORT ]]; then
+    log "WARNING: SOURCE_WHIP_PORT is enabled but the station has no public IPv4 address ($node_ip): WHIP stays off. Set NODE_IP in weavesignal.env."
+fi
 
 # The settings must parse, and every port must be free, before anything starts: a mistake here
 # would otherwise be a restart loop in one service's log.
@@ -928,5 +1119,5 @@ if ! out=$(/app/code/bin/weavesignal-control --config "$run/control.toml" check-
     log "the control plane's settings or ports are wrong:"; echo "$out"; exit 1
 fi
 
-log "station $STATION_ID; room wss://${ROOM_DOMAIN:-?}; media udp ${LIVEKIT_MEDIA_PORT:-off}; TURN/TLS ${turn_tls:-off}; TURN/UDP ${TURN_UDP_PORT:-off}; ICE/TCP ${LIVEKIT_TCP_PORT:-off}; sources icecast ${SOURCE_ICECAST_PORT:-off} srt ${SOURCE_SRT_PORT:-off}; listeners https://${LISTENERS_DOMAIN:-?}/$LISTENERS_MOUNT (auth ${LISTENERS_AUTH:-off}); public pages ${PUBLIC_DOMAIN:-off}; cards and feeds $public_url; chat mail $mail_mode; video $VIDEO"
+log "station $STATION_ID; room wss://${ROOM_DOMAIN:-?}; media udp ${LIVEKIT_MEDIA_PORT:-off}; TURN/TLS ${turn_tls:-off}; TURN/UDP ${TURN_UDP_PORT:-off}; ICE/TCP ${LIVEKIT_TCP_PORT:-off}; sources icecast ${SOURCE_ICECAST_PORT:-off} srt ${SOURCE_SRT_PORT:-off} whip ${SOURCE_WHIP_PORT:-off}; listeners https://${LISTENERS_DOMAIN:-?}/$LISTENERS_MOUNT (auth ${LISTENERS_AUTH:-off}); public pages ${PUBLIC_DOMAIN:-off}; cards and feeds $public_url; chat mail $mail_mode; video $VIDEO"
 exec /usr/bin/supervisord --configuration /app/code/supervisord.conf --nodaemon

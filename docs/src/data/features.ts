@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.1.1:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.2.0:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -78,11 +78,46 @@ export const groups: Group[] = [
         link: 'Set up a host in their own studio',
       },
       {
+        id: 'pull',
+        name: 'A partner\'s stream, pulled',
+        what: 'The station opens a partner station\'s Icecast mount, an HTTP or HTTPS stream, an HLS playlist or an SRT listener itself, from before the show\'s time, and it stands by on the desk like a host\'s own studio. Addresses inside the station\'s own network are refused unless allowed. Made through the API.',
+        href: '/docs/how-to/pull-a-stream/',
+        link: 'Pull a partner\'s stream into a show',
+      },
+      {
+        id: 'whip',
+        name: 'OBS over WHIP',
+        what: 'A host pastes an address and their show key\'s secret into OBS\'s WHIP output, and their sound reaches the desk over WebRTC on one UDP port the station answers itself, with no STUN or TURN. Sound only: OBS\'s picture is taken and set aside. Tried with GStreamer\'s WHIP client; a real OBS has not been tried yet.',
+        href: '/docs/how-to/send-from-obs-over-whip/',
+        link: 'Send from OBS over WHIP',
+      },
+      {
+        id: 'bridge',
+        name: 'The studio app as a bridge',
+        what: 'A host behind a router sends from their own software to the studio app on their own computer, and the app carries it to the station over one connection on the station\'s HTTPS port: no port to open at either end.',
+        href: '/docs/how-to/send-through-the-bridge/',
+        link: 'Send through the bridge',
+      },
+      {
+        id: 'vban',
+        name: 'A studio PC over VBAN, and one clock',
+        what: 'On Compose and the Quadlets, a studio PC on the station\'s own network sends VBAN as a show\'s source, the desk sends VBAN back (the programme before or after the delay, or a monitor mix) set by presets, and every source follows the desk\'s clock instead of skipping as it drifts. The presenter kit\'s station half.',
+        href: '/docs/how-to/connect-a-studio-pc-over-vban/',
+        link: 'Connect a studio PC over VBAN',
+      },
+      {
         id: 'monitor-link',
         name: 'A monitor link for each host',
         what: 'A page the host keeps open beside their software: a lamp that says whether listeners hear them, counts on the station\'s clock, the station without their own voice in their headphones, and the few buttons they need, including Go on air and Dump.',
         href: '/docs/how-to/use-your-monitor-link/',
         link: 'Use your monitor link',
+      },
+      {
+        id: 'handover-window',
+        name: 'The rota and the handover window',
+        what: 'The coming hours\' shows with who is down for each, from the room or their own studio, and whether they are ready. Before each show the desk opens a window, five minutes by default, that names the next host and gives them one heads-up on the desk and their monitor link; it changes nothing on air.',
+        href: '/docs/how-to/follow-the-rota/',
+        link: 'Follow the rota',
       },
     ],
   },
@@ -136,6 +171,13 @@ export const groups: Group[] = [
         what: 'A caller\'s voice is given a telephone sound by default, so listeners tell the caller from the presenter at once; it is one setting to turn off.',
         href: '/docs/reference/settings/',
         link: 'Settings',
+      },
+      {
+        id: 'telephone',
+        name: 'A telephone line',
+        what: 'On Compose and the Quadlets, listeners can ring a number on the station\'s own SIP trunk: they hear a few words, press a key, and wait in the screener\'s queue like any caller. The station keeps a ban key and the last four digits, never the number. Off until a trunk is set, and not yet tried through a provider\'s trunk.',
+        href: '/docs/how-to/take-phone-calls/',
+        link: 'Take phone calls',
       },
     ],
   },
@@ -291,6 +333,13 @@ export const groups: Group[] = [
         link: 'Video in the desk',
       },
       {
+        id: 'desk-gpu',
+        name: 'Video on a graphics card',
+        what: 'On Compose and the Quadlets the desk encodes the picture on an NVIDIA card with NVENC when the server has one, found by the install script or named in a setting, and on the CPU with SVT-AV1 otherwise. A Cloudron app has no GPU. Not yet measured on a card with this release.',
+        href: '/docs/how-to/use-a-gpu-for-video/',
+        link: 'Use a GPU for video',
+      },
+      {
         id: 'player-page',
         name: 'A player page with call-in on it',
         what: 'The station\'s own page: the ON AIR lamp, the show on now, Listen live and Call the studio, served by the station with its caching and security headers set; a station\'s own website can use the open routes instead.',
@@ -395,6 +444,13 @@ export const groups: Group[] = [
         link: 'Add staff and sign in',
       },
       {
+        id: 'no-stun',
+        name: 'No outside STUN server',
+        what: 'The station, its desk and its join pages ask no outside server for anyone\'s public address unless the station names one: guests reach it directly or through its own relay. A station that wants one chooses from a short list of free-software projects\' servers or types its own.',
+        href: '/docs/how-to/choose-a-stun-server/',
+        link: 'Choose a STUN server',
+      },
+      {
         id: 'free-software',
         name: 'Free software, self-hosted',
         what: 'The code is AGPL-3.0-only and the documentation CC BY-SA 4.0. There is no hosted service and no account with anyone: the station is yours.',
@@ -460,7 +516,7 @@ export const leadFeatures = (): Feature[] => {
   });
 };
 
-// Planned, and not in 1.1. Each says what works today instead; the status page is the list.
+// Planned, and not in 1.2. Each says what works today instead; the status page is the list.
 export interface Planned {
   id: string;
   name: string;
@@ -472,52 +528,28 @@ export interface Planned {
 
 export const next: Planned[] = [
   {
-    id: 'pull-and-bridge',
-    name: 'Pulling a host\'s stream, and the studio app as a bridge',
-    what: 'The station opens a host\'s or a partner station\'s stream at the show\'s time, and the studio app carries a host\'s software into the room (ADR-0280).',
-    today: 'In 1.1 a host\'s software pushes to the station over Icecast or SRT with a show key; the station does not fetch a stream, and the studio app does not carry one.',
-    href: '/docs/how-to/set-up-a-host-in-their-own-studio/',
-    link: 'Set up a host in their own studio',
-  },
-  {
-    id: 'desk-gpu',
-    name: 'A GPU for the Compose desk',
-    what: 'Video encoded on a graphics card, looking first at a host\'s own GPU in their own studio, then at one on the server (ADR-0289; planned for 1.2).',
-    today: 'The Compose bundle\'s desk and the Cloudron package encode video on the CPU (SVT-AV1); NVENC is used only where the desk can reach an NVIDIA GPU.',
-    href: '/docs/reference/desk-video/',
-    link: 'Video at the desk',
-  },
-  {
-    id: 'dj-handover',
-    name: 'A handover window from the schedule',
-    what: 'The desk opens the handover by itself before the post, from the schedule, with the incoming DJ cued and ready (ADR-0231).',
-    today: 'Since 1.0.1 the next DJ joins off air, and one key, ⇧⏎, puts them on air beside the presenter and then takes the presenter off; the presenter starts it when they are ready. Since 1.1 the schedule hands the air to a host in their own studio at the post, after a grace.',
-    href: '/docs/reference/keymap/#desk-tab',
-    link: 'The desk\'s keys',
-  },
-  {
-    id: 'whip',
-    name: 'WHIP for remote DJs',
-    what: 'A DJ sends a live stream into the room from an encoder such as OBS, the standard way.',
-    today: 'In 1.0.0 a remote DJ joins from a browser with a microphone.',
-    href: '/docs/reference/glossary/',
-    link: 'Glossary',
+    id: 'host-picture',
+    name: 'A host\'s own picture, passed through',
+    what: 'A host who encodes their picture on their own GPU sends it with their sound, and the desk passes it to viewers without encoding it again where the codecs allow (ADR-0289).',
+    today: 'In 1.2 the station takes only a host\'s sound; viewers see the desk\'s own picture, encoded on the station\'s card (Compose and the Quadlets) or its CPU.',
+    href: '/docs/reference/desk-video/#a-hosts-own-picture',
+    link: 'A host\'s own picture',
   },
   {
     id: 'presenter-kit',
-    name: 'The presenter kit',
-    what: 'For a presenter at home: one clock, radio presets, a patchbay, and VBAN in and out, in place of a virtual mixer on their machine.',
-    today: 'Moved to release two (ADR-0207). In 1.0.0 presenters join from a browser and the studio app drives the desk.',
+    name: 'The presenter kit on the presenter\'s computer',
+    what: 'For a presenter at home: the microphone\'s chain, WeaveSignal as a microphone in other apps, headphones and a safety recording, in place of a virtual mixer on their machine.',
+    today: 'From 1.2 the station\'s half is built on Compose and the Quadlets: VBAN in and out at the desk, routing presets and one clock. A presenter at home joins from a browser or sends from their own software.',
     href: '/docs/reference/surfaces/kit/',
     link: 'Presenter kit',
   },
   {
-    id: 'telephone',
-    name: 'A telephone line',
-    what: 'Callers who dial a number.',
-    today: 'Not in release one: callers press Call the studio on the station\'s page and talk through a browser. The comparison names the phone systems that take calls from a number.',
-    href: '/compare/',
-    link: 'The comparison',
+    id: 'telephone-cloudron',
+    name: 'The telephone line on Cloudron',
+    what: 'Callers who dial a number, on a Cloudron station too.',
+    today: 'From 1.2 the telephone line runs on Compose and the Quadlets, behind the station\'s own SIP trunk; a Cloudron station takes callers from its page.',
+    href: '/docs/how-to/take-phone-calls/',
+    link: 'Take phone calls',
   },
   {
     id: 'macos',

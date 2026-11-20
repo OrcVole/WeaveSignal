@@ -23,6 +23,7 @@
   import { WAY_WORD, hostRows, routeAbsent, type HostRow } from '../lib/hosts.ts';
   import Field from '../schedule/Field.svelte';
   import HostKeyFlow from './HostKeyFlow.svelte';
+  import PullSource from './PullSource.svelte';
 
   let {
     slug,
@@ -51,7 +52,7 @@
   let error = $state('');
   let note = $state('');
   /** What was picked here before the keys say the same. */
-  let want = $state<'room' | 'push' | null>(null);
+  let want = $state<'room' | 'push' | 'pull' | null>(null);
   let flow = $state<HostKeyFlow | null>(null);
 
   const which = $derived(slug);
@@ -82,10 +83,16 @@
   });
 
   const rows = $derived(list ? hostRows([{ slug, name, colour_slot: 13 }], [list], live, untrack(() => fixedNow) ?? Date.now(), sched.zone).live : []);
-  const comes = $derived<'room' | 'push'>(want ?? list?.source ?? 'room');
+  const comes = $derived<'room' | 'push' | 'pull'>(want ?? list?.source ?? 'room');
+  /** The address a pull opens (1.2, PLAN 17b), and what the station lists of its key now. */
+  const pullRow = $derived(rows.find((r) => r.key.pull_url) ?? null);
+  const pullUrl = $derived(pullRow?.key.pull_url ?? null);
+  const pullNow = $derived(pullRow ? (live.find((x) => x.key_id === pullRow.key.key_id) ?? null) : null);
+  /** A show comes from one place: a host's keys end before a pull is made, and a pull before a host is set up. */
+  const pushKeys = $derived(rows.filter((r) => !r.key.pull_url).length);
   const choice = $derived([{ slug, name, holders: rows.map((r) => r.key.label) }]);
 
-  function pick(to: 'room' | 'push') {
+  function pick(to: 'room' | 'push' | 'pull') {
     note = '';
     want = to === list?.source ? null : to;
   }
@@ -140,17 +147,33 @@
   {#if as === 'field'}
     <Field
       label="Comes from"
-      marker={list?.source === 'push' ? 'set' : 'own'}
+      marker={list?.source === 'push' || list?.source === 'pull' ? 'set' : 'own'}
       plain
       panel="calendar.show-source"
-      hint="A host’s own software sends to the station with a key that belongs to this show (ADR-0280). They arrive standing by, and go on air at their time."
+      hint="From the room, from a host’s own software with a key that belongs to this show, or from a stream the station opens itself. A host or a stream arrives standing by, and goes on air at the show’s time."
     >
       <span class="seg" role="group" aria-label="Where {name} comes from">
         <button type="button" aria-pressed={comes === 'room'} onclick={() => pick('room')}>The station’s room</button>
         <button type="button" aria-pressed={comes === 'push'} onclick={() => pick('push')}>The host’s own studio</button>
+        <button type="button" aria-pressed={comes === 'pull'} title="A partner station’s stream, or a host’s own server: the station opens it itself" onclick={() => pick('pull')}>A stream the station pulls</button>
       </span>
       {#if error}
         <p class="src-note err" role="alert">{error}</p>
+      {:else if comes === 'pull'}
+        <PullSource
+          {slug}
+          {name}
+          url={pullUrl}
+          now={pullNow}
+          blocked={pushKeys ? `${name} comes from the host’s own studio now. A show comes from one place: end ${pushKeys === 1 ? 'the key' : 'each key'} below, then pull a stream.` : ''}
+          onMade={load}
+        />
+        {@render keys()}
+      {:else if comes === 'push' && pullRow}
+        <p class="src-note" data-testid="pull-first">
+          <span>{name} is pulled by the station now. A show comes from one place: end the pull’s key below, then set up a host.</span>
+        </p>
+        {@render keys()}
       {:else if comes === 'push'}
         {@render keys()}
         {#if rows.length === 0}

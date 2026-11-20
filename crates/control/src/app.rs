@@ -161,10 +161,17 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(crate::steps::routes())
         // Hosts in their own studios (ADR-0280): show keys, sources, the ingest's routes.
         .merge(crate::sources::routes())
+        .merge(crate::kit::routes())
         // The post's rule: hold a handover, go on air now, not yet.
         .merge(crate::post::routes())
+        // The rota of the coming hours (Phase 17c).
+        .merge(crate::rota::routes())
         // The monitor link's routes (ADR-0280): a host's view and its room token.
         .merge(crate::monitor::routes())
+        // WHIP from a host's OBS (17d), passed on to the ingest.
+        .merge(crate::whip_route::routes())
+        // The telephone line (17f): its state, number bans, the takedown search.
+        .merge(crate::phone::api::routes())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -516,6 +523,17 @@ async fn studio_events(State(state): State<Arc<AppState>>, headers: HeaderMap) -
 
 /// Take someone out of the room after their pass has ended.
 async fn remove_from_room(state: &AppState, identity: &str) -> Result<(), Box<Response>> {
+    // A phone caller (17f) is in the booth LiveKit's SIP service made for the call, not in
+    // `<room>-booth-<identity>`: the desk ends the call (it knows the booth and LiveKit's identity).
+    if weavesignal_proto::phone::is_phone_person(identity) {
+        return state.hub.desk.phone_hang_up(identity).await.map_err(|e| {
+            tracing::warn!(%identity, error = %e, "cannot end the phone call");
+            Box::new(problem(
+                StatusCode::BAD_GATEWAY,
+                format!("they are off air, but the desk did not end the phone call: {e}"),
+            ))
+        });
+    }
     match &state.hub.room {
         Some(room) => room.remove(identity).await.map_err(|e| {
             tracing::warn!(%identity, error = %format!("{e:#}"), "cannot remove them from the room");
@@ -3736,6 +3754,120 @@ mod tests {
         assert!(v["callers"].as_array().unwrap().is_empty());
         let (code, _) = say(serde_json::json!({"op": "drop", "identity": "eilidh"})).await;
         assert_eq!(code, StatusCode::NOT_FOUND, "only a caller can be dropped");
+    }
+
+    /// The studio on the shared fake desk, which speaks the phone line's words (17f).
+    async fn phone_app() -> (
+        Router,
+        Arc<AppState>,
+        Arc<std::sync::Mutex<crate::desk::fake::FakeDesk>>,
+    ) {
+        let dir = crate::desk::tests::tempdir();
+        let fake = crate::desk::fake::spawn(&dir.join("desk.sock"));
+        let hub = hub(Some(&dir.join("desk.sock")));
+        let state = Arc::new(AppState {
+            station: Station::new(StationId::new_random(), "Kettle FM").unwrap(),
+            db: None,
+            room: Some(RoomState {
+                config: RoomConfig::default(),
+                keys: keys(),
+            }),
+            admin_token: Some(ADMIN.into()),
+            staff: Default::default(),
+            hub,
+            join: JoinConfig {
+                consent_contact: TEST_CONTACT.into(),
+                challenge_bits: 0,
+                ..JoinConfig::default()
+            },
+            video: Default::default(),
+            joins: Default::default(),
+            turn_tls_port: 5349,
+            steering: Default::default(),
+        });
+        (router(state.clone()), state, fake)
+    }
+
+    #[tokio::test]
+    async fn the_screener_drops_a_phone_caller_through_the_gate_and_the_call_ends() {
+        use crate::studio::{CallIn, Consent, ConsentBy, PhoneCaller};
+        let (app, state, fake) = phone_app().await;
+        let id = "phone-Xk3pQ9mZr2Ta";
+        let booth = |admitted: bool| {
+            serde_json::json!({"booths": [{"person": id, "tail": "0123", "answered": true,
+                "admitted": admitted, "words_playing": null, "words_done": 1}], "keys": []})
+        };
+        let caller = |on_air: bool| {
+            serde_json::json!({"identity": id, "name": "Phone 0123", "role": "caller",
+                "on_air": on_air, "talk": false, "present": true, "linked": true})
+        };
+        // At the gate: at the desk, not in the queue, so not the screener's to drop.
+        {
+            let mut f = fake.lock().unwrap();
+            f.people = vec![caller(false)];
+            f.phone = Some(booth(false));
+        }
+        state.hub.poll_once().await;
+        assert!(state.hub.view().callers.is_empty());
+        // Through the gate (as the line does it), then on air.
+        state.hub.with_studio(|s, _| {
+            s.phone_call(
+                CallIn {
+                    identity: id.into(),
+                    name: String::new(),
+                    topic: String::new(),
+                    consent: Consent {
+                        at_ms: 1,
+                        version: "0123456789abcdef".into(),
+                        by: ConsentBy::Caller,
+                        text: "You're through to the studio.".into(),
+                    },
+                },
+                PhoneCaller {
+                    tail: "0123".into(),
+                    withheld: false,
+                    ban_key: Some("pb_0123456789abcdef0123456789abcdef".into()),
+                },
+            )
+        });
+        {
+            let mut f = fake.lock().unwrap();
+            f.people = vec![caller(true)];
+            f.phone = Some(booth(true));
+        }
+        state.hub.poll_once().await;
+        let v = state.hub.view();
+        assert_eq!(v.callers.len(), 1);
+        assert_eq!(v.callers[0].phone.as_ref().unwrap().number, "···0123");
+        assert_eq!(state.hub.read_studio(|s| s.phone_in_queue()), 1);
+
+        fake.lock().unwrap().lines.clear();
+        let (code, v) = post_json(
+            app.clone(),
+            "/api/v1/screener/commands",
+            Some(ADMIN),
+            serde_json::json!({"op": "drop", "identity": id}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{v}");
+        assert!(v["callers"].as_array().unwrap().is_empty(), "{v}");
+        {
+            let f = fake.lock().unwrap();
+            assert_eq!(f.ops(), ["on_air", "cue", "phone_hang_up"]);
+            let hang_up = f.lines.iter().find(|l| l["op"] == "phone_hang_up").unwrap();
+            assert_eq!(hang_up["person"], id);
+        }
+        assert_eq!(state.hub.read_studio(|s| s.phone_in_queue()), 0);
+        // The desk lets the call go; it does not come back, and holds no line.
+        {
+            let mut f = fake.lock().unwrap();
+            f.people.clear();
+            f.phone = Some(serde_json::json!({"booths": [], "keys": []}));
+        }
+        state.hub.poll_once().await;
+        let v = state.hub.view();
+        assert!(v.callers.is_empty());
+        assert_eq!(state.hub.read_studio(|s| s.phone_in_queue()), 0);
     }
 
     #[tokio::test]

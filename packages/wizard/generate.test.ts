@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { defaults, generate, keysOf, problems, readAnswersFile, type Answers, type Output } from './generate.ts';
+import { CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, STUN_CHOICES, consentProblem, defaults, generate, keysOf, parseStunServers, problems, readAnswersFile, stunServersOf, unknownFillIns, type Answers, type Output } from './generate.ts';
+
+const controlConfig = readFileSync(new URL('../../crates/control/src/config.rs', import.meta.url), 'utf8');
+const controlJoin = readFileSync(new URL('../../crates/control/src/join.rs', import.meta.url), 'utf8');
+const packagesDoc = readFileSync(new URL('../../docs/src/content/docs/docs/reference/packages.md', import.meta.url), 'utf8');
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const weavesignalSh = read('deploy/compose/weavesignal.sh');
@@ -47,6 +51,21 @@ describe('the Compose and Quadlets settings file', () => {
       }
       expect(new Set(keys).size).toBe(keys.length);
     }
+  });
+  it('says GPU only with video on and a choice made; weavesignal.sh decides auto itself (17e)', () => {
+    const known = / known=" ([A-Z0-9_ ]+) "/.exec(weavesignalSh)![1].split(' ');
+    expect(known).toContain('GPU');
+    for (const route of ['compose', 'quadlets'] as const) {
+      expect(value(out(compose({ route, video: true, gpu: 'nvidia' })).file.text, 'GPU')).toBe('nvidia');
+      expect(value(out(compose({ route, video: true, gpu: 'none' })).file.text, 'GPU')).toBe('none');
+      expect(value(out(compose({ route, video: true })).file.text, 'GPU')).toBeUndefined();
+      expect(value(out(compose({ route, video: false, gpu: 'nvidia' })).file.text, 'GPU')).toBeUndefined();
+    }
+    expect(out(compose({ video: true, gpu: 'nvidia' })).notes.some((n) => n.includes('nvidia-ctk cdi generate'))).toBe(true);
+    expect(value(out(cloudron({ video: true, gpu: 'nvidia' })).file.text, 'GPU')).toBeUndefined();
+    expect(problems(compose({ gpu: 'amd' as Answers['gpu'] })).map((p) => p.field)).toContain('gpu');
+    // The script reads the three values the wizard can write.
+    expect(weavesignalSh).toContain("it must be auto, nvidia or none");
   });
   it('never holds a secret, a derived address or the name the command gives', () => {
     const keys = keysOf(out(compose()).file.text);
@@ -128,6 +147,112 @@ describe('the Cloudron settings file', () => {
   it('says the player is silent behind the stream password', () => {
     expect(out(cloudron({ streamPassword: true })).notes.join(' ')).toMatch(/player page stays silent/);
     expect(out(cloudron()).notes.join(' ')).not.toMatch(/player page stays silent/);
+  });
+});
+
+describe('the STUN chooser (ADR-0290)', () => {
+  it('names no server unless one is chosen: no line in any route’s file', () => {
+    expect(defaults().stun).toBe('none');
+    expect(STUN_CHOICES[0]).toMatchObject({ key: 'none', servers: [] });
+    expect(STUN_CHOICES[0].label).toMatch(/^None \(recommended\)/);
+    for (const a of [compose(), compose({ route: 'quadlets' }), cloudron()]) {
+      const o = out(a);
+      expect(keysOf(o.file.text)).not.toContain('STUN_SERVERS');
+      expect(o.notes.join(' ')).not.toMatch(/STUN|public address/);
+    }
+  });
+  it('offers only the servers the packages reference lists, and never Google’s or Twilio’s', () => {
+    const listed = STUN_CHOICES.flatMap((c) => c.servers);
+    expect(listed).toEqual(['stun.nextcloud.com:443', 'stun.freeswitch.org:3478']);
+    for (const s of listed) expect(packagesDoc, `${s} is not in the packages reference`).toContain(`\`${s}\``);
+    expect(JSON.stringify(STUN_CHOICES)).not.toMatch(/google|twilio/i);
+  });
+  it('writes the chosen server as each script reads it, and says who learns what', () => {
+    const c = out(compose({ stun: 'nextcloud' }));
+    expect(value(c.file.text, 'STUN_SERVERS')).toBe('stun.nextcloud.com:443');
+    expect(c.notes.join(' ')).toMatch(/will ask stun\.nextcloud\.com:443 for its own public address\. Whoever runs that server sees those addresses/);
+    expect(value(out(compose({ route: 'quadlets', stun: 'freeswitch' })).file.text, 'STUN_SERVERS')).toBe('stun.freeswitch.org:3478');
+    expect(value(out(cloudron({ stun: 'freeswitch' })).file.text, 'STUN_SERVERS')).toBe('"stun.freeswitch.org:3478"');
+  });
+  it('reads a typed list as the scripts do: commas or spaces, lower case, no repeats, at most four', () => {
+    expect(parseStunServers('STUN.example.org:3478, 192.0.2.7:3478  stun.example.org:3478')).toEqual({ ok: true, servers: ['stun.example.org:3478', '192.0.2.7:3478'] });
+    expect(parseStunServers(' , ')).toEqual({ ok: true, servers: [] });
+    const o = out(compose({ stun: 'other', stunOther: 'a.example:1, b.example:65535' }));
+    expect(value(o.file.text, 'STUN_SERVERS')).toBe('a.example:1,b.example:65535');
+    expect(o.notes.join(' ')).toMatch(/Whoever runs each server/);
+    expect(value(out(cloudron({ stun: 'other', stunOther: 'a.example:3478 b.example:3478' })).file.text, 'STUN_SERVERS')).toBe('"a.example:3478,b.example:3478"');
+    expect(stunServersOf({ stun: 'other', stunOther: 'not a server' })).toEqual([]);
+  });
+  it('refuses what the scripts refuse, by the field', () => {
+    for (const bad of ['stun:stun.example.org:3478', 'stun.example.org', 'stun.example.org:0', 'stun.example.org:65536', 'stun.example.org:123456', '-bad.example:3478', 'under_score.example:3478', '[2001:db8::1]:3478', 'https://stun.example.org:3478', 'a.example:3478;rm']) {
+      expect(parseStunServers(bad).ok, bad).toBe(false);
+      expect(problems(compose({ stun: 'other', stunOther: bad })).map((p) => p.field), bad).toEqual(['stunOther']);
+    }
+    expect(parseStunServers('a.example:1,b.example:1,c.example:1,d.example:1').ok).toBe(true);
+    expect(parseStunServers('a.example:1,b.example:1,c.example:1,d.example:1,e.example:1')).toEqual({ ok: false, message: 'At most four STUN servers. Leave some out.' });
+    // Another server… with nothing typed is a question left open, not a silent None.
+    expect(problems(cloudron({ stun: 'other', stunOther: '  ' })).map((p) => p.field)).toEqual(['stunOther']);
+    expect(problems(compose({ stun: 'somewhere' as Answers['stun'] })).map((p) => p.field)).toEqual(['stun']);
+    // The scripts' own pattern, character for character.
+    const pattern = '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*:[0-9]{1,5}$';
+    expect(weavesignalSh).toContain(pattern);
+    expect(startSh).toContain(pattern);
+  });
+  it('a station for this machine only names no server, whatever was typed', () => {
+    const o = out(compose({ isPublic: false, domain: '', stun: 'other', stunOther: 'not a server' }));
+    expect(keysOf(o.file.text)).not.toContain('STUN_SERVERS');
+    expect(o.notes.join(' ')).not.toMatch(/public address\. Whoever/);
+  });
+});
+
+describe('the consent words (issue #26)', () => {
+  const words = 'You\'ll be on {presenter}\'s show, "live", on {station}; kept {kept} # all. Ask {contact}.';
+  it('shows the shipped words and fill-ins the control plane has', () => {
+    expect(controlConfig).toContain(`pub const CONSENT_TEXT: &str = ${JSON.stringify(DEFAULT_CONSENT_TEXT)};`);
+    const known = /pub const CONSENT_PLACEHOLDERS: \[&str; 4\] = \[([^\]]+)\]/.exec(controlJoin)![1].split(',').map((t) => t.trim().replaceAll('"', ''));
+    expect(CONSENT_FILL_INS.map((f) => f.token)).toEqual(known);
+  });
+  it('empty or blank: no line, so the shipped words stand', () => {
+    for (const a of [compose(), compose({ consentText: '   ' }), cloudron({ consentText: '' })]) expect(keysOf(out(a).file.text)).not.toContain('CONSENT_TEXT');
+  });
+  it('Compose and Quadlets: in single quotes with each apostrophe as \\\', as weavesignal.sh keeps them', () => {
+    for (const route of ['compose', 'quadlets'] as const) {
+      expect(value(out(compose({ route, consentText: ` ${words} ` })).file.text, 'CONSENT_TEXT')).toBe(`'You\\'ll be on {presenter}\\'s show, "live", on {station}; kept {kept} # all. Ask {contact}.'`);
+    }
+    // The script's own line: say "CONSENT_TEXT='${consent_text//\'/\\\'}'".
+    expect(weavesignalSh).toContain(`say "CONSENT_TEXT='\${consent_text//\\'/\\\\\\'}'"`);
+  });
+  it('Compose and Quadlets refuse what weavesignal.sh refuses: a backslash, a dollar sign, a per cent sign', () => {
+    expect(weavesignalSh).toContain('[[ $consent_text != *[\\\\\\$%]* ]]');
+    for (const bad of ['a \\ b', 'costs $5', '100% live']) {
+      for (const route of ['compose', 'quadlets'] as const) expect(problems(compose({ route, consentText: bad })).map((p) => p.field), bad).toEqual(['consentText']);
+      expect(consentProblem(bad, 'cloudron'), bad).toBeNull();
+    }
+  });
+  it('Cloudron: in double quotes with everything the shell acts on escaped', () => {
+    const text = out(cloudron({ consentText: `${words} $5, 100%, a \\ and \`touch x\` $(touch y)` })).file.text;
+    expect(value(text, 'CONSENT_TEXT')).toBe(`"You'll be on {presenter}'s show, \\"live\\", on {station}; kept {kept} # all. Ask {contact}. \\$5, 100%, a \\\\ and \\\`touch x\\\` \\$(touch y)"`);
+  });
+  it('every route keeps the words on one line', () => {
+    for (const bad of ['two\nlines', 'a\ttab', 'bell\u0007']) {
+      expect(problems(compose({ consentText: bad })).map((p) => p.field)).toEqual(['consentText']);
+      expect(problems(cloudron({ consentText: bad })).map((p) => p.field)).toEqual(['consentText']);
+    }
+  });
+  it('says which fill-ins the station does not know, a missing {contact}, and that a change asks callers again', () => {
+    expect(unknownFillIns('With {presentor} on {station}, {show_name}; {Not This} {} {kept}')).toEqual(['{presentor}', '{show_name}']);
+    const notes = out(compose({ consentText: 'Live with {presentor} on {station}.' })).notes.join(' ');
+    expect(notes).toMatch(/hold \{presentor\}, which the station does not fill in/);
+    expect(notes).toMatch(/no \{contact\}/);
+    expect(notes).toMatch(/every caller is asked to agree again/);
+    const fine = out(compose({ consentText: words })).notes.join(' ');
+    expect(fine).not.toMatch(/does not fill in|no \{contact\}/);
+    expect(out(compose()).notes.join(' ')).not.toMatch(/consent words/);
+  });
+  it('never reaches a command, and the answers file does not carry it', () => {
+    const o = out(compose({ consentText: 'Live; rm -rf {station}' }));
+    expect(o.steps.map((s) => s.command ?? '').join('\n')).not.toContain('rm -rf');
+    expect(o.answers.text).not.toContain('rm -rf');
   });
 });
 

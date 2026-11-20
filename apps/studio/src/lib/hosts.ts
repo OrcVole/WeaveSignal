@@ -13,16 +13,30 @@
 
 import { parts } from '../schedule/model.ts';
 import { publicAddress } from '../schedule/files/links.ts';
-import type { DeskSource, KeyList, KeyRow, MadeKey, Me, ShowStep, SourceDetails, SourceLogEntry, SourceNow, SourceSettings, SourceWay } from './api.ts';
+import type { ArrivalWay, DeskSource, KeyList, KeyRow, MadeKey, Me, ShowStep, SourceDetails, SourceLogEntry, SourceNow, SourceSettings, SourceVia, SourceWay } from './api.ts';
 import { dur, firstName, signed } from './format.ts';
 
-export const WAY_WORD: Record<SourceWay, string> = { icecast: 'Icecast', srt: 'SRT' };
+/** Which details lead for a key's hint: SRT's for SRT, WHIP's for WHIP, Icecast's otherwise (the
+ *  bridge carries the Icecast password; VBAN is bound in the presenter kit, not typed into
+ *  software; a pull has no details for a host). */
+export const detailWay = (w: SourceVia): SourceWay => (w === 'srt' ? 'srt' : w === 'whip' ? 'whip' : 'icecast');
+
+export const WAY_WORD: Record<SourceVia, string> = { icecast: 'Icecast', srt: 'SRT', whip: 'WHIP', bridge: 'Bridge', vban: 'VBAN', pull: 'Pulled by the station' };
 
 /** The setup's one line on each way in (design section 8). */
 export const WAY_LINE: Record<SourceWay, string> = {
   icecast: 'Works with most radio software. About 2 s to the station: right for a show on their own.',
   srt: 'For OBS and other software that offers it. Under half a second: needed for callers or a co-host.',
+  whip: 'For OBS 30 and later, where the station has turned it on: an address and a bearer token. Sound only: a picture OBS sends with it is dropped. Under half a second.',
 };
+
+/** WHIP is sound only at the station (17d): one line for wherever its details are shown. */
+export const WHIP_SOUND_ONLY = 'Sound only. If OBS sends its picture too, the station drops it: nothing of it is kept or shown.';
+
+/** The ways in, the host's own first. */
+export function waysFirst(hint: SourceWay): SourceWay[] {
+  return [hint, ...(['icecast', 'srt', 'whip'] as const).filter((w) => w !== hint)];
+}
 
 /** The whole of the leveller's reach, in dB either way. */
 export const LEVELLER_REACH_DB = 12;
@@ -44,14 +58,32 @@ export const DISCONNECT_WHY =
 
 /** The role line: *Own studio*, and at large sizes the way in and the show. */
 export function tileRole(s: DeskSource, showName = ''): { short: string; long: string } {
-  const long = [WAY_WORD[s.way] ?? s.way, showName || s.show].filter(Boolean).join(' · ');
-  return { short: 'Own studio', long };
+  const long = [WAY_LONG[s.way] ?? WAY_WORD[s.way] ?? s.way, showName || s.show].filter(Boolean).join(' · ');
+  return { short: TILE_KIND[s.way] ?? 'Own studio', long };
 }
 
-/** The link line: the way in and how long it has held; Icecast says how far behind it is. */
+/** What the tile's role line calls a source, by how it arrived (1.2): a host's own studio for
+ *  every way a host's software sends; a stream the station opens itself is a pulled stream, and
+ *  VBAN is a computer on the station's own network. */
+export const TILE_KIND: Partial<Record<SourceVia, string>> = { pull: 'Pulled stream', vban: 'Studio PC' };
+
+/** The way in, said in full for the role line's tooltip. */
+export const WAY_LONG: Partial<Record<SourceVia, string>> = {
+  whip: 'WHIP (sound only)',
+  bridge: 'The studio app’s bridge',
+  vban: 'VBAN, on the station’s network',
+  pull: 'Pulled by the station',
+};
+
+/** The way in as the tile's link line names it: one short word each. */
+export const TILE_WAY: Record<SourceVia, string> = { icecast: 'Icecast', srt: 'SRT', whip: 'WHIP', bridge: 'Bridge', vban: 'VBAN', pull: 'Pull' };
+
+/** The link line: the way in and how long it has held; Icecast and the bridge, which carries
+ *  Icecast, say how far behind they are. A pull is as far behind as its own stream is, which
+ *  the station cannot know, so nothing is claimed for it. */
 export function tileLink(s: DeskSource): string {
-  const held = `${WAY_WORD[s.way] ?? s.way} · steady ${dur(s.connected_ms)}`;
-  return s.way === 'icecast' ? `${held} · about 2 s behind` : held;
+  const held = `${TILE_WAY[s.way] ?? s.way} · steady ${dur(s.connected_ms)}`;
+  return s.way === 'icecast' || s.way === 'bridge' ? `${held} · about 2 s behind` : held;
 }
 
 /** `−7.4`, for *leveller −7.4 dB*. */
@@ -69,7 +101,8 @@ export function levellerLimit(db: number): string | null {
 export function tileNote(s: DeskSource, name: string, step: ShowStep): string | null {
   const limit = levellerLimit(s.leveller_db);
   if (limit) return limit;
-  if (s.way === 'icecast' && (step === 'callers' || step === 'full')) return `Callers will hear ${name} about 2 s late. Use SRT for a show with callers.`;
+  if ((s.way === 'icecast' || s.way === 'bridge') && (step === 'callers' || step === 'full'))
+    return `Callers will hear ${name} about 2 s late. Use SRT for a show with callers.`;
   return null;
 }
 
@@ -332,12 +365,23 @@ export function detailBlocks(d: SourceDetails, host: string, secret: string | nu
       { label: 'Key length', value: `${d.srt.pbkeylen} (AES-128)`, copy: false, words: true },
       ...(srtUrl ? [{ label: 'As one address', value: srtUrl, copy: true, secret: true }] : []),
     ],
+    // WHIP (17d): nothing while the station has it off.
+    whip: d.whip.port
+      ? [
+          d.whip.url
+            ? { label: 'Server', value: d.whip.url, copy: true }
+            : { label: 'Server', value: `the station’s public address, then /whip/${keyId}`, copy: false, words: true },
+          secret ? { label: 'Bearer Token', value: secret, copy: true, secret: true } : { label: 'Bearer Token', value: `the secret (${SECRET_GONE})`, copy: false, words: true },
+          { label: 'UDP port', value: `${d.whip.port} must reach the station`, copy: false, words: true },
+        ]
+      : [],
   };
 }
 
 const WAY_HEAD: Record<SourceWay, string> = {
   icecast: 'Icecast (most radio software; about 2 s to the station)',
   srt: 'SRT (OBS and other software that offers it; needed for callers or a co-host)',
+  whip: 'WHIP (OBS 30 and later: Settings, Stream, Service WHIP; sound only)',
 };
 
 /** What to tell the host (design section 8): the station hands over by the schedule, so they
@@ -363,15 +407,13 @@ export const MONITOR_BY_HAND = 'The monitor link is the station’s public addre
  *  link, or null on a station with no public address. */
 export function detailsText(made: MadeKey, showName: string, host: string, link: string | null = null): string {
   const blocks = detailBlocks(made.details, host, made.secret);
-  const order: SourceWay[] = made.key.hint === 'srt' ? ['srt', 'icecast'] : ['icecast', 'srt'];
+  // A pull (PLAN 17b) has no way in for a host's software: the station opens its address.
+  const order = made.key.hint === 'pull' ? [] : waysFirst(detailWay(made.key.hint)).filter((w) => blocks[w].length);
   const block = (w: SourceWay) => [WAY_HEAD[w], ...blocks[w].map((f) => `  ${f.label}: ${f.value}`)].join('\n');
   return [
     `${possessive(made.key.label)} details for ${showName}`,
     '',
-    block(order[0]),
-    '',
-    block(order[1]),
-    '',
+    ...order.flatMap((w) => [block(w), '']),
     ...(link
       ? ['Monitor link (open it in a browser, and keep it open beside your software)', `  ${link}`]
       : ['Monitor link', `  ${MONITOR_BY_HAND}`, `  Secret: ${made.monitor_secret}`]),
@@ -391,7 +433,7 @@ export const GRACES: readonly { s: number; label: string }[] = [
   { s: 300, label: '5 minutes' },
 ];
 
-export type RuleField = 'door_before_min' | 'late_count_s' | 'test_max_min' | 'port_icecast' | 'port_srt';
+export type RuleField = 'door_before_min' | 'late_count_s' | 'test_max_min' | 'port_icecast' | 'port_srt' | 'window_s';
 
 /** The checks the rules run before asking the station, as its own rule has them. */
 export function rulesProblems(s: SourceSettings): Partial<Record<RuleField, string>> {
@@ -400,16 +442,19 @@ export function rulesProblems(s: SourceSettings): Partial<Record<RuleField, stri
   if (!whole(s.door_before_min, 0, 240)) out.door_before_min = 'Whole minutes, 0 to 240.';
   if (!whole(s.late_count_s, 0, 120)) out.late_count_s = 'Whole seconds, 0 (off) to 120.';
   if (!whole(s.test_max_min, 1, 60)) out.test_max_min = 'Whole minutes, 1 to 60.';
-  if (!whole(s.port_icecast, 1, 65_535)) out.port_icecast = 'A port is a number from 1 to 65535.';
-  if (!whole(s.port_srt, 1, 65_535)) out.port_srt = 'A port is a number from 1 to 65535.';
-  else if (s.port_srt === s.port_icecast) out.port_srt = 'Use a different number from the Icecast port.';
+  // 0 is a way the installation has turned off: the panel shows it as Off and sends it back as it is.
+  if (!whole(s.port_icecast, 0, 65_535)) out.port_icecast = 'A port is a number from 1 to 65535.';
+  if (!whole(s.port_srt, 0, 65_535)) out.port_srt = 'A port is a number from 1 to 65535.';
+  else if (s.port_srt !== 0 && s.port_srt === s.port_icecast) out.port_srt = 'Use a different number from the Icecast port.';
+  // The handover window (1.2): absent from an older station, and then not this panel's to check.
+  if (s.window_s !== undefined && !whole(s.window_s, 0, 1800)) out.window_s = 'Whole seconds, 0 (off) to 1,800 (30 minutes).';
   return out;
 }
 
 /** The station names one field for two (`steady_s` for either time, `port_icecast` for either
  *  port): put its sentence under a field this panel draws, or leave it for the form. */
 export function ruleFieldOf(field: string | null): RuleField | null {
-  return field === 'door_before_min' || field === 'late_count_s' || field === 'test_max_min' || field === 'port_icecast' || field === 'port_srt' ? field : null;
+  return field === 'door_before_min' || field === 'late_count_s' || field === 'test_max_min' || field === 'port_icecast' || field === 'port_srt' || field === 'window_s' ? field : null;
 }
 
 // ---- the panel's rows ----

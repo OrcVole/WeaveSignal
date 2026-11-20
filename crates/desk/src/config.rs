@@ -33,6 +33,9 @@ pub struct Config {
     pub control: Control,
     #[serde(default)]
     pub carts: Carts,
+    /// The phone line (17f): where its words are.
+    #[serde(default)]
+    pub phone: PhoneIn,
     #[serde(default)]
     pub video: Video,
     /// Hosts in their own studios (ADR-0280): what the ingest hands the desk.
@@ -55,6 +58,10 @@ pub struct SourcesIn {
     /// How far ahead of the mixing pass a source's sound is placed as it arrives: it comes in
     /// codec frames, after a network, so a little more than playout's feed needs.
     pub cushion_ms: u32,
+    /// Follow each source's clock (Phase 17g's one clock): resample it once, at a ratio steered
+    /// to hold it the cushion ahead, instead of placing it afresh each time it has drifted by
+    /// the cushion. On by default.
+    pub follow: bool,
     /// The slow gain that brings a source to the desk's level (no gate, no phone band).
     pub leveller: weavesignal_mixer::SourceLevellerSettings,
 }
@@ -70,6 +77,7 @@ impl Default for SourcesIn {
             bind: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             port: 7318,
             cushion_ms: 300,
+            follow: true,
             leveller: weavesignal_mixer::SourceLevellerSettings::default(),
         }
     }
@@ -177,6 +185,30 @@ impl Default for RtmpOut {
             retry_min_s: 2,
             retry_max_s: 60,
             backlog_ms: 4_000,
+        }
+    }
+}
+
+/// How the desk's WebRTC senders (each return, the programme picture) control congestion:
+/// `webrtcsink`'s own `congestion-control` option. `Gcc` is GStreamer's `rtpgccbwe`, a free
+/// implementation (MPL-2.0) of Google's published algorithm, and what the desk has used since
+/// 1.0.1; `Homegrown` is webrtcsink's own simple sender-side heuristic; `Disabled` applies none.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CongestionControl {
+    #[default]
+    Gcc,
+    Homegrown,
+    Disabled,
+}
+
+impl CongestionControl {
+    /// The nick `webrtcsink`'s `GstWebRTCSinkCongestionControl` enum takes.
+    pub fn nick(self) -> &'static str {
+        match self {
+            CongestionControl::Gcc => "gcc",
+            CongestionControl::Homegrown => "homegrown",
+            CongestionControl::Disabled => "disabled",
         }
     }
 }
@@ -663,6 +695,25 @@ impl Default for Carts {
     }
 }
 
+/// The phone line's side at the desk (17f). The desk finds phone booths by their names
+/// whatever this says: a station without the line has none. It plays the phone words from
+/// `words_dir`, only by a name the control plane gives it (`<uuid>.flac`, or the shipped
+/// `phone-words-default.flac`), never a path.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct PhoneIn {
+    /// `phone.words_dir` in the control plane's settings; the desk only reads it.
+    pub words_dir: PathBuf,
+}
+
+impl Default for PhoneIn {
+    fn default() -> Self {
+        Self {
+            words_dir: PathBuf::from("/var/lib/weavesignal/phone-words"),
+        }
+    }
+}
+
 /// How the desk follows who is in the room.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, default)]
@@ -709,6 +760,23 @@ pub struct LiveKit {
     #[serde(skip)]
     pub api_secret: String,
     pub room: String,
+    /// STUN servers the desk's WebRTC connections may ask for their addresses (ADR-0290): a
+    /// comma-separated list of `host:port`, the station's `STUN_SERVERS` setting. Empty, the
+    /// default, the desk contacts none: GStreamer's `webrtcsink` and `webrtcsrc` would
+    /// otherwise ask Google's. `webrtcbin` takes one server, so the first is used.
+    #[serde(default)]
+    pub stun_servers: String,
+}
+
+impl LiveKit {
+    /// The URL for the `stun-server` property of every WebRTC element the desk makes; `None`,
+    /// the default, clears the element's own default. An unreadable list also gives `None`
+    /// (`Config::validate` refuses it first).
+    pub fn stun_server_url(&self) -> Option<String> {
+        weavesignal_proto::parse_stun_servers(&self.stun_servers)
+            .ok()
+            .and_then(|s| weavesignal_proto::webrtcbin_url(&s))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -742,6 +810,11 @@ pub struct DeskSettings {
     pub realtime: bool,
     /// Each return's Opus bitrate (opusenc's own default).
     pub return_opus_bitrate: u32,
+    /// The senders' congestion control: `gcc` (the default, Google's published algorithm as
+    /// GStreamer's `rtpgccbwe`), `homegrown` (webrtcsink's own heuristic) or `disabled`. It
+    /// looks only at the desk-to-room hop; `docs/.../congestion-control` says what it can and
+    /// cannot do.
+    pub congestion_control: CongestionControl,
 }
 
 impl Default for DeskSettings {
@@ -755,6 +828,7 @@ impl Default for DeskSettings {
             workers: 0,
             realtime: true,
             return_opus_bitrate: 128_000,
+            congestion_control: CongestionControl::Gcc,
         }
     }
 }
@@ -906,6 +980,9 @@ impl Config {
                 self.livekit.url
             ));
         }
+        if let Err(e) = weavesignal_proto::parse_stun_servers(&self.livekit.stun_servers) {
+            return invalid(format!("livekit.stun_servers: {e}"));
+        }
         if self.desk.jitter_buffer_ms > 1000 {
             return invalid(format!(
                 "desk.jitter_buffer_ms is {}; above 1000 ms the room is unusable",
@@ -1027,6 +1104,55 @@ room = "studio"
         let text = format!("{MINIMAL}\n[inputs.caller.limiter]\nceiling_db = 6.0\n");
         let err = Config::from_toml(&text, "t").unwrap_err().to_string();
         assert!(err.contains("inputs.caller"), "{err}");
+    }
+
+    #[test]
+    fn the_desk_contacts_no_stun_server_unless_one_is_named() {
+        let c = Config::from_toml(MINIMAL, "t").unwrap();
+        assert_eq!(c.livekit.stun_servers, "");
+        assert_eq!(
+            c.livekit.stun_server_url(),
+            None,
+            "no default: not Google's"
+        );
+        let named = MINIMAL.replace(
+            "[livekit]",
+            "[livekit]\nstun_servers = \"stun.example.org:3478, other.example.net:3478\"",
+        );
+        let c = Config::from_toml(&named, "t").unwrap();
+        assert_eq!(
+            c.livekit.stun_server_url().as_deref(),
+            Some("stun://stun.example.org:3478"),
+            "webrtcbin takes one server: the first"
+        );
+        let bad = MINIMAL.replace(
+            "[livekit]",
+            "[livekit]\nstun_servers = \"stun.example.org\"",
+        );
+        let err = Config::from_toml(&bad, "t").unwrap_err().to_string();
+        assert!(err.contains("livekit.stun_servers"), "{err}");
+    }
+
+    #[test]
+    fn the_senders_congestion_control_is_gcc_unless_chosen() {
+        let c = Config::from_toml(MINIMAL, "t").unwrap();
+        assert_eq!(c.desk.congestion_control, CongestionControl::Gcc);
+        for (word, want) in [
+            ("gcc", CongestionControl::Gcc),
+            ("homegrown", CongestionControl::Homegrown),
+            ("disabled", CongestionControl::Disabled),
+        ] {
+            let text = format!("{MINIMAL}\n[desk]\ncongestion_control = \"{word}\"\n");
+            let c = Config::from_toml(&text, "t").unwrap();
+            assert_eq!(c.desk.congestion_control, want);
+            assert_eq!(c.desk.congestion_control.nick(), word);
+        }
+        let bad = format!("{MINIMAL}\n[desk]\ncongestion_control = \"google\"\n");
+        let err = Config::from_toml(&bad, "t").unwrap_err().to_string();
+        assert!(
+            err.contains("congestion_control") || err.contains("google"),
+            "{err}"
+        );
     }
 
     #[test]

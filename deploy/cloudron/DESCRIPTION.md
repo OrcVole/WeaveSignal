@@ -8,5 +8,9 @@ chat (Rust, Axum), the desk (Rust, GStreamer), Liquidsoap 2.5 for playout and fo
 process that holds the stream with `icecast.server`, LiveKit with its own TURN, and the
 station's public pages. It uses Cloudron's PostgreSQL and mail.
 
+A Cloudron app is given no GPU, so with video on the desk encodes AV1 on the CPU with SVT-AV1
+(`VIDEO_ENCODER=svt`). A station that wants NVENC runs the Compose bundle or the Quadlets on a
+server with an NVIDIA card instead.
+
 The studio app for presenters and screeners (Linux and Windows) connects to it over https.
 Documentation: https://weavesignal.top. Source: https://forgejo.weavesignal.top/WeaveSignal/weavesignal.

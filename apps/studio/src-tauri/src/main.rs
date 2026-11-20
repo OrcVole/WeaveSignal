@@ -3,10 +3,14 @@
 
 //! WeaveSignal's studio app: the desk, the screener, the cart wall, the calendar and the
 //! presenter kit in one window (ADR-0061). M2's first slice: the shell and desk B's layout.
-//! The native publishing path (ADR-0013) and the presenter kit (ADR-0042) live here later.
+//! The native publishing path (ADR-0013) and the presenter kit (ADR-0042) live here later; the
+//! bridge (Phase 17g) carries a host's own software to the station from here.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod bridge;
+mod bridge_local;
+mod bridge_up;
 mod calendar;
 mod open;
 mod station;
@@ -36,6 +40,9 @@ fn main() {
         .manage(station::Stations::new())
         // The update screen's commands (ADR-0140); the page is not granted the plugin's own.
         .manage(update::Updates::default())
+        // The bridge (Phase 17g): the host's own software on loopback, carried to the station
+        // over one WebSocket; the show key and the local password stay in the keychain.
+        .manage(bridge::Bridge::new())
         // `calendar_save` writes a calendar file the page read from the station into the
         // Downloads folder (Subscribe…'s Download .ics, ADR-0281): the webview has no download
         // the page can count on.
@@ -68,7 +75,31 @@ fn main() {
             open::open_link,
             calendar::calendar_save,
             calendar::calendar_read,
+            bridge::bridge_view,
+            bridge::bridge_save,
+            bridge::bridge_start,
+            bridge::bridge_stop,
+            bridge::bridge_new_password,
+            bridge::bridge_forget,
+            bridge::window_close_keep,
+            bridge::window_close_stop,
         ])
+        // Closing the window stops the bridge, and with it the host's software's way to the
+        // station: while it runs the first close is a question the page puts (keyboard first:
+        // Keep the window open has the focus, Esc keeps it); a second close while it is open
+        // goes through, so a page that cannot answer never holds the window.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let bridge = window.state::<bridge::Bridge>();
+                if bridge.on_close_requested() == bridge::OnClose::Ask {
+                    api.prevent_close();
+                    use tauri::Emitter;
+                    // Should the page not hear it, the question stays open and the next press
+                    // closes.
+                    let _ = window.emit(bridge::CLOSE_ASKED, ());
+                }
+            }
+        })
         // A window larger than the screen's free space (a 1280 by 800 screen less its task bar,
         // the 1.0.4 run on Windows) hid dialogs' buttons under the task bar: it opens maximised.
         .setup(|app| {

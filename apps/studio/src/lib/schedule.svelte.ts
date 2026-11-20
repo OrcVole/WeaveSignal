@@ -61,6 +61,9 @@ const fresh = () => ({
   /** The week, or one day of it with a lane for each clashing show. In the Day view `anchor`
    *  is a moment in the day shown. The week is the default every time the tab opens. */
   view: 'week' as ScheduleView,
+  /** The rota is shown in the calendar's place (1.2): the coming twelve hours as a list. Week
+   *  and Day leave it; it is not remembered when the tab closes. */
+  rota: false,
   /** A block the grid is asked to bring into view (a row of a show's dates was pressed). */
   reveal: null as { id: string; n: number } | null,
   /** `Esc` or a press on the empty grid was not obeyed, because an editor holds changes that are
@@ -120,6 +123,7 @@ function goTo(ms: number): void {
 
 /** Open one day in the Day view: the day that holds `ms`. */
 export function openDay(ms: number): void {
+  sched.rota = false;
   sched.view = 'day';
   goTo(ms);
 }
@@ -128,7 +132,16 @@ export function openDay(ms: number): void {
  *  today, when today is in the week shown; else the week's Monday). The selection is kept. */
 export function setView(view: 'week' | 'day', dayMs: number | null = null): void {
   if (view === 'day') openDay(dayMs ?? sched.anchor);
-  else sched.view = 'week';
+  else {
+    sched.rota = false;
+    sched.view = 'week';
+  }
+}
+
+/** The rota (`R` on the tab, the toolbar's **Rota**, and the desk's *Coming up*): the coming
+ *  twelve hours in the calendar's place. The week and what is selected in it are kept under it. */
+export function openRota(): void {
+  sched.rota = true;
 }
 
 /** `D` and `W` on the tab (ADR-0283), and the toolbar's **Day** and **Week**: Day opens on the

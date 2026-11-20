@@ -38,6 +38,7 @@ __pycache__/
 /tests/playout/run-icecast-out/
 /tests/stations/run/
 /tests/sources/run/
+/tests/sources/run-whip/
 /tests/calendar-path/run/
 /tests/monitor/run/
 /tests/cc/run/

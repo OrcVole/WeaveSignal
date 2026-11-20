@@ -59,6 +59,15 @@ When the next show has a host to bring on (ADR-0280), the line under the clock i
 - **A late host**, with automation holding the air: *Steeped takes the air*, counted to the second the station puts them on air.
 - **Standing by with nothing counted** (the grace is Off, or the count was stopped): *Finlay is standing by · a press only*.
 
+### The handover window
+
+From 1.2, under the schedule's line, the next show's **handover window** (Phase 17c): who is next, where they come from (the room or their own studio), and **READY**, **CONNECTING** or **NOT HERE YET**; past the start with the host on air still there, that they are running over, or who holds the handover.
+It opens `window_s` before each show's start (five minutes by default; Off, 5, 10, 15 or 30 minutes in Settings › Own studios › The rules) and changes nothing on air: the post, the grace and a hold work as above.
+When the show under way still waits for a late host and the next show's window has opened, both are said, the late one first.
+When the window opens the incoming host gets one **heads-up** an airing, a quiet note in [`desk.toast`](#desktoast)'s slot (`handover.heads_up`), and their own tile says they are on next until their post.
+**Rota** beside Coming up opens the Schedule tab's rota of the next twelve hours.
+States and the API: [Follow the rota and the handover window](/docs/how-to/follow-the-rota/).
+
 ### A count's last seconds
 
 Every count on the desk turns **amber in its last 30 seconds and red in its last 10**: the clock's (the grace, the late count, the run-up to a post, a hard post), the late count on the tile and in the next show's card, the grace's and the late count's toasts, and a lost link's place, which then says what is left (*4:40 · place kept until 14:46 · 0:20 left*).
@@ -89,6 +98,9 @@ Playout's queue and hard posts are not shown ([planned](/docs/reference/release-
 The stage: the show's title, the master lamp and the delay above, **End show** (`⌃⇧E`, built for 1.0.2: [End the show](/docs/how-to/end-the-show/)) and **Screener** (`⌃2`), and every source the room has on air, as tiles.
 A source moves onto the stage only on its own On key, and the stage keeps slot order (ADR-0061).
 While playout is down the stage says *Room alive*, with how many sources are open to the room; in auto mode it says *Automation holds the air*, and the open sources say OPEN.
+In the head, the lamp, the delay with **Dump**, and **End show** keep their width whatever they say; the show's title takes what is left, and ends in an ellipsis where that is little (PLAYOUT DOWN beside a delay that is building, with Dump armed, in a 1,440 px window).
+Under the head, the tiles on air keep the height their rows need, notes included, and [`desk.waiting`](#deskwaiting) has the rest.
+Until 1.2.0 it was the other way about: in a 1,440 × 900 window End show lay over Dump while playout was down, a caller's note on an on-air tile was cut, and with three on air and two waiting the on-air tiles lost their four buttons.
 
 ## `desk.air` and `desk.end-show`
 
@@ -181,6 +193,7 @@ Not built yet: a count for a returning source ([Set up a host in their own studi
 ## `desk.tile.6`
 
 Source 6: playout, with its SRT link to the desk.
+While playout is down it says *Listeners hear nothing of the room* and how long the link has been lost, in the place of what playout does, so the tile is as tall down as up and nothing above it moves when playout drops (1.2.0). **Restart playout** is in [`desk.playout`](#deskplayout), the status bar and the toast.
 Playout as a desk source with its own switch is [planned](/docs/reference/release-one-status/#not-in-release-one); its On, Cue and Mute keys show a note.
 
 ## `desk.step-note`
@@ -208,6 +221,7 @@ With everything shown, or above Solo, the source is a tile.
 
 Not on air: the sources in the room that are cued or standing by, and playout's tile (slot 6), with the move rule.
 A source here keeps its slot and its keys (ADR-0096).
+In a short window it is this row that gives way to the tiles on air (1.2.0): it scrolls inside itself, with its name and **Invite someone…** staying in sight. In a 1,440 × 900 window that is three on air with two waiting, where playout's tile is reached by scrolling; with five on air everything under the stage's head scrolls.
 It arrives at the Guests step, with **Invite someone…** at its head; at Solo there is one tile, and it stays on the stage on air or off.
 While a host in their own studio has the air and you are not in the room (1.1), **Join with my microphone…** is offered here too, quietly, with one line that says what joining is for and that it puts you on air ([`desk.step-note`](#deskstep-note)); the row's note on how sources move steps aside for it.
 
@@ -235,6 +249,8 @@ Under it, the count by mount (`audience.by_mount`), such as *programme.opus 140 
 When it cannot be counted, the figure is a dash and the panel says why in words (`audience.error`: *Not counted: the listener process does not answer on its status address*), and it says so whether or not the station has the playout layer; before the first answer it says *Waiting for the first answer from the listener process.*
 With edges or a CDN set up (`audience.edges`), the panel says the figure is this station's own stream only: each edge counts as one listener, and the listeners on an edge are not added.
 Video viewers on HLS are not counted either.
+The control plane asks the listener process's `/status.json` on loopback, which answers on every install route: in the Cloudron package's one container, and in the Compose bundle and its Quadlets, whose services share the host's network.
+It cannot answer while the listener process is down or restarting, and in a test stack without one; the figure is then a dash with the reason (`audience.listeners` is `null`, never 0), and it comes back by itself at the next answer.
 Under the figure, a chip says what listeners hear: HEARING THE DESK, PLAYOUT DOWN, or ON AUTOMATION while the station is in auto mode ([The state vocabulary](/docs/reference/states/)).
 When video is on, more than about 500 are connected and the station has no CDN or edges configured (no steering edges, and `join.hls_url` on the station itself), the panel also warns that video needs a CDN ([Put Bunny in front of the station](/docs/how-to/use-bunny/), ADR-0017).
 
@@ -266,6 +282,7 @@ In a short slot the message of a toast with keys is held to two lines, and at th
 The chat stays under the toast with what is left of the slot.
 Where that would not hold two lines of it (under a toast with keys in a 1,440 × 900 window at Full, for one), the chat is left out until the toast goes.
 Until 1.1.1 a toast always took the chat's place, and in a short window with video on the slot had no height at all.
+In a narrow window, or at a large text size (1,440 × 900 at 120 %, for one), the desk is one column that scrolls, and the slot is the foot of that page. There a toast has a row of its own above the status bar (1.2.0), in view wherever the page is scrolled, with its keys beside its words; the chat glance keeps the slot. The row is taken from the foot of the part that scrolls, so nothing above it moves and no control is covered. Until 1.2.0 a toast arrived at the foot of the page, out of sight.
 One toast at a time, most urgent first:
 
 1. a note you asked for, such as a key that is not in 1.0.0;

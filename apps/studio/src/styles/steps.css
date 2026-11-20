@@ -81,7 +81,7 @@ dialog.stepmenu::backdrop { background: var(--scrim); }
 .desk .tiles .empty.seat.next .btn { margin-top: 0; }
 .desk .tiles .empty.seat.next .btn svg { width: 14px; height: 14px; }
 /* the stage's delay at a step that keeps Dump off, and a tag beside a disabled control */
-.desk .delay:has(.offtag) { grid-template-columns: auto auto auto auto; }
+@container studio (min-width: 2200px) { .desk .delay:has(.offtag) { grid-template-columns: auto auto auto auto; } }   /* beside Dump where the stage is wide; under it otherwise (desk-b.css) */
 .desk .statusbar .offtag { margin-left: var(--s-1); }
 .desk .waiting .wh .offtag { order: 2; }
 /* desk.callers: the rundown's row grammar (a number, two lines, a figure) */
@@ -92,6 +92,14 @@ dialog.stepmenu::backdrop { background: var(--scrim); }
 .desk .callers .cq .who b { color: var(--ink); font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .desk .callers .cq .who span { color: var(--muted); font-size: var(--fs-12); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .desk .callers .cq .t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+/* a compact queue for a short window (16d; 1,440 by 900): the caller Take would bring keeps two lines, name over topic; the ones
+   behind them are a line each, name then topic, so three are in sight where two were. The larger window keeps two lines for all. */
+@container studio (max-width: 2199px) {
+  .desk .callers .cq li:not(:first-child) { min-height: 1.625rem; padding: 0.1875rem 0; }
+  .desk .callers .cq li:not(:first-child) .who { display: flex; gap: var(--s-2); align-items: baseline; }
+  .desk .callers .cq li:not(:first-child) .who b { flex: 0 1 auto; max-width: 62%; }
+  .desk .callers .cq li:not(:first-child) .who span { flex: 1 1 0; }
+}
 .desk .callers .more { font-size: var(--fs-12); color: var(--muted); }
 .desk .callers .acts { display: grid; }
 .desk .callers .acts .btn { justify-content: space-between; font-size: var(--fs-13); padding: 0 var(--s-2) 0 var(--s-3); }

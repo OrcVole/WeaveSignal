@@ -257,6 +257,23 @@ async fn the_shows_routes_take_tokens_by_their_scopes_too() {
 }
 
 #[tokio::test]
+async fn the_rota_is_for_staff_and_tokens_with_sources_read() {
+    let p = plane(config(), true);
+    let (_, sources) = token(&p, &["sources:read"], None);
+    let (_, other) = token(&p, &["carts:read"], None);
+    let (code, _) = status(&p.app, "GET", "/api/v1/rota", None).await;
+    assert_eq!(code, StatusCode::UNAUTHORIZED);
+    let (code, v) = status(&p.app, "GET", "/api/v1/rota", Some(&other)).await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    assert!(v["error"].as_str().unwrap().contains("sources:read"), "{v}");
+    // Past the credential check: the schedule is in the database, which this plane has not.
+    for bearer in [KEY, sources.as_str()] {
+        let (code, _) = status(&p.app, "GET", "/api/v1/rota", Some(bearer)).await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+    }
+}
+
+#[tokio::test]
 async fn a_token_never_reaches_an_admin_route_whatever_its_scopes() {
     let p = plane(config(), true);
     // Every scope there is.
@@ -578,6 +595,17 @@ async fn the_station_facts_are_the_players_public_ones_and_nobody_else() {
     for k in ["presenter", "consent_text", "relay", "callers", "chat"] {
         assert!(!keys.contains(&k), "{k} leaked into {keys:?}");
     }
+}
+
+#[tokio::test]
+async fn the_player_is_told_no_stun_server_unless_the_station_named_one() {
+    // ADR-0290: `relay.stun_servers` is the pages' only licence to ask a STUN server; empty by
+    // default, so the page strips every one LiveKit hands it.
+    let p = plane(config(), true);
+    let (code, v) = status(&p.app, "GET", "/api/v1/player", None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(v["relay"]["turn_tls_port"], 5349);
+    assert_eq!(v["relay"]["stun_servers"], serde_json::json!([]));
 }
 
 fn announce(p: &Plane, on_air: &str, title: &str) -> Arc<OnAir> {

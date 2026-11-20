@@ -137,6 +137,14 @@ test-sources:
 test-sources-probe:
     DESK=stub {{root}}/tests/sources/run-sources.sh
 
+# WHIP for remote DJs (17d) with a client not ours: GStreamer's whipclientsink from the desk image,
+# behind rootless Podman's NAT, sending a live tone to /whip/<key id>; a stand-in desk, PostgreSQL
+# in a container (22xxx, loopback). A wrong bearer refused, the source standing by with way whip
+# and heard, its DELETE ending it.
+# Not in `ci` yet. A real OBS stays a person's try (docs: Send from OBS over WHIP).
+test-whip:
+    WEAVESIGNAL_DESK_IMAGE={{desk_image}} {{root}}/tests/sources/whip.sh
+
 # A host's monitor link (ADR-0280, design 4.5) end to end on loopback (26xxx): two hosts' software sending tones
 # over Icecast, the real desk in its image (`just desk-build` first), LiveKit, and headless Chromium as a monitor
 # page (needs PLAYWRIGHT_CORE and `pnpm install` in apps/web): the monitor mix carries the other host and never the
@@ -189,6 +197,14 @@ test-carts:
 # browser outside the repository.
 test-m3:
     {{root}}/tests/m3/run-relay.sh
+
+# The caller's page on a phone with no stack (needs PLAYWRIGHT_CORE): the player, the lobby and
+# the call panel at 390 and 320 px against a station that is only answers and a room that never
+# answers. The pages stay as wide as the window, Reconnect through the relay takes a tap (the
+# step test-m3 timed out on), and the station's banner picture keeps its 3:1 shape. Not in `ci`.
+test-join-layout:
+    cd {{root}}/apps/web && pnpm install --frozen-lockfile && pnpm build
+    node {{root}}/tests/m3/layout.mjs
 
 # A browser's camera at the desk (needs PLAYWRIGHT_CORE): headless Chromium publishes a camera as
 # the join page does (AV1, the talk station's Brave fault of 2026-11-11), and the desk keeps that
@@ -270,12 +286,16 @@ openapi-check:
     diff -u {{root}}/docs/src/content/docs/docs/reference/api.md {{root}}/target/openapi-check/api.md || { echo "docs/src/content/docs/docs/reference/api.md is out of date: run 'just openapi' and commit it"; exit 1; }
     @echo "the API description is current"
 
-# Validate the Compose bundle (and with its two local edges, edges.yaml) against the example settings, its secrets filled with throwaways
+# Validate the Compose bundle (with its two local edges, edges.yaml, the public route, the phone line, phone.yaml, and a GPU for the desk, gpu.yaml) against the example settings, its secrets filled with throwaways
 compose-check:
     cd {{root}}/deploy/compose && LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --quiet
     cd {{root}}/deploy/compose && LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f edges.yaml config --quiet
     cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml config --quiet
     cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml -f edges.yaml config --quiet
+    cd {{root}}/deploy/compose && PHONE=true PHONE_REDIS_PASSWORD=check-only LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f phone.yaml config --quiet
+    cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example PHONE=true PHONE_REDIS_PASSWORD=check-only LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml -f phone.yaml config --quiet
+    cd {{root}}/deploy/compose && VIDEO=true GPU=nvidia LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f gpu.yaml config --quiet
+    cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example VIDEO=true GPU=nvidia GPU_DEVICE=nvidia.com/gpu=0 LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml -f gpu.yaml config --format json | python3 -I -c 'import json,sys; d=json.load(sys.stdin)["services"]["desk"]; assert [x["source"] for x in d["devices"]] == ["nvidia.com/gpu=0"] and "label=disable" in d["security_opt"], d; print("compose-check: gpu.yaml hands the desk nvidia.com/gpu=0")'
 
 # The server image the Compose bundle runs (the desk, the control plane and the chat)
 server-image:
@@ -363,6 +383,16 @@ feed-test:
 # Each desktop package installed in a throwaway container (Debian, Ubuntu, Fedora)
 package-desktop-test:
     {{root}}/deploy/desktop/install-test.sh
+
+# A clean run, a failed parallel encode, an Xid during an encode and one the follower missed.
+# tests/gpu/measure.sh's control flow with every command stubbed: no card, no container
+gpu-measure-check:
+    {{root}}/tests/gpu/measure-check.sh
+
+# Every rung, several at once, SVT-AV1 beside it, the kernel log watched. Needs the card free; not in `ci`.
+# The desk's AV1 encode measured on this machine's NVIDIA card, stopped at the first Xid (17e)
+gpu-measure *args:
+    {{root}}/tests/gpu/measure.sh {{args}}
 
 # The install wizards' shell parts (ADR-0237), with no container: the generator's Compose file
 # through the real weavesignal.sh (engines stubbed) and `compose config`, and the Cloudron start

@@ -195,7 +195,7 @@ fn room_token(
 }
 
 fn check_ports(config: &Config) -> ExitCode {
-    let clashes = ports::check_all(&config.ports, config.listen.internal);
+    let mut clashes = ports::check_all(&config.ports, config.listen.internal);
     for (spec, port) in config.ports.iter() {
         let state = if clashes.iter().any(|c| c.key == spec.key) {
             "TAKEN"
@@ -207,6 +207,23 @@ fn check_ports(config: &Config) -> ExitCode {
             spec.proto, spec.key, spec.what
         );
     }
+    // The phone line's ports (17f), while it is on: `[phone]`'s, not `[ports]`'.
+    let phone = ports::check_phone(&config.phone, config.listen.internal);
+    for (spec, port) in ports::phone_ports(&config.phone) {
+        let state = if phone
+            .iter()
+            .any(|c| c.port == port && c.proto == spec.proto)
+        {
+            "TAKEN"
+        } else {
+            "free"
+        };
+        println!(
+            "{state:5}  {port:>5}/{}  {}  ({})",
+            spec.proto, spec.key, spec.what
+        );
+    }
+    clashes.extend(phone);
     if clashes.is_empty() {
         println!("every port is free");
         ExitCode::SUCCESS

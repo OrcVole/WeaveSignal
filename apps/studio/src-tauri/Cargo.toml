@@ -31,6 +31,18 @@ serde.workspace = true
 reqwest = { version = "0.12.28", default-features = false, features = ["native-tls"] }
 # The address parser reqwest uses, named here for its `Host` (ADR-0139): already in the lock.
 url = "2.5.8"
+# The bridge (Phase 17g), all already in the lock through the ingest and the chat: a byte relay on
+# loopback (tokio; SRT in pure Rust, srt-tokio Apache-2.0) and one WebSocket out over the
+# platform's TLS (tokio-tungstenite MIT, its native-tls feature as reqwest's). No codec.
+tokio = { workspace = true, features = ["net", "io-util", "time", "sync", "macros", "rt-multi-thread"] }
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect", "native-tls"] }
+srt-tokio = "=0.4.4"
+srt-protocol = "=0.4.4"
+bytes = "1.12.1"
+futures = { version = "0.3.31", default-features = false, features = ["std"] }
+base64.workspace = true
+getrandom = "0.3.4"
+weavesignal-proto.workspace = true
 
 # The station's key in the system's keychain (ADR-0121): Secret Service over pure-Rust D-Bus on
 # Linux (no libdbus to build against), Credential Manager on Windows, the Keychain on macOS.
@@ -44,11 +56,12 @@ keyring = { version = "3.6.3", features = ["windows-native"] }
 keyring = { version = "3.6.3", features = ["apple-native"] }
 
 [dev-dependencies]
+# The bridge's tests feed what a reconnect sends to the station's own decoder.
+weavesignal-ingest = { path = "../../../crates/ingest" }
 # Scratch folders for the rollback tests (already in the lock through the updater).
 tempfile = "3.27.0"
 # The feed test (tests/feed.rs, `just feed-test`) checks signatures with the crate the updater uses.
 minisign-verify = "0.3.0"
-base64 = "0.22.1"
 
 [lints]
 workspace = true

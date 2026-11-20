@@ -1,0 +1,6 @@
+SPDX-FileCopyrightText: 2026 The WeaveSignal contributors (the recording, synthesised with Piper's en_GB-alba-medium voice)
+SPDX-FileCopyrightText: 2019 C. Valentini-Botinhao and J. Yamagishi, University of Edinburgh (the Alba speech corpus, https://doi.org/10.7488/ds/2506)
+SPDX-FileCopyrightText: NVIDIA, Hi-Fi Multi-Speaker English TTS Dataset, reader 92 Cori Samuel (https://www.openslr.org/109/)
+SPDX-License-Identifier: CC-BY-4.0
+
+The Alba corpus's own condition: "The Creative Commons licence does not affect the moral rights of the voice talent with respect to the recordings. Any use derogatory to the voice talent is prohibited." See NOTICES.md.

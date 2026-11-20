@@ -51,6 +51,7 @@ No secret is written into a unit or a settings file.
 `--create-secrets` stores each one as a Podman secret (`weavesignal-postgres-password` and the rest, listed in [Packages and install files](/docs/reference/packages/#the-quadlets)), passing the value on standard input; the units hand them to the containers as environment variables.
 Without it, the script lists the secrets the units need.
 PostgreSQL's unit reports healthy only once the database answers, and the control plane and the chat wait for it, as in Compose.
+With `GPU=nvidia` and `VIDEO=true` in the settings file the desk's unit is given the card by its CDI name (`AddDevice=nvidia.com/gpu=all`, or `GPU_DEVICE`) and `SecurityLabelDisable=true` ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)).
 
 ## Install and start
 
@@ -68,6 +69,7 @@ Playout's and the listener process's units bind-mount the Liquidsoap scripts (`p
 ## Change something
 
 Change the settings file, generate again, copy the units again, and run `systemctl --user daemon-reload` and `systemctl --user restart weavesignal.target`.
+A public station's LiveKit address is worked out when `weavesignal.sh` writes the settings file (`NODE_IP`, else the A record of the name; no STUN server is asked, ADR-0290), and the units carry that address until you run `weavesignal.sh --no-start --env-file …` again and generate again: do so after the server's address changes, and when updating to 1.2.0 ([LiveKit's public address](/docs/reference/packages/#livekits-public-address)). `STUN_SERVERS` in the settings file names the STUN servers the station may ask; empty, it asks none ([STUN servers](/docs/reference/packages/#stun-servers)).
 Run `generate.sh` with `--create-secrets` again only if a secret changed.
 
 ## Remove it

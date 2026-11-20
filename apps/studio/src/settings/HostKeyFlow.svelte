@@ -21,7 +21,7 @@
   // this window holds their monitor link (`lib/monitor.svelte.ts`) so Open my monitor in Your
   // show works until the window closes. The station can never give that link again.
   import { tick } from 'svelte';
-  import { base, endShowKey, makeShowKey, openInBrowser, renewShowKey, type KeyRow, type MadeKey, type SourceDetails, type SourceWay, type StaffAccount } from '../lib/api.ts';
+  import { base, endShowKey, makeShowKey, openInBrowser, renewShowKey, type KeyRow, type MadeKey, type SourceDetails, type SourceVia, type SourceWay, type StaffAccount } from '../lib/api.ts';
   import { placeError } from '../lib/account.ts';
   import { account } from '../lib/account.svelte.ts';
   import { dropMonitor, holdMonitor } from '../lib/monitor.svelte.ts';
@@ -33,9 +33,12 @@
     TELL_HOST,
     WAY_LINE,
     WAY_WORD,
+    WHIP_SOUND_ONLY,
     detailBlocks,
+    detailWay,
     detailsText,
     hostName,
+    waysFirst,
     labelProblem,
     monitorLink,
     possessive,
@@ -119,7 +122,7 @@
 
   let detailsEl = $state<HTMLDialogElement | null>(null);
   /** What the details show. With `made`, the secret is in them and the dialog has one way out. */
-  let shown = $state<{ label: string; showName: string; hint: SourceWay; details: SourceDetails; made: MadeKey | null; monitor?: 'open' | 'closed' | null } | null>(null);
+  let shown = $state<{ label: string; showName: string; hint: SourceVia; details: SourceDetails; made: MadeKey | null; monitor?: 'open' | 'closed' | null } | null>(null);
   let copied = $state<string | null>(null);
   /** Copy everything could not reach the clipboard: the text is drawn, selected, to copy by hand. */
   let byHand = $state(false);
@@ -128,7 +131,8 @@
 
   const host = $derived(shown ? stationHost(shown.details, studioAddress()) : '');
   const blocks = $derived(shown ? detailBlocks(shown.details, host, shown.made?.secret ?? null) : null);
-  const order = $derived<SourceWay[]>(shown?.hint === 'srt' ? ['srt', 'icecast'] : ['icecast', 'srt']);
+  // A pull (PLAN 17b) has no way in for a host's software: the station opens its address.
+  const order = $derived<SourceWay[]>(shown && blocks && shown.hint !== 'pull' ? waysFirst(detailWay(shown.hint)).filter((w) => blocks[w].length) : []);
   /** The whole monitor link, made from the station's public address; null when it has none. */
   const monitor = $derived(shown?.made ? monitorLink(sched.publicUrl, shown.made.monitor_secret) : null);
   /** The key is the signed-in person's own: the monitor is theirs to open from here. */
@@ -142,7 +146,7 @@
     const address = await loadPublicAddress();
     const link = monitorLink(address, made.monitor_secret);
     if (link && made.key.staff_id && made.key.staff_id === account.me?.account?.id) holdMonitor(made.key.key_id, link);
-    shown = { label: made.key.label, showName, hint: made.key.hint, details: made.details, made };
+    shown = { label: made.key.label, showName, hint: detailWay(made.key.hint), details: made.details, made };
     copied = null;
     byHand = false;
     copyNote = '';
@@ -157,7 +161,7 @@
   /** Details…: a key made earlier, with everything but the secret, and whether its monitor link
    *  is open now (`monitor`: null when the host is not connected, so nothing is known). */
   export async function details(row: KeyRow, showName: string, monitor: 'open' | 'closed' | null = null) {
-    shown = { label: row.label, showName, hint: row.hint, details: row.details, made: null, monitor };
+    shown = { label: row.label, showName, hint: detailWay(row.hint), details: row.details, made: null, monitor };
     copied = null;
     byHand = false;
     copyNote = '';
@@ -318,13 +322,13 @@
     {/if}
     <fieldset>
       <legend>How they will send</legend>
-      {#each ['icecast', 'srt'] as const as w (w)}
+      {#each ['icecast', 'srt', 'whip'] as const as w (w)}
         <label class="way" class:on={draft.hint === w}>
           <input type="radio" name="hk-hint" value={w} checked={draft.hint === w} onchange={() => (draft.hint = w)} />
           <span><strong>{WAY_WORD[w]}.</strong> {WAY_LINE[w]}</span>
         </label>
       {/each}
-      <span class="hint">A hint, not a lock: the one key works either way, and the details give both.</span>
+      <span class="hint">A hint, not a lock: the one key works every way, and the details give each.</span>
     </fieldset>
     {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
     <div class="acts">
@@ -374,16 +378,19 @@
   {#if shown && blocks}
     <div class="body">
       <div class="ways">
-        {#each order as w, i (w)}
+        {#each order as w (w)}
           <section class="waybox" aria-labelledby="hd-{w}">
             <h3 id="hd-{w}">
               {WAY_WORD[w]}
-              {#if i === 0}<span class="tag">how {first} said they will send</span>{/if}
+              {#if w === shown.hint}<span class="tag">how {first} said they will send</span>{/if}
             </h3>
-            <p class="small">{w === 'icecast' ? 'Most radio software. About 2 s to the station.' : 'OBS and other software that offers it. Under half a second.'}</p>
+            <p class="small">{w === 'icecast' ? 'Most radio software. About 2 s to the station.' : w === 'whip' ? 'OBS 30 and later. Under half a second.' : 'OBS and other software that offers it. Under half a second.'}</p>
+            {#if w === 'whip'}<p class="small sound-only" data-testid="whip-sound-only">{WHIP_SOUND_ONLY}</p>{/if}
             {#each blocks[w] as f, n (f.label)}{@render field(f, `hd-${w}-${n}`, WAY_WORD[w])}{/each}
             {#if w === 'icecast'}
               <p class="small">The password crosses the internet as every Icecast password does. Prefer SRT on a network {first} does not trust.</p>
+            {:else if w === 'whip'}
+              <p class="small">The token travels over HTTPS and the sound is encrypted, as a browser call's is. {first}’s network must let UDP through; where it does not, use Icecast.</p>
             {:else}
               <p class="small">The passphrase encrypts the sound, so the secret never crosses in clear.</p>
             {/if}

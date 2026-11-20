@@ -42,7 +42,7 @@ function fixed(seed, length) {
 }
 
 /** The rules a new station has (crates/model/src/sources.rs, `SourceSettings::default`). */
-export const DEFAULT_RULES = { door_before_min: 30, grace_s: 120, late_count_s: 20, test_outside: true, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710 };
+export const DEFAULT_RULES = { door_before_min: 30, grace_s: 120, late_count_s: 20, test_outside: true, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710, window_s: 300, port_whip: 9712 };
 
 const STAFF = {
   admin: { id: 'a-morag', username: 'morag', name: 'Morag Campbell', role: 'admin' },
@@ -99,6 +99,12 @@ export class HostStation extends Station {
     this.acted = new Set();
     /** A lost link: `{ key_id, name, show, lost_ms, covered }`, or null. */
     this.lost = null;
+    /** The heads-ups given, by airing start (seconds): when each was given. */
+    this.told = new Map();
+    /** Shows the rota has nobody down for (a driver's, to see the row). */
+    this.rotaNobody = new Set();
+    /** The rota answers; false is a station whose database is down (503). */
+    this.rotaUp = true;
     /** A station without the playout layer has no automation, and no mode. */
     this.playout = true;
     /** The view follows Off air one view late, as the real station's `post` does. */
@@ -217,11 +223,13 @@ export class HostStation extends Station {
 
   details(key, secret) {
     const shown = secret ?? '(shown once, when the key was made)';
-    const { port_icecast: ice, port_srt: srt } = this.rules;
+    const { port_icecast: ice, port_srt: srt, port_whip: whip } = this.rules;
     return {
       host: this.host,
       icecast: { port: ice, mount: '/live', user: 'source', password: `${key.key_id}-${shown}` },
       srt: { port: srt, streamid: key.key_id, passphrase: shown, pbkeylen: 16, url: this.host && secret ? `srt://${this.host}:${srt}?streamid=${key.key_id}&passphrase=${secret}&pbkeylen=16` : null },
+      whip: { port: whip ?? 0, url: whip && this.host ? `https://${this.host}/whip/${key.key_id}` : null, bearer_token: shown },
+      pull: key.pull_url ? { url: key.pull_url, kind: /^srt:/.test(key.pull_url) ? 'srt' : /\.m3u8(\?|$)/.test(key.pull_url) ? 'hls' : 'http' } : null,
     };
   }
 
@@ -242,6 +250,7 @@ export class HostStation extends Station {
       staff_id: body.staff_id ?? null,
       key_id: fixed(n, 8),
       hint: body.hint,
+      pull_url: body.hint === 'pull' ? body.url : null,
       created_by: by,
       created_ms: this.now * 1000 - (o.made_days_ago ?? 0) * 86_400_000,
       last_used_ms: o.last_used_days_ago !== undefined ? this.now * 1000 - o.last_used_days_ago * 86_400_000 + 6_480_000 : null,
@@ -253,7 +262,7 @@ export class HostStation extends Station {
       monitor: fixed(n + 200, 24),
     };
     this.keys.unshift(key);
-    this.from.set(slug, 'push');
+    this.from.set(slug, body.hint === 'pull' ? 'pull' : 'push');
     const d = this.details(key, key.secret);
     const host = d.host ?? "(the station's address)";
     // The control plane's own text (`as_text` in sources.rs), which the studio does not use.
@@ -299,6 +308,7 @@ export class HostStation extends Station {
         state,
         slot: at ? this.slots.indexOf(identity) + 1 : null,
         way: conn?.way ?? null,
+        pull: k.hint === 'pull',
         format: conn?.format || null,
         level: at ? at.lufs : (conn?.level_db ?? null),
         leveller_db: at ? conn.leveller_db : null,
@@ -359,6 +369,7 @@ export class HostStation extends Station {
       late_ends_ms: null,
       holders: holders.map((p) => p.name),
       link_lost: null,
+      window: this.windowView({ cur, next, post, shown, holders, live }),
     };
     if (ready) {
       const since = ready.conn.since + this.rules.steady_s * 1000;
@@ -376,6 +387,80 @@ export class HostStation extends Station {
       view.link_lost = { key_id, name, show, lost_ms, covers_ms: lost_ms + this.rules.silence_s * 1000, place_kept_until_ms: lost_ms + this.rules.place_kept_s * 1000, covered };
     }
     return view.show || view.link_lost ? view : null;
+  }
+
+  /** How far a show's host has got, for the window and the rota: the furthest of its keys'
+   *  sources, else its presenter in the room (at the desk is ready). */
+  readiness(show, live) {
+    const subjects = live(show.slug);
+    if (subjects.length) {
+      const best = [...subjects].sort((a, b) => a.rank - b.rank)[0];
+      const state = best.state === 'on_air' ? 'on_air' : best.state === 'standing_by' ? 'ready' : best.state === 'connecting' ? 'connecting' : 'not_connected';
+      return { from: 'push', hosts: subjects.map((x) => x.k.label), host: best.k.label, state, identity: best.at ? best.identity : null };
+    }
+    const there = show.presenter ? this.people.find((q) => q.name === show.presenter && q.role !== 'source') : null;
+    return { from: 'room', hosts: show.presenter ? [show.presenter] : [], host: show.presenter ?? '', state: there ? (there.on_air ? 'on_air' : 'ready') : 'not_connected', identity: there?.identity ?? null };
+  }
+
+  /** `post.window` as the station's rule would say it (`at_post` and `window` in
+   *  crates/model/src/handover_window.rs): the post's own show, or the next one once its window
+   *  has opened while the show under way still waits, or once that one has been dealt with. */
+  windowView({ cur, next, post, shown, holders, live }) {
+    const ws = this.rules.window_s ?? 0;
+    if (!post || ws <= 0) return null;
+    let target = post;
+    const under = post === cur && this.now >= post.e.air_at;
+    if (under && next) {
+      const dealt = live(post.s.slug).some((x) => this.acted.has(x.k.key_id));
+      if (dealt || this.now >= next.e.air_at - ws) target = next;
+    } else if (under && live(post.s.slug).some((x) => this.acted.has(x.k.key_id))) return null;
+    const r = this.readiness(target.s, live);
+    const host = (target === post ? shown?.k.label : null) ?? r.host;
+    if (!host) return null;
+    const start = target.e.air_at;
+    const opens = start - ws;
+    const held = !!this.heldBy && target === post;
+    const theirs = new Set(live(target.s.slug).map((x) => x.identity));
+    const outgoing = holders.some((q) => !theirs.has(q.identity) && q.identity !== r.identity);
+    let state = 'quiet';
+    if (this.now >= start) state = held ? 'held' : outgoing && r.state !== 'on_air' ? 'overrun' : 'quiet';
+    else if (this.now >= opens) state = held ? 'held' : r.state === 'ready' ? 'ready' : r.state === 'connecting' ? 'cueing' : 'announced';
+    const told = this.told.get(start) ?? null;
+    return { state, show: target.s.slug, show_name: target.s.name, start_ms: start * 1000, opens_ms: opens * 1000, host, from: r.from, heads_up_ms: told };
+  }
+
+  /** The heads-up, as the station gives it once an airing (crates/control/src/post.rs): written
+   *  down, then a desk notice whose subject is the host's desk identity while they are there. */
+  headsUp() {
+    const w = this.postView()?.window;
+    if (!w || w.state === 'quiet' || this.told.has(w.start_ms / 1000)) return null;
+    const show = this.shows.find((x) => x.slug === w.show);
+    const live = (slug) => this.keys.filter((k) => k.show === slug && k.revoked_ms === null).map((k) => this.subject(k));
+    const r = this.readiness(show, live);
+    const minutes = Math.ceil((w.start_ms - this.now * 1000) / 60_000);
+    const words = { not_connected: 'not here yet', connecting: 'connecting', ready: 'ready', on_air: 'on air' }[r.state];
+    this.told.set(w.start_ms / 1000, this.now * 1000);
+    const notice = { id: ++this.noticeId, at_ms: this.now * 1000, surface: 'desk', tone: 'good', kind: 'handover.heads_up', subject: r.identity, title: `Next: ${w.host}, ${w.show_name}`, message: `${w.show_name} starts in ${minutes} min; ${w.host} is ${words}.` };
+    this.notices.push(notice);
+    return notice;
+  }
+
+  /** `GET /api/v1/rota` (crates/control/src/rota.rs): every airing from now to twelve hours on. */
+  rota() {
+    const now = this.now;
+    const until = now + 12 * 3600;
+    const live = (slug) => this.keys.filter((k) => k.show === slug && k.revoked_ms === null).map((k) => this.subject(k));
+    const airings = this.episodes
+      .map((e) => ({ e, s: this.shows.find((x) => x.slug === e.slug) }))
+      .filter((x) => x.s?.rule && x.e.air_at + x.s.rule.minutes * 60 > now && x.e.air_at < until)
+      .sort((a, b) => a.e.air_at - b.e.air_at)
+      .map(({ e, s }) => {
+        const r = this.readiness(s, live);
+        const under = e.air_at <= now;
+        const state = under || now >= e.air_at - this.rules.door_before_min * 60 ? r.state : r.from === 'room' ? r.state : 'not_connected';
+        return { show: s.slug, show_name: s.name, start_ms: e.air_at * 1000, end_ms: (e.air_at + s.rule.minutes * 60) * 1000, hosts: this.rotaNobody.has(s.slug) ? [] : r.hosts, from: r.from, state, ready: state === 'ready' || state === 'on_air', now: under };
+      });
+    return { now_ms: now * 1000, until_ms: until * 1000, airings };
   }
 
   studioView() {
@@ -522,6 +607,13 @@ export class HostStation extends Station {
         return [403, { error: 'only an admin or the show\u2019s own presenter changes its presenter and takedown contact' }];
       }
     }
+    // The rota of the coming twelve hours (1.2): for staff; a station older than 1.2 has none.
+    if (p === '/api/v1/rota' && method === 'GET') {
+      this.calls.push({ method, path, body });
+      if (!this.routes || this.rules.window_s === undefined) return [404, { error: 'not found' }];
+      if (!this.rotaUp) return [503, { error: 'the schedule is kept in the database: set WEAVESIGNAL_DATABASE_URL' }];
+      return [200, this.rota()];
+    }
     const mine = /^\/api\/v1\/(sources|settings\/sources|shows\/[^/]+\/keys)(\/|$)/.test(p);
     if (!mine) return super.handle(method, path, body);
     this.calls.push({ method, path, body });
@@ -538,6 +630,10 @@ export class HostStation extends Station {
       if (![0, 60, 120, 300].includes(body.grace_s)) return [422, { error: '0 (off), 60, 120 or 300', field: 'grace_s' }];
       if (!(body.door_before_min >= 0 && body.door_before_min <= 240)) return [422, { error: 'minutes, 0 to 240', field: 'door_before_min' }];
       if (body.port_icecast === body.port_srt) return [422, { error: 'use a different number from the Icecast port', field: 'port_srt' }];
+      if (body.port_whip === body.port_srt) return [422, { error: 'use a different number from the SRT port', field: 'port_whip' }];
+      if (body.window_s !== undefined && !(Number.isInteger(body.window_s) && body.window_s >= 0 && body.window_s <= 1800)) return [422, { error: 'seconds, 0 (off) to 1800', field: 'window_s' }];
+      // A body without `window_s` keeps the stored one (an app from before 1.2).
+      if (body.window_s === undefined && this.rules.window_s !== undefined) body = { ...body, window_s: this.rules.window_s };
       // A port the stand-in will not have, to show the station's own sentence under the field.
       if (body.door_before_min === 59) return [422, { error: 'the station refuses this (a test)', field: 'door_before_min' }];
       this.rules = { ...body };
@@ -609,21 +705,29 @@ export class HostStation extends Station {
       if (!this.mayManage(show)) return [403, { error: "Only an admin, a producer or the show's presenter makes or ends its keys. An API token never does." }];
       if (!m[2]) {
         if (method === 'GET') return [200, this.keyList(show)];
-        const known = ['label', 'staff_id', 'hint'];
+        const known = ['label', 'staff_id', 'hint', 'url'];
         const extra = Object.keys(body ?? {}).find((k) => !known.includes(k));
         if (extra) return [422, { error: `unknown field \`${extra}\`` }];
         const label = String(body.label ?? '').trim();
         if (!label || [...label].length > 120) return [422, { error: 'who the key is for: 1 to 120 characters, no control characters', field: 'label' }];
-        if (!['icecast', 'srt'].includes(body.hint)) return [422, { error: '`icecast` or `srt`', field: 'hint' }];
+        if (!['icecast', 'srt', 'whip', 'bridge', 'vban', 'pull'].includes(body.hint)) return [422, { error: '`icecast`, `srt`, `whip`, `bridge`, `vban` or `pull`', field: 'hint' }];
+        // A pull (1.2, `check_pull_url` in sources.rs): its address is checked as the station checks it.
+        if (body.hint === 'pull') {
+          const u = String(body.url ?? '');
+          if (!u) return [422, { error: 'a pull needs the address to open', field: 'url' }];
+          if (!/^(https?|srt):\/\//.test(u)) return [422, { error: 'the address must start with http://, https:// or srt://', field: 'url' }];
+          if (/\/\/(10\.|192\.168\.|127\.|localhost)/.test(u)) return [422, { error: "the address points inside the station's own network", field: 'url' }];
+          if (/nowhere\.example/.test(u)) return [422, { error: 'the name `nowhere.example` does not resolve: check the address', field: 'url' }];
+        } else if (body.url !== undefined) return [422, { error: 'only a pull (`hint`: `pull`) has an address', field: 'url' }];
         if (this.keys.filter((k) => k.show === show.slug && k.revoked_ms === null).length >= 8) return [409, { error: 'a show has at most 8 keys that have not ended' }];
-        return [201, this.makeKey(show.slug, { label, hint: body.hint, staff_id: body.staff_id ?? null }, by)];
+        return [201, this.makeKey(show.slug, { label, hint: body.hint, staff_id: body.staff_id ?? null, url: body.url }, by)];
       }
       const key = this.keys.find((k) => k.show === show.slug && k.key_id === m[2]);
       if (!key) return [404, { error: `${show.name} has no key \`${m[2]}\`` }];
       if (m[3]) {
         if (!['now', 'on_disconnect'].includes(body?.old)) return [422, { error: '`now` or `on_disconnect`', field: 'old' }];
         if (key.revoked_ms !== null) return [409, { error: 'that key has ended already' }];
-        const made = this.makeKey(show.slug, { label: key.label, hint: key.hint, staff_id: key.staff_id }, by);
+        const made = this.makeKey(show.slug, { label: key.label, hint: key.hint, staff_id: key.staff_id, url: key.pull_url ?? undefined }, by);
         if (body.old === 'now' || !this.conns.has(key.key_id)) this.endKey(key);
         else key.ends_on_disconnect = true;
         return [201, made];

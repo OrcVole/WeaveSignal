@@ -231,7 +231,7 @@ export class MonitorStation {
       door_closes_ms: this.conn === 'desk' ? this.end : null,
       last_refusal: this.refusal,
       post: post
-        ? { show_name: post.show_name, start_ms: post.start_ms, started: this.now() >= post.start_ms, mine: post.mine, host: post.host ?? null, host_state: post.host_state ?? null, on_air_at_ms: post.on_air_at_ms ?? null, late_ends_ms: post.late_ends_ms ?? null, grace_ends_ms: post.grace_ends_ms ?? null, held_by: post.held_by ?? null, on_air: post.on_air ?? [] }
+        ? { show_name: post.show_name, start_ms: post.start_ms, started: this.now() >= post.start_ms, mine: post.mine, host: post.host ?? null, host_state: post.host_state ?? null, on_air_at_ms: post.on_air_at_ms ?? null, late_ends_ms: post.late_ends_ms ?? null, grace_ends_ms: post.grace_ends_ms ?? null, held_by: post.held_by ?? null, on_air: post.on_air ?? [], ...(post.heads_up ? { heads_up: post.heads_up } : {}) }
         : null,
       rundown: {
         before: this.rows.before,

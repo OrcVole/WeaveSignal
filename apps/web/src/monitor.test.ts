@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { frames, type MonitorView } from './lib/monitor/api.ts';
 import { StationClock, hm, hms, zoneLine } from './lib/monitor/clock.ts';
-import { barPct, count, counting, dumpedWords, hurry, listenOff, insertWords, lampOf, lasted, lead, nextRows, nothingToPress, refusalWords, signed, sourceWords, openStreamWords, standbyStreamWords, thenWords, titleOf } from './lib/monitor/words.ts';
+import { barPct, count, counting, dumpedWords, headsUp, hurry, listenOff, insertWords, lampOf, lasted, lead, nextRows, nothingToPress, refusalWords, signed, sourceWords, openStreamWords, standbyStreamWords, thenWords, titleOf } from './lib/monitor/words.ts';
 
 const ZONE = 'Europe/London';
 // Friday 20 November 2026, the design's day; London keeps GMT then.
@@ -192,6 +192,20 @@ describe('counts', () => {
     const post = { show_name: 'Kettle Drive', start_ms: at('16:00'), started: true, mine: false, host: 'Heather Douglas', host_state: 'standing_by', on_air_at_ms: null, late_ends_ms: null, grace_ends_ms: at('16:02:00'), held_by: null, on_air: [] };
     expect(counting(view({ state: 'on_air', then, post }), at('16:01:18'), ZONE)).toMatchObject({ label: 'Kettle Drive takes the air', figure: '0:42', small: 'by the schedule at 16:02:00' });
     expect(counting(view({ then, post: { ...post, mine: true } }), at('16:01:18'), ZONE)).toMatchObject({ label: 'On air at 16:02:00', figure: '0:42' });
+  });
+  it('says the heads-up as the station gave it, with its time on the station’s clock', () => {
+    const post = { show_name: 'Steeped', start_ms: at('14:00'), started: false, mine: true, host: 'Finlay Grant', host_state: 'standing_by', on_air_at_ms: at('14:00'), late_ends_ms: null, grace_ends_ms: null, held_by: null, on_air: [] };
+    const given = { at_ms: at('13:55:00'), words: 'You are on next, at the start of Steeped.' };
+    expect(headsUp(view({ post: { ...post, heads_up: given } }), ZONE)).toEqual({ words: 'You are on next, at the start of Steeped.', when: 'Heads-up at 13:55' });
+    // The station's clock, not the device's zone.
+    expect(headsUp(view({ post: { ...post, heads_up: given } }), 'Europe/Berlin')?.when).toBe('Heads-up at 14:55');
+    // Nothing from a station older than 1.2, for a host who is not next, or with no post at all.
+    expect(headsUp(view({ post }), ZONE)).toBeNull();
+    expect(headsUp(view({ post: { ...post, heads_up: null } }), ZONE)).toBeNull();
+    expect(headsUp(view(), ZONE)).toBeNull();
+    // Once on air the lamp says it; an empty line says nothing.
+    expect(headsUp(view({ state: 'on_air', post: { ...post, heads_up: given } }), ZONE)).toBeNull();
+    expect(headsUp(view({ post: { ...post, heads_up: { at_ms: at('13:55'), words: '  ' } } }), ZONE)).toBeNull();
   });
   it('counts a kept place', () => {
     const v = view({ state: 'link_lost', then: { kind: 'link_lost', words: 'x', at_ms: at('14:46:00') } });

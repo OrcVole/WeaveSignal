@@ -1002,10 +1002,10 @@ pub fn call_in_of(r: ConsentRecord) -> CallIn {
         consent: Consent {
             at_ms: r.accepted_at_ms,
             version: r.words_version,
-            by: if r.given_by == "station" {
-                ConsentBy::Station
-            } else {
-                ConsentBy::Caller
+            by: match r.given_by {
+                "station" => ConsentBy::Station,
+                "not_asked" => ConsentBy::NotAsked,
+                _ => ConsentBy::Caller,
             },
             text: r.words,
         },

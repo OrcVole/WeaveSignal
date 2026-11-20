@@ -347,7 +347,7 @@ describe('the screener', () => {
     for (const name of ['screener.status', 'screener.queue', 'screener.screening', 'screener.needs', 'screener.studio', 'screener.room']) {
       expect(body.includes(`data-panel="${name}"`), name).toBe(true);
     }
-    expect(SCREENER.length).toBe(9);
+    expect(SCREENER.length).toBe(10); // with the phone line's ban dialog (1.2)
     expect(body.indexOf('Dougal Thomson')).toBeLessThan(body.indexOf('Tavish'));
     expect(body).toContain('Desk busy');
     expect(body).toContain('Banned before');

@@ -96,6 +96,9 @@ pub struct Ban {
 pub enum ConsentBy {
     Caller,
     Station,
+    /// A phone caller let in with the station's phone words turned off (17f): nothing was
+    /// played or agreed, and the record says so.
+    NotAsked,
 }
 
 /// A caller's consent to record: when, to which words, and who gave it.
@@ -118,6 +121,27 @@ pub struct CallIn {
     /// The one line they typed: what they want to say.
     pub topic: String,
     pub consent: Consent,
+}
+
+/// A phone caller's line, as the studio keeps it (17f): never the number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PhoneCaller {
+    /// The last digits LiveKit left in the booth's name (at most four).
+    pub tail: String,
+    pub withheld: bool,
+    /// Their ban key; `None` when withheld. Never in a view or a log.
+    pub ban_key: Option<String>,
+}
+
+/// A phone caller's line on the screener's caller card (17f).
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct PhoneView {
+    /// `···4471`, or `Withheld`: the last four digits at most, never the number.
+    pub number: String,
+    pub withheld: bool,
+    /// Whether the screener's ban can single this caller out; a withheld caller cannot be
+    /// banned by number ("Cannot ban a withheld number").
+    pub can_ban: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -204,9 +228,11 @@ pub struct Notice {
     pub at_ms: u64,
     pub surface: Surface,
     pub tone: Tone,
-    /// What it is about (`caller.ready`, `caller.declined`, ...), for the app to pick keys.
+    /// What it is about (`caller.ready`, `caller.declined`, `handover.heads_up`, ...), for the
+    /// app to pick keys.
     pub kind: String,
-    /// The person it is about, if any; for `rule.changed`, the show's path (1.0.5).
+    /// The person it is about, if any (for `handover.heads_up`, the incoming host's desk
+    /// identity while they are at the desk); for `rule.changed`, the show's path (1.0.5).
     pub subject: Option<String>,
     pub title: String,
     pub message: String,
@@ -239,6 +265,10 @@ pub struct Studio {
     next_notice: u64,
     /// What callers gave before calling, by identity: name, topic, consent.
     lobby: BTreeMap<String, CallIn>,
+    /// Phone callers' lines by person key (17f), kept as long as their lobby entry.
+    phone: BTreeMap<String, PhoneCaller>,
+    /// Number bans by ban key (17f).
+    phone_bans: crate::phone::limits::Bans,
     /// How far behind listeners hear, as set (ADR-0103), without the profanity delay.
     listener_path: ListenerPath,
     /// Listeners connected now, from the listener process; `None` until counted, and while it
@@ -339,7 +369,9 @@ pub struct AudienceView {
     /// The same by mount, most listeners first; empty while not counted.
     pub by_mount: Vec<MountCount>,
     /// Why there is no count, in words the studio can show: the listener process does not
-    /// answer, or the control plane has no playout layer to ask it. `None` while counted.
+    /// answer on its status address, or its answer could not be read. The count does not need
+    /// the playout layer. `None` while counted, and before the first look (`listeners` is
+    /// `None` too, and the studio waits for the first answer).
     pub error: Option<String>,
     /// The station has edges or a CDN configured: steering has a pathway beside the origin, or
     /// `join.hls_url` points the player at another address.
@@ -586,6 +618,8 @@ pub struct CallerView {
     pub name_on_air: String,
     pub declined: Option<Declined>,
     pub banned_before: Option<Ban>,
+    /// A phone caller's line (17f); `None` for a browser caller.
+    pub phone: Option<PhoneView>,
     /// What they typed on the player page.
     pub topic: String,
     /// Their consent to record; `None` means they cannot go to the desk.
@@ -908,6 +942,19 @@ impl Studio {
         }
     }
 
+    /// The handover window's heads-up for the desk (design note `handover-window.md`): the
+    /// incoming host by name, once an airing. `subject` is their desk identity when they are at
+    /// the desk (a room DJ's seat, or a source's tile), so the app can put it there.
+    pub fn heads_up(&mut self, now: u64, subject: Option<&str>, title: String, message: String) {
+        self.notice(
+            now,
+            (Surface::Desk, Tone::Good, "handover.heads_up"),
+            subject,
+            title,
+            message,
+        );
+    }
+
     /// A notice from playout (dead air, the logger) for the desk.
     pub fn playout_notice(
         &mut self,
@@ -987,7 +1034,20 @@ impl Studio {
         self.dropped.retain(|id, at| {
             by_id.contains_key(id.as_str()) || now.saturating_sub(*at) < DROP_SETTLE_MS
         });
-        for p in desk.people.iter().filter(|p| p.role == Role::Caller) {
+        // A phone caller is at the desk from the moment it answers, hearing the words with their
+        // voice held out of every bus; they join the queue only once through the gate (17f).
+        let through = |id: &str| {
+            !weavesignal_proto::phone::is_phone_person(id)
+                || desk
+                    .phone
+                    .as_ref()
+                    .is_none_or(|ph| ph.booths.iter().any(|b| b.person == id && b.admitted))
+        };
+        for p in desk
+            .people
+            .iter()
+            .filter(|p| p.role == Role::Caller && through(&p.identity))
+        {
             if let Some(&at) = self.dropped.get(&p.identity) {
                 if !p.present || now.saturating_sub(at) < DROP_SETTLE_MS {
                     continue;
@@ -995,10 +1055,12 @@ impl Studio {
                 self.dropped.remove(&p.identity);
             }
             let given = self.lobby.get(&p.identity).map(|c| c.name.clone());
+            // LiveKit names a phone caller `Phone 4471`: no name until the screener types one.
+            let phone = weavesignal_proto::phone::is_phone_person(&p.identity);
             match self.callers.iter_mut().find(|c| c.identity == p.identity) {
                 None => self.callers.push(Caller {
                     identity: p.identity.clone(),
-                    name: if p.name.is_empty() {
+                    name: if p.name.is_empty() || phone {
                         given.unwrap_or_default()
                     } else {
                         p.name.clone()
@@ -1014,7 +1076,8 @@ impl Studio {
                     taken: false,
                 }),
                 Some(c) => {
-                    if c.name != p.name && !p.name.is_empty() {
+                    // LiveKit's `Phone 4471` is never a phone caller's name: the screener's is.
+                    if c.name != p.name && !p.name.is_empty() && !phone {
                         c.name = p.name.clone();
                     }
                     if p.present {
@@ -1050,6 +1113,10 @@ impl Studio {
         self.lobby.retain(|id, c| {
             queued.contains(id) || now.saturating_sub(c.consent.at_ms) < CALL_IN_KEEP_MS
         });
+        let lobby = &self.lobby;
+        self.phone
+            .retain(|id, _| queued.contains(id) || lobby.contains_key(id));
+        self.phone_bans.prune(now);
 
         // A ready caller the presenter has cued or put on air has been taken.
         let mut taken_now = Vec::new();
@@ -1215,6 +1282,34 @@ impl Studio {
     /// Keep what a caller gave before calling: their consent, name and topic.
     pub fn call_in(&mut self, call: CallIn) {
         self.lobby.insert(call.identity.clone(), call);
+    }
+
+    /// A phone caller let through the gate (17f): their consent and their line.
+    pub fn phone_call(&mut self, call: CallIn, line: PhoneCaller) {
+        self.phone.insert(call.identity.clone(), line);
+        self.lobby.insert(call.identity.clone(), call);
+    }
+
+    /// A phone caller's line, if `id` is one.
+    pub fn phone_caller(&self, id: &str) -> Option<&PhoneCaller> {
+        self.phone.get(id)
+    }
+
+    /// Phone callers in the queue now, a dropped one's held place included (they hold lines).
+    pub fn phone_in_queue(&self) -> usize {
+        self.callers
+            .iter()
+            .filter(|c| self.phone.contains_key(&c.identity))
+            .count()
+    }
+
+    /// The station's number bans (17f).
+    pub fn phone_bans(&self) -> &crate::phone::limits::Bans {
+        &self.phone_bans
+    }
+
+    pub fn phone_bans_mut(&mut self) -> &mut crate::phone::limits::Bans {
+        &mut self.phone_bans
     }
 
     /// What a caller gave before calling, if anything is on file.
@@ -1486,7 +1581,25 @@ impl Studio {
                     note: c.note.clone(),
                     name_on_air: c.name_on_air.clone(),
                     declined: c.declined.clone(),
-                    banned_before: self.bans.get(&c.identity).cloned(),
+                    banned_before: match self.phone.get(&c.identity) {
+                        Some(line) => {
+                            self.phone_bans
+                                .of(line.ban_key.as_deref(), now)
+                                .map(|b| Ban {
+                                    date: b.date.clone(),
+                                    reason: b.reason.clone(),
+                                })
+                        }
+                        None => self.bans.get(&c.identity).cloned(),
+                    },
+                    phone: self.phone.get(&c.identity).map(|line| PhoneView {
+                        number: weavesignal_model::caller_id::shown_number(
+                            &line.tail,
+                            line.withheld,
+                        ),
+                        withheld: line.withheld,
+                        can_ban: !line.withheld && line.ban_key.is_some(),
+                    }),
                     topic: self
                         .lobby
                         .get(&c.identity)
@@ -1857,6 +1970,8 @@ mod tests {
             delay: None,
             carts: None,
             video: None,
+            kit: None,
+            phone: None,
         }
     }
 
@@ -2237,6 +2352,123 @@ mod tests {
         let v = s.view("", None, None, 0);
         assert_eq!(v.callers[1].identity, "tavish");
         assert_eq!(v.callers[1].arrived_ms, 40_000);
+    }
+
+    #[test]
+    fn a_phone_caller_shows_four_digits_no_livekit_name_and_bans_by_ban_key() {
+        use crate::phone::limits::PhoneBan;
+        let mut s = Studio::new("", vec![]);
+        let key = "pb_0123456789abcdef0123456789abcdef";
+        let consent = |id: &str, by| CallIn {
+            identity: id.into(),
+            name: String::new(),
+            topic: String::new(),
+            consent: Consent {
+                at_ms: 0,
+                version: "0123456789abcdef".into(),
+                by,
+                text: "You're through to the studio.".into(),
+            },
+        };
+        s.phone_call(
+            consent("phone-Xk3pQ9mZr2Ta", ConsentBy::Caller),
+            PhoneCaller {
+                tail: "0123".into(),
+                withheld: false,
+                ban_key: Some(key.into()),
+            },
+        );
+        s.phone_call(
+            consent("phone-Yk3pQ9mZr2Tb", ConsentBy::NotAsked),
+            PhoneCaller {
+                tail: "mous".into(),
+                withheld: true,
+                ban_key: None,
+            },
+        );
+        let mut a = person("phone-Xk3pQ9mZr2Ta", Role::Caller);
+        a.name = "Phone 0123".into();
+        let mut b = person("phone-Yk3pQ9mZr2Tb", Role::Caller);
+        b.name = "Phone mous".into();
+        let room = desk(vec![a, b]);
+        s.sync(&room, 0);
+        s.phone_bans_mut()
+            .ban(
+                PhoneBan {
+                    ban_key: key.into(),
+                    tail: "0123".into(),
+                    date: "2026-11-19".into(),
+                    reason: "abusive".into(),
+                    expires_ms: None,
+                },
+                false,
+            )
+            .unwrap();
+        let v = s.view("", Some(&room), None, 1);
+        let (a, b) = (&v.callers[0], &v.callers[1]);
+        assert_eq!(a.name, "", "no name until the screener types one");
+        assert_eq!(
+            a.phone,
+            Some(PhoneView {
+                number: "···0123".into(),
+                withheld: false,
+                can_ban: true
+            })
+        );
+        assert_eq!(a.banned_before.as_ref().unwrap().date, "2026-11-19");
+        assert_eq!(b.phone.as_ref().unwrap().number, "Withheld");
+        assert!(!b.phone.as_ref().unwrap().can_ban);
+        assert!(b.banned_before.is_none());
+        // Words off still lets them reach the desk; the record says not asked.
+        assert_eq!(b.consent.as_ref().unwrap().by, ConsentBy::NotAsked);
+        assert!(s.may_reach_desk("phone-Yk3pQ9mZr2Tb", Role::Caller));
+        // Neither the ban key nor LiveKit's identity is in the view.
+        let json = serde_json::to_string(&v).unwrap();
+        assert!(!json.contains(key));
+        assert!(!json.contains("sip_"));
+        // A browser caller has no phone line.
+        assert!(s.phone_caller("jessie").is_none());
+    }
+
+    #[test]
+    fn a_phone_caller_at_the_gate_is_not_in_the_queue_and_keeps_no_livekit_name() {
+        let id = "phone-Xk3pQ9mZr2Ta";
+        let booth = |admitted: bool| crate::desk::DeskPhone {
+            booths: vec![crate::desk::DeskPhoneBooth {
+                person: id.into(),
+                tail: "0123".into(),
+                sip_identity: String::new(),
+                answered: true,
+                admitted,
+                words_playing: None,
+                words_done: 0,
+            }],
+            keys: Vec::new(),
+        };
+        let mut caller = person(id, Role::Caller);
+        caller.name = "Phone 0123".into();
+        let mut s = Studio::new("", vec![]);
+        // Hearing the words: at the desk, held out of every bus, not in the screener's queue.
+        let mut room = desk(vec![caller, person("jessie", Role::Caller)]);
+        room.phone = Some(booth(false));
+        s.sync(&room, 0);
+        let v = s.view("", Some(&room), None, 1);
+        assert_eq!(
+            v.callers
+                .iter()
+                .map(|c| c.identity.as_str())
+                .collect::<Vec<_>>(),
+            ["jessie"]
+        );
+        // Through the gate: in the queue, nameless however many times the desk is read.
+        room.phone = Some(booth(true));
+        for now in [1_000, 2_000, 3_000] {
+            s.sync(&room, now);
+        }
+        let v = s.view("", Some(&room), None, 3_001);
+        let c = v.callers.iter().find(|c| c.identity == id).unwrap();
+        assert_eq!(c.name, "", "LiveKit's `Phone 0123` is not their name");
+        assert_eq!(c.arrived_ms, 1_000);
     }
 
     #[test]

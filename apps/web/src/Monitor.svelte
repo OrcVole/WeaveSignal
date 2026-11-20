@@ -14,22 +14,24 @@
   import BrandMark from './lib/BrandMark.svelte';
   import * as api from './lib/api.ts';
   import * as streams from './lib/streams.ts';
+  import type { StationRelay } from './lib/turn.ts';
   import { deviceZone, hms, zoneLine } from './lib/monitor/clock.ts';
   import Controls from './lib/monitor/Controls.svelte';
   import { MonitorLink } from './lib/monitor/link.svelte.ts';
   import type { Listen } from './lib/monitor/listen.svelte.ts';
   import ListenPanel from './lib/monitor/Listen.svelte';
   import { look, setNight } from './lib/monitor/night.svelte.ts';
-  import { barPct, counting, hurry, insertWords, lampOf, lead, nextRows, sourceWords, thenWords, titleOf, wayWord } from './lib/monitor/words.ts';
+  import { barPct, counting, headsUp, hurry, insertWords, lampOf, lead, nextRows, sourceWords, thenWords, titleOf, wayWord } from './lib/monitor/words.ts';
 
   const secret = (globalThis.location?.hash ?? '').replace(/^#/, '').trim();
   let listen = $state<Listen | null>(null);
   const link = new MonitorLink(secret, () => void listen?.stop());
 
-  // The station's name and its relay's port are not in the host's view; the player's public
-  // facts have both. Without them the header says WeaveSignal and the relay keeps LiveKit's port.
+  // The station's name and its relay's facts (its TURN port, the STUN servers it named) are not in
+  // the host's view; the player's public facts have them. Without them the header says WeaveSignal,
+  // the relay keeps LiveKit's port and the page asks no STUN server.
   let station = $state('WeaveSignal');
-  let turnPort = 0;
+  let relay: StationRelay | undefined;
   // The listeners' stream, for the while the host stands by and the desk's mix is silent.
   let stream = $state('');
   // The room's client is a large part of the page: fetched once the page is up, so it is there
@@ -45,11 +47,11 @@
       .player()
       .then((p) => {
         station = p.station || station;
-        turnPort = p.relay?.turn_tls_port ?? 0;
+        relay = p.relay;
         stream = streams.pick(p.streams ?? [], streams.remembered(), p.stream_url ?? '', opusOk);
       })
       .catch(() => {});
-    listening = import('./lib/monitor/listen.svelte.ts').then((m) => (listen = new m.Listen(secret, () => turnPort)));
+    listening = import('./lib/monitor/listen.svelte.ts').then((m) => (listen = new m.Listen(secret, () => relay)));
     listening.catch(() => {});
   });
   onDestroy(() => {
@@ -79,6 +81,8 @@
   const then = $derived(view ? thenWords(view) : '');
   const c = $derived(view && known ? counting(view, now, zone) : null);
   const urgent = $derived(c ? hurry(c, now) : null);
+  /** The handover window's heads-up (1.2), for the host coming on next: the station's line. */
+  const heads = $derived(view && known ? headsUp(view, zone) : null);
   const source = $derived(view ? sourceWords(view, now, zone) : null);
   const rows = $derived(view ? nextRows(view, now, zone, known) : []);
   const insert = $derived(view?.insert ? insertWords(view.insert, view, now, zone) : null);
@@ -144,6 +148,15 @@
     {:else}
       <h1 class="sr-only">Your monitor for {view.show_name}</h1>
       <section class="card lampcard is-{lamp?.kind ?? 'away'}" data-panel="monitor.lamp" data-state={known ? view.state : 'away'}>
+        {#if heads}
+          <!-- The heads-up (1.2; handover-window.md): the station's one line to the host coming
+               on next, above the lamp's sentence and the count to the post. Calm: it is news, not
+               an alarm, so it takes no state's colour or shape, and it is said once when it comes. -->
+          <p class="headsup" role="status" data-says="heads-up">
+            <b>{heads.words}</b>
+            <span class="small">{heads.when}</span>
+          </p>
+        {/if}
         <div class="status" role="status" aria-live="polite" aria-atomic="true">
           {#if known}
             {#if lamp}

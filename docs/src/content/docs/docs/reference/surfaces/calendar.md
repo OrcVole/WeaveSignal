@@ -1,6 +1,6 @@
 ---
 title: "Schedule"
-description: "The Schedule tab's panels by name: the toolbar, the week and how clashing shows fold in it, the Day view and its strip, the clash in the editor, the list of shows and a show's dates, New show and the rule dialog, Subscribe… and Import a calendar…, the episode, series and card editors, the show's rule, step, slate picture and delete, the aired episode, and the log editor."
+description: "The Schedule tab's panels by name: the toolbar, the week and how clashing shows fold in it, the Day view and its strip, the rota, the clash in the editor, the list of shows and a show's dates, New show and the rule dialog, Subscribe… and Import a calendar…, the episode, series and card editors, the show's rule, step, slate picture and delete, the aired episode, and the log editor."
 type: reference
 status: draft
 last_verified: 2026-11-16
@@ -25,7 +25,7 @@ Not drawn on the tab: the app’s top bar, `studio.frame`, is above every tab.
 | `‹` `›` (`←` `→`) | the previous and next week; in the Day view the previous and next day |
 | **Today** (`T`) | back to this week, or to today in the Day view |
 | the range | the week's dates, or the day's: *Wed 18 November 2026* |
-| **Week** (`W`), **Day** (`D`), **Studios** | the view. **Day** opens one day (`calendar.day`): the selected block's day, else today when it is in the week shown, else the week's Monday. The tab opens on **Week** every time. **Studios** is **[planned](/docs/reference/release-one-status/)** and says it is not in this build: studios as columns wait for a studio on each show |
+| **Week** (`W`), **Day** (`D`), **Rota** (`R`), **Studios** | the view. **Rota** (from 1.2) is the next twelve hours as a list (`calendar.rota`, below). **Day** opens one day (`calendar.day`): the selected block's day, else today when it is in the week shown, else the week's Monday. The tab opens on **Week** every time. **Studios** is **[planned](/docs/reference/release-one-status/)** and says it is not in this build: studios as columns wait for a studio on each show |
 | the zone | the station's time zone, and its clock change if one falls this week |
 | **Choose the time zone…** | shown to an admin until someone has chosen the station's zone; opens Settings |
 | **New show** | opens New show (`calendar.new-show`) |
@@ -98,6 +98,12 @@ With the width, a block puts its name beside its time and the rest of its words 
 The day is at most 80 rem wide. Dragging, resizing, selecting, the now line, ON AIR and MOVED are as in the week, and the editor column is unchanged beside it.
 The editor column shows the selected block while its day is the one open. On another day nothing is selected, and the column lists the shows (`calendar.shows`), as it does in a week that does not hold the selected block.
 **Week** returns to the week that holds the day, with the same block selected.
+
+## `calendar.rota`
+
+From 1.2, the Schedule tab's fourth view (`R` on the tab, or **Rota** beside Coming up on the desk): every show of the next twelve hours from `GET /api/v1/rota`, who is down for it, where they come from (the room or their own studio) and whether they are ready; the one on air is marked.
+`D` or `W` goes back to the calendar.
+A station older than 1.2 has no rota, and the view says so ([Follow the rota and the handover window](/docs/how-to/follow-the-rota/)).
 
 ## `calendar.day.strip`
 

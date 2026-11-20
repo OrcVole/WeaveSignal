@@ -14,7 +14,7 @@ import { type RemoteParticipant, type RemoteTrack, type RemoteTrackPublication, 
 import { ApiError } from '../api.ts';
 import { barPct, dbfs } from '../meter.ts';
 import { backoff, connectOptions } from '../rules.ts';
-import { useTurnPort } from '../turn.ts';
+import { installStationIce, type StationRelay, useStationIce } from '../turn.ts';
 import { roomToken } from './api.ts';
 
 /** Where the monitor's sound stands. */
@@ -62,7 +62,7 @@ export class Listen {
   streamBlocked = $state(false);
 
   #secret: string;
-  #turnPort: () => number;
+  #relay: () => StationRelay | undefined;
   #room: Room | null = null;
   #ctx: AudioContext | null = null;
   #tracks = new Map<RemoteTrack, { el: HTMLMediaElement; tap: MediaStreamAudioSourceNode | null; an: AnalyserNode | null }>();
@@ -77,10 +77,11 @@ export class Listen {
   #stream: HTMLAudioElement | null = null;
   #streamRetry: ReturnType<typeof setTimeout> | undefined;
 
-  /** `turnPort` gives the station's TURN-over-TLS port when the press comes (0: not known). */
-  constructor(secret: string, turnPort: () => number) {
+  /** `relay` gives the station's relay facts when the press comes (`undefined`: not known; the
+   *  page then asks no STUN server and leaves TURN as LiveKit says). */
+  constructor(secret: string, relay: () => StationRelay | undefined) {
     this.#secret = secret;
-    this.#turnPort = turnPort;
+    this.#relay = relay;
   }
 
   /**
@@ -100,7 +101,7 @@ export class Listen {
     this.#sync();
     if (this.#ctx && this.#ctx !== ctx) void this.#ctx.close().catch(() => {});
     this.#ctx = ctx;
-    useTurnPort(this.#turnPort());
+    useStationIce(this.#relay());
     const direct = !this.relay;
     const why = await this.#join();
     if (why === null || this.#stopped) return;
@@ -257,6 +258,7 @@ export class Listen {
 
   async #connect(url: string, token: string): Promise<boolean> {
     const ctx = this.#ctx;
+    installStationIce();
     const room = new Room({ adaptiveStream: false, dynacast: false, disconnectOnPageLeave: true, webAudioMix: ctx ? { audioContext: ctx } : false });
     this.#room = room;
     room

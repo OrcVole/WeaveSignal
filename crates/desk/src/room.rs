@@ -23,6 +23,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use weavesignal_proto::{Keys, ROLE_ATTRIBUTE, Role};
 
+use crate::phone::PhoneSeen;
 use crate::pipeline::Desk;
 
 /// A participant as the room lists them.
@@ -145,6 +146,49 @@ pub fn parse_booths(reply: &str, studio_room: &str) -> Result<Vec<(String, Strin
         .collect())
 }
 
+/// The phone booths of a studio room that anyone is in (17f), from a `ListRooms` reply: each
+/// one's room, the From user's tail LiveKit kept, and the caller's person key.
+pub fn parse_phone_booths(reply: &str, studio_room: &str) -> Result<Vec<(String, String, String)>> {
+    let reply: RoomsReply =
+        serde_json::from_str(reply).context("LiveKit's room list is not JSON")?;
+    Ok(reply
+        .rooms
+        .into_iter()
+        .filter(|r| r.num_participants > 0)
+        .filter_map(|r| {
+            let b = weavesignal_proto::phone::phone_booth(studio_room, &r.name)?;
+            let (tail, person) = (b.tail.to_owned(), b.person());
+            Some((r.name, tail, person))
+        })
+        .collect())
+}
+
+/// The caller in a phone booth (17f), from its `ListParticipants` reply: the one participant
+/// LiveKit's SIP service made (a `sip_…` identity) with the caller's role, which the dispatch
+/// rule sets. They are mixed under the booth's person key, in the booth; the `sip_…` identity
+/// comes back beside them. Anyone else in a phone booth is nobody the desk mixes.
+pub fn parse_phone_caller(
+    reply: &str,
+    desk_prefix: &str,
+    room: &str,
+    person: &str,
+) -> Result<Option<(Seen, String)>> {
+    Ok(parse(reply, desk_prefix)?
+        .into_iter()
+        .find(|s| s.role == Role::Caller && weavesignal_proto::phone::is_sip_identity(&s.identity))
+        .map(|s| {
+            let sip = s.identity.clone();
+            (
+                Seen {
+                    identity: person.to_owned(),
+                    room: Some(room.to_owned()),
+                    ..s
+                },
+                sip,
+            )
+        }))
+}
+
 /// The monitor rooms of a studio room that anyone is in, from a `ListRooms` reply, with the key
 /// each belongs to (design 4.5). The desk's own publisher counts as being in one, so who is
 /// listening is read from the room's participants, [`parse_monitor_listeners`].
@@ -175,6 +219,10 @@ pub fn parse_monitor_listeners(reply: &str, key_id: &str) -> Result<usize> {
         .filter(|p| weavesignal_proto::is_monitor_seat(key_id, &p.identity))
         .count())
 }
+
+/// What one look at the room finds: the people to mix, the seats taken on each monitor link,
+/// and the phone booths' callers.
+pub type Listed = (Vec<Seen>, BTreeMap<String, usize>, Vec<(Seen, PhoneSeen)>);
 
 /// LiveKit's server API for the studio room and its booths.
 pub struct RoomApi {
@@ -209,6 +257,13 @@ impl RoomApi {
 
     /// As [`Self::list`], and with it how many seats of each monitor link (by key id) are taken.
     pub fn list_all(&self) -> Result<(Vec<Seen>, BTreeMap<String, usize>)> {
+        let (seen, listening, _) = self.list_with_phones()?;
+        Ok((seen, listening))
+    }
+
+    /// As [`Self::list_all`], and the phone booths with a caller in them (17f). Their callers
+    /// are not among the people: the desk decides which of them to mix ([`crate::phone::Phone::note`]).
+    pub fn list_with_phones(&self) -> Result<Listed> {
         let mut seen = parse(
             &self.call(
                 "ListParticipants",
@@ -235,7 +290,38 @@ impl RoomApi {
             )?;
             listening.insert(key.clone(), parse_monitor_listeners(&reply, &key)?);
         }
-        Ok((seen, listening))
+        let mut phones = Vec::new();
+        for (room, tail, person) in parse_phone_booths(&rooms, &self.room)? {
+            let reply = self.call(
+                "ListParticipants",
+                &room,
+                serde_json::json!({ "room": room }),
+            )?;
+            if let Some((s, sip_identity)) =
+                parse_phone_caller(&reply, &self.desk_prefix, &room, &person)?
+            {
+                phones.push((
+                    s,
+                    PhoneSeen {
+                        person,
+                        room,
+                        tail,
+                        sip_identity,
+                    },
+                ));
+            }
+        }
+        Ok((seen, listening, phones))
+    }
+
+    /// End a phone call (17f): take LiveKit's SIP participant out of its booth, which hangs up.
+    pub fn remove_participant(&self, room: &str, identity: &str) -> Result<()> {
+        self.call(
+            "RemoveParticipant",
+            room,
+            serde_json::json!({ "room": room, "identity": identity }),
+        )
+        .map(|_| ())
     }
 
     /// One call to LiveKit's room service, as an admin of `room`; a room that is not there
@@ -535,11 +621,20 @@ pub fn watch(desk: Desk, api: RoomApi, stop: Arc<AtomicBool>) {
             );
         }
         was_empty = empty;
-        match api.list_all() {
-            Ok((seen, listening)) => {
+        // Phone calls the control plane ended (17f): the caller out of the booth hangs up.
+        for (room, identity) in desk.take_phone_hang_ups() {
+            // The error is not logged: LiveKit's reply may name the caller's identity.
+            if api.remove_participant(&room, &identity).is_err() {
+                tracing::warn!("cannot end a phone call yet; trying again");
+                desk.phone_hang_up_again(room, identity);
+            }
+        }
+        match api.list_with_phones() {
+            Ok((mut seen, listening, phones)) => {
                 if failing_since.take().is_some() {
                     tracing::info!("LiveKit's server API answers again");
                 }
+                seen.extend(desk.note_phone_booths(phones));
                 let mut view = desk.view();
                 note_retries(&mut retries, &seen, &view);
                 view.retries = retries.clone();
@@ -1054,6 +1149,64 @@ mod tests {
             vec![("studio-booth-c7f3".to_owned(), "c7f3".to_owned())]
         );
         assert!(parse_booths("{}", "studio").unwrap().is_empty());
+    }
+
+    #[test]
+    fn phone_booths_are_found_and_only_the_sip_caller_counts() {
+        let rooms = r#"{"rooms": [
+            {"name": "studio", "numParticipants": 9},
+            {"name": "studio-phone_0123_Xk3pQ9mZr2Ta", "numParticipants": 2},
+            {"name": "studio-phone_mous_Ab12Cd34Ef56", "numParticipants": 0},
+            {"name": "studio-booth-c7f3", "numParticipants": 1},
+            {"name": "other-phone_0123_Xk3pQ9mZr2Ta", "numParticipants": 1}
+        ]}"#;
+        let booths = parse_phone_booths(rooms, "studio").unwrap();
+        assert_eq!(
+            booths,
+            vec![(
+                "studio-phone_0123_Xk3pQ9mZr2Ta".to_owned(),
+                "0123".to_owned(),
+                "phone-Xk3pQ9mZr2Ta".to_owned()
+            )]
+        );
+        // Browser booths are not phone booths, and phone booths are not browser booths.
+        assert!(
+            parse_booths(rooms, "studio")
+                .unwrap()
+                .iter()
+                .all(|(r, _)| !r.contains("phone"))
+        );
+        let reply = r#"{"participants": [
+            {"sid": "PA_d", "identity": "desk-mm-phone-Xk3pQ9mZr2Ta", "state": "ACTIVE",
+             "tracks": [{"type": "AUDIO"}], "attributes": {"weavesignal.role": "caller"}},
+            {"sid": "PA_x", "identity": "mallory", "state": "ACTIVE",
+             "tracks": [{"type": "AUDIO"}], "attributes": {"weavesignal.role": "caller"}},
+            {"sid": "PA_s", "identity": "sip_a8acc3a90a7b4e4d", "name": "Phone 0123",
+             "state": "ACTIVE", "tracks": [{"type": "AUDIO"}],
+             "attributes": {"weavesignal.role": "caller", "weavesignal.line": "phone"}}
+        ]}"#;
+        let (seen, sip) = parse_phone_caller(
+            reply,
+            "desk",
+            "studio-phone_0123_Xk3pQ9mZr2Ta",
+            "phone-Xk3pQ9mZr2Ta",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(sip, "sip_a8acc3a90a7b4e4d");
+        assert_eq!(seen.identity, "phone-Xk3pQ9mZr2Ta");
+        assert_eq!(seen.sid, "PA_s");
+        assert_eq!(seen.role, Role::Caller);
+        assert!(seen.has_audio);
+        assert_eq!(seen.room.as_deref(), Some("studio-phone_0123_Xk3pQ9mZr2Ta"));
+        // A SIP participant without the caller's role (a rule not ours) is nobody.
+        let other = r#"{"participants": [{"sid": "PA_s", "identity": "sip_a8acc3a90a7b4e4d",
+            "state": "ACTIVE", "tracks": [{"type": "AUDIO"}]}]}"#;
+        assert!(
+            parse_phone_caller(other, "desk", "r", "phone-Xk3pQ9mZr2Ta")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

@@ -31,6 +31,7 @@
   .lg-only { display: none !important; }
   @container studio (min-width: 2200px) { .lg-only { display: revert !important; } .statusbar .item.lg-only { display: inline-flex !important; } }
   & { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
+  & { --desk-columns: 3; }   /* which layout is drawn, for the desk to read (lib/columns.ts): 1 in the one-column layout, below */
   .cols { display: grid; grid-template-columns: 17.5rem minmax(0, 1fr) 17.5rem; gap: var(--s-3); padding: var(--s-3); min-height: 0; }
   .col { display: grid; gap: var(--s-3); min-height: 0; align-content: start; }
   .col.left { grid-template-rows: auto auto minmax(0, 1fr); }
@@ -109,6 +110,19 @@
   .clock .post .hold { justify-self: end; min-height: 1.5rem; margin-top: 2px; }
   .clock .post.grace .bar i { background: var(--status-warning); }
   .clock .post.held .name, .clock .post.says .name { grid-column: 1 / -1; line-height: var(--lh-label); }
+  /* the handover window (1.2, handover-window.md): rows of their own under the post line, at most two. A row is its word in
+     small capitals, who, their state as a chip of the vocabulary (a mark and a word), and under them the show, where they come
+     from and the heads-up. The late row's edge is the warning colour's and the overrun's the serious one's, beside their words. */
+  .clock .win { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; gap: var(--s-1); }
+  .clock .win li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 var(--s-2); align-items: center; padding: var(--s-1) var(--s-2); background: var(--surface-2); border-radius: var(--r-1); border-left: 3px solid var(--hairline); min-width: 0; }
+  .clock .win li[data-win="late"] { border-left-color: var(--status-warning); }
+  .clock .win li[data-win="overrun"] { border-left-color: var(--status-serious); }
+  .clock .win li[data-ready="ready"] { border-left-color: var(--status-good); }
+  .clock .win .lab { font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+  .clock .win .who { font-size: var(--fs-14); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .clock .win .what { grid-column: 1 / -1; font-size: var(--fs-12); color: var(--ink-2); line-height: var(--lh-label); }
+  .tile .extra.next { border-left-color: var(--accent); display: flex; gap: var(--s-1); align-items: baseline; }
+  .tile .extra.next svg { width: 12px; height: 12px; flex: none; align-self: center; color: var(--accent); }
   .clock .listen { font-size: var(--fs-13); color: var(--muted); display: block; line-height: 1.4; }
   .clock .listen b { color: var(--ink-2); font-family: var(--font-mono); font-weight: 500; }
   .clock .listen svg { width: 12px; height: 12px; }
@@ -134,9 +148,33 @@
   .playout .acts .btn { font-size: var(--fs-13); }
 
   /* the stage: everything on air */
-  .stage { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--s-3); min-height: 0; min-width: 0; }
+  .stage { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--s-3); min-height: 0; min-width: 0; }
+  /* The stage's height under its head, in the order things keep theirs (1.2.0), as the right column has had since 1.1.1:
+     1. The tiles on air keep what their rows need: head, levels, the four live buttons, the lines, and every note.
+     2. Not on air has the rest, and never less than a floor: its name and the first row's names and states. Where that
+        is less than it needs it scrolls inside itself, its name staying, with a scrollbar of its own width.
+     3. Height to spare goes to the rows on air, shared equally.
+     4. Where even 1 and the floor do not fit (five on air in a 1,440 × 900 window) everything under the head scrolls.
+     Until 1.2.0 it was the other way about: Not on air took its own height first and the tiles on air shared what was
+     left, shrinking to nothing. A caller's note on strip 4 was cut whenever the row under it grew (Playout down added
+     39 px to it), and with three on air and two waiting the on-air tiles lost their four buttons altogether. */
+  & { --waiting-floor: 6rem; }
+  .stage-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(min-content, 1fr); grid-auto-rows: minmax(var(--waiting-floor), auto); gap: var(--s-3); min-height: 0; min-width: 0; overflow: hidden auto; }
+  /* a box that clips keeps 4 px round it for the on-air edge and a focus ring at its rim */
+  .stage-body, .waiting { padding: 4px; margin: -4px; }
+  .stage-body::-webkit-scrollbar, .waiting::-webkit-scrollbar, .col.left > .playout::-webkit-scrollbar { width: 10px; height: 10px; }
+  .stage-body::-webkit-scrollbar-track, .waiting::-webkit-scrollbar-track, .col.left > .playout::-webkit-scrollbar-track { background: transparent; }
+  .stage-body::-webkit-scrollbar-thumb, .waiting::-webkit-scrollbar-thumb, .col.left > .playout::-webkit-scrollbar-thumb { background: var(--axis); border: 2px solid transparent; border-radius: 5px; background-clip: padding-box; }
+  .stage-body::-webkit-scrollbar-thumb:hover, .waiting::-webkit-scrollbar-thumb:hover, .col.left > .playout::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
+  /* The head's width, in the order its parts keep theirs. The lamp with its button, the delay with Dump, and End show are
+     as wide as their words, whatever they say: the widest lamp (PLAYOUT DOWN) beside the widest delay (DELAY BUILDING, and
+     Dump armed: "Press again") is 700 px of the 793 px a three-column stage has at its narrowest. The show's title takes
+     what is left and is the part that gives way: its name ends in an ellipsis and its line under it takes three lines, then
+     one. Until 1.2.0 the title kept 12 rem and the three others shared what was left, so the delay was drawn narrower than
+     its content and Dump lay under End show whenever playout was down (1,440 × 900), sooner still with Dump armed. */
+  .stage-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--s-3); align-items: center; }
   .stage-head > * { min-width: 0; }
-  .stage-head { display: grid; grid-template-columns: auto minmax(12rem, 1fr) auto auto; gap: var(--s-3); align-items: center; }
+  .stage-head > .air, .stage-head > .delay, .stage-head > .acts { min-width: max-content; }
   .lamp { display: inline-flex; align-items: center; gap: var(--s-2); height: 3rem; padding: 0 var(--s-3); border-radius: var(--r-3); font-size: var(--fs-20); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; border: 2px solid transparent; line-height: 1; white-space: nowrap; }
   .lamp svg { width: 1.25rem; height: 1.25rem; }
   .lamp.onair { background: var(--live-onair); color: var(--live-onair-ink); box-shadow: var(--e-2); }
@@ -145,7 +183,7 @@
   .lamp.auto svg { color: var(--mode-auto); }
   .stage-head .title { display: grid; gap: 2px; min-width: 0; }
   .stage-head .title h1 { font-size: var(--fs-16); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .stage-head .title .sub { font-size: var(--fs-13); color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
+  .stage-head .title .sub { font-size: var(--fs-13); color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }   /* three lines are under the lamp and its button's height */
   .stage-head .title .sub b { color: var(--ink); }
   .delay { display: grid; grid-template-columns: auto auto auto; gap: var(--s-2); align-items: center; }
   .delay .arc { width: 3rem; height: 3rem; }
@@ -155,7 +193,7 @@
   .delay .arc .fg.warn { stroke: var(--status-warning); }
   .delay .arc text { font-family: var(--font-mono); font-size: 12px; fill: var(--ink); font-weight: 600; }
   .delay .lbl { display: grid; gap: 2px; justify-items: start; }
-  .delay .lbl .small { white-space: normal; max-width: 8rem; line-height: 1.3; }
+  .delay .lbl .small { white-space: normal; max-width: 8rem; line-height: 1.25; }   /* three lines under the chip are no taller than the lamp and its button, so the head is one height in every state */
   .delay .btn.big { min-height: 2.25rem; font-size: var(--fs-14); padding: 0 var(--s-3); }
   /* the head's own column (End show, Screener), not the buttons of the dialog the head holds (AirControl's End show and Hand to automation) */
   .stage-head > .acts { display: grid; gap: var(--s-1); }
@@ -165,9 +203,12 @@
   .btn.outline { background: transparent; color: var(--ink); border-color: var(--ink-2); }
   .btn.outline:hover { background: var(--surface-2); }
 
-  .tiles { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: var(--s-3); min-height: 0; }
+  /* A row is as tall as its tallest tile needs, and the rows share what is to spare equally. Not `1fr` rows: asked how
+     tall it needs to be, a grid of those answers with every row as tall as the tallest, and Not on air would give way
+     for a note's height that no row uses. */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(min-content, auto); gap: var(--s-3); min-height: 0; }
   /* a tile's head is two lines high whatever the state (name, then role), chips never wrap, and the rows are fixed
-     (head, levels, controls, then the lines and notes take what is left), so the four live buttons never move (review finding 5) */
+     (head, levels, controls, the lines, then the notes), so the four live buttons sit at one offset in every tile (review finding 5) */
   .tile { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-3); padding: var(--s-3); display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto auto auto minmax(0, 1fr); gap: 0.375rem; box-shadow: var(--e-1); min-width: 0; min-height: 0; }
   .tile.is-onair { border-color: var(--live-onair); box-shadow: 0 0 0 1px var(--live-onair), var(--e-1); }
   .tile.is-open { border-color: var(--live-open); box-shadow: var(--e-1); }   /* ADR-0062: open to the room, not to listeners; the red edge goes with the red word */
@@ -207,8 +248,12 @@
   .tile .lines .hand > span { overflow: hidden; text-overflow: ellipsis; }
   .tile .lines .hand kbd { height: 1.125rem; }
 
-  .waiting { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
-  .waiting .wh { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: calc(-1 * var(--s-1)); }
+  .waiting { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: max-content; gap: var(--s-3); align-content: start; min-height: 0; overflow: hidden auto; }   /* rows of their content's height: a tile may shrink (min-height: 0), and in a box of fixed height auto rows would be squeezed, not scrolled */
+  /* Its name stays while its tiles scroll under it. The row's ground reaches from the box's rim (the 4 px above it) down
+     to where the first tile starts (8 px under it, taken back in the margin), so a tile under it ends at a clean edge. */
+  .waiting .wh { position: sticky; top: 0; z-index: 1; background: var(--plane); box-shadow: 0 -4px 0 var(--plane); padding-bottom: var(--s-2); }
+  .waiting { scroll-padding-top: 2.75rem; }   /* a control the keys reach is brought out from under the name, not left behind it */
+  .waiting .wh { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: calc(-1 * var(--s-1) - var(--s-2)); }
   .waiting .wh::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
   .waiting .tile { border-style: dashed; }   /* on --surface, not --surface-2: 12 px muted labels only pass on --surface (design system §5) */
   .waiting .wh .rule { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
@@ -288,7 +333,6 @@
 
   @container studio (min-width: 2200px) {
     .cols { grid-template-columns: 22rem minmax(0, 1fr) 22rem; }
-    .tiles { grid-auto-rows: minmax(0, 1fr); }
     .tile { grid-template-columns: 11rem minmax(0, 1fr); grid-template-rows: auto auto auto auto minmax(0, 1fr); grid-template-areas: "thumb head" "thumb levels" "thumb controls" "thumb lines" "thumb rest"; gap: var(--s-3) var(--s-3); }
     .tile .head { height: 3rem; }
     .tile .name { font-size: var(--fs-20); }
@@ -316,6 +360,17 @@
   }
   @container studio (max-width: 2199px) {
     .delay .arc { display: none; }
+    /* the tag that says Dump is switched off (Show everything, below Callers) stands under Dump, not beside it: a fourth
+       column was 90 px the head does not have */
+    .delay:has(.offtag) { grid-template-columns: auto auto; }
+    .delay:has(.offtag) .lbl { grid-row: 1 / span 2; }
+    .delay .offtag { grid-column: 2; justify-self: start; }
+    /* a compact Picture for a short window (16d; 1,440 by 900): what is on the programme picture is one line, not a box of three,
+       and the cameras are a little smaller, so the cameras are in sight under the switch without scrolling. The larger window
+       keeps the box, which there is the picture's own place. */
+    .video .pic { height: auto; min-height: 1.75rem; display: block; padding: 0; overflow: visible; }
+    .video .pic .slate { position: static; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 0 var(--s-2); text-align: start; padding: var(--s-1) var(--s-2); }
+    .video .cams li { width: 4.75rem; max-width: 4.75rem; }
   }
   /* A narrow window, or a large text size (A+ is zoom, which a container query sees and a media
      query does not): one column that scrolls under a status bar that stays, every row as tall as
@@ -324,15 +379,34 @@
     .cols { grid-template-columns: 1fr; overflow: auto; align-content: start; }
     /* max-content, not auto: the panels may shrink to nothing (min-height: 0, for the full-window
        layout), so auto rows in a box of fixed height were shared out equally and overlapped */
-    .cols, .col, .col.left, .col.right, .stage, .tiles { grid-template-rows: none; grid-auto-rows: max-content; }
-    .col.right, .col .slot, .col.left > .playout, .col.right .fold { overflow: visible; }
+    .cols, .col, .col.left, .col.right, .stage, .stage-body, .tiles { grid-template-rows: none; grid-auto-rows: max-content; }
+    .col.right, .col .slot, .col.left > .playout, .col.right .fold, .stage-body, .waiting { overflow: visible; }
+    .stage-body, .waiting { padding: 0; margin: 0; }
+    .waiting .wh { position: static; box-shadow: none; }
+  }
+  /* A stage narrower than the head's parts in one row (a small window at a large text size: 1,280 px at 150 % is 853)
+     gives the delay and Dump a row of their own under the lamp, the title and End show. One column has the height. */
+  @container studio (max-width: 920px) {
+    .stage-head { grid-template-columns: auto minmax(0, 1fr) auto; }
+    .stage-head > .delay { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+    .stage-head > span:empty { display: none; }   /* the place kept for the delay at a step that does not draw it */
+    /* and the toast's row holds its message to one line, as a short slot does: at this width the page has little height
+       left (640 by 300 px at the smallest window and the largest text). The message's own title attribute has the rest. */
+    .toast-row .toast .msg { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
   }
   /* Every row is its content's height there, the slot's and the chat's too: neither is a container, so no toast is
      shortened and the chat is never asked to leave. Asked of the studio by name: a query with no name would be answered
      by the slot itself, which is a container in the full-window layout. */
   @container studio (max-width: 1400px) {
+    & { --desk-columns: 1; }
     .col .slot, .col .slot .chat-cell { container-type: normal; }
   }
+  /* The toast's row in one column (DeskB.svelte): between the part that scrolls and the status bar, so it is in view
+     wherever the page is scrolled. It takes its height from the foot of the scrolling part: nothing above moves, and
+     nothing is covered. Across the whole window a toast is its title over its words, with its keyed answer beside them. */
+  .toast-row { padding: var(--s-2) var(--s-3); border-top: 1px solid var(--hairline); min-width: 0; }
+  .toast-row .toast .body { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .toast-row .toast .acts { grid-column: 3; grid-row: 1 / span 2; align-self: center; margin-top: 0; }
 
 
   /* ---- added in the build (not on the design page): states the page did not draw ---- */

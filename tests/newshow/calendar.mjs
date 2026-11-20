@@ -763,20 +763,29 @@ if (run('plates')) {
       const foot = await platesNow(d.page);
       check('scrolled to the foot, the chat glance has its plate, and none is outside the column', foot.chat && foot.outside.length === 0 && over(foot).length === 0, JSON.stringify({ chat: foot.chat, outside: foot.outside, over: over(foot) }));
       await shot(d.page, '34-plates-desk-one-column-foot');
-      // Every row is its content's height here: a toast is not shortened and the chat stays under it.
+      // In one column a toast has a row of its own above the status bar (1.2.0: its slot is the
+      // foot of the page, where it arrived unseen). It is not shortened, the chat glance keeps
+      // the slot, and each has its plate: the toast's wherever the page is scrolled.
       down = true;
       await d.page.locator('[data-panel="desk.toast"]').waitFor({ timeout: 5000 });
       await d.page.locator('.desk .cols').evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await sleep(800);
       const both = await d.page.evaluate(() => {
-        const msg = document.querySelector('.col.right .toast .msg');
+        const toasts = document.querySelectorAll('[data-panel="desk.toast"]');
+        const msg = toasts[0].querySelector('.msg');
         const chat = document.querySelector('.col.right .chat');
-        const toast = document.querySelector('.col.right .toast').getBoundingClientRect();
-        return { whole: msg.scrollHeight - msg.clientHeight <= 1, chat: chat.getClientRects().length > 0, under: chat.getClientRects().length > 0 && chat.getBoundingClientRect().top >= toast.bottom };
+        const toast = toasts[0].getBoundingClientRect();
+        const cols = document.querySelector('.desk .cols').getBoundingClientRect();
+        const foot = document.querySelector('.statusbar').getBoundingClientRect();
+        return { once: toasts.length === 1, whole: msg.scrollHeight - msg.clientHeight <= 1, chat: chat.getClientRects().length > 0, row: toast.top >= cols.bottom - 0.5 && toast.bottom <= foot.top + 0.5, above: chat.getClientRects().length > 0 && chat.getBoundingClientRect().bottom <= toast.top + 0.5 };
       });
       const withToast = await platesNow(d.page);
-      check('one column, a toast: its message is whole, the chat is drawn under it, and both have their plates', both.whole && both.chat && both.under && withToast.chat && withToast.toast && withToast.outside.length === 0 && over(withToast).length === 0, JSON.stringify({ ...both, plates: [withToast.chat, withToast.toast], outside: withToast.outside, over: over(withToast) }));
+      check('one column, a toast: it is in its own row above the status bar, its message whole, the chat glance above it in the page, and both have their plates', both.once && both.whole && both.chat && both.row && both.above && withToast.chat && withToast.toast && withToast.outside.length === 0 && over(withToast).length === 0, JSON.stringify({ ...both, plates: [withToast.chat, withToast.toast], outside: withToast.outside, over: over(withToast) }));
       await shot(d.page, '35-plates-desk-one-column-toast');
+      await d.page.locator('.desk .cols').evaluate((el) => el.scrollTo(0, 0));
+      await sleep(600);
+      const atTop = await platesNow(d.page);
+      check('…and with the page back at its top the toast keeps its plate, over no control, while the chat glance is out of sight', atTop.toast && !atTop.chat && atTop.outside.length === 0 && over(atTop).length === 0, JSON.stringify({ plates: [atTop.chat, atTop.toast], outside: atTop.outside, over: over(atTop) }));
     } else log('SKIP one column: this window is three columns at this text size; the default 1,440 × 900 run covers it');
     await d.ctx.close();
   }

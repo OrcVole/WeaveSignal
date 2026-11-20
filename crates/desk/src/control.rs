@@ -26,7 +26,28 @@
 //! {"op": "mode", "mode": "auto"}           (or "live")
 //! {"op": "rtmp", "set": "<id>", "destinations": [{"name": "rumble", "url": "rtmp://…/live",
 //!  "key": "…", "profile": "compatible", "enabled": true}]}
+//! {"op": "kit", "set": "<id>", "bind": "192.168.1.10", "outs": [{"address": "192.168.1.40",
+//!  "port": 6980, "name": "Programme", "source": "programme", "format": "s24"}]}
+//! {"op": "phone_words", "person": "phone-<random>", "file": "<uuid>.flac", "version": "…",
+//!  "gain_db": 0.0}
+//! {"op": "phone_admit", "person": "phone-<random>"}
+//! {"op": "phone_hang_up", "person": "phone-<random>"}
 //! ```
+//!
+//! The phone line (17f, [`crate::phone`]): `phone_words` plays a file of the phone-words
+//! directory into a phone caller's return, which answers the call; `phone_admit` lets the
+//! caller's voice in (and answers, with the words off); `phone_hang_up` ends the call. Each
+//! answers done, or an error with the code `phone`. The status's `phone` lists the phone booths
+//! of the people at the desk (`person`, `tail`, `sip_identity`, `answered`, `admitted`,
+//! `words_playing`, `words_done`) and the last keys, numbered (`seq`, `person`, `code`,
+//! `words_version`). These are the control plane's own requests: its API's desk commands
+//! cannot send them.
+//!
+//! `kit` (Phase 17g) replaces VBAN out's outputs, sent from `bind` (null: none): `source` is
+//! `programme` (after the profanity delay), `programme_live` (before it), `monitor:<key id>` or
+//! `mix_minus:<identity>`. The status's `kit` reports the `set` it holds and each output's
+//! packets, dropped blocks and problem, so the control plane sends the set again to a desk that
+//! restarted. An output that cannot start is named in the error; the others run.
 //!
 //! `rtmp` (ADR-0230, `rtmp-out`) replaces RTMP out's destinations, with video on; the status's
 //! `video.rtmp` reports each one (never its key) and the `set` it holds, so the control plane
@@ -161,6 +182,30 @@ pub enum Request {
         set: String,
         destinations: Vec<crate::rtmp::Destination>,
     },
+    /// VBAN out's outputs (Phase 17g).
+    Kit {
+        set: String,
+        #[serde(default)]
+        bind: Option<String>,
+        #[serde(default)]
+        outs: Vec<crate::vban_out::OutSpec>,
+    },
+    /// Play the phone words into a phone caller's return, which answers the call (17f).
+    PhoneWords {
+        person: String,
+        file: String,
+        version: String,
+        #[serde(default)]
+        gain_db: f32,
+    },
+    /// Let a phone caller's voice in: they passed the gate (17f).
+    PhoneAdmit {
+        person: String,
+    },
+    /// End a phone call (17f).
+    PhoneHangUp {
+        person: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -180,6 +225,10 @@ pub enum Reply {
         /// The video stream's sound (video on): the desk's or playout's (ADR-0172).
         #[serde(skip_serializing_if = "Option::is_none")]
         sound: Option<HlsSoundStatus>,
+        /// VBAN out (Phase 17g).
+        kit: Box<crate::pipeline::KitStatus>,
+        /// The phone line's booths and keys (17f).
+        phone: Box<crate::phone::PhoneStatus>,
     },
     Dumped {
         ok: bool,
@@ -212,6 +261,18 @@ pub enum Reply {
         #[serde(skip_serializing_if = "Option::is_none")]
         code: Option<&'static str>,
     },
+}
+
+/// A phone request's answer: done, or its error with the code `phone`.
+fn phone_reply(r: Result<()>) -> Reply {
+    match r {
+        Ok(()) => Reply::Done { ok: true },
+        Err(e) => Reply::Error {
+            ok: false,
+            code: Some("phone"),
+            error: format!("{e:#}"),
+        },
+    }
 }
 
 pub fn handle(desk: &Desk, line: &str) -> Reply {
@@ -247,7 +308,17 @@ pub fn handle(desk: &Desk, line: &str) -> Reply {
             carts: desk.carts(),
             video: desk.video().map(|v| Box::new(v.status())),
             sound: desk.video().map(|_| desk.hls_sound()),
+            kit: Box::new(desk.kit_status()),
+            phone: Box::new(desk.phone_status()),
         },
+        Request::PhoneWords {
+            person,
+            file,
+            version,
+            gain_db,
+        } => phone_reply(desk.phone_words(&person, &file, &version, gain_db)),
+        Request::PhoneAdmit { person } => phone_reply(desk.phone_admit(&person)),
+        Request::PhoneHangUp { person } => phone_reply(desk.phone_hang_up(&person)),
         Request::Picture { mode, identity } => {
             let Some(v) = desk.video() else {
                 return video_off();
@@ -312,6 +383,29 @@ pub fn handle(desk: &Desk, line: &str) -> Reply {
                 artist,
             });
             Reply::Done { ok: true }
+        }
+        Request::Kit { set, bind, outs } => {
+            let bind = match bind.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+                None => None,
+                Some(b) => match b.parse::<std::net::IpAddr>() {
+                    Ok(a) => Some(a),
+                    Err(_) => {
+                        return Reply::Error {
+                            ok: false,
+                            code: Some("invalid"),
+                            error: format!("`{b}` is not an address"),
+                        };
+                    }
+                },
+            };
+            match desk.set_kit(&set, bind, outs) {
+                Ok(()) => Reply::Done { ok: true },
+                Err(e) => Reply::Error {
+                    ok: false,
+                    code: Some("invalid"),
+                    error: e,
+                },
+            }
         }
         Request::Rtmp { set, destinations } => {
             let Some(v) = desk.video() else {

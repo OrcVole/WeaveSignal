@@ -1388,7 +1388,7 @@
           "internal"
         ],
         "summary": "May this connection stand by?",
-        "description": "For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.",
+        "description": "For the ingest on this machine only, before it reads any media. With the key id (and, for Icecast, the secret; for a pull, way `pull` and no secret) and the address: `standby` with the desk slot promised to it, `test` (outside its slot, never on the desk) with how long, or `refused` with its reason. For SRT the reply carries the passphrase for the handshake; the handshake's outcome comes back on `events`. Five wrong keys from a public address in a minute refuse it for ten minutes; an address that is private, loopback, link-local or carrier-grade NAT is counted and logged but never refused.",
         "operationId": "internal_sources_admit",
         "requestBody": {
           "content": {
@@ -1434,7 +1434,7 @@
           "internal"
         ],
         "summary": "The ingest's settings",
-        "description": "For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports. The ingest asks every few seconds.",
+        "description": "For the ingest on this machine only (a loopback peer, no proxy's header, the bearer in `WEAVESIGNAL_INGEST_TOKEN`): whether to listen, and on which ports; and the pulls to hold open now (each pull whose slot's door is open). The ingest asks every few seconds.",
         "operationId": "internal_sources_config",
         "responses": {
           "200": {
@@ -1586,6 +1586,186 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/kit": {
+      "get": {
+        "tags": [
+          "kit"
+        ],
+        "summary": "The presenter kit's settings",
+        "description": "VBAN in (each bound to a show key) and out, the address they use, the preset, and whether this installation may use VBAN at all (never on Cloudron; elsewhere only with `[kit] vban = true` in the settings file). Admin only.",
+        "operationId": "kit_get",
+        "responses": {
+          "200": {
+            "description": "The kit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KitView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "kit"
+        ],
+        "summary": "Change the presenter kit's settings",
+        "description": "The whole kit at once, checked: at most four VBAN ins and four outs; a named address of the station's, refused when public unless `allow_public`; each input a sender's address and stream name bound to a show key; each output one receiver (never broadcast or multicast). The ingest listens afresh and the desk sends afresh within seconds. 409 when the kit asks for VBAN and this installation does not allow it. Admin only.",
+        "operationId": "kit_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Kit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The kit now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KitView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/kit/clock": {
+      "get": {
+        "tags": [
+          "kit"
+        ],
+        "summary": "One clock: each source against the desk's",
+        "description": "For the clock badge: every host's own studio at the desk with its clock against the desk's in ppm (the desk resamples it once to follow it), the times it was placed afresh, VBAN's lost and dropped packets, and VBAN out's counts. Any staff member.",
+        "operationId": "kit_clock",
+        "responses": {
+          "200": {
+            "description": "The figures now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Clock"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/kit/preset": {
+      "post": {
+        "tags": [
+          "kit"
+        ],
+        "summary": "Apply a preset",
+        "description": "A radio preset's routing in one press: `studio_lan` sends the live programme (before the delay) back to the studio PC; `transmitter` sends the programme after the delay, what listeners hear; `local_guest` sends the first VBAN in's sender the monitor mix the desk makes for it; `custom` changes nothing but the name. VBAN ins are kept (each needs its show key). Checked and saved as `PUT` is. Admin only.",
+        "operationId": "kit_preset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The kit now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KitView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           },
           "422": {
             "$ref": "#/components/responses/Unprocessable"
@@ -2893,6 +3073,432 @@
           }
         ],
         "x-admin": true
+      }
+    },
+    "/api/v1/phone": {
+      "get": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "The phone line's state",
+        "description": "Whether the line takes calls and why not, the calls at the gate and in the queue, and the words a caller hears first. For staff.",
+        "operationId": "phone_status",
+        "responses": {
+          "200": {
+            "description": "The line.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/phone/bans": {
+      "get": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Number bans",
+        "description": "Every number ban that has not lapsed: its ban key, the last digits as the screener saw them, the day and the reason. Never a number. For staff.",
+        "operationId": "phone_bans",
+        "responses": {
+          "200": {
+            "description": "The bans.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PhoneBan"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Ban a number",
+        "description": "Ban a phone caller in the queue by `identity` (staff), or a number by `number` (an admin; every form it may arrive in is banned). The station keeps the ban key and the last digits, never the number. A withheld caller cannot be banned by number (409: \"Cannot ban a withheld number\"). Caller ID can be spoofed: a ban is advisory.",
+        "operationId": "phone_ban",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The bans made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PhoneBan"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/phone/bans/{ban_key}": {
+      "delete": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Lift a number ban",
+        "description": "Lift the ban with this ban key. An admin's.",
+        "operationId": "phone_unban",
+        "parameters": [
+          {
+            "name": "ban_key",
+            "in": "path",
+            "description": "`pb_` and 32 hex digits.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Lifted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/phone/consent": {
+      "put": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Change whether the consent words play, and which shipped voice",
+        "description": "Change `consent_words` (play the words before a caller joins the queue) or `default_voice` (`alba`, `edinburgh` or `own`: which shipped recording plays until the station records its own), or both; a field left out stays as it is. Each wins over the installation's setting (`PHONE_CONSENT_WORDS`, `PHONE_DEFAULT_VOICE`) from the next call, and is kept in the database. The station's own recording, once made, plays instead of either voice; `own` with no recording closes the line while the words are on. An admin's.",
+        "operationId": "phone_consent_set",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneConsentChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The line with its new settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/phone/consent/default/{file}": {
+      "get": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Hear a shipped voice",
+        "description": "One of the two recordings of the phone words that ship with WeaveSignal, for the studio's Play: `alba.opus` (a Scottish woman, the default) or `edinburgh.opus` (a man from Edinburgh), Ogg Opus, CC BY 4.0 (NOTICES.md). For staff.",
+        "operationId": "phone_consent_default_voice",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "`alba.opus` or `edinburgh.opus`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recording.",
+            "content": {
+              "audio/ogg": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/phone/takedown": {
+      "post": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Find a number's calls",
+        "description": "The consent records of the calls a number may have made, found by its ban keys (every form the number may have arrived in). The number is used for this request only. A withheld call cannot be found by number: find it by its date, time and show. An admin's.",
+        "operationId": "phone_takedown",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakedownRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The calls.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TakedownAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/phone/words": {
+      "put": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Keep the station's recording of the phone words",
+        "description": "The body is the recording, in any format the media worker reads (at most 8 MB, 1.5 s to 2 minutes). It must say `words_to_record` from `GET /api/v1/phone`; the station keeps those words beside it, and the line closes when they change until the words are recorded again. It replaces the recording before, and takes the place of the shipped default. An admin's.",
+        "operationId": "phone_words_record",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/File"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The line with its new words.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "phone"
+        ],
+        "summary": "Remove the station's recording of the phone words",
+        "description": "The shipped default plays again. An admin's.",
+        "operationId": "phone_words_remove",
+        "responses": {
+          "200": {
+            "description": "The line with the default words.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
       }
     },
     "/api/v1/player": {
@@ -4372,6 +4978,53 @@
           },
           {
             "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rota": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "The rota of the coming hours",
+        "description": "Every airing from now to twelve hours on, the one on air included, in start order: the show, who is down for it (the labels of its show keys that have not ended, else its presenter; empty when nobody is), where they come from (`room` or `push`, their own studio), and how far they have got (`not_connected`, `connecting`, `ready`, `on_air`). A source is ready once steady for the rules' `steady_s`; a presenter in the room once at the desk. Read from the same facts as the handover window; it changes nothing. It answers while the desk is down. For staff; an API token with `sources:read`.",
+        "operationId": "rota_get",
+        "responses": {
+          "200": {
+            "description": "The rota.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotaView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "sources:read"
+            ]
           }
         ]
       }
@@ -6051,7 +6704,7 @@
           "sources"
         ],
         "summary": "Change the rules for sources",
-        "description": "Every rule at once. The ingest takes new ports within seconds (it listens afresh). A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.",
+        "description": "Every rule at once. The ingest takes new ports within seconds (it listens afresh). A body without `window_s` (the handover window, from 1.2) keeps the stored one. A port the installation names (`ports.source_icecast`, `ports.source_srt`: the Compose settings, Cloudron's dashboard) is shown here and cannot be changed here: send it as it is, or the change is refused (422). 0 is a way the installation turned off. Admin only.",
         "operationId": "sources_settings_put",
         "requestBody": {
           "content": {
@@ -6241,6 +6894,62 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/StreamPasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The setup as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ],
+        "x-admin": true
+      }
+    },
+    "/api/v1/setup/stun": {
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Name the station's STUN servers",
+        "description": "Admin only. The STUN servers LiveKit, the desk and the join pages may ask (ADR-0290): `host:port` each, at most four; an empty list is none, the default. Only where the install route lets the studio write a setting its start script reads (the Cloudron package; elsewhere `409`, and the settings file's `STUN_SERVERS` decides). The answer applies to all three when the station next restarts, never to one alone; `stun.in_use` in the setup's view says what runs now. Each server named learns the address of every browser and of the station that asks it.",
+        "operationId": "setup_stun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StunChange"
               }
             }
           },
@@ -7139,7 +7848,7 @@
           "sources"
         ],
         "summary": "Make a show key",
-        "description": "A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`). For an admin, a producer or the show's presenter; an API token never.",
+        "description": "A key for one person to send to this show from their own software (ADR-0284). The reply holds the key's secret, the monitor link's secret and the details for Icecast and SRT: **shown this once**; the station keeps neither in a readable form. The show then comes from the host's own studio (`source: push`).\n\nWith `hint` `pull` and a `url`, the station opens the stream itself while the slot's door is open (`source: pull`): `http://` or `https://` (Icecast or any HTTP audio in MP3, AAC, Ogg or FLAC), an HLS playlist (`.m3u8`, MPEG-TS, AAC or MP3 segments), or `srt://host:port` with any `streamid=` (the station calls the listener; MPEG-TS). The address may hold no user name, password or SRT passphrase (422). Its name is resolved when it is saved, and an address inside the station's own network is refused (422) unless the installation sets `WEAVESIGNAL_PULL_ALLOW_PRIVATE`. The reply's secret is unused for a pull; its monitor link works as any key's. For an admin, a producer or the show's presenter; an API token never.",
         "operationId": "sources_keys_make",
         "parameters": [
           {
@@ -10422,6 +11131,205 @@
           {}
         ]
       }
+    },
+    "/whip/{key}": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Send from OBS over WHIP",
+        "description": "WHIP (RFC 9725) for a host's own software (17d): the body is an SDP offer (`application/sdp`) and the bearer is the show key's secret (OBS's *Bearer Token*; `<key id>-<secret>` is taken too). The reply is `201` with the SDP answer and the session's address in `Location`. The station answers ICE-lite with one host candidate, its public IPv4 address and its WHIP port (`ports.source_whip`, UDP, off unless the installation turns it on), and takes the Opus sound only: a picture the software sends is received and discarded, so OBS needs no change. From there the source is a host's own studio like Icecast and SRT (ADR-0280): standing by in its show's slot, a private test outside it, refused with a wrong key (five wrong keys from an address in a minute refuse it for ten minutes). No trickle ICE.",
+        "operationId": "whip_offer",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The show key's id (8 characters)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The SDP offer.",
+          "content": {
+            "application/sdp": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The SDP answer; `Location` is the session's address.",
+            "content": {
+              "application/sdp": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The offer has no Opus sound, or is not one the station can read.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer, or the wrong key.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: not the key's slot with tests off, the key ended, or turned away.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another connection is using this key.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The offer is over 32 KB.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Not `application/sdp`.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong keys from this address.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WHIP is off at this station, or the ingest or the desk is busy or away.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "show_key": []
+          }
+        ]
+      }
+    },
+    "/whip/{key}/{session}": {
+      "delete": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "End a WHIP session",
+        "description": "The host's software ends its WHIP session (the address `Location` gave), with the same bearer as its offer: the source ends as when Icecast or SRT disconnects.",
+        "operationId": "whip_end",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The show key's id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "The session, from `Location`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ended."
+          },
+          "401": {
+            "description": "No bearer, or the wrong key.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such session: it has ended already.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WHIP is off at this station.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "show_key": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -10597,7 +11505,7 @@
         "properties": {
           "address": {
             "type": "string",
-            "description": "The address the connection came from, as the ingest saw it."
+            "description": "The address the connection came from, as the ingest saw it (for the bridge, the\nstation's proxy's last `X-Forwarded-For` entry)."
           },
           "again": {
             "type": "boolean",
@@ -10612,11 +11520,18 @@
               "string",
               "null"
             ],
-            "description": "The secret it gave, for Icecast; left out for SRT, whose handshake proves it."
+            "description": "The secret it gave, for Icecast and WHIP; left out for SRT, whose handshake proves it, and\nfor a pull, which the station opened itself."
+          },
+          "stream": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `vban`: the stream's name, which with the address must be bound to the key."
           },
           "way": {
             "type": "string",
-            "description": "`icecast` or `srt`."
+            "description": "`icecast`, `srt`, `whip`, `bridge` (the studio app's WebSocket), `vban`, or `pull`. A\npull's key is admitted only as `pull`, and only a pull's key is."
           }
         },
         "additionalProperties": false
@@ -10779,7 +11694,7 @@
               "string",
               "null"
             ],
-            "description": "Why there is no count, in words the studio can show: the listener process does not\nanswer, or the control plane has no playout layer to ask it. `None` while counted."
+            "description": "Why there is no count, in words the studio can show: the listener process does not\nanswer on its status address, or its answer could not be read. The count does not need\nthe playout layer. `None` while counted, and before the first look (`listeners` is\n`None` too, and the studio waits for the first answer)."
           },
           "listeners": {
             "type": [
@@ -10834,6 +11749,39 @@
             "type": "string"
           }
         }
+      },
+      "BanRequest": {
+        "type": "object",
+        "description": "A ban: of a phone caller in the queue (the screener's), or of a number typed (an admin's).",
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Days until it lapses; absent, it does not.",
+            "minimum": 0
+          },
+          "identity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A phone caller's person key (`phone-…`) in the queue now."
+          },
+          "number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A number as a caller or the provider gave it; an admin's only. Never kept."
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "Bank": {
         "type": "object",
@@ -11126,6 +12074,17 @@
             "type": "integer",
             "description": "1, 2, 3...: their place in the queue, the screener's jump key.",
             "minimum": 0
+          },
+          "phone": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PhoneView",
+                "description": "A phone caller's line (17f); `None` for a browser caller."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "present": {
             "type": "boolean"
@@ -12038,6 +12997,49 @@
           }
         }
       },
+      "Clock": {
+        "type": "object",
+        "description": "The clock badge's figures.",
+        "required": [
+          "rate",
+          "sources",
+          "vban_dropped",
+          "vban_out"
+        ],
+        "properties": {
+          "rate": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The desk's rate: everything is resampled to it once, at the desk's edge.",
+            "minimum": 0
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceClock"
+            }
+          },
+          "vban_dropped": {
+            "type": "object",
+            "description": "VBAN packets the ingest dropped, by reason (`address`, `name`, `late`, `too_fast`, …).",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "vban_out": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeskKitOut"
+            },
+            "description": "VBAN out, as the desk reports it."
+          }
+        }
+      },
       "ClockBody": {
         "type": "object",
         "required": [
@@ -12134,6 +13136,38 @@
           }
         }
       },
+      "Closed": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "`phone.enabled` is off, or no trunk is set.",
+            "enum": [
+              "off"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "No key to make ban keys with (neither the token key nor the station key is set).",
+            "enum": [
+              "no_key"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "The words cannot play (the station's recording is of older words, or the default\nrecording is missing).",
+            "required": [
+              "words"
+            ],
+            "properties": {
+              "words": {
+                "$ref": "#/components/schemas/WordsProblem",
+                "description": "The words cannot play (the station's recording is of older words, or the default\nrecording is missing)."
+              }
+            }
+          }
+        ],
+        "description": "Why the line takes no calls now."
+      },
       "CodeAsked": {
         "type": "object",
         "required": [
@@ -12201,7 +13235,8 @@
         "description": "Who gave the consent: the caller on the player page, or the station on their behalf (an\nadmin's token request, for a test or a consent taken another way).",
         "enum": [
           "caller",
-          "station"
+          "station",
+          "not_asked"
         ]
       },
       "ConsentErased": {
@@ -12869,6 +13904,45 @@
         ],
         "description": "A command for the desk; the socket's own words."
       },
+      "DeskKitOut": {
+        "type": "object",
+        "description": "One VBAN out.",
+        "required": [
+          "name",
+          "address",
+          "source"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Blocks the mixing pass could not hand it (its sender fell behind).",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "packets": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Packets sent since it started.",
+            "minimum": 0
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is not sending, when it is not (`its source is not at the desk`, a socket error)."
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
       "DeskPerson": {
         "type": "object",
         "description": "A person as the desk reports them.",
@@ -13105,6 +14179,14 @@
           "leveller_db"
         ],
         "properties": {
+          "clock_ppm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Its clock against the desk's in ppm, as the desk follows it (Phase 17g); `None` before\nthe first estimate or from a desk that does not follow."
+          },
           "connected_ms": {
             "type": "integer",
             "format": "int64",
@@ -13132,9 +14214,21 @@
             "format": "float",
             "description": "What the leveller is doing to bring it to the desk's level, in dB (±12)."
           },
+          "lost": {
+            "type": "integer",
+            "format": "int64",
+            "description": "For VBAN: packets lost on the way, filled with silence.",
+            "minimum": 0
+          },
           "monitor": {
             "type": "boolean",
             "description": "Its monitor link is open: the desk is making its monitor mix (someone listens)."
+          },
+          "replaced": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Times it was placed afresh since it connected (a gap, or drift past the cushion).",
+            "minimum": 0
           },
           "show": {
             "type": "string",
@@ -13142,7 +14236,7 @@
           },
           "way": {
             "type": "string",
-            "description": "`icecast` or `srt`."
+            "description": "`icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software), or `pull` (the station opened it)."
           }
         }
       },
@@ -13244,7 +14338,8 @@
         "description": "How a host's software reaches the station (design section 3.1). The secret is in these\nonly in the reply that makes the key.",
         "required": [
           "icecast",
-          "srt"
+          "srt",
+          "whip"
         ],
         "properties": {
           "host": {
@@ -13257,8 +14352,22 @@
           "icecast": {
             "$ref": "#/components/schemas/IcecastDetails"
           },
+          "pull": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PullDetails",
+                "description": "For a pull: the address the station opens, and how."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "srt": {
             "$ref": "#/components/schemas/SrtDetails"
+          },
+          "whip": {
+            "$ref": "#/components/schemas/WhipDetails"
           }
         }
       },
@@ -14071,6 +15180,16 @@
           }
         }
       },
+      "HandoverReadiness": {
+        "type": "string",
+        "description": "How ready the incoming host is.",
+        "enum": [
+          "not_connected",
+          "connecting",
+          "ready",
+          "on_air"
+        ]
+      },
       "HandoverRequest": {
         "type": "object",
         "description": "The body of `POST /api/v1/monitor/handover`.",
@@ -14091,6 +15210,89 @@
           "bring",
           "hand_over"
         ]
+      },
+      "HandoverWindow": {
+        "type": "object",
+        "description": "The handover window as `GET /studio` and `GET /sources` carry it, inside `post`.",
+        "required": [
+          "state",
+          "show",
+          "show_name",
+          "start_ms",
+          "opens_ms",
+          "host",
+          "from"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/HostOrigin",
+            "description": "`room` or `push`."
+          },
+          "heads_up_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the incoming host was given their heads-up for this airing (once an airing)."
+          },
+          "host": {
+            "type": "string",
+            "description": "Who is down for it, by name: the source the post's rule names, else every name down."
+          },
+          "opens_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When the window opens (`start_ms` less the rules' `window_s`)."
+          },
+          "show": {
+            "type": "string",
+            "description": "The show it is about: the post's show (`post.show`), or the next show once that one's\nwindow has opened while the post's show is still waiting for a host who never came."
+          },
+          "show_name": {
+            "type": "string"
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The post: the show's start."
+          },
+          "state": {
+            "$ref": "#/components/schemas/HandoverWindowState",
+            "description": "`quiet` (before the window opens), `announced` (not here yet), `cueing` (connecting),\n`ready`, `overrun` (the post has come and the outgoing host still presents) or `held`."
+          }
+        }
+      },
+      "HandoverWindowState": {
+        "type": "string",
+        "description": "What the handover window is doing at `now_s`.",
+        "enum": [
+          "quiet",
+          "announced",
+          "cueing",
+          "ready",
+          "overrun",
+          "held"
+        ]
+      },
+      "HeadsUpLine": {
+        "type": "object",
+        "description": "The station's one line to the incoming host before their post.",
+        "required": [
+          "at_ms",
+          "words"
+        ],
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When the station gave it."
+          },
+          "words": {
+            "type": "string",
+            "description": "What the page says."
+          }
+        }
       },
       "Health": {
         "type": "object",
@@ -14243,6 +15445,14 @@
         "enum": [
           "recording",
           "consent"
+        ]
+      },
+      "HostOrigin": {
+        "type": "string",
+        "description": "Where a show's host comes from.",
+        "enum": [
+          "room",
+          "push"
         ]
       },
       "IcecastDetails": {
@@ -14633,12 +15843,19 @@
           "listen",
           "port_icecast",
           "port_srt",
+          "port_whip",
           "test_max_ms"
         ],
         "properties": {
           "listen": {
             "type": "boolean",
             "description": "Whether to listen at all: only once a key exists that has not ended."
+          },
+          "port_bridge": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The bridge's WebSocket, on loopback behind the proxy (Phase 17g); 0: off.",
+            "minimum": 0
           },
           "port_icecast": {
             "type": "integer",
@@ -14652,11 +15869,35 @@
             "description": "0: this way is off.",
             "minimum": 0
           },
+          "port_whip": {
+            "type": "integer",
+            "format": "int32",
+            "description": "WHIP's media port (UDP); 0: this way is off.",
+            "minimum": 0
+          },
+          "pulls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PullJob"
+            },
+            "description": "The pulls to hold open now: every pull whose slot's door is open and that is not turned\naway. The ingest opens those it does not hold and closes those no longer named."
+          },
           "test_max_ms": {
             "type": "integer",
             "format": "int64",
             "description": "A test's longest life, in ms.",
             "minimum": 0
+          },
+          "vban": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IngestVban",
+                "description": "VBAN in (Phase 17g): where to listen and the bindings; `None`: not at all."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -14691,6 +15932,15 @@
             "format": "float",
             "description": "Its level, dBFS RMS over the last few seconds, as decoded; `None` while silent."
           },
+          "lost": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "VBAN: packets lost on the way since it opened and filled with silence (the clock\nreadout's `lost`); absent for every other way.",
+            "minimum": 0
+          },
           "mode": {
             "type": "string",
             "description": "`standby` (on the desk) or `test` (never on the desk)."
@@ -14710,7 +15960,7 @@
           },
           "way": {
             "type": "string",
-            "description": "`icecast` or `srt`."
+            "description": "`icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software connected), or `pull` (the\nstation opened it)."
           }
         },
         "additionalProperties": false
@@ -14767,9 +16017,46 @@
               "$ref": "#/components/schemas/IngestConn"
             },
             "description": "Every connection the ingest holds now, standing by or in a test."
+          },
+          "vban_dropped": {
+            "type": "object",
+            "description": "VBAN packets dropped since the ingest started, by reason (Phase 17g).",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
+      },
+      "IngestVban": {
+        "type": "object",
+        "description": "What the ingest needs for VBAN in: `None` when it should not listen.",
+        "required": [
+          "bind",
+          "port",
+          "rules"
+        ],
+        "properties": {
+          "bind": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VbanIn"
+            }
+          }
+        }
       },
       "Insert": {
         "type": "object",
@@ -14987,7 +16274,7 @@
           },
           "source": {
             "type": "string",
-            "description": "`room` or `push`: where the show comes from."
+            "description": "`room`, `push` (a host's own software) or `pull` (a stream the station opens): where the\nshow comes from."
           }
         }
       },
@@ -15035,6 +16322,89 @@
           "listener_statistics",
           "access_logs"
         ]
+      },
+      "Kit": {
+        "type": "object",
+        "description": "The kit's settings.",
+        "properties": {
+          "allow_public": {
+            "type": "boolean",
+            "description": "Allow a public address (VBAN has no authentication or encryption: carry it through\nWireGuard instead)."
+          },
+          "bind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The station's own address on the network VBAN uses: VBAN in listens there, VBAN out\nsends from it. Needed for either."
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "VBAN in's port.",
+            "minimum": 0
+          },
+          "preset": {
+            "type": "string",
+            "description": "The preset last applied: `studio_lan`, `transmitter`, `local_guest` or `custom`."
+          },
+          "vban_in": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VbanIn"
+            }
+          },
+          "vban_out": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VbanOut"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "KitView": {
+        "type": "object",
+        "description": "The kit as the screen shows it.",
+        "required": [
+          "allowed",
+          "kit",
+          "presets",
+          "out_sources"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean",
+            "description": "Whether this installation may use VBAN."
+          },
+          "kit": {
+            "$ref": "#/components/schemas/Kit"
+          },
+          "out_sources": {
+            "type": "string",
+            "description": "What VBAN out may send."
+          },
+          "presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresetInfo"
+            }
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A warning to show: the address is public."
+          },
+          "why_not": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why not, when it may not."
+          }
+        }
       },
       "LastRefusal": {
         "type": "object",
@@ -15611,6 +16981,17 @@
             "format": "int64",
             "description": "When the grace ends and the schedule hands the air over from whoever holds it."
           },
+          "heads_up": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HeadsUpLine",
+                "description": "The handover window's heads-up, when this host is the one coming on next and the station\nhas given it (once an airing; design note `handover-window.md`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "held_by": {
             "type": [
               "string",
@@ -15890,7 +17271,7 @@
               "string",
               "null"
             ],
-            "description": "`icecast` or `srt`, while connected."
+            "description": "`icecast`, `srt`, `whip`, `bridge` or `vban`, while connected; `pull` while the station holds a pull open."
           }
         }
       },
@@ -16088,7 +17469,7 @@
         "properties": {
           "hint": {
             "type": "string",
-            "description": "`icecast` or `srt`: how they will send (a hint, not a lock)."
+            "description": "`icecast`, `srt`, `whip`, `bridge` or `vban`: how they will send (a hint, not a lock); or\n`pull`: the station opens the stream at `url` itself while the slot's door is open."
           },
           "label": {
             "type": "string",
@@ -16101,6 +17482,13 @@
             ],
             "format": "uuid",
             "description": "The member of staff it is for, if one."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For `pull` only: `http://` or `https://` (Icecast or any HTTP audio), a playlist ending\n`.m3u8` (HLS), or `srt://host:port` with any `streamid=` (the station is the caller). No\nuser name, password or SRT passphrase. An address inside the station's own network is\nrefused unless the installation allows it."
           }
         },
         "additionalProperties": false
@@ -16300,7 +17688,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "What it is about (`caller.ready`, `caller.declined`, ...), for the app to pick keys."
+            "description": "What it is about (`caller.ready`, `caller.declined`, `handover.heads_up`, ...), for the\napp to pick keys."
           },
           "message": {
             "type": "string"
@@ -16310,7 +17698,7 @@
               "string",
               "null"
             ],
-            "description": "The person it is about, if any; for `rule.changed`, the show's path (1.0.5)."
+            "description": "The person it is about, if any (for `handover.heads_up`, the incoming host's desk\nidentity while they are at the desk); for `rule.changed`, the show's path (1.0.5)."
           },
           "surface": {
             "$ref": "#/components/schemas/Surface"
@@ -16677,6 +18065,213 @@
             "format": "uuid"
           },
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PhoneBan": {
+        "type": "object",
+        "description": "A number's ban.",
+        "required": [
+          "ban_key",
+          "tail",
+          "date",
+          "reason"
+        ],
+        "properties": {
+          "ban_key": {
+            "type": "string",
+            "description": "`pb_` and 32 hex digits; never the number."
+          },
+          "date": {
+            "type": "string",
+            "description": "The day it was made (`2026-11-20`)."
+          },
+          "expires_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it lapses (milliseconds since the epoch); none, never.",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "tail": {
+            "type": "string",
+            "description": "The last digits as the screener saw them (at most four)."
+          }
+        }
+      },
+      "PhoneConsentChange": {
+        "type": "object",
+        "description": "A change to the phone line's consent settings; a field left out stays as it is.",
+        "properties": {
+          "consent_words": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Play the consent words before a caller joins the queue (`phone.consent_words`)."
+          },
+          "default_voice": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PhoneVoice",
+                "description": "Which shipped recording plays until the station records its own\n(`phone.default_voice`): `alba`, `edinburgh` or `own`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PhoneStatus": {
+        "type": "object",
+        "description": "The phone line's state.",
+        "required": [
+          "open",
+          "lines",
+          "at_gate",
+          "in_queue",
+          "consent_words_help",
+          "consent_words",
+          "default_voice",
+          "default_voice_help"
+        ],
+        "properties": {
+          "at_gate": {
+            "type": "integer",
+            "description": "Calls hearing the words now.",
+            "minimum": 0
+          },
+          "closed": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Closed",
+                "description": "Why not, when it does not."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consent_words": {
+            "type": "boolean",
+            "description": "Whether the consent words play: the setting an admin changed in the studio\n(`PUT /api/v1/phone/consent`), else `phone.consent_words`. With the line off, false."
+          },
+          "consent_words_help": {
+            "type": "string",
+            "description": "The description of the consent words setting (`phone.consent_words`, `PHONE_CONSENT_WORDS`\non Compose and the Quadlets), for the studio to show beside its switch: what the words\nare, when to leave them on (a licensed broadcaster, calls recorded or kept) and when an\ninternet-only station may turn them off. Plain words, not legal advice.",
+            "example": "Before a phone caller joins the queue, play them a few words: who they have reached, that the call may go on air and be recorded, and to press a key to carry on. …"
+          },
+          "default_voice": {
+            "$ref": "#/components/schemas/PhoneVoice",
+            "description": "Which shipped recording plays until the station records its own: the setting an admin\nchanged in the studio (`PUT /api/v1/phone/consent`), else `phone.default_voice`\n(`PHONE_DEFAULT_VOICE` on every install route): `alba` (the default), `edinburgh` or `own`.\nThe station's own recording, once made, plays instead of either. With the line off, the\ndefault."
+          },
+          "default_voice_help": {
+            "type": "string",
+            "description": "The description of `default_voice`, for the studio beside its choice."
+          },
+          "in_queue": {
+            "type": "integer",
+            "description": "Phone callers in the queue.",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Calls at once (`phone.lines`); 0 with the line off.",
+            "minimum": 0
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Whether the line takes calls now."
+          },
+          "recording": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecordingView",
+                "description": "The station's own recording, if it has one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "words": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PhoneWordsView",
+                "description": "The words; absent with the line off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "words_to_record": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the station's own recording should say today (its takedown contact is the\nstation's, not the show's, so it does not go out of date at each change of show);\nabsent with the line off."
+          }
+        }
+      },
+      "PhoneView": {
+        "type": "object",
+        "description": "A phone caller's line on the screener's caller card (17f).",
+        "required": [
+          "number",
+          "withheld",
+          "can_ban"
+        ],
+        "properties": {
+          "can_ban": {
+            "type": "boolean",
+            "description": "Whether the screener's ban can single this caller out; a withheld caller cannot be\nbanned by number (\"Cannot ban a withheld number\")."
+          },
+          "number": {
+            "type": "string",
+            "description": "`···4471`, or `Withheld`: the last four digits at most, never the number."
+          },
+          "withheld": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PhoneVoice": {
+        "type": "string",
+        "description": "Which recording plays when the station has none of its own (`phone.default_voice`; the\noperator's pick of 2026-11-20: Alba by default, Edinburgh the alternative).",
+        "enum": [
+          "alba",
+          "edinburgh",
+          "own"
+        ]
+      },
+      "PhoneWordsView": {
+        "type": "object",
+        "description": "What the line's words are now.",
+        "required": [
+          "kind",
+          "version",
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`off`, `default` (the recording that ships with WeaveSignal) or `station` (its own)."
+          },
+          "text": {
+            "type": "string",
+            "description": "What the caller hears (with the words off, the sentence the records keep instead)."
+          },
+          "version": {
             "type": "string"
           }
         }
@@ -17133,6 +18728,17 @@
                 "type": "null"
               }
             ]
+          },
+          "window": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HandoverWindow",
+                "description": "The handover window before this post (design note `handover-window.md`): who is next,\nfrom where, ready or not, and when they were given their heads-up. [`plan`] leaves it\nempty; the control plane fills it from [`crate::handover_window::for_post`]. Absent when\nthe window is off or nobody is down for the show."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -17178,6 +18784,43 @@
             "description": "The rule each period follows, in a line (recce 27's last column)."
           }
         }
+      },
+      "PresetInfo": {
+        "type": "object",
+        "description": "A preset as the screen offers it.",
+        "required": [
+          "name",
+          "words"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "words": {
+            "type": "string"
+          }
+        }
+      },
+      "PresetRequest": {
+        "type": "object",
+        "description": "A preset to apply.",
+        "required": [
+          "preset"
+        ],
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where its output goes (the studio PC, the transmitter); for `local_guest`, the first\nVBAN in's sender when left out."
+          },
+          "preset": {
+            "type": "string",
+            "description": "`studio_lan`, `transmitter`, `local_guest` or `custom`."
+          }
+        },
+        "additionalProperties": false
       },
       "PresetView": {
         "allOf": [
@@ -17919,6 +19562,55 @@
           }
         }
       },
+      "PullDetails": {
+        "type": "object",
+        "description": "What a pull opens.",
+        "required": [
+          "url",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/PullKind",
+            "description": "`http` (Icecast or any HTTP audio), `hls` (a playlist) or `srt` (the station calls an\nSRT listener)."
+          },
+          "url": {
+            "type": "string",
+            "description": "The address, as it was saved (normalised: the host in lower case, the port written)."
+          }
+        }
+      },
+      "PullJob": {
+        "type": "object",
+        "description": "A pull the ingest is to hold open.",
+        "required": [
+          "key_id",
+          "url",
+          "allow_private"
+        ],
+        "properties": {
+          "allow_private": {
+            "type": "boolean",
+            "description": "Whether it may open an address inside the station's own network."
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "The address as saved; the ingest checks it again, and every address its name resolves to,\nat each connection."
+          }
+        }
+      },
+      "PullKind": {
+        "type": "string",
+        "description": "How a pulled source is reached.",
+        "enum": [
+          "http",
+          "hls",
+          "srt"
+        ]
+      },
       "Recording": {
         "type": "object",
         "description": "A recording of the legal logger: the hour (UTC) it starts, its path and size.",
@@ -17965,6 +19657,33 @@
           "call"
         ]
       },
+      "RecordingView": {
+        "type": "object",
+        "description": "The station's own recording, as `GET /api/v1/phone` shows it.",
+        "required": [
+          "duration_ms",
+          "recorded_by",
+          "recorded_at_ms",
+          "out_of_date"
+        ],
+        "properties": {
+          "duration_ms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "out_of_date": {
+            "type": "boolean",
+            "description": "Made from other words than today's: the line is closed until it is recorded again."
+          },
+          "recorded_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recorded_by": {
+            "type": "string"
+          }
+        }
+      },
       "Refusal": {
         "type": "string",
         "description": "Why a connection was refused: a word for the log and the API, and the sentence the monitor\nlink and Settings show (design section 9).",
@@ -17983,9 +19702,17 @@
       "RelayInfo": {
         "type": "object",
         "required": [
-          "turn_tls_port"
+          "turn_tls_port",
+          "stun_servers"
         ],
         "properties": {
+          "stun_servers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The STUN servers (`host:port`) the page may use, as the station's operator named them\n(ADR-0290). Empty by default: the page asks no STUN server, whatever LiveKit offers it."
+          },
           "turn_tls_port": {
             "type": "integer",
             "format": "int32",
@@ -18504,6 +20231,88 @@
           "listener",
           "source"
         ]
+      },
+      "RotaRow": {
+        "type": "object",
+        "description": "One airing on the rota.",
+        "required": [
+          "show",
+          "show_name",
+          "start_ms",
+          "end_ms",
+          "hosts",
+          "from",
+          "state",
+          "ready",
+          "now"
+        ],
+        "properties": {
+          "end_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "from": {
+            "$ref": "#/components/schemas/HostOrigin",
+            "description": "`room` or `push`."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who is down for it, by name: a key's label each, or the show's presenter. Empty when\nnobody is (automation, or a show nobody has been put down for)."
+          },
+          "now": {
+            "type": "boolean",
+            "description": "On air by the schedule now."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Ready or on air."
+          },
+          "show": {
+            "type": "string"
+          },
+          "show_name": {
+            "type": "string"
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/HandoverReadiness",
+            "description": "How far the host has got now: `not_connected`, `connecting`, `ready` or `on_air`."
+          }
+        }
+      },
+      "RotaView": {
+        "type": "object",
+        "description": "The coming hours.",
+        "required": [
+          "now_ms",
+          "until_ms",
+          "airings"
+        ],
+        "properties": {
+          "airings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RotaRow"
+            },
+            "description": "One row an airing, in start order: the one on air now (`now`), then the rest."
+          },
+          "now_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The station's clock when it was read."
+          },
+          "until_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The end of the stretch the rota covers (twelve hours on)."
+          }
+        }
       },
       "Row": {
         "type": "object",
@@ -19619,6 +21428,7 @@
           "name",
           "contact",
           "stream_password",
+          "stun",
           "install",
           "branding"
         ],
@@ -19663,6 +21473,9 @@
           },
           "stream_password": {
             "$ref": "#/components/schemas/StreamPassword"
+          },
+          "stun": {
+            "$ref": "#/components/schemas/StunView"
           },
           "updated_at_ms": {
             "type": [
@@ -19959,7 +21772,7 @@
           },
           "hint": {
             "type": "string",
-            "description": "How the host means to send: `icecast` or `srt` (a hint, not a lock)."
+            "description": "How the host means to send: `icecast`, `srt`, `whip`, `bridge` or `vban` (a hint, not a\nlock); or `pull`, when the station opens the stream itself from `pull_url` (a lock: no host\nconnects with it)."
           },
           "id": {
             "type": "string",
@@ -19979,6 +21792,13 @@
               "null"
             ],
             "format": "int64"
+          },
+          "pull_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a pull (migration 0042): the address the station opens while the slot's door is open,\nas it was saved (plain HTTP, an HLS playlist, or an SRT listener with its stream id)."
           },
           "revoked_ms": {
             "type": [
@@ -20286,6 +22106,48 @@
           }
         ]
       },
+      "SourceClock": {
+        "type": "object",
+        "description": "One source's clock, as the desk follows it.",
+        "required": [
+          "identity",
+          "name",
+          "way",
+          "replaced",
+          "lost"
+        ],
+        "properties": {
+          "identity": {
+            "type": "string"
+          },
+          "lost": {
+            "type": "integer",
+            "format": "int64",
+            "description": "For VBAN: packets lost on the way and filled with silence.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "ppm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Its clock against the desk's, in parts per million; `None` before the first estimate\n(about 20 s), or from a desk that does not follow."
+          },
+          "replaced": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Times it was placed afresh (a gap, or drift past the cushion) since it connected.",
+            "minimum": 0
+          },
+          "way": {
+            "type": "string"
+          }
+        }
+      },
       "SourceLogEntry": {
         "type": "object",
         "description": "One line of what happened to a source connection.",
@@ -20304,7 +22166,7 @@
           },
           "event": {
             "type": "string",
-            "description": "`admitted`, `test`, `refused`, `ended`, `disconnected`, `let_back`, or one the post's rule\nwrites (`on_air`, `off_air`, `link_lost`, `back`, `place_let_go`, `covered`, `go`, `not_yet`,\n`hold`, `hold_released`)."
+            "description": "`admitted`, `test`, `refused`, `ended`, `disconnected`, `let_back`, or one the post's rule\nwrites (`on_air`, `off_air`, `link_lost`, `back`, `place_let_go`, `covered`, `go`, `not_yet`,\n`hold`, `hold_released`), or the handover window's `heads_up` (under the key `post`)."
           },
           "key_id": {
             "type": "string"
@@ -20321,7 +22183,7 @@
               "string",
               "null"
             ],
-            "description": "`icecast` or `srt`."
+            "description": "`icecast`, `srt`, `whip`, `bridge`, `vban` or `pull`."
           }
         }
       },
@@ -20377,6 +22239,11 @@
             "format": "int32",
             "description": "The ingest's SRT port (UDP)."
           },
+          "port_whip": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The ingest's WHIP media port (UDP; 17d). Left out of a request, 9712."
+          },
           "silence_s": {
             "type": "integer",
             "format": "int32",
@@ -20395,6 +22262,14 @@
           "test_outside": {
             "type": "boolean",
             "description": "Outside the slot, take a connection as a private test."
+          },
+          "window_s": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The handover window (design note `handover-window.md`): how long before a show's post the\ndesk names the incoming host and gives them one heads-up, in seconds: 0 (off) to 1,800.\nA body without it keeps the station's stored value.",
+            "default": 300,
+            "maximum": 1800,
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -20420,6 +22295,7 @@
           "show",
           "show_name",
           "state",
+          "pull",
           "monitor_open"
         ],
         "properties": {
@@ -20477,6 +22353,10 @@
             "format": "int64",
             "description": "While `link_lost`: until when its place is kept."
           },
+          "pull": {
+            "type": "boolean",
+            "description": "Whether the station opens this source itself (a pull): there is no host's software to\nwait for, and `not_connected` means the station cannot reach the address yet."
+          },
           "show": {
             "type": "string"
           },
@@ -20524,7 +22404,7 @@
               "string",
               "null"
             ],
-            "description": "`icecast` or `srt`, while connected."
+            "description": "`icecast`, `srt`, `whip`, `bridge` or `vban`, while connected; `pull` while the station holds a pull open."
           }
         }
       },
@@ -21088,6 +22968,59 @@
           }
         }
       },
+      "StunChange": {
+        "type": "object",
+        "description": "The STUN servers Settings names (ADR-0290).",
+        "required": [
+          "servers"
+        ],
+        "properties": {
+          "servers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`host:port` each (a DNS name or an IPv4 address, without `stun:`), at most four; an\nempty list is none, the default: no STUN server is contacted."
+          }
+        },
+        "additionalProperties": false
+      },
+      "StunView": {
+        "type": "object",
+        "description": "The station's STUN servers (ADR-0290): none unless the station names some. LiveKit, the desk\nand the join pages read one setting at start, so a change applies to all three at once, at\nthe next restart, and never to the pages alone.",
+        "required": [
+          "in_use",
+          "available",
+          "restart_needed"
+        ],
+        "properties": {
+          "asked": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "What Settings last asked for (an empty list is none); `null`: Settings never named any,\nand the settings file decides. It applies when the station restarts, and from then on\nwins over the settings file (delete `STUN_SERVERS=` from the app's `setup.env` to go back)."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether this install route lets Settings name them (the Cloudron package). Elsewhere\nthey are the settings file's `STUN_SERVERS`, applied by `weavesignal.sh` and a restart."
+          },
+          "in_use": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`host:port` each, as this station was started; empty: no STUN server is contacted."
+          },
+          "restart_needed": {
+            "type": "boolean",
+            "description": "Whether an answer is waiting for a restart."
+          }
+        }
+      },
       "Surface": {
         "type": "string",
         "enum": [
@@ -21150,6 +23083,37 @@
             "minimum": 0
           }
         }
+      },
+      "TakedownAnswer": {
+        "type": "object",
+        "description": "The calls a number may have made.",
+        "required": [
+          "consents"
+        ],
+        "properties": {
+          "consents": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Their consent records, newest first: erase each with `POST /api/v1/retention/consents/{id}/erase`."
+          }
+        }
+      },
+      "TakedownRequest": {
+        "type": "object",
+        "description": "A takedown's number.",
+        "required": [
+          "number"
+        ],
+        "properties": {
+          "number": {
+            "type": "string",
+            "description": "The number as the caller gives it. Never kept or logged."
+          }
+        },
+        "additionalProperties": false
       },
       "TeamMember": {
         "type": "object",
@@ -21455,6 +23419,74 @@
             }
           }
         }
+      },
+      "VbanIn": {
+        "type": "object",
+        "description": "A VBAN stream the station takes: a sender's address and stream name, bound to a show key.",
+        "required": [
+          "address",
+          "name",
+          "key_id"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The sender's address on the station's network (`192.168.1.20`)."
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "The channels taken, left then right, counted from 1; mono is heard in both ears."
+          },
+          "key_id": {
+            "type": "string",
+            "description": "The show key whose source it is."
+          },
+          "name": {
+            "type": "string",
+            "description": "The stream's name as the sender sends it (Voicemeeter's `Stream1`), 1 to 16 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "VbanOut": {
+        "type": "object",
+        "description": "A VBAN stream the desk sends.",
+        "required": [
+          "address",
+          "name"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "One receiver's address; never broadcast or multicast."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string",
+            "description": "`s16` (the default; 240 frames a packet), `s24` (160) or `f32` (120, by choice only:\nVoicemeeter's support is not stated)."
+          },
+          "name": {
+            "type": "string",
+            "description": "The stream's name the receiver listens for."
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "description": "What is sent: see [`OUT_SOURCES`]."
+          }
+        },
+        "additionalProperties": false
       },
       "VideoInfo": {
         "type": "object",
@@ -21823,6 +23855,42 @@
         },
         "additionalProperties": false
       },
+      "WhipDetails": {
+        "type": "object",
+        "description": "WHIP (17d), as OBS asks for it: a server address and a bearer token. Sound only.",
+        "required": [
+          "port",
+          "bearer_token"
+        ],
+        "properties": {
+          "bearer_token": {
+            "type": "string",
+            "description": "OBS's *Bearer Token*: the secret."
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The station's UDP port for WHIP's media; 0 when WHIP is off.",
+            "minimum": 0
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`https://<public address>/whip/<key id>`, OBS's *Server*; `None` when WHIP is off or the\nstation has no public address (its studio domain may sit behind a login)."
+          }
+        }
+      },
+      "WordsProblem": {
+        "type": "string",
+        "description": "Why the line is closed, if it is, as far as the words go.",
+        "enum": [
+          "recording_out_of_date",
+          "default_missing",
+          "no_recording"
+        ]
+      },
       "ZoneBody": {
         "type": "object",
         "description": "Documentation of the answers the handlers build with `json!`; the handlers send these shapes.",
@@ -22074,7 +24142,7 @@
       "api_token": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load and empty cart slots.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still.\n- `sources:read`: Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level. Never a key."
+        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load and empty cart slots.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still.\n- `sources:read`: Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key."
       },
       "ingest": {
         "type": "http",
@@ -22090,6 +24158,11 @@
         "type": "http",
         "scheme": "bearer",
         "description": "A pass (ADR-0119): the link a guest, a remote DJ, a presenter or a caller joins by; from `POST /api/v1/invites` or `POST /api/v1/call-in`."
+      },
+      "show_key": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A show key's secret (ADR-0284), 24 characters, as WHIP's bearer (17d; OBS's *Bearer Token*): the same secret as the Icecast password's second part and the SRT passphrase."
       },
       "staff_session": {
         "type": "http",
@@ -22211,6 +24284,10 @@
     {
       "name": "internal",
       "description": "Routes for the station's own processes on the same machine; never reachable through the proxy."
+    },
+    {
+      "name": "phone",
+      "description": "The telephone line (17f): its state, number bans and the takedown search. A person's, never an API token's; no number is kept or echoed."
     },
     {
       "name": "rtmp",

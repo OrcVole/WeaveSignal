@@ -8,6 +8,11 @@
 //! window 64 input samples wide. The kernel is tabled at 256 phases and read between two of
 //! them, so a sample costs 128 multiplies and no trigonometry. Nothing in the workspace did this
 //! before: the media worker keeps each import at its own rate.
+//!
+//! It began in the ingest, where each decoding worker brings a host's stream to 48 kHz; it is
+//! here so that the desk can steer it too (Phase 17g's one clock): [`Resampler::steered`] always
+//! runs the kernel, and [`Resampler::set_ratio`] plays the input a little faster or slower to
+//! follow a source whose clock is not the desk's ([`crate::RateFollower`]).
 
 /// The desk's rate.
 pub const OUT_RATE: u32 = 48_000;
@@ -21,7 +26,13 @@ pub struct Resampler {
     buf: Vec<f32>,
     /// Where the next output frame falls, in input frames from the start of `buf`.
     pos: f64,
+    /// Input frames per output frame: the rates' ratio times [`Resampler::ratio`].
     step: f64,
+    /// The steering: above 1 the input is consumed faster (fewer frames out).
+    ratio: f64,
+    /// Never pass through, even at 48 kHz with a ratio of 1 (a steered source: switching
+    /// between passing through and the kernel would step by the kernel's delay, a click).
+    steered: bool,
     /// `PHASES + 1` rows of `2 * HALF` taps.
     table: Vec<f32>,
 }
@@ -57,7 +68,17 @@ impl Resampler {
             buf: vec![0.0; 2 * (HALF - 1)],
             pos: 0.0,
             step,
+            ratio: 1.0,
+            steered: false,
             table,
+        }
+    }
+
+    /// From `rate` to 48 kHz, always through the kernel, for a ratio steered while it runs.
+    pub fn steered(rate: u32) -> Self {
+        Self {
+            steered: true,
+            ..Self::new(rate)
         }
     }
 
@@ -65,9 +86,27 @@ impl Resampler {
         self.rate
     }
 
+    /// The steering now.
+    pub fn ratio(&self) -> f64 {
+        self.ratio
+    }
+
+    /// Consume the input `ratio` times as fast as its rate says: 1.0002 reads 200 ppm more
+    /// input for each frame out. Kept within 0.99 to 1.01; it changes no sample already made,
+    /// and the next one is read from where the last left off, so there is no jump.
+    pub fn set_ratio(&mut self, ratio: f64) {
+        let ratio = if ratio.is_finite() {
+            ratio.clamp(0.99, 1.01)
+        } else {
+            1.0
+        };
+        self.ratio = ratio;
+        self.step = f64::from(self.rate) / f64::from(OUT_RATE) * ratio;
+    }
+
     /// Take interleaved stereo at the input rate; add what can be made to `out`.
     pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
-        if self.rate == OUT_RATE {
+        if self.rate == OUT_RATE && !self.steered {
             out.extend_from_slice(input);
             return;
         }
@@ -168,6 +207,62 @@ mod tests {
         let body = &out[2 * 2_000..];
         let peak = body.iter().fold(0.0f32, |m, v| m.max(v.abs()));
         assert!(peak < 0.01, "folded back at {peak}");
+    }
+
+    /// The frequency of the left channel, from its first and last rising zero crossings.
+    fn frequency(x: &[f32], rate: u32) -> f64 {
+        let mut crossings = Vec::new();
+        for i in 1..x.len() / 2 {
+            let (a, b) = (f64::from(x[2 * (i - 1)]), f64::from(x[2 * i]));
+            if a < 0.0 && b >= 0.0 {
+                crossings.push((i - 1) as f64 + a / (a - b));
+            }
+        }
+        let (first, last) = (crossings[0], *crossings.last().unwrap());
+        (crossings.len() - 1) as f64 / ((last - first) / f64::from(rate))
+    }
+
+    #[test]
+    fn a_steered_sine_moves_by_its_ratio_and_no_more() {
+        // 1 kHz at 48 kHz played at a ratio of 1.0002 comes out at 1000.2 Hz: within 0.01 % of
+        // that, and clearly not 1 kHz.
+        let input = tone(48_000, 1000.0, 10.0, 0.5);
+        let mut r = Resampler::steered(48_000);
+        r.set_ratio(1.0002);
+        let mut out = Vec::new();
+        for chunk in input.chunks(2 * 1152) {
+            r.process(chunk, &mut out);
+        }
+        let body = &out[2 * 4_800..];
+        let f = frequency(body, OUT_RATE);
+        assert!((f / 1000.2 - 1.0).abs() < 1e-4, "{f} Hz");
+        assert!((f - 1000.0).abs() > 0.15, "{f} Hz is not steered");
+        // Fewer frames out, by the ratio.
+        let frames = out.len() / 2;
+        let want = 480_000.0 / 1.0002;
+        assert!((frames as f64 - want).abs() < 40.0, "{frames} frames");
+    }
+
+    #[test]
+    fn changing_the_ratio_mid_stream_does_not_click() {
+        // A 100 Hz sine, steered from 1.0 to 1.0005 and back in the middle of a block: no
+        // sample-to-sample step bigger than the sine's own steepest.
+        let input = tone(48_000, 100.0, 1.0, 0.5);
+        let mut r = Resampler::steered(48_000);
+        let mut out = Vec::new();
+        for (i, chunk) in input.chunks(2 * 480).enumerate() {
+            r.set_ratio(if i % 2 == 0 { 1.0 } else { 1.0005 });
+            r.process(chunk, &mut out);
+        }
+        let steepest = 0.5 * 2.0 * std::f32::consts::PI * 100.0 / 48_000.0;
+        let body = &out[2 * 100..];
+        for w in body.as_chunks::<2>().0.windows(2) {
+            assert!((w[1][0] - w[0][0]).abs() < steepest * 1.05);
+        }
+        r.set_ratio(f64::NAN);
+        assert_eq!(r.ratio(), 1.0);
+        r.set_ratio(2.0);
+        assert_eq!(r.ratio(), 1.01);
     }
 
     #[test]

@@ -8,6 +8,8 @@
 # user's services are never touched, so this runs anywhere (`just boot-check`).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# A GPU (17e): never this machine's own CDI spec; weavesignal.sh looks here, where there is none.
+export WEAVESIGNAL_CDI_DIRS="$root/tests/install/run/no-cdi"
 script="$root/deploy/compose/weavesignal.sh"
 run="$root/tests/install/run/boot"
 rm -rf -- "$run"; mkdir -p "$run/bin"

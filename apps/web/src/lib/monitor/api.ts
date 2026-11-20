@@ -45,6 +45,16 @@ export interface Post {
   grace_ends_ms: number | null;
   held_by: string | null;
   on_air: string[];
+  /** The handover window's heads-up (1.2): the station's one line to the host coming on next,
+   *  given once an airing. Absent or null for everyone else, and from a station older than 1.2. */
+  heads_up?: HeadsUpLine | null;
+}
+
+/** The station's one line to the incoming host before their post. */
+export interface HeadsUpLine {
+  /** When the station gave it, on its own clock. */
+  at_ms: number;
+  words: string;
 }
 
 export interface RundownRow {

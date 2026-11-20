@@ -33,6 +33,8 @@ const RTMP_LABEL: &[u8] = b"weavesignal-control/rtmp-stream-key/v1";
 // Hosts in their own studios (ADR-0280): a show key's secret, derived; a monitor link's, hashed.
 const SHOW_KEY_LABEL: &[u8] = b"weavesignal-control/show-key-secret/v1";
 const MONITOR_LABEL: &[u8] = b"weavesignal-control/monitor-secret/v1";
+// The phone line (17f): the key a caller's ban key is made under; never in the database.
+const PHONE_BAN_LABEL: &[u8] = b"weavesignal-control/phone-ban-key/v1";
 
 /// Base 32 in lower case (RFC 4648's alphabet, no padding): what show keys are written in, so a
 /// key id and a secret survive any software's field and join unambiguously with a hyphen.
@@ -127,6 +129,15 @@ impl ApiKey {
         m.update(&[0]);
         m.update(salt);
         base32(&m.finalize().into_bytes()[..15])
+    }
+
+    /// The key phone callers' ban keys are made under (17f): a number's ban key is the same
+    /// for as long as this key is, and a copy of the database alone cannot be turned back into
+    /// numbers. Changing the token key lapses every number ban (they no longer match).
+    pub fn phone_ban_keys(&self) -> weavesignal_model::caller_id::BanKeys {
+        weavesignal_model::caller_id::BanKeys::new(
+            self.mac(PHONE_BAN_LABEL).finalize().into_bytes().into(),
+        )
     }
 
     /// The stored form of a monitor link's secret.

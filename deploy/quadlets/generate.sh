@@ -49,6 +49,11 @@ out=$(cd "$out" && pwd)
 # A public station (PUBLIC_DOMAIN in the settings) adds the proxy: public.yaml, as weavesignal.sh does.
 files=(-f compose.yaml)
 grep -q '^PUBLIC_DOMAIN=.' "$env_file" && files+=(-f public.yaml)
+# The telephone line (17f) adds Valkey and LiveKit's SIP service: phone.yaml.
+grep -q '^PHONE=true' "$env_file" && files+=(-f phone.yaml)
+# A GPU for the desk (17e) adds gpu.yaml, as weavesignal.sh does: GPU=nvidia with video on. The
+# card reaches the desk's unit as AddDevice= with its CDI name.
+grep -qx 'GPU=nvidia' "$env_file" && grep -qx 'VIDEO=true' "$env_file" && files+=(-f gpu.yaml)
 resolved=$(cd "$compose_dir" && podman compose --env-file "$env_file" -p "$project" "${files[@]}" config --format json)
 # The conversion reads the resolved bundle on standard input; the program itself comes on fd 3.
 CREATE=$create PROJECT=$project OUT=$out ENV_FILE=$env_file python3 -I /dev/fd/3 <<< "$resolved" 3<<'PY'
@@ -61,7 +66,7 @@ for line in open(os.environ["ENV_FILE"]):
     k, sep, v = line.rstrip("\n").partition("=")
     if sep and not k.startswith("#"):
         env[k] = v
-secret_keys = ("LIVEKIT_API_SECRET", "LISTENERS_SOURCE_PASSWORD", "POSTGRES_PASSWORD", "CONTROL_ADMIN_TOKEN", "CHAT_EMAIL_KEY", "CONTROL_EMAIL_KEY", "CONTROL_TOKEN_KEY", "ICECAST_OUT_PASSWORD", "INGEST_TOKEN", "DESK_SOURCES_PASSWORD")
+secret_keys = ("LIVEKIT_API_SECRET", "LISTENERS_SOURCE_PASSWORD", "POSTGRES_PASSWORD", "CONTROL_ADMIN_TOKEN", "CHAT_EMAIL_KEY", "CONTROL_EMAIL_KEY", "CONTROL_TOKEN_KEY", "ICECAST_OUT_PASSWORD", "INGEST_TOKEN", "DESK_SOURCES_PASSWORD", "PHONE_REDIS_PASSWORD", "PHONE_TRUNK_PASSWORD")
 secret_values = [env[k] for k in secret_keys if env.get(k)]
 secret_by_value = {env[k]: k for k in secret_keys if env.get(k)}
 
@@ -125,6 +130,15 @@ for service, s in sorted(c["services"].items()):
         lines.append(f"User={s['user']}")
     if "label=disable" in s.get("security_opt", []):
         lines.append("SecurityLabelDisable=true")
+    for d in s.get("devices", []):
+        # A device by its CDI name (gpu.yaml's nvidia.com/gpu=all) or a host path; Compose gives
+        # each as source, target and permissions, and a CDI name's target is its own name.
+        src = d["source"] if isinstance(d, dict) else str(d).split(":", 1)[0]
+        if not src or any(ch in src for ch in " \n\\%"):
+            sys.exit(f"generate.sh: {service}: the device {src!r} cannot go into a unit")
+        if isinstance(d, dict) and d.get("target") not in (None, "", src):
+            src = f"{src}:{d['target']}"
+        lines.append(f"AddDevice={src}")
     if s.get("entrypoint"):
         lines.append("Entrypoint=" + " ".join(s["entrypoint"]))
     for key, value in sorted((s.get("environment") or {}).items()):
@@ -139,6 +153,10 @@ for service, s in sorted(c["services"].items()):
                 secrets.append((secret, value))
             lines.append(f"Secret={secret},type=env,target={key}")
         else:
+            # Quadlet drops an Environment line with a backslash escape it does not know, and
+            # systemd reads % as a specifier: refuse rather than start with other words.
+            if "\\" in value or "%" in value:
+                sys.exit(f"generate.sh: {service}: {key} holds a backslash or a per cent sign, which a unit cannot carry whole; leave them out")
             lines.append("Environment=" + shlex.quote(f"{key}={value}"))
     for v in s.get("volumes", []):
         ro = ":ro" if v.get("read_only") else ""
@@ -164,6 +182,13 @@ for service, s in sorted(c["services"].items()):
             lines.append(f"HealthRetries={hc['retries']}")
         # Units that need this one wait until it is healthy, as Compose service_healthy does.
         lines.append("Notify=healthy")
+    log = s.get("logging") or {}
+    if log.get("driver"):
+        # Podman reads Docker's json-file as its own k8s-file; of the options it takes max-size.
+        lines.append(f"LogDriver={log['driver']}")
+        size = (log.get("options") or {}).get("max-size")
+        if size:
+            lines.append(f"LogOpt=max-size={size}")
     if s.get("command"):
         lines.append("Exec=" + " ".join(shlex.quote(a) for a in s["command"]))
     restart = s.get("restart", "no")

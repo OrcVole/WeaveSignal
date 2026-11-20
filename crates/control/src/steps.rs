@@ -351,7 +351,12 @@ pub(crate) async fn release_waiting(state: &AppState, cause: ReleaseCause) {
         crate::public::end_pass(state, &id).await;
         // A caller the desk lists without a consent on file is not forgotten by that.
         state.hub.with_studio(|s, now| s.forget(&id, now));
-        if let Some(room) = &state.hub.room
+        if weavesignal_proto::phone::is_phone_person(&id) {
+            // A phone caller's call is ended by the desk (17f).
+            if let Err(e) = state.hub.desk.phone_hang_up(&id).await {
+                tracing::warn!(caller = %id, error = %e, "cannot end the released phone caller's call");
+            }
+        } else if let Some(room) = &state.hub.room
             && let Err(e) = room.remove(&id).await
         {
             tracing::warn!(caller = %id, error = %format!("{e:#}"), "cannot remove the released caller from the room");

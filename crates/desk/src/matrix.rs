@@ -22,7 +22,11 @@
 //!
 //! Anyone can also talk to one person (`talk_to`, held): their voice then reaches that
 //! person's ear only, and leaves the programme and every other ear while held (the desk's
-//! Talk keys `A` to `H`, and `⌃T` to the other seat).
+//! Talk keys `A` to `H`, and `⌃T` to the other seat). While held, the talker also hears that
+//! person back, whatever their gate, muted, standing by or waiting ([`reaches`]), on every Talk
+//! key, not only the Screener tab's: a presenter talking to a caller waiting off
+//! air, from the Screener tab with no screener in the room, hears the answer in their own ear
+//! only, and the caller stays off the programme and out of the cue (issue 25).
 
 use weavesignal_proto::Role;
 
@@ -134,6 +138,25 @@ pub fn gate(source: &str, source_role: Role, dest: Dest<'_>) -> Option<Gate> {
             }
         }
     }
+}
+
+/// Whether a voice reaches a bus through `gate` (from [`gate_to_bus`]): its own switches pass,
+/// or the bus's owner is talking to it and it is not talking privately to someone else, so a
+/// talker hears the person they talk to. Only a voice with some way to that bus is heard back:
+/// a voice the matrix never sends there (`None`) stays out.
+pub fn reaches(
+    voice: &str,
+    switches: &Switches,
+    gate: Option<Gate>,
+    bus: &Bus,
+    owner_talks_to: Option<&str>,
+) -> bool {
+    let owner = owner(bus);
+    gate.is_some_and(|g| {
+        switches.passes(g, owner)
+            || (owner_talks_to == Some(voice)
+                && switches.talk_to.as_deref().is_none_or(|t| Some(t) == owner))
+    })
 }
 
 /// The bus's owner, for [`Switches::passes`]: `None` for the programme.
@@ -344,6 +367,95 @@ mod tests {
         assert!(!talking.passes(Gate::OnAir, Some("gregor")));
         assert!(!talking.passes(Gate::TalkTo, Some("iona")));
         assert!(!Switches::default().passes(Gate::TalkTo, Some("callum")));
+    }
+
+    #[test]
+    fn a_presenter_talking_to_a_waiting_caller_hears_them_back_alone() {
+        let presenter = Switches {
+            talk_to: Some("callum".into()),
+            ..Switches::at_join(Role::Presenter)
+        };
+        let waiting = Switches::at_join(Role::Caller);
+        let to = |id: &str, role| {
+            gate_to_bus(
+                "callum",
+                Role::Caller,
+                &Bus::MixMinus(id.into()),
+                Some(role),
+            )
+        };
+        let hamish = Bus::MixMinus("hamish".into());
+        // The presenter's voice reaches the waiting caller already (talk_to's own rule)...
+        assert!(reaches(
+            "hamish",
+            &presenter,
+            gate_to_bus(
+                "hamish",
+                Role::Presenter,
+                &Bus::MixMinus("callum".into()),
+                Some(Role::Caller)
+            ),
+            &Bus::MixMinus("callum".into()),
+            None,
+        ));
+        // ...and while it is held the caller's answer reaches the presenter's ear,
+        assert!(!waiting.passes(to("hamish", Role::Presenter).unwrap(), Some("hamish")));
+        assert!(reaches(
+            "callum",
+            &waiting,
+            to("hamish", Role::Presenter),
+            &hamish,
+            Some("callum")
+        ));
+        // but nobody else's, nor the programme, and not once the key is let go.
+        assert!(!reaches(
+            "callum",
+            &waiting,
+            to("eilidh", Role::Dj),
+            &Bus::MixMinus("eilidh".into()),
+            None
+        ));
+        assert!(!reaches(
+            "callum",
+            &waiting,
+            to("gregor", Role::Guest),
+            &Bus::MixMinus("gregor".into()),
+            None
+        ));
+        assert!(!reaches(
+            "callum",
+            &waiting,
+            gate_to_bus("callum", Role::Caller, &Bus::Programme, None),
+            &Bus::Programme,
+            None
+        ));
+        assert!(!reaches(
+            "callum",
+            &waiting,
+            to("hamish", Role::Presenter),
+            &hamish,
+            None
+        ));
+        // A voice talking privately to someone else is not overheard by whoever talks to it.
+        let screener = Switches {
+            talk_to: Some("callum".into()),
+            ..Switches::at_join(Role::Screener)
+        };
+        let s_to_h = gate_to_bus("moira", Role::Screener, &hamish, Some(Role::Presenter));
+        assert!(!reaches("moira", &screener, s_to_h, &hamish, Some("moira")));
+        // A voice the matrix never sends to that bus stays out, talked to or not.
+        assert!(!reaches(
+            "ailsa",
+            &Switches::at_join(Role::Producer),
+            gate_to_bus(
+                "ailsa",
+                Role::Producer,
+                &Bus::MixMinus("gregor".into()),
+                Some(Role::Guest)
+            ),
+            &Bus::MixMinus("gregor".into()),
+            Some("ailsa")
+        ));
     }
 
     #[test]

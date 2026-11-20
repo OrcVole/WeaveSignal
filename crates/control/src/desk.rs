@@ -54,7 +54,7 @@ pub struct DeskPerson {
 /// A host's own studio as the desk reports it.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct DeskSource {
-    /// `icecast` or `srt`.
+    /// `icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software), or `pull` (the station opened it).
     pub way: String,
     /// What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`).
     pub format: String,
@@ -73,6 +73,16 @@ pub struct DeskSource {
     /// Its monitor link is open: the desk is making its monitor mix (someone listens).
     #[serde(default)]
     pub monitor: bool,
+    /// Its clock against the desk's in ppm, as the desk follows it (Phase 17g); `None` before
+    /// the first estimate or from a desk that does not follow.
+    #[serde(default)]
+    pub clock_ppm: Option<f32>,
+    /// Times it was placed afresh since it connected (a gap, or drift past the cushion).
+    #[serde(default)]
+    pub replaced: u64,
+    /// For VBAN: packets lost on the way, filled with silence.
+    #[serde(default)]
+    pub lost: u64,
 }
 
 /// Whether playout is connected to the desk's programme output.
@@ -321,6 +331,76 @@ pub struct DeskStatus {
     /// The video path; `None` with video off (or from a desk without it).
     #[serde(default)]
     pub video: Option<DeskVideo>,
+    /// VBAN out (Phase 17g); `None` from a desk too old to send it.
+    #[serde(default)]
+    pub kit: Option<DeskKit>,
+    /// The phone line's booths and keys (17f); `None` from a desk without it or with it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phone: Option<DeskPhone>,
+}
+
+/// The presenter kit's outputs as the desk holds them.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskKit {
+    /// The set the control plane last sent (a digest); `None` before any.
+    #[serde(default)]
+    pub set: Option<String>,
+    #[serde(default)]
+    pub outs: Vec<DeskKitOut>,
+}
+
+/// One VBAN out.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskKitOut {
+    pub name: String,
+    pub address: String,
+    pub source: String,
+    /// Packets sent since it started.
+    #[serde(default)]
+    pub packets: u64,
+    /// Blocks the mixing pass could not hand it (its sender fell behind).
+    #[serde(default)]
+    pub dropped: u64,
+    /// Why it is not sending, when it is not (`its source is not at the desk`, a socket error).
+    #[serde(default)]
+    pub problem: Option<String>,
+}
+
+/// The phone line as the desk reports it (17f): every phone booth it has found, and the keys
+/// it has seen since `after` (the control plane asks for keys after the last it acted on).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskPhone {
+    #[serde(default)]
+    pub booths: Vec<DeskPhoneBooth>,
+    /// The keys pressed, oldest first, each numbered by the desk ([`crate::phone::gate::PhoneKey`]).
+    #[serde(default)]
+    pub keys: Vec<crate::phone::gate::PhoneKey>,
+}
+
+/// One phone booth at the desk.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
+pub struct DeskPhoneBooth {
+    /// The caller's person key, `phone-<random>`.
+    pub person: String,
+    /// The last characters of the From user, from the booth's name (at most four).
+    #[serde(default)]
+    pub tail: String,
+    /// LiveKit's identity for the caller (`sip_` and 16 hex digits): read only to make the ban
+    /// key; never sent on by the control plane, never logged.
+    #[serde(default, skip_serializing)]
+    pub sip_identity: String,
+    /// The desk has subscribed (the call is answered).
+    #[serde(default)]
+    pub answered: bool,
+    /// Their sound reaches the queue (`phone_admit` was sent).
+    #[serde(default)]
+    pub admitted: bool,
+    /// The words' version now playing into their return, if any.
+    #[serde(default)]
+    pub words_playing: Option<String>,
+    /// How many plays of the words have finished.
+    #[serde(default)]
+    pub words_done: u32,
 }
 
 /// A command for the desk; the socket's own words.
@@ -443,6 +523,9 @@ struct Reply {
     #[serde(default)]
     video: Option<DeskVideo>,
     #[serde(default)]
+    kit: Option<DeskKit>,
+    phone: Option<DeskPhone>,
+    #[serde(default)]
     pool: Option<Pool>,
     #[serde(default)]
     player: Option<u8>,
@@ -549,6 +632,8 @@ impl DeskClient {
             delay: r.delay,
             carts: r.carts,
             video: r.video,
+            kit: r.kit,
+            phone: r.phone,
         })
     }
 
@@ -617,6 +702,40 @@ impl DeskClient {
         Ok(r.thumbs.unwrap_or_default())
     }
 
+    /// Play the phone words into a phone caller's return (17f): `file` in the phone-words
+    /// directory at `gain_db` (the media worker's play gain for a station's own recording, 0 for
+    /// the shipped one), `version` the words' version, which the desk reports back with each key. A
+    /// request of its own, never a [`DeskCommand`], so the API's desk commands cannot pass the
+    /// gate.
+    pub async fn phone_words(
+        &self,
+        person: &str,
+        file: &str,
+        version: &str,
+        gain_db: f32,
+    ) -> Result<(), DeskError> {
+        self.ask_ok(serde_json::json!({
+            "op": "phone_words", "person": person, "file": file, "version": version,
+            "gain_db": gain_db,
+        }))
+        .await
+        .map(|_| ())
+    }
+
+    /// Let a phone caller's sound in (17f): the gate is passed; they join the queue as a caller.
+    pub async fn phone_admit(&self, person: &str) -> Result<(), DeskError> {
+        self.ask_ok(serde_json::json!({"op": "phone_admit", "person": person}))
+            .await
+            .map(|_| ())
+    }
+
+    /// End a phone call that never reached the queue (17f): no key, timed out, refused.
+    pub async fn phone_hang_up(&self, person: &str) -> Result<(), DeskError> {
+        self.ask_ok(serde_json::json!({"op": "phone_hang_up", "person": person}))
+            .await
+            .map(|_| ())
+    }
+
     /// The desk's play events after `after`, oldest first.
     pub async fn cart_plays(&self, after: u64) -> Result<Vec<PlayEvent>, DeskError> {
         let r = self
@@ -656,6 +775,8 @@ pub(crate) mod fake {
         pub delay_ms: Option<u32>,
         /// The picture's mode as the desk reports it (`{"mode": "auto"}`); `None`: video off.
         pub video: Option<Value>,
+        /// The phone line as the desk reports it (17f); `None`: no phone line.
+        pub phone: Option<Value>,
     }
 
     impl FakeDesk {
@@ -714,7 +835,7 @@ pub(crate) mod fake {
                             "room": true, "still": false})
                     });
                     json!({"ok": true, "people": self.people, "playout": {"connected": true, "for_ms": 10},
-                        "mode": self.mode, "delay": delay, "video": video,
+                        "mode": self.mode, "delay": delay, "video": video, "phone": self.phone,
                         "carts": {"ducked": self.mic_open || sweeping, "mic_open": self.mic_open,
                             "sounding": sounding, "play_seq": self.plays.len()}})
                 }
@@ -893,6 +1014,58 @@ pub(crate) mod tests {
             .await;
         assert!(matches!(refused, Err(DeskError::Refused(e)) if e.contains("not at the desk")));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn the_phone_requests_and_status_go_over_json_lines() {
+        let dir = tempdir();
+        let path = dir.join("desk.sock");
+        let fake = super::fake::spawn(&path);
+        fake.lock().unwrap().phone = Some(serde_json::json!({
+            "booths": [{"person": "phone-Xk3pQ9mZr2Ta", "tail": "0123",
+                "sip_identity": "sip_a8acc3a90a7b4e4d", "answered": true, "admitted": false,
+                "words_playing": "0123456789abcdef", "words_done": 1}],
+            "keys": [{"seq": 7, "person": "phone-Xk3pQ9mZr2Ta", "code": 1,
+                "words_version": "0123456789abcdef"}]
+        }));
+        let desk = DeskClient::new(Some(&path));
+        let st = desk.status().await.unwrap();
+        let phone = st.phone.as_ref().unwrap();
+        assert_eq!(phone.booths[0].sip_identity, "sip_a8acc3a90a7b4e4d");
+        assert_eq!(phone.booths[0].words_done, 1);
+        assert_eq!(phone.keys[0].seq, 7);
+        // LiveKit's identity is read, never passed on.
+        let out = serde_json::to_string(&st).unwrap();
+        assert!(!out.contains("sip_"), "{out}");
+        desk.phone_words(
+            "phone-Xk3pQ9mZr2Ta",
+            "phone-words-default.flac",
+            "0123456789abcdef",
+            0.0,
+        )
+        .await
+        .unwrap();
+        desk.phone_admit("phone-Xk3pQ9mZr2Ta").await.unwrap();
+        desk.phone_hang_up("phone-Xk3pQ9mZr2Ta").await.unwrap();
+        {
+            let f = fake.lock().unwrap();
+            assert_eq!(f.ops(), ["phone_words", "phone_admit", "phone_hang_up"]);
+            assert_eq!(f.lines[1]["file"], "phone-words-default.flac");
+            assert_eq!(f.lines[1]["version"], "0123456789abcdef");
+        }
+        // A desk without the phone line reports none.
+        fake.lock().unwrap().phone = None;
+        assert!(desk.status().await.unwrap().phone.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_api_cannot_send_the_phone_requests() {
+        // `POST /api/v1/desk/commands` takes a `DeskCommand`: the gate's requests are not one.
+        for op in ["phone_words", "phone_admit", "phone_hang_up"] {
+            let line = format!(r#"{{"op":"{op}","person":"phone-Xk3pQ9mZr2Ta"}}"#);
+            assert!(serde_json::from_str::<DeskCommand>(&line).is_err(), "{op}");
+        }
     }
 
     #[tokio::test]

@@ -418,6 +418,32 @@ async function website(browser) {
     const answers = JSON.parse(readFileSync(await (await answersDl).path(), 'utf8'));
     check(answers.weavesignal_setup === 1 && answers.jurisdiction === 'uk_internet' && answers.accent === '#b4532a', 'the answers file carries the jurisdiction and the colour for the setup page');
 
+    // The consent words (issue #26) and the STUN chooser (ADR-0290), 1.2.
+    check(!/^(STUN_SERVERS|CONSENT_TEXT)=/m.test(text), 'untouched, the file names no STUN server and no consent words: the station contacts none and uses the shipped words');
+    const stun = page.getByLabel('Outside STUN server');
+    check((await stun.inputValue()) === 'none' && /^None \(recommended\)/.test(await stun.locator('option:checked').innerText()), 'the STUN chooser starts at None (recommended)');
+    check(!(await page.getByLabel('STUN servers', { exact: true }).isVisible()), 'the typed list is hidden until Another server… is chosen');
+    await stun.selectOption('nextcloud');
+    text = await out.innerText();
+    check(/^STUN_SERVERS=stun\.nextcloud\.com:443$/m.test(text), 'a listed server is written as the script reads it', text.match(/^STUN_SERVERS=.*$/m)?.[0]);
+    check((await page.locator('#w-stun-who').innerText()).includes('Run by Nextcloud GmbH') && /will ask stun\.nextcloud\.com:443 for its own public address/.test(text), 'the page says who runs the server and what it learns');
+    await stun.selectOption('other');
+    const typed = page.getByLabel('STUN servers', { exact: true });
+    await typed.fill('stun:stun.example.org:3478');
+    await typed.blur();
+    check((await typed.getAttribute('aria-invalid')) === 'true' && (await page.locator('#w-stunOther-err').innerText()).includes('without stun: in front') && (await out.innerText()).includes('Answer the questions'), 'a typed server with stun: in front is refused on its field, and no file is written');
+    await typed.fill('STUN.example.org:3478, 192.0.2.7:3478');
+    text = await out.innerText();
+    check(/^STUN_SERVERS=stun\.example\.org:3478,192\.0\.2\.7:3478$/m.test(text), 'a typed list is lower-cased and joined with commas', text.match(/^STUN_SERVERS=.*$/m)?.[0]);
+    const consent = page.getByLabel('Consent words (optional)');
+    check((await consent.getAttribute('placeholder')).startsWith("You'll be live on {station}") && (await page.locator('#w-consent-fills').innerText()).includes('{presenter}'), 'the consent words show the shipped two sentences and explain the four fill-ins');
+    await consent.fill('Live with {presenter} for $5.');
+    await consent.blur();
+    check((await consent.getAttribute('aria-invalid')) === 'true' && (await page.locator('#w-consentText-err').innerText()).includes('dollar sign'), 'Compose: consent words with a dollar sign are refused on their field, as weavesignal.sh refuses them');
+    await consent.fill("You'll be live with {presenter} on {station}. Ask {contact}.");
+    text = await out.innerText();
+    check(text.includes("CONSENT_TEXT='You\\'ll be live with {presenter} on {station}. Ask {contact}.'"), 'Compose: the consent words are in single quotes with the apostrophe escaped', text.match(/^CONSENT_TEXT=.*$/m)?.[0]);
+
     await page.getByRole('radio', { name: /^Quadlets/ }).check({ force: true });
     text = await out.innerText();
     check(text.includes('--no-start --env-file ~/.config/weavesignal/station.env --public radio.station.example') && text.includes('deploy/quadlets/generate.sh'), 'Quadlets: the settings are completed, then the units generated');
@@ -430,6 +456,9 @@ async function website(browser) {
     await page.getByLabel('The server has an IPv6 address').check();
     text = await out.innerText();
     check(text.includes('STATION_NAME="Radio Ceilidh"') && text.includes('ROOM_NAME=studio'), 'Cloudron: the settings file is whole and quoted');
+    await page.getByLabel('Consent words (optional)').fill('Live with {presenter} for $5, "really".');
+    text = await out.innerText();
+    check(text.includes('CONSENT_TEXT="Live with {presenter} for \\$5, \\"really\\"."') && text.includes('STUN_SERVERS="stun.example.org:3478,192.0.2.7:3478"'), 'Cloudron: the consent words and the STUN servers are in double quotes, the dollar sign and the quotes escaped', text.match(/^CONSENT_TEXT=.*$/m)?.[0]);
     check(!/^(PUBLIC|ROOM|LISTENERS)_DOMAIN=/m.test(text.split('cloudron install')[0]), 'Cloudron: the domains are not in the settings file');
     check(text.includes('--location studio.station.example') && text.includes('ROOM_DOMAIN=room.station.example'), 'Cloudron: the install command carries the names');
     check(text.includes('Delete the studio name’s AAAA record'), 'Cloudron with IPv6: the studio name loses its AAAA record after the install');
@@ -448,7 +477,11 @@ async function website(browser) {
     await page.getByLabel('Jurisdiction').selectOption('uk_internet');
     await page.getByLabel('Accent colour', { exact: true }).fill('#b4532a');
     await page.getByLabel('The station’s name on the internet').fill('radio.station.example');
+    await page.getByLabel('Consent words (optional)').fill("You'll be live with {presenter} on {station}, and we may keep your call {kept}. To have it taken down, contact {contact}.");
+    await page.getByLabel('Outside STUN server').selectOption('other');
+    await page.getByLabel('STUN servers', { exact: true }).fill('stun.example.org:3478');
     await page.waitForTimeout(100);
+    await soundPage(page, `${where}, Compose with consent words and a STUN server`, false);
     await shot(page, `website-compose-${size.name}-${theme}`);
     await page.getByRole('radio', { name: /^Cloudron/ }).check({ force: true });
     await page.getByLabel('The studio (the app’s own domain)').fill('studio.station.example');
@@ -461,7 +494,7 @@ async function website(browser) {
     // The wizard's own controls on a phone (Starlight's chrome is its own).
     if (size.mobile) {
       const small = await page.evaluate(() =>
-        [...document.querySelectorAll('#install-wizard :is(input, select, button, summary)')]
+        [...document.querySelectorAll('#install-wizard :is(input, select, textarea, button, summary)')]
           .map((el) => {
             const t = el.type === 'radio' || el.type === 'checkbox' ? (el.closest('label') ?? el) : el;
             const r = t.getBoundingClientRect();

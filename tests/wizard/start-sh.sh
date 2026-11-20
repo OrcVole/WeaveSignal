@@ -69,12 +69,46 @@ got=$( set -euo pipefail; data=$work; log() { :; }; LISTENERS_AUTH=on; LISTENERS
 [ "$got" = "on true" ] || fail "without a setup.env, weavesignal.env decides: $got"
 pass "without a setup.env, weavesignal.env decides"
 
+# --- 1b. STUN servers from Settings (ADR-0290) -------------------------------------------
+stun_block=$(sed -n '/^# --- STUN servers from Settings (ADR-0290)/,/^fi$/p' "$start")
+[ -n "$stun_block" ] || fail "the STUN block was not found in start.sh"
+grep -Eq '(^|[^a-z_])(source|eval)[[:space:]]|^[[:space:]]*\.[[:space:]]' <<<"$stun_block" && fail "the STUN block sources or evaluates something"
+read_stun() { # the file's text (or - for no file); prints STUN_SERVERS as the block leaves it
+  rm -f "$work/setup.env"
+  [ "$1" = - ] || printf '%s' "$1" > "$work/setup.env"
+  ( set -euo pipefail
+    data=$work; log() { echo "log: $*" >&2; }
+    STUN_SERVERS=from.weavesignal.env:3478
+    eval "$stun_block"
+    echo "[$STUN_SERVERS]" ) 2>"$work/log"
+}
+expect_stun() { # name, file text, expected
+  local got; got=$(read_stun "$2")
+  [ "$got" = "$3" ] || fail "$1: got '$got', expected '$3'"
+  pass "$1"
+}
+expect_stun "without a setup.env, weavesignal.env decides" - "[from.weavesignal.env:3478]"
+expect_stun "a setup.env without the key changes nothing" $'LISTENERS_AUTH=on\n' "[from.weavesignal.env:3478]"
+expect_stun "what Settings writes is taken" $'LISTENERS_AUTH=on\nSTUN_SERVERS=stun.nextcloud.com:443,192.0.2.10:3478\n' "[stun.nextcloud.com:443,192.0.2.10:3478]"
+expect_stun "none is taken as none" $'STUN_SERVERS=\n' "[]"
+expect_stun "the last of two lines wins" $'STUN_SERVERS=a.example:3478\nSTUN_SERVERS=b.example:3478\n' "[b.example:3478]"
+rm -f "$work/pwned"
+for bad in 'stun:a.example:3478' 'A.example:3478' 'a.example' 'a.example:0' 'a.example:65536' 'a:1,b:2,c:3,d:4,e:5' \
+  "\$(touch $work/pwned):3478" "a.example:3478;touch $work/pwned" 'a.example:3478 b.example:3478' '-a.example:3478'; do
+  got=$(read_stun "STUN_SERVERS=$bad"$'\n')
+  [ "$got" = "[from.weavesignal.env:3478]" ] || fail "the STUN line '$bad' was taken: $got"
+  grep -q 'STUN_SERVERS is not' "$work/log" || fail "the ignored STUN line '$bad' was not logged"
+done
+[ ! -e "$work/pwned" ] || fail "a STUN line of setup.env was run"
+pass "a STUN line outside the pattern is ignored, said in the log, and never run"
+rm -f "$work/setup.env"
+
 # --- 2. the nginx configuration ---------------------------------------------------------------
 # The heredoc as start.sh writes it, with the variables it uses given plain values.
 conf=$( set -euo pipefail
-  run=/run/weavesignal CONTROL_PORT=7310 CHAT_PORT=7311 LISTENERS_PORT=7312 LIVEKIT_HTTP_PORT=7880
+  run=/run/weavesignal CONTROL_PORT=7310 CHAT_PORT=7311 LISTENERS_PORT=7312 LIVEKIT_HTTP_PORT=7880 SOURCE_BRIDGE_PORT=7320
   stream_locations='' listener_root='' pub_noindex='' pub_never='' pub_robots='x'
-  eval "$(sed -n "/^chat_public=/p;/^control_public=/p;/^branding_public=/p;/^monitor_public=/p;/^calendar_public=/p" "$start")"
+  eval "$(sed -n "/^chat_public=/p;/^control_public=/p;/^branding_public=/p;/^monitor_public=/p;/^calendar_public=/p;/^whip_public=/p" "$start")"
   eval "$(sed -n '/^cat > "\$run\/nginx.conf" <<NGINX$/,/^NGINX$/p' "$start" | sed '1s/.*/cat <<NGINX/')" )
 public=$(sed -n '/listen 8003;/,$p' <<<"$conf")
 studio=$(sed -n '/listen 8000 default_server;/,/listen 8001;/p' <<<"$conf")
@@ -126,4 +160,60 @@ grep -q '/setup' <<<"$studio" && fail "the studio domain blocks the setup page"
 pass "the app's own domain serves the setup page and its routes"
 grep -q '^overrides_file = "\$setup_env"$' "$start" && grep -q '^stream_auth = \$stream_auth$' "$start" || fail "control.toml is not given [setup]"
 pass "control.toml is given the overrides file and what is in force"
+
+# --- 3. the consent words (issue #26) -----------------------------------------------------
+# weavesignal.env is sourced by bash, so the words are written as its comment shows (double
+# quotes, \" and \$); the block turns them into a [join] line that a TOML parser reads whole.
+block=$(sed -n '/^# --- The consent words (issue #26) ---$/,/^fi$/p' "$start")
+[ -n "$block" ] || fail "the consent words' block was not found in start.sh"
+grep -q '^\$consent_text_line$' "$start" || fail "control.toml is not given the consent words' line"
+consent_toml() { # weavesignal.env's text; prints what [join] holds as JSON, or "refused"
+  printf '%s\n' "$1" > "$work/weavesignal.env"
+  ( set -euo pipefail
+    log() { echo "log: $*" >&2; }
+    CONSENT_TEXT=
+    # shellcheck source=/dev/null
+    source "$work/weavesignal.env"
+    eval "$block"
+    printf '[join]\n%s\n' "$consent_text_line" ) 2>"$work/log" > "$work/control.toml" || { echo refused; return; }
+  python3 -I -c 'import json,sys,tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))["join"]))' "$work/control.toml"
+}
+want='You'"'"'ll be on {presenter}'"'"'s show, "live", on {station}; kept {kept} # all, $5, 100% and a \ back. Ask {contact}.'
+got=$(consent_toml 'CONSENT_TEXT="You'"'"'ll be on {presenter}'"'"'s show, \"live\", on {station}; kept {kept} # all, \$5, 100% and a \\ back. Ask {contact}."')
+[ "$got" = "$(python3 -I -c 'import json,sys; print(json.dumps({"consent_text": sys.argv[1]}))' "$want")" ] || fail "the consent words reach control.toml as $got"
+[ "$(consent_toml 'CONSENT_TEXT=')" = '{}' ] || fail "an empty CONSENT_TEXT does not leave the default words"
+[ "$(consent_toml 'CONSENT_TEXT="   "')" = '{}' ] || fail "a blank CONSENT_TEXT does not leave the default words"
+[ "$(consent_toml 'CONSENT_TEXT="two
+lines"')" = '{"consent_text": "two\nlines"}' ] || fail "a line break in CONSENT_TEXT is not kept"
+[ "$(consent_toml "CONSENT_TEXT=\$'a\\x01b'")" = refused ] || fail "a control character in CONSENT_TEXT does not stop the start"
+pass "CONSENT_TEXT reaches control.toml whole (apostrophes, quotes, commas, braces, \$, %, a backslash, a line break); empty or blank leaves the default words"
+
+# --- 4. the install wizard's Cloudron file (17j): the consent words and the STUN servers --------
+# The generator's own lines, sourced by bash as start.sh sources weavesignal.env: hostile words
+# arrive whole and nothing in them runs; the STUN list passes start.sh's own check.
+rm -f "$work/pwned"
+hostile_words='You'"'"'ll be on {presenter}'"'"'s show, "live", on {station} # all; $5, 100%, a \ back, `touch '"$work"'/pwned` $(touch '"$work"'/pwned) ${HOME}. Ask {contact}.'
+wizard_file=$(WORDS="$hostile_words" node --no-warnings --input-type=module -e "
+  import { defaults, generate } from '$root/packages/wizard/generate.ts';
+  const g = generate({ ...defaults('cloudron'), name: 'Radio Ceilidh', contact: 'calls@station.example', studioDomain: 'studio.station.example', publicDomain: 'station.example', listenDomain: 'listen.station.example', roomDomain: 'room.station.example', consentText: process.env.WORDS, stun: 'other', stunOther: 'STUN.example.org:3478, 192.0.2.7:3478' });
+  if (!g.ok) { console.error(JSON.stringify(g.problems)); process.exit(1); }
+  process.stdout.write(g.output.file.text);") || fail "the generator refused the Cloudron answers"
+got=$(consent_toml "$wizard_file")
+[ "$got" = "$(python3 -I -c 'import json,sys; print(json.dumps({"consent_text": sys.argv[1]}))' "$hostile_words")" ] || fail "the wizard's consent words reach control.toml as $got"
+[ ! -e "$work/pwned" ] || fail "the wizard's consent words were run by the shell"
+stun_block=$(sed -n '/^stun_servers=$/,/^(( \${#stun_commas} < 4 ))/p' "$start")
+[ -n "$stun_block" ] || fail "the STUN block was not found in start.sh"
+stun_got=$( set -euo pipefail; log() { echo "log: $*" >&2; }; STUN_SERVERS=; source "$work/weavesignal.env"; eval "$stun_block"; echo "$stun_servers" ) || fail "start.sh refused the wizard's STUN servers"
+[ "$stun_got" = "stun.example.org:3478,192.0.2.7:3478" ] || fail "the wizard's STUN servers reach start.sh as $stun_got"
+pass "the wizard's Cloudron file: hostile consent words reach control.toml whole and run nothing; its STUN servers pass start.sh's check"
+
+# --- 5. video's encoder (17e): a Cloudron app has no GPU, so SVT-AV1 is the default -------------
+grep -q '^setting VIDEO_ENCODER svt "Video.s AV1 encoder (with VIDEO=true): svt, SVT-AV1 on the CPU (the default: a Cloudron app has no GPU)' "$start" \
+  || fail "start.sh does not add VIDEO_ENCODER=svt, saying a Cloudron app has no GPU"
+check=$(grep '^\[\[ \$VIDEO_ENCODER == ' "$start")
+[ -n "$check" ] || fail "start.sh does not check VIDEO_ENCODER"
+for v in svt auto nvenc; do ( VIDEO_ENCODER=$v; log() { :; }; eval "$check" ) || fail "start.sh refuses VIDEO_ENCODER=$v"; done
+for v in vaapi NVENC x264 ''; do ( VIDEO_ENCODER=$v; log() { :; }; eval "$check" ) && fail "start.sh takes VIDEO_ENCODER='$v'"; done
+grep -q '^encoder = "\$VIDEO_ENCODER"$' "$start" || fail "the desk's [video] is not given VIDEO_ENCODER"
+pass "VIDEO_ENCODER: svt by default (no GPU on Cloudron), auto and nvenc taken (the desk falls back), anything else stops the start; the desk is given it"
 echo "start.sh: the setup page's part is sound"

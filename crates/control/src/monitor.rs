@@ -1006,6 +1006,7 @@ async fn listed(admin: &RoomAdmin, room: &str) -> anyhow::Result<Vec<String>> {
         view::LastRefusal,
         view::Then,
         view::MonitorPost,
+        view::HeadsUpLine,
         view::RundownRow,
         view::Rundown,
         view::Insert,

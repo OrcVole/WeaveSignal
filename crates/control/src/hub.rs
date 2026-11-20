@@ -112,6 +112,8 @@ pub struct Hub {
     /// The last Dump the desk took, from any route: the monitor link says DUMPED for a few
     /// seconds after it (design section 3.7). Kept in memory: it is only ever read seconds later.
     last_dump: Mutex<Option<DumpRecord>>,
+    /// The telephone line (17f), once started; unset while it is off.
+    pub phone: std::sync::OnceLock<Arc<crate::phone::line::Line>>,
 }
 
 /// A Dump the desk took: when, and how much of the programme listeners lost.
@@ -166,6 +168,7 @@ impl Hub {
             callers_on_air: tokio::sync::Mutex::new(OnAirRecord::default()),
             sources: Arc::new(crate::sources::Live::from_env()),
             last_dump: Mutex::new(None),
+            phone: std::sync::OnceLock::new(),
         })
     }
 
@@ -287,6 +290,7 @@ impl Hub {
             }
         });
         self.record_callers_on_air().await;
+        self.run_phone().await;
         match carts {
             Some(c) => {
                 if self.take_carts(c.as_ref()) {
@@ -298,6 +302,109 @@ impl Hub {
                     .read_inner(|i| i.desk_error.clone())
                     .unwrap_or_default();
                 self.carts_lost(&error);
+            }
+        }
+    }
+
+    /// The phone line's gates (17f): the desk's phone status through each call's gate, and what
+    /// the gates say done. A consent that cannot be kept is not given: the call is hung up, as a
+    /// browser caller gets no token. Nothing logged here carries a number or a ban key.
+    async fn run_phone(&self) {
+        use crate::phone::line::{Line, Todo, refusal_words};
+        let Some(line) = self.phone.get() else {
+            return;
+        };
+        let Some(phone) = self.read_inner(|i| i.desk.as_ref().and_then(|d| d.phone.clone())) else {
+            return;
+        };
+        let now = now_ms();
+        let ctx = line.context();
+        let todos = self.read_studio(|s| {
+            line.step(
+                &phone,
+                &Line::moment(&ctx, s.phone_bans(), s.phone_in_queue()),
+                now,
+            )
+        });
+        for t in todos {
+            match t {
+                Todo::Words {
+                    person,
+                    file,
+                    version,
+                    gain_mb,
+                } => {
+                    let gain_db = gain_mb as f32 / 100.0;
+                    if let Err(e) = self
+                        .desk
+                        .phone_words(&person, &file, &version, gain_db)
+                        .await
+                    {
+                        tracing::warn!(error = %e, %person, "the desk cannot play the phone words");
+                    }
+                }
+                Todo::HangUp { person, why } => {
+                    match why {
+                        crate::phone::gate::CallEnded::Refused(r) => {
+                            tracing::info!(%person, why = refusal_words(r), "phone call refused")
+                        }
+                        other => {
+                            tracing::info!(%person, why = ?other, "phone call ended at the gate")
+                        }
+                    }
+                    if let Err(e) = self.desk.phone_hang_up(&person).await {
+                        tracing::warn!(error = %e, %person, "the desk cannot hang up");
+                    }
+                }
+                Todo::Admit { call, line: pl } => {
+                    let person = call.identity.clone();
+                    if let Some((pool, station)) = &self.carts.db {
+                        let c = &call.consent;
+                        let record = weavesignal_model::ConsentRecord {
+                            identity: call.identity.clone(),
+                            name: String::new(),
+                            topic: String::new(),
+                            given_by: match c.by {
+                                crate::studio::ConsentBy::Caller => "caller",
+                                crate::studio::ConsentBy::Station => "station",
+                                crate::studio::ConsentBy::NotAsked => "not_asked",
+                            },
+                            words: c.text.clone(),
+                            words_version: c.version.clone(),
+                            accepted_at_ms: c.at_ms,
+                            show_id: None,
+                            presenter: String::new(),
+                            contact: String::new(),
+                        };
+                        let kept = weavesignal_model::phone::record_phone_consent(
+                            pool,
+                            *station,
+                            &record,
+                            &weavesignal_model::phone::PhoneLine {
+                                ban_key: pl.ban_key.clone(),
+                                number_tail: pl.tail.clone(),
+                            },
+                        )
+                        .await;
+                        if let Err(e) = kept {
+                            tracing::error!(error = %e, %person, "cannot keep a phone caller's consent: hanging up");
+                            let _ = self.desk.phone_hang_up(&person).await;
+                            continue;
+                        }
+                    }
+                    tracing::info!(
+                        target: "weavesignal::consent",
+                        identity = %person,
+                        by = ?call.consent.by,
+                        version = %call.consent.version,
+                        line = "phone",
+                        "phone caller through the gate"
+                    );
+                    self.with_studio(|s, _| s.phone_call(call, pl));
+                    if let Err(e) = self.desk.phone_admit(&person).await {
+                        tracing::warn!(error = %e, %person, "the desk cannot let the phone caller in");
+                    }
+                }
             }
         }
     }
@@ -500,6 +607,68 @@ mod tests {
             .filter(|l| l["op"] == "mode")
             .map(|l| l["mode"].as_str().unwrap_or_default().to_owned())
             .collect()
+    }
+
+    #[tokio::test]
+    async fn a_phone_call_hears_the_words_then_a_key_puts_it_in_the_queue() {
+        use crate::phone::config::PhoneConfig;
+        use crate::phone::line::{Context, Line};
+        use crate::phone::words::{ALBA_FILE, PhoneWords};
+        use weavesignal_model::caller_id::{BanKeys, livekit_identity};
+        let (hub, fake, dir) = hub_with_fake_desk();
+        let line = Line::new(
+            PhoneConfig {
+                enabled: true,
+                numbers: vec!["+441314960000".into()],
+                allowed_addresses: vec!["127.0.0.1/32".into()],
+                public_ip: "127.0.0.1".into(),
+                ..PhoneConfig::default()
+            },
+            Some(BanKeys::new([9; 32])),
+        );
+        line.set_context(Context {
+            call_in_open: true,
+            consent_today: "Live on Kettle FM.".into(),
+            station_recording: None,
+            default_present: true,
+            ..Context::default()
+        });
+        assert!(hub.phone.set(Arc::new(line)).is_ok());
+        let version = PhoneWords::Default(crate::phone::words::PhoneVoice::Alba).version();
+        let booth = |admitted: bool| {
+            serde_json::json!({"person": "phone-Xk3pQ9mZr2Ta", "tail": "0123",
+                "sip_identity": livekit_identity("+447700900123"), "answered": true,
+                "admitted": admitted, "words_playing": null, "words_done": 0})
+        };
+        fake.lock().unwrap().phone =
+            Some(serde_json::json!({"booths": [booth(false)], "keys": []}));
+        hub.poll_once().await;
+        {
+            let f = fake.lock().unwrap();
+            assert_eq!(f.ops(), ["phone_words"]);
+            assert_eq!(f.lines.last().unwrap()["file"], ALBA_FILE);
+        }
+        fake.lock().unwrap().phone = Some(serde_json::json!({"booths": [booth(false)],
+            "keys": [{"seq": 1, "person": "phone-Xk3pQ9mZr2Ta", "code": 11,
+                "words_version": version}]}));
+        hub.poll_once().await;
+        assert_eq!(fake.lock().unwrap().ops(), ["phone_words", "phone_admit"]);
+        // The desk now lists them as a caller: they join the queue showing four digits.
+        {
+            let mut f = fake.lock().unwrap();
+            f.phone = Some(serde_json::json!({"booths": [booth(true)], "keys": []}));
+            f.people = vec![serde_json::json!({"identity": "phone-Xk3pQ9mZr2Ta",
+                "name": "Phone 0123", "role": "caller", "on_air": false, "talk": false,
+                "present": true, "linked": true})];
+        }
+        hub.poll_once().await;
+        let v = hub.view();
+        assert_eq!(v.callers.len(), 1);
+        assert_eq!(v.callers[0].name, "");
+        assert_eq!(v.callers[0].phone.as_ref().unwrap().number, "···0123");
+        assert!(v.callers[0].consent.is_some());
+        assert_eq!(fake.lock().unwrap().ops(), ["phone_words", "phone_admit"]);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

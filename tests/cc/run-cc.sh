@@ -18,6 +18,11 @@
 # They are applied SETTLE seconds after the guest first hears its return, so a run shows the
 # clean link first and then the impaired one (or, with neither set, a clean run for comparison).
 #
+#   CC=gcc|homegrown|disabled   the desk's `desk.congestion_control` (webrtcsink's own option): Google's
+#                algorithm as GStreamer's rtpgccbwe (the default), webrtcsink's simple heuristic, or none.
+#                Needs a desk that has the setting (1.2.0); the desk's log names it and the run fails if
+#                it does not show the chosen one, and with PROBE=1 the estimator must be in the
+#                session pipelines exactly when CC=gcc
 #   GCC=on|off   off hides gst-plugins-rs's rtp plugin (rtpgccbwe) from the desk: the images
 #                before 1.0.1, which sent with no congestion control at all
 #   VIDEO=1      the desk's video path on, the programme picture published to the room (VP8)
@@ -42,6 +47,10 @@ run="$here/run"
 NAME=${NAME:-scenario}
 prefix=${WEAVESIGNAL_TEST_PREFIX:-ws-net}-cc
 GCC=${GCC:-on}
+# Written, and checked, only when asked for: an older desk (the `images` group's) refuses the key.
+CC_ASKED=${CC+yes}
+CC=${CC:-gcc}
+case $CC in gcc|homegrown|disabled) ;; *) echo "CC must be gcc, homegrown or disabled" >&2; exit 2 ;; esac
 VIDEO=${VIDEO:-0}
 GUESTS=${GUESTS:-0}
 BIN=${BIN:-release}
@@ -125,6 +134,10 @@ room = "$ROOM"
 srt_port = 19100
 [control]
 socket = "/tmp/desk.sock"
+TOML
+[ -z "$CC_ASKED" ] || cat >> "$run/desk.toml" <<TOML
+[desk]
+congestion_control = "$CC"
 TOML
 if [ "$VIDEO" = 1 ]; then
   cat >> "$run/desk.toml" <<TOML
@@ -213,10 +226,20 @@ lines=${lines:-0}
 dumps=0
 [ -n "$PROBE" ] && dumps=$(grep -l 'GstRtpGCCBwE' "$run"/dot/*peer-unique-remote-description-set.dot 2>/dev/null | wc -l)
 node "$here/summarise.mjs" run "$run/$NAME.recv" name="$NAME" gcc="$GCC" video="$VIDEO" guests="$GUESTS" bin="$BIN" \
-  desk_netem="$DESK_NETEM" desk_rate="$DESK_RATE" guest_netem="$GUEST_NETEM" guest_rate="$GUEST_RATE" dt="$dt" \
+  cc="$CC" desk_netem="$DESK_NETEM" desk_rate="$DESK_RATE" guest_netem="$GUEST_NETEM" guest_rate="$GUEST_RATE" dt="$dt" \
   desk_bytes="$db" desk_packets="$dp" desk_dropped="$dd" lk_packets="$gp" lk_dropped="$gd" cpu0="$cpu0" cpu1="$cpu1" hz="$hz" \
   desk_quota="$DESK_CPU_QUOTA" lk_quota="$LK_CPU_QUOTA" busy="$BUSY" thr0="$thr0" thr1="$thr1" warn_lines="$lines" dumps="$dumps" \
   | tee "$run/$NAME.json"
 echo "(the desk's log has $lines lines saying rtpgccbwe is missing; GCC=$GCC)" >&2
 # The control: the warning is there exactly when the plugin was hidden.
 if { [ "$GCC" = off ] && [ "$lines" = 0 ]; } || { [ "$GCC" = on ] && [ "$lines" != 0 ]; }; then echo "CONTROL FAILED: the desk's warning count ($lines) does not match GCC=$GCC" >&2; exit 3; fi
+# The control for CC: the desk's log names the mode it was given, on every publisher, and only that one;
+# with PROBE=1 the estimator is in the session pipelines exactly when the mode is gcc (and the plugin is there).
+if [ -n "$CC_ASKED" ]; then
+named=$(grep -Ec "congestion_control(=|\":\")$CC\b" "$run/$NAME.desk.log" 2>/dev/null || true); named=${named:-0}
+other=$(grep -E "published to the room" "$run/$NAME.desk.log" 2>/dev/null | grep -Evc "congestion_control(=|\":\")$CC\b" || true); other=${other:-0}
+if [ "$named" = 0 ] || [ "$other" != 0 ]; then echo "CONTROL FAILED: the desk's log names congestion_control=$CC $named times and another mode on $other publishers" >&2; exit 4; fi
+if [ -n "$PROBE" ] && [ "$GCC" = on ]; then
+  if { [ "$CC" = gcc ] && [ "$dumps" = 0 ]; } || { [ "$CC" != gcc ] && [ "$dumps" != 0 ]; }; then echo "CONTROL FAILED: $dumps session pipelines hold rtpgccbwe with CC=$CC" >&2; exit 5; fi
+fi
+fi

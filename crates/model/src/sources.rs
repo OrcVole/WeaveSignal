@@ -175,7 +175,8 @@ pub enum Admission {
     Refused(Refusal),
 }
 
-/// The decision for a key that has already proved its secret.
+/// The decision for a key that has already proved its secret. A pull is never a test: the
+/// station opens it only while its door is open, so outside it there is nothing to admit.
 pub fn admit(key: &ShowKey, door: Door, settings: &SourceSettings, now_ms: i64) -> Admission {
     if key.revoked_ms.is_some_and(|r| r <= now_ms) {
         return Admission::Refused(Refusal::Ended);
@@ -185,6 +186,7 @@ pub fn admit(key: &ShowKey, door: Door, settings: &SourceSettings, now_ms: i64) 
     }
     match door {
         Door::Open { .. } => Admission::StandBy { door },
+        Door::Closed { .. } if key.is_pull() => Admission::Refused(Refusal::NotYourSlot),
         Door::Closed { .. } if settings.test_outside => Admission::Test {
             max_ms: i64::from(settings.test_max_min) * 60_000,
         },
@@ -312,8 +314,13 @@ pub struct ShowKey {
     pub staff_id: Option<Uuid>,
     /// The public part: the SRT stream id, and the Icecast password's first part.
     pub key_id: String,
-    /// How the host means to send: `icecast` or `srt` (a hint, not a lock).
+    /// How the host means to send: `icecast`, `srt`, `whip`, `bridge` or `vban` (a hint, not a
+    /// lock); or `pull`, when the station opens the stream itself from `pull_url` (a lock: no host
+    /// connects with it).
     pub hint: String,
+    /// For a pull (migration 0042): the address the station opens while the slot's door is open,
+    /// as it was saved (plain HTTP, an HLS playlist, or an SRT listener with its stream id).
+    pub pull_url: Option<String>,
     pub created_by: String,
     pub created_ms: i64,
     pub last_used_ms: Option<i64>,
@@ -330,6 +337,13 @@ pub struct ShowKey {
     pub monitor_hash: Vec<u8>,
 }
 
+impl ShowKey {
+    /// Whether the station opens this source itself (`hint` `pull`).
+    pub fn is_pull(&self) -> bool {
+        self.hint == "pull"
+    }
+}
+
 pub struct NewShowKey<'a> {
     pub id: Uuid,
     pub show_id: Uuid,
@@ -339,13 +353,15 @@ pub struct NewShowKey<'a> {
     pub key_salt: &'a [u8; 16],
     pub monitor_hash: &'a [u8; 32],
     pub hint: &'a str,
+    /// Only for `hint` `pull`, checked by the caller (`crate::pull`).
+    pub pull_url: Option<&'a str>,
     pub created_by: &'a str,
     pub created_ms: i64,
 }
 
 macro_rules! key_columns {
     () => {
-        "id, show_id, label, staff_id, key_id, hint, created_by, created_ms, last_used_ms, revoked_ms, ends_on_disconnect, turned_away_until_ms, turned_away_by, key_salt, monitor_hash"
+        "id, show_id, label, staff_id, key_id, hint, pull_url, created_by, created_ms, last_used_ms, revoked_ms, ends_on_disconnect, turned_away_until_ms, turned_away_by, key_salt, monitor_hash"
     };
 }
 
@@ -357,6 +373,7 @@ fn key_of(r: &sqlx::postgres::PgRow) -> Result<ShowKey, sqlx::Error> {
         staff_id: r.try_get("staff_id")?,
         key_id: r.try_get("key_id")?,
         hint: r.try_get("hint")?,
+        pull_url: r.try_get("pull_url")?,
         created_by: r.try_get("created_by")?,
         created_ms: r.try_get("created_ms")?,
         last_used_ms: r.try_get("last_used_ms")?,
@@ -369,15 +386,26 @@ fn key_of(r: &sqlx::postgres::PgRow) -> Result<ShowKey, sqlx::Error> {
     })
 }
 
-/// Make a key, and mark its show as one that comes from a host's own studio.
+/// Where a show comes from, worked out again from its keys that have not ended: `pull` while it
+/// has a pull, else `push` while it has a key, else `room`.
+const SHOW_SOURCE_AGAIN: &str = "UPDATE show SET source = CASE
+       WHEN EXISTS (SELECT 1 FROM show_key WHERE show_id = $1 AND hint = 'pull'
+                    AND (revoked_ms IS NULL OR revoked_ms > $2)) THEN 'pull'
+       WHEN EXISTS (SELECT 1 FROM show_key WHERE show_id = $1
+                    AND (revoked_ms IS NULL OR revoked_ms > $2)) THEN 'push'
+       ELSE 'room' END
+     WHERE id = $1";
+
+/// Make a key, and mark its show as one that comes from a host's own studio (`push`), or from a
+/// stream the station pulls (`pull`) when it is a pull or the show already has one.
 pub async fn create_key(
     pool: &sqlx::PgPool,
     station: StationId,
     k: &NewShowKey<'_>,
 ) -> Result<ShowKey, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let row = sqlx::query(concat!("INSERT INTO show_key (id, station_id, show_id, label, staff_id, key_id, key_salt, monitor_hash, hint, created_by, created_ms)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING ",
+    let row = sqlx::query(concat!("INSERT INTO show_key (id, station_id, show_id, label, staff_id, key_id, key_salt, monitor_hash, hint, created_by, created_ms, pull_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING ",
         key_columns!(),
         ""))
     .bind(k.id)
@@ -391,11 +419,12 @@ pub async fn create_key(
     .bind(k.hint)
     .bind(k.created_by)
     .bind(k.created_ms)
+    .bind(k.pull_url)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("UPDATE show SET source = 'push' WHERE id = $1 AND station_id = $2")
+    sqlx::query(SHOW_SOURCE_AGAIN)
         .bind(k.show_id)
-        .bind(station.as_uuid())
+        .bind(k.created_ms)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -460,7 +489,8 @@ pub async fn key_by_key_id(
     .transpose()
 }
 
-/// End a key now; when it was the show's last live key, the show comes from the room again.
+/// End a key now; when it was the show's last live key, the show comes from the room again (and
+/// from a host's own studio when its last pull ended and a pushed key is left).
 /// `false` when it had already ended.
 pub async fn end_key(
     pool: &sqlx::PgPool,
@@ -479,14 +509,11 @@ pub async fn end_key(
     .fetch_optional(&mut *tx)
     .await?;
     if let Some(show) = show {
-        sqlx::query(
-            "UPDATE show SET source = 'room' WHERE id = $1 AND NOT EXISTS (
-               SELECT 1 FROM show_key WHERE show_id = $1 AND (revoked_ms IS NULL OR revoked_ms > $2))",
-        )
-        .bind(show)
-        .bind(now_ms)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(SHOW_SOURCE_AGAIN)
+            .bind(show)
+            .bind(now_ms)
+            .execute(&mut *tx)
+            .await?;
     }
     tx.commit().await?;
     Ok(show.is_some())
@@ -544,7 +571,7 @@ pub async fn touch_key(
     Ok(())
 }
 
-/// Where a show comes from: `room` or `push`.
+/// Where a show comes from: `room`, `push` or `pull`.
 pub async fn show_source(
     pool: &sqlx::PgPool,
     station: StationId,
@@ -567,13 +594,13 @@ pub struct LogEntry {
     pub key_id: String,
     /// `admitted`, `test`, `refused`, `ended`, `disconnected`, `let_back`, or one the post's rule
     /// writes (`on_air`, `off_air`, `link_lost`, `back`, `place_let_go`, `covered`, `go`, `not_yet`,
-    /// `hold`, `hold_released`).
+    /// `hold`, `hold_released`), or the handover window's `heads_up` (under the key `post`).
     pub event: String,
     /// For a refusal: its word ([`Refusal::as_str`]).
     pub reason: Option<String>,
     #[serde(default)]
     pub detail: String,
-    /// `icecast` or `srt`.
+    /// `icecast`, `srt`, `whip`, `bridge`, `vban` or `pull`.
     pub way: Option<String>,
     /// The address it came from, as the ingest saw it (the real one, not a proxy's).
     #[serde(skip_serializing)]
@@ -702,6 +729,28 @@ pub struct SourceSettings {
     pub port_icecast: i32,
     /// The ingest's SRT port (UDP).
     pub port_srt: i32,
+    /// The handover window (design note `handover-window.md`): how long before a show's post the
+    /// desk names the incoming host and gives them one heads-up, in seconds: 0 (off) to 1,800.
+    /// A body without it keeps the station's stored value.
+    #[serde(default = "default_window_s")]
+    #[schema(default = 300, minimum = 0, maximum = 1800)]
+    pub window_s: i32,
+    /// The ingest's WHIP media port (UDP; 17d). Left out of a request, 9712.
+    #[serde(default = "default_port_whip")]
+    pub port_whip: i32,
+}
+
+/// The handover window's length when nothing is stored.
+pub const WINDOW_S: i32 = 300;
+/// The longest handover window.
+pub const WINDOW_MAX_S: i32 = 1800;
+
+fn default_window_s() -> i32 {
+    WINDOW_S
+}
+
+fn default_port_whip() -> i32 {
+    9712
 }
 
 impl Default for SourceSettings {
@@ -718,6 +767,8 @@ impl Default for SourceSettings {
             fade_ms: 2000,
             port_icecast: 8005,
             port_srt: 9710,
+            window_s: WINDOW_S,
+            port_whip: default_port_whip(),
         }
     }
 }
@@ -753,6 +804,12 @@ impl SourceSettings {
         if !within(self.port_icecast, 1, 65_535) || !within(self.port_srt, 1, 65_535) {
             return Err(("port_icecast", "ports are 1 to 65535"));
         }
+        if !within(self.window_s, 0, WINDOW_MAX_S) {
+            return Err(("window_s", "seconds, 0 (off) to 1800"));
+        }
+        if !within(self.port_whip, 1, 65_535) {
+            return Err(("port_whip", "ports are 1 to 65535"));
+        }
         Ok(())
     }
 }
@@ -762,7 +819,7 @@ pub async fn get_settings(
     station: StationId,
 ) -> Result<SourceSettings, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT door_before_min, grace_s, late_count_s, test_outside, test_max_min, steady_s, silence_s, place_kept_s, fade_ms, port_icecast, port_srt
+        "SELECT door_before_min, grace_s, late_count_s, test_outside, test_max_min, steady_s, silence_s, place_kept_s, fade_ms, port_icecast, port_srt, window_s, port_whip
          FROM source_settings WHERE station_id = $1",
     )
     .bind(station.as_uuid())
@@ -783,6 +840,8 @@ pub async fn get_settings(
         fade_ms: r.try_get("fade_ms")?,
         port_icecast: r.try_get("port_icecast")?,
         port_srt: r.try_get("port_srt")?,
+        window_s: r.try_get("window_s")?,
+        port_whip: r.try_get("port_whip")?,
     })
 }
 
@@ -794,11 +853,11 @@ pub async fn put_settings(
     now_ms: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO source_settings (station_id, door_before_min, grace_s, late_count_s, test_outside, test_max_min, steady_s, silence_s, place_kept_s, fade_ms, port_icecast, port_srt, updated_by, updated_ms)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        "INSERT INTO source_settings (station_id, door_before_min, grace_s, late_count_s, test_outside, test_max_min, steady_s, silence_s, place_kept_s, fade_ms, port_icecast, port_srt, updated_by, updated_ms, window_s, port_whip)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          ON CONFLICT (station_id) DO UPDATE SET door_before_min = $2, grace_s = $3, late_count_s = $4, test_outside = $5,
            test_max_min = $6, steady_s = $7, silence_s = $8, place_kept_s = $9, fade_ms = $10, port_icecast = $11,
-           port_srt = $12, updated_by = $13, updated_ms = $14",
+           port_srt = $12, updated_by = $13, updated_ms = $14, window_s = $15, port_whip = $16",
     )
     .bind(station.as_uuid())
     .bind(s.door_before_min)
@@ -814,6 +873,8 @@ pub async fn put_settings(
     .bind(s.port_srt)
     .bind(by)
     .bind(now_ms)
+    .bind(s.window_s)
+    .bind(s.port_whip)
     .execute(pool)
     .await?;
     Ok(())
@@ -884,6 +945,7 @@ mod tests {
             staff_id: None,
             key_id: "abcd2345".into(),
             hint: "srt".into(),
+            pull_url: None,
             created_by: "test".into(),
             created_ms: 0,
             last_used_ms: None,
@@ -914,6 +976,19 @@ mod tests {
             Admission::Test {
                 max_ms: 15 * 60_000
             }
+        );
+        let pull = ShowKey {
+            hint: "pull".into(),
+            pull_url: Some("http://radio.example.com:8000/live".into()),
+            ..key()
+        };
+        assert_eq!(
+            admit(&pull, open, &s, 150_000),
+            Admission::StandBy { door: open }
+        );
+        assert_eq!(
+            admit(&pull, shut, &s, 0),
+            Admission::Refused(Refusal::NotYourSlot)
         );
         let no_tests = SourceSettings {
             test_outside: false,
@@ -1036,6 +1111,19 @@ mod tests {
             }
         );
         // With tests outside the slot off there is no test to become: the connection closes.
+        let pull = ShowKey {
+            hint: "pull".into(),
+            pull_url: Some("http://radio.example.com:8000/live".into()),
+            ..key()
+        };
+        assert_eq!(
+            admit(&pull, open, &s, 150_000),
+            Admission::StandBy { door: open }
+        );
+        assert_eq!(
+            admit(&pull, shut, &s, 0),
+            Admission::Refused(Refusal::NotYourSlot)
+        );
         let no_tests = SourceSettings {
             test_outside: false,
             ..s
@@ -1055,5 +1143,29 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(bad.check().unwrap_err().0, "grace_s");
+    }
+
+    #[test]
+    fn the_handover_window_is_off_at_zero_and_at_most_half_an_hour() {
+        assert_eq!(SourceSettings::default().window_s, 300);
+        for ok in [0, 1, 300, 1800] {
+            let s = SourceSettings {
+                window_s: ok,
+                ..Default::default()
+            };
+            assert!(s.check().is_ok(), "{ok}");
+        }
+        for bad in [-1, 1801, 3600] {
+            let s = SourceSettings {
+                window_s: bad,
+                ..Default::default()
+            };
+            assert_eq!(s.check().unwrap_err().0, "window_s", "{bad}");
+        }
+        // A body from before the window keeps working (its value is filled in by the route).
+        let mut v = serde_json::to_value(SourceSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("window_s");
+        let s: SourceSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.window_s, WINDOW_S);
     }
 }

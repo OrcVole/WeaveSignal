@@ -3,7 +3,7 @@ title: "Packages and install files"
 description: "Every package and install route the repository builds: the desktop packages and their files, the build settings, the updater's key, weavesignal.sh's settings file and the generated Quadlets."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-18
 sidebar:
   order: 12
 ---
@@ -14,9 +14,9 @@ What the repository builds, where each piece lives, and where the 1.0.0 builds a
 |---|---|
 | The studio app's packages, with their `.sig` files and checksums | the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.1.1), and the updater's tree under `https://weavesignal.top/updates/` |
 | The updater's feed | `https://weavesignal.top/updates/latest.json` |
-| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1` |
-| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.1.1`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.1.1` |
-| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.1.1` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
+| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0` |
+| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.2.0`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.2.0` |
+| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.2.0` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
 
 The repository's root also holds `CHANGELOG.md`, what each release changed, and `SECURITY.md`, how to report a security fault.
 
@@ -144,12 +144,84 @@ Not pinned: the base images (`ubuntu:24.04`, `debian:13`, `fedora:44`, `node`, `
 | `CONTROL_PORT`, `CHAT_PORT`, `LISTENERS_PORT`, `SRT_INGEST_PORT`, `PLAYOUT_FEED_PORT`, `DESK_FEED_PORT`, `DESK_SOURCES_PORT`, `LIVEKIT_HTTP_PORT`, `LIVEKIT_MEDIA_PORT` | free ports ([Ports](/docs/reference/ports/#with-weavesignalsh)) |
 | `STATION_NAME`, `ROOM`, `SERVER_IMAGE`, `LIVEKIT_API_KEY`, `MAIL_MODE`, `MAIL_FROM` | the defaults, or what the environment gives; `--image` sets `SERVER_IMAGE` |
 | `CONSENT_CONTACT` | empty unless set: call-in stays closed until it is ([Open call-in](/docs/how-to/install-with-weavesignal-sh/#open-call-in)) |
+| `CONSENT_TEXT` | empty unless set: the default consent words. Set, the station's own words (from 1.2), which may use `{station}`, `{kept}`, `{contact}` and `{presenter}` ([The consent words](/docs/reference/public-pages/#the-consent-words)). The script writes them in single quotes with each apostrophe as `\'`, the one form Compose reads back whole, and refuses a backslash, a dollar sign, a per cent sign or a line break, which the Quadlets' units cannot carry whole |
 | `DEMO_STILL` | the demo slate picture for a station left with the demo name, Kettle FM; empty for any other name; kept as written on later runs (ADR-0200) |
 | `SEARCH_LISTING`, `DIRECTORY_LISTING` | `false` unless set (ADR-0133, ADR-0129) |
-| With `--public`: `PUBLIC_DOMAIN`, `PUBLIC_TLS`, `ACME_EMAIL`, `NODE_IP`, `TURN_ALLOW_CIDRS`, `PROXY_HTTPS_PORT`, `PROXY_HTTP_PORT`, `TURN_TLS_PORT`, `TURN_UDP_PORT`, `LIVEKIT_TCP_PORT` | the name and what the environment gives; free ports; then, worked out from them on every run and not to be edited, the addresses the services are given (`PUBLIC_ORIGIN`, `ROOM_PUBLIC_URL`, `STREAM_URL`), `FORWARDED_FOR`, `TURN_ENABLED` and the proxy's and LiveKit's derived lines ([Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/)) |
+| `STUN_SERVERS` | empty unless set: the STUN servers the station may ask ([STUN servers](#stun-servers)) |
+| `CONGESTION_CONTROL` | `gcc` unless set: how the desk's senders control congestion; `homegrown` or `disabled` ([`desk.toml`](/docs/reference/settings/#desktoml)); refused if it is none of the three |
+| `VIDEO_ENCODER`, `GPU`, and with `GPU=nvidia` `GPU_DEVICE`, `NVENC_SESSIONS` | `auto` unless set; `GPU` unset or `auto` is what the script finds, written as `nvidia` (an NVIDIA CDI spec in `/etc/cdi` or `/var/run/cdi`) or `none`; `GPU=nvidia` with no spec is refused; `nvidia.com/gpu=all` and 12 ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)). With `VIDEO=true` and `GPU=nvidia` the bundle adds `gpu.yaml`, and the Quadlets give the desk's unit `AddDevice=` |
+| With `--public`: `PUBLIC_DOMAIN`, `PUBLIC_TLS`, `ACME_EMAIL`, `NODE_IP`, `TURN_ALLOW_CIDRS`, `PROXY_HTTPS_PORT`, `PROXY_HTTP_PORT`, `TURN_TLS_PORT`, `TURN_UDP_PORT`, `LIVEKIT_TCP_PORT` | the name and what the environment gives; free ports; then, worked out from them on every run and not to be edited, the addresses the services are given (`PUBLIC_ORIGIN`, `ROOM_PUBLIC_URL`, `STREAM_URL`), `FORWARDED_FOR`, `TURN_ENABLED` and the proxy's and LiveKit's derived lines (`LIVEKIT_NODE_IP` is `NODE_IP` if set, else the A record of `PUBLIC_DOMAIN` read on that run, and `LIVEKIT_USE_EXTERNAL_IP` is always `false`: [LiveKit's public address](#livekits-public-address)) ([Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/)) |
 
 Any other line in the file is kept.
 The containers and volumes carry the Compose project's name (`weavesignal` by default, `--project` names another).
+
+## STUN servers
+
+A WeaveSignal station contacts **no STUN server** unless its operator names one (ADR-0290).
+A STUN server tells a program the public address it is seen from; whoever runs one sees that a program at that address asked.
+Three parts of a station would otherwise ask one, and each is set not to:
+
+| Part | What it would do | What WeaveSignal does |
+|---|---|---|
+| The desk's WebRTC connections | GStreamer's `webrtcsink` and `webrtcsrc` default to `stun://stun.l.google.com:19302`, so every connection the desk made asked Google's server | The desk sets `stun-server` itself on every WebRTC element it makes (`livekit.stun_servers`, empty by default); with none named, the element's own default is cleared |
+| LiveKit, for its public address | With `use_external_ip: true` it asks Twilio's and Google's servers at start, even when `node_ip` is also set; with no `node_ip` it gives its own connections Google's | It is always started with an address of its own and `use_external_ip: false` ([LiveKit's public address](#livekits-public-address)) |
+| Browsers joining the room | With no STUN server and no UDP TURN configured, LiveKit tells every client to use Twilio's and Google's, and no setting makes that list empty | The pages remove every STUN server LiveKit sends that the station did not name, whatever the TURN port is and even when the station's facts did not load |
+
+LiveKit's list reaches any client that is not one of the station's pages (a LiveKit SDK in your own program, for instance) as LiveKit sends it: those programs are yours, and you decide what they ask.
+Before 1.2.0 (up to and including 1.1.1) all three held: the desk asked Google's server for each connection, LiveKit asked Twilio's and Google's at start when `NODE_IP` was empty, and the pages passed on whatever LiveKit sent.
+Where `NODE_IP` was set, LiveKit's own lookup did not run, but the desk and the pages still asked.
+
+### Naming a STUN server
+
+Set `STUN_SERVERS` to up to four `host:port`, separated by commas, in the station's settings: `/app/data/weavesignal.env` on Cloudron, the settings file on Compose and the Quadlets.
+Each is a DNS name or an IPv4 address and a port, with no `stun:` in front: `stun.example.org:3478`.
+The same text goes to the three parts: LiveKit tells browsers to use them, the pages are allowed to ask them (the control plane reports them to the pages as `relay.stun_servers`), and the desk uses the first (a `webrtcbin` takes one).
+A server that is not in the right form stops the start (Cloudron) or `weavesignal.sh` (Compose and the Quadlets), naming it.
+Restart the station after a change; on Compose and the Quadlets, run `weavesignal.sh` again first.
+
+On Cloudron an admin can also name them from the studio (`PUT /api/v1/setup/stun`, with a list of `host:port`; an empty list is none).
+The answer is written to `/app/data/setup.env` beside the stream password's and applies to all three parts at the next restart, over `weavesignal.env`, never to one alone; the setup's view (`GET /api/v1/setup`, `stun`) says what runs now (`in_use`), what was asked and whether a restart is waited for.
+To go back to `weavesignal.env`, delete the `STUN_SERVERS=` line from `setup.env` and restart.
+A line there that is not up to four `host:port` is ignored, and the log says so.
+On Compose and the Quadlets the route answers 409: the settings file decides there.
+
+You rarely need one.
+A station with a public address does not: a guest behind a NAT reaches LiveKit's public address directly, or through TURN, without any STUN server.
+Whichever server you name sees the station's address and when it asks, and nothing else.
+Naming one does not make LiveKit ask it for its own address: that is `NODE_IP` or the name's A record ([LiveKit's public address](#livekits-public-address)).
+
+These answered a STUN Binding request (RFC 8489: the reply carried the request's transaction ID and the magic cookie, and an `XOR-MAPPED-ADDRESS`) on 2026-11-18, twice, from one machine; an answer then is not a promise, and none of these projects has agreed to be listed here.
+
+| Server | Run by | Source of that |
+|---|---|---|
+| `stun.nextcloud.com:443` and `stun.nextcloud.com:3478` | Nextcloud GmbH | Nextcloud Talk's own default (`DEFAULT_STUN_SERVER = 'stun.nextcloud.com:443'` in its source) and its documentation, which says the preconfigured STUN server is operated by Nextcloud GmbH. Port 443 gets through firewalls that block 3478 |
+| `stun.freeswitch.org:3478` | The FreeSWITCH project | The project's own domain, and the STUN server in FreeSWITCH's default configuration (`conf/vanilla/vars.xml`) |
+
+Only servers whose project could be confirmed are listed.
+Google's and Twilio's are not on this list on purpose.
+Pick one near your listeners, or run your own: the `coturn` package is free software and answers STUN on UDP and TCP 3478.
+
+## LiveKit's public address
+
+LiveKit puts one address in the candidates it offers a browser and the desk: the station's public IPv4 address.
+From 1.2.0 it never asks a STUN server for it.
+It is, in this order:
+
+1. **`NODE_IP`**, if set: the address you give.
+2. **The A record of the station's own domain**, read when the station starts. On Cloudron that is the room's domain, else the app's own; on Compose and the Quadlets, `PUBLIC_DOMAIN`, read each time `weavesignal.sh` runs (it is written to the generated settings as `LIVEKIT_NODE_IP`, and the Quadlets keep it until you run the script and generate them again). An address from a hosts file (loopback or link-local) is ignored.
+
+An A record is not always the address guests reach.
+Set `NODE_IP` to the server's public IPv4 address where:
+
+- the name is behind a proxy that hides the server (Cloudflare's orange cloud, for example): the record is the proxy's, and WebRTC's UDP does not go through it;
+- the machine is behind NAT and the name points at the router's public address: this works if the router forwards LiveKit's media port to the machine, and needs `NODE_IP` only if it does not;
+- the name's record is private (a station on a private network): the address is used, `TURN_ALLOW_CIDRS` must list it (such as `192.168.1.5/32`) because LiveKit's TURN refuses to relay to private addresses, and `weavesignal.sh` says so.
+
+When the name has no A record this machine can read: **Compose and the Quadlets** stop before writing anything, naming `NODE_IP`; **Cloudron** tries three times, then starts anyway (the stream, the chat and the studio need no address) and logs a warning. It uses the last address the name gave, kept in `/app/data/livekit-node-ip`, so a moment without DNS while a server restarts does not break calls. With no address kept it gives LiveKit the loopback address, and calls from outside do not connect until the name has an A record or `NODE_IP` is set, and the app is restarted.
+The log's line `LiveKit's public address is … (…)` says which it used.
+
+An existing station that left `NODE_IP` empty keeps working: its name already has the A record guests use.
+On Compose and the Quadlets, run `weavesignal.sh` again on updating (it recomputes the address and the settings), and generate the Quadlets again; until then the old settings, which asked STUN servers, stay in force.
 
 ## The Quadlets
 

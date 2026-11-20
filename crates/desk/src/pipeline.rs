@@ -39,6 +39,7 @@
 //! cue, talk), read afresh by every pass; a gate that changes ramps across one block.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak, mpsc};
 use std::time::{Duration, Instant};
@@ -58,7 +59,10 @@ use crate::carts::{CartError, CartsStatus, Deck, Decoder, Fire, Fired, PlayEvent
 use crate::config::{Config, FEED_PASSWORD_ENV, LiveKit};
 use crate::feed::Feed;
 use crate::hls_sound::{HlsSound, Source, StationMode};
-use crate::matrix::{Bus, Switches, gate_to_bus, owner};
+use crate::matrix::{Bus, Switches, gate_to_bus, reaches};
+use crate::phone::PhoneSeen;
+use crate::room::Seen;
+use crate::vban_out::OutSource;
 use crate::video::{DeskSide, Video, VisionPerson};
 
 /// 16-bit audio: what the test sources send and the measuring taps record.
@@ -110,10 +114,39 @@ pub struct Person {
     pub fade: Option<weavesignal_mixer::Fade>,
 }
 
+/// A source's clock as the desk follows it (Phase 17g), for the status's clock badge.
+#[derive(Debug, Default)]
+pub struct SourceClock {
+    /// Its clock against the desk's, in ppm, as `f32` bits; NaN before the first estimate.
+    ppm_bits: std::sync::atomic::AtomicU32,
+    /// Times it was placed afresh since it connected (after its first placing).
+    pub replaced: AtomicU64,
+}
+
+impl SourceClock {
+    pub fn new() -> Self {
+        SourceClock {
+            ppm_bits: std::sync::atomic::AtomicU32::new(f32::NAN.to_bits()),
+            replaced: AtomicU64::new(0),
+        }
+    }
+
+    pub fn set_ppm(&self, ppm: f64) {
+        self.ppm_bits
+            .store((ppm as f32).to_bits(), Ordering::Relaxed);
+    }
+
+    /// `None` before the first estimate.
+    pub fn ppm(&self) -> Option<f32> {
+        let v = f32::from_bits(self.ppm_bits.load(Ordering::Relaxed));
+        v.is_finite().then(|| (v * 10.0).round() / 10.0)
+    }
+}
+
 /// What the ingest says of a host's own studio when it hands it to the desk.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct SourceFacts {
-    /// `icecast` or `srt`.
+    /// `icecast`, `srt`, `whip`, `bridge` or `vban` (the host's software), or `pull` (the station opened it).
     pub way: String,
     /// What the host's software sends, as the ingest read it (`mp3 44.1 kHz stereo`).
     pub format: String,
@@ -123,6 +156,15 @@ pub struct SourceFacts {
     pub show: String,
     /// When the desk took it.
     pub since: Instant,
+    /// Its clock, as the source's connection follows it.
+    pub clock: Arc<SourceClock>,
+}
+
+impl PartialEq for SourceFacts {
+    fn eq(&self, o: &Self) -> bool {
+        (&self.way, &self.format, &self.key, &self.show, self.since)
+            == (&o.way, &o.format, &o.key, &o.show, o.since)
+    }
 }
 
 /// A host's own studio, as the status reports it.
@@ -140,6 +182,11 @@ pub struct SourceStatus {
     pub level_db: Option<f32>,
     /// Its monitor link is open: the desk is making its monitor mix (design 4.5).
     pub monitor: bool,
+    /// Its clock against the desk's in ppm (Phase 17g); `None` before the first estimate or
+    /// with `sources.follow` off.
+    pub clock_ppm: Option<f32>,
+    /// Times it was placed afresh since it connected.
+    pub replaced: u64,
 }
 
 /// A person, as the status reports them.
@@ -174,6 +221,14 @@ pub struct PersonStatus {
     /// A host's own studio (ADR-0280): its way in, format, key, show and leveller.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceStatus>,
+}
+
+/// VBAN out as the status reports it (Phase 17g): the set the control plane last sent, and
+/// each output's counts.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct KitStatus {
+    pub set: Option<String>,
+    pub outs: Vec<crate::vban_out::OutStatus>,
 }
 
 /// Whether playout is connected to the programme's SRT listener, and since when.
@@ -332,6 +387,12 @@ struct State {
     read_pos: Option<i64>,
     /// The cart players.
     deck: Deck,
+    /// VBAN out (Phase 17g): each sender, fed a copy of its bus's block by the pass.
+    vban: Vec<Arc<crate::vban_out::VbanOut>>,
+    /// The set of outs the control plane last sent; `None` before any.
+    kit_set: Option<String>,
+    /// The phone line's booths and keys (17f).
+    phone: crate::phone::Phone,
 }
 
 impl State {
@@ -446,6 +507,10 @@ pub(crate) enum Join<'a> {
     Output { only: Option<&'a [String]> },
 }
 
+/// The label of the data channel LiveKit opens toward a subscriber for reliable packets: a
+/// phone booth's keys come on it (the spike, 2026-11-20).
+const RELIABLE_CHANNEL: &str = "_reliable";
+
 /// The patched signaller's property that limits who may subscribe to a publisher
 /// (`spike/desk-image/patches`).
 pub const ALLOWED_SUBSCRIBERS: &str = "allowed-subscribers";
@@ -508,6 +573,12 @@ fn video_jitter_buffer(room: &gst::Element, ms: u32) {
     }
 }
 
+/// Choose a `livekitwebrtcsink`'s congestion control (`desk.congestion_control`). The default
+/// is the element's own (`gcc`); setting it by nick keeps this working if the enum's numbers move.
+pub(crate) fn set_congestion_control(sink: &gst::Element, mode: crate::config::CongestionControl) {
+    sink.set_property_from_str("congestion-control", mode.nick());
+}
+
 /// Set the LiveKit signaller's properties on a `livekitwebrtcsrc` or `livekitwebrtcsink`, and
 /// trim the `webrtcbin` it makes before it negotiates: no data channels (the signaller adds
 /// two, `_reliable` and `_lossy`, which the desk never uses: each is two threads, and their
@@ -522,15 +593,48 @@ pub(crate) fn signal(
     identity: &str,
     join: Join<'_>,
 ) {
+    signal_with_data(element, lk, room, identity, join, None);
+}
+
+/// What a phone booth's subscriber does with each message on the room's reliable data channel
+/// (17f): the bytes of a LiveKit `DataPacket`.
+pub(crate) type DataHandler = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
+/// As [`signal`]; with `data`, the reliable channel the room opens toward this subscriber
+/// (`_reliable`) is kept and each message on it handed to `data`, and only the others closed:
+/// a phone caller's keys arrive on it (17f, the spike's finding).
+pub(crate) fn signal_with_data(
+    element: &gst::Element,
+    lk: &LiveKit,
+    room: &str,
+    identity: &str,
+    join: Join<'_>,
+    data: Option<DataHandler>,
+) {
     let sig = element.property::<glib::Object>("signaller");
-    sig.connect("webrtcbin-ready", false, |values| {
+    sig.connect("webrtcbin-ready", false, move |values| {
         if let Some(Ok(bin)) = values.get(2).map(|v| v.get::<gst::Element>()) {
             no_upnp(&bin);
             // The room opens channels of its own toward a subscriber; closed at once, they
-            // take their threads with them.
-            bin.connect("on-data-channel", false, |values| {
+            // take their threads with them. A phone booth's reliable one carries its keys.
+            let data = data.clone();
+            bin.connect("on-data-channel", false, move |values| {
                 if let Some(Ok(channel)) = values.get(1).map(|v| v.get::<glib::Object>()) {
-                    channel.emit_by_name::<()>("close", &[]);
+                    let label = channel.property::<Option<String>>("label");
+                    match &data {
+                        Some(handler) if label.as_deref() == Some(RELIABLE_CHANNEL) => {
+                            let handler = handler.clone();
+                            channel.connect("on-message-data", false, move |values| {
+                                if let Some(Ok(Some(bytes))) =
+                                    values.get(1).map(|v| v.get::<Option<glib::Bytes>>())
+                                {
+                                    handler(&bytes);
+                                }
+                                None
+                            });
+                        }
+                        _ => channel.emit_by_name::<()>("close", &[]),
+                    }
                 }
                 None
             });
@@ -548,6 +652,10 @@ pub(crate) fn signal(
         Join::Input { .. } => keys.desk_input(room, identity),
         Join::Output { .. } => keys.desk_output(room, identity),
     };
+    // No STUN server unless the station named one (ADR-0290): `webrtcsink` and `webrtcsrc` each
+    // default to Google's, and `None` clears that default, so the desk's connections gather
+    // only their own addresses (the room is on this machine or reached at a given address).
+    element.set_property_from_value("stun-server", &lk.stun_server_url().to_value());
     sig.set_property("ws-url", &lk.url);
     sig.set_property("auth-token", &token);
     sig.set_property("room-name", room);
@@ -876,6 +984,9 @@ impl Desk {
                     stats: MixStats::default(),
                     read_pos: None,
                     deck: Deck::new(CHANNELS, Some(crate::carts::reaper())),
+                    vban: Vec::new(),
+                    kit_set: None,
+                    phone: crate::phone::Phone::new(),
                 }),
                 config,
                 outputs,
@@ -1048,6 +1159,8 @@ impl Desk {
                             .and_then(SourceLeveller::level_db)
                             .map(|d| (d * 10.0).round() / 10.0),
                         monitor: st.buses.contains_key(&Bus::MixMinus(id.clone())),
+                        clock_ppm: f.clock.ppm(),
+                        replaced: f.clock.replaced.load(Ordering::Relaxed),
                     }),
                 }
             })
@@ -1261,6 +1374,8 @@ impl Desk {
             rtmp_audio,
             feed_buf,
             deck,
+            vban,
+            phone,
             ..
         } = st;
         for list in inputs.values_mut() {
@@ -1317,10 +1432,22 @@ impl Desk {
             };
             bs.acc.clear();
             bs.acc.resize(n, 0.0);
+            // Whom the bus's owner is talking to: they hear that person back (issue 25).
+            let owner_talks_to = match bus {
+                Bus::Programme => None,
+                Bus::MixMinus(id) => people.get(id).and_then(|o| o.switches.talk_to.as_deref()),
+            };
             for (src, list) in inputs.iter() {
                 let Some(p) = people.get(src) else { continue };
-                let open = gate_to_bus(src, p.role, bus, owner_role)
-                    .is_some_and(|g| p.switches.passes(g, owner(bus)));
+                // A phone caller not yet through the gate reaches no bus (17f).
+                let open = !phone.held(src)
+                    && reaches(
+                        src,
+                        &p.switches,
+                        gate_to_bus(src, p.role, bus, owner_role),
+                        bus,
+                        owner_talks_to,
+                    );
                 let target = if open { 1.0 } else { 0.0 };
                 // A fade (the schedule's move) steps the gain toward its target block by block;
                 // without one the step is the whole way, as the gate always was.
@@ -1341,9 +1468,28 @@ impl Desk {
             {
                 mix_into(&mut bs.acc, c, CHANNELS, 1.0, 1.0);
             }
+            // The phone words (17f): while they play they are the caller's whole return.
+            if let Bus::MixMinus(id) = bus
+                && let Some(words) = phone.render(id, n)
+            {
+                bs.acc.copy_from_slice(words);
+            }
             bs.limiter.process(&mut bs.acc);
             for t in &bs.taps {
                 t.push_f32(now, &bs.acc);
+            }
+            // VBAN out (Phase 17g): a copy of the block with its place in the mix, never
+            // waited for; the programme before the delay here, after it below, and a bus of a
+            // person or a host's own studio as itself.
+            for o in vban.iter() {
+                let wants = match (&o.source, bus) {
+                    (OutSource::Live, Bus::Programme) => true,
+                    (OutSource::Bus(id), Bus::MixMinus(b)) => id == b,
+                    _ => false,
+                };
+                if wants {
+                    o.offer(pos, &bs.acc);
+                }
             }
             match bus {
                 Bus::Programme => {
@@ -1351,6 +1497,9 @@ impl Desk {
                     delay.process(&bs.acc, delayed);
                     for t in delayed_taps.iter() {
                         t.push_f32(now, delayed);
+                    }
+                    for o in vban.iter().filter(|o| o.source == OutSource::Programme) {
+                        o.offer(pos, delayed);
                     }
                     if let Some(o) = programme_out {
                         o.offer(to_i16(delayed), pts, programme_pool);
@@ -1466,6 +1615,7 @@ impl Desk {
         // Tests without a room publish nowhere.
         let sink = if self.inner.outputs.mix_minus_to_room {
             let sink = make("livekitwebrtcsink", Some(&name))?;
+            set_congestion_control(&sink, self.inner.config.desk.congestion_control);
             let room_identity = format!("{}-mm-{identity}", self.inner.config.desk.identity);
             let (room, only) = self.return_destination(identity);
             signal(
@@ -1475,7 +1625,13 @@ impl Desk {
                 &room_identity,
                 Join::Output { only: Some(&only) },
             );
-            tracing::info!(participant = %identity, identity = %room_identity, %room, "mix-minus published to the room");
+            // A phone booth's name carries the number's last digits: never logged (17f).
+            let shown = if weavesignal_proto::phone::is_phone_person(identity) {
+                "a phone booth"
+            } else {
+                room.as_str()
+            };
+            tracing::info!(participant = %identity, identity = %room_identity, room = %shown, congestion_control = %self.inner.config.desk.congestion_control.nick(), "mix-minus published to the room");
             sink
         } else {
             gst::ElementFactory::make("fakesink")
@@ -1551,7 +1707,7 @@ impl Desk {
             ),
             Some(p) => (
                 p.room.unwrap_or_else(|| studio.clone()),
-                vec![identity.to_owned()],
+                vec![self.livekit_identity(identity)],
             ),
             None => (studio.clone(), vec![identity.to_owned()]),
         }
@@ -1635,16 +1791,20 @@ impl Desk {
                 return Ok(false);
             }
             let bus = Bus::MixMinus(identity.clone());
-            if st.buses.contains_key(&bus) {
-                return Ok(true);
+            match st.buses.get_mut(&bus) {
+                Some(b) if b.out.is_some() => return Ok(true),
+                // A bus VBAN out keeps without a publisher (Phase 17g): give it one now.
+                Some(b) => b.serial = n,
+                None => {
+                    st.buses.insert(
+                        bus,
+                        BusState::new(
+                            n,
+                            Limiter::new(&self.inner.config.programme.limiter, CHANNELS),
+                        ),
+                    );
+                }
             }
-            st.buses.insert(
-                bus,
-                BusState::new(
-                    n,
-                    Limiter::new(&self.inner.config.programme.limiter, CHANNELS),
-                ),
-            );
         }
         tracing::info!(source = %identity, "a monitor mix is opened");
         if let Err(e) = self.attach_return(&identity, n) {
@@ -1659,7 +1819,11 @@ impl Desk {
         let identity = weavesignal_proto::source_wire::identity(key_id);
         let doomed = {
             let mut st = self.lock();
-            self.take_return(&mut st, &identity, None, false)
+            let kept = st
+                .vban
+                .iter()
+                .any(|o| o.source == OutSource::Bus(identity.clone()));
+            self.take_return(&mut st, &identity, None, kept)
         };
         if doomed.is_empty() {
             return;
@@ -1668,6 +1832,81 @@ impl Desk {
         stop_and_remove(&self.inner.pipeline, &doomed);
         self.lock().disown(&doomed);
         tracing::info!(source = %identity, "a monitor mix is closed");
+    }
+
+    /// VBAN out (Phase 17g): replace every output with `outs`, sent from `bind`. Each is
+    /// started before the old ones stop (outside the desk's lock: sockets and threads); one
+    /// that cannot start is left out and named in the error, the others run.
+    pub fn set_kit(
+        &self,
+        set: &str,
+        bind: Option<IpAddr>,
+        outs: Vec<crate::vban_out::OutSpec>,
+    ) -> Result<(), String> {
+        let mut started = Vec::new();
+        let mut refused = Vec::new();
+        if let Some(bind) = bind {
+            for o in outs {
+                let name = o.name.clone();
+                match crate::vban_out::VbanOut::start(o, bind) {
+                    Ok(v) => started.push(Arc::new(v)),
+                    Err(e) => refused.push(format!("{name}: {e:#}")),
+                }
+            }
+        } else if !outs.is_empty() {
+            refused.push("no address to send from".into());
+        }
+        let old = {
+            let mut st = self.lock();
+            st.kit_set = Some(set.to_owned());
+            std::mem::replace(&mut st.vban, started)
+        };
+        drop(old);
+        self.keep_kit_buses();
+        if refused.is_empty() {
+            Ok(())
+        } else {
+            Err(refused.join("; "))
+        }
+    }
+
+    /// Keep the bus each VBAN out of a mix-minus or a monitor mix reads: a host's own studio's
+    /// monitor mix is made only while someone listens to its link, so VBAN keeps one without a
+    /// publisher (no encoder, no room). An out whose source is not at the desk says so.
+    fn keep_kit_buses(&self) {
+        let mut st = self.lock();
+        let wanted: Vec<(Arc<crate::vban_out::VbanOut>, String)> = st
+            .vban
+            .iter()
+            .filter_map(|o| match &o.source {
+                OutSource::Bus(id) => Some((o.clone(), id.clone())),
+                _ => None,
+            })
+            .collect();
+        for (o, id) in wanted {
+            let here = st.people.get(&id).is_some_and(|p| p.away_since.is_none());
+            if !here {
+                o.set_problem(Some("its source is not at the desk".into()));
+                continue;
+            }
+            o.set_problem(None);
+            st.buses.entry(Bus::MixMinus(id)).or_insert_with(|| {
+                BusState::new(
+                    self.next_serial(),
+                    Limiter::new(&self.inner.config.programme.limiter, CHANNELS),
+                )
+            });
+        }
+    }
+
+    /// VBAN out as the status reports it; it also keeps the buses its outs read.
+    pub fn kit_status(&self) -> KitStatus {
+        self.keep_kit_buses();
+        let st = self.lock();
+        KitStatus {
+            set: st.kit_set.clone(),
+            outs: st.vban.iter().map(|o| o.status()).collect(),
+        }
     }
 
     /// The show keys whose monitor mix is open.
@@ -1709,7 +1948,9 @@ impl Desk {
                 }
                 return Ok(());
             }
-            if p.role == role {
+            if p.role == role && weavesignal_proto::phone::is_phone_person(identity) {
+                tracing::info!(participant = %identity, "seen in another phone booth");
+            } else if p.role == role {
                 tracing::info!(participant = %identity, from = ?p.room, to = ?room, "seen in another room");
             } else {
                 tracing::info!(participant = %identity, from = %p.role, to = %role, "role changed");
@@ -1740,6 +1981,10 @@ impl Desk {
             );
         }
         tracing::info!(participant = %identity, %role, "joined the desk");
+        // A phone caller's return answers their call: it waits for the gate (17f).
+        if !self.lock().phone.may_publish(identity) {
+            return Ok(());
+        }
         self.attach_return(identity, n)
     }
 
@@ -1772,6 +2017,148 @@ impl Desk {
             o.close();
         }
         elements
+    }
+
+    // -----------------------------------------------------------------------------------
+    // The phone line (17f).
+
+    /// The identity a person has in LiveKit's room: a phone caller's `sip_…` one, everyone
+    /// else's their own.
+    fn livekit_identity(&self, identity: &str) -> String {
+        self.lock()
+            .phone
+            .sip_identity(identity)
+            .map_or_else(|| identity.to_owned(), str::to_owned)
+    }
+
+    /// The room watch's look at the phone booths: the callers the desk should mix now (booths
+    /// it hung up are left out while LiveKit still lists them).
+    pub fn note_phone_booths(&self, phones: Vec<(Seen, PhoneSeen)>) -> Vec<Seen> {
+        let (seen, booths): (Vec<Seen>, Vec<PhoneSeen>) = phones.into_iter().unzip();
+        let live = self.lock().phone.note(booths);
+        seen.into_iter()
+            .filter(|s| live.iter().any(|b| b.person == s.identity))
+            .collect()
+    }
+
+    /// The calls the room watch should end.
+    pub fn take_phone_hang_ups(&self) -> Vec<(String, String)> {
+        self.lock().phone.take_hang_ups()
+    }
+
+    /// A call the room watch could not end yet.
+    pub fn phone_hang_up_again(&self, room: String, sip_identity: String) {
+        self.lock().phone.hang_up_again(room, sip_identity);
+    }
+
+    /// A key pressed in a phone booth: numbered and kept for the control plane.
+    pub fn phone_key(&self, person: &str, code: u32) {
+        if let Some(seq) = self.lock().phone.key(person, code) {
+            tracing::info!(participant = %person, seq, "a key on the phone");
+        }
+    }
+
+    /// The phone line as the status reports it.
+    pub fn phone_status(&self) -> crate::phone::PhoneStatus {
+        let st = self.lock();
+        st.phone.status(|p| st.people.contains_key(p))
+    }
+
+    /// Answer a phone call: publish the caller's return into their booth, once.
+    fn phone_answer(&self, person: &str) -> Result<()> {
+        let serial = {
+            let mut st = self.lock();
+            if !st.people.contains_key(person) {
+                bail!("`{person}` is not at the desk");
+            }
+            match st.phone.answer(person) {
+                None => bail!("`{person}` is not in a phone booth"),
+                Some(false) => return Ok(()),
+                Some(true) => st
+                    .buses
+                    .get(&Bus::MixMinus(person.to_owned()))
+                    .map(|b| b.serial),
+            }
+        };
+        match serial {
+            Some(n) => {
+                tracing::info!(participant = %person, "a phone call is answered");
+                self.attach_return(person, n)
+            }
+            None => bail!("`{person}` has no return"),
+        }
+    }
+
+    /// Play the phone words (`file` in the phone-words directory, at `gain_db`) into a phone
+    /// caller's return, which answers the call; any words playing are replaced.
+    pub fn phone_words(&self, person: &str, file: &str, version: &str, gain_db: f32) -> Result<()> {
+        if !crate::phone::words_file_ok(file) {
+            bail!("`{file}` is not a phone words file");
+        }
+        if !gain_db.is_finite() || !(-40.0..=20.0).contains(&gain_db) {
+            bail!("gain_db must be -40 to 20");
+        }
+        if self.lock().phone.sip_identity(person).is_none() {
+            bail!("`{person}` is not in a phone booth");
+        }
+        let path = self.inner.config.phone.words_dir.join(file);
+        if !path.is_file() {
+            bail!("no phone words file `{file}`");
+        }
+        let settings = &self.inner.config.carts;
+        let (decoder, feed) = Decoder::start(
+            &path,
+            false,
+            CHANNELS,
+            Duration::from_millis(u64::from(settings.ahead_ms)),
+        )?;
+        let started = feed.wait_for(
+            self.inner.block,
+            Duration::from_millis(u64::from(settings.start_wait_ms)),
+        );
+        if let Some(why) = feed.failed() {
+            bail!("cannot decode `{file}`: {why}");
+        }
+        if !started {
+            bail!("no audio from `{file}` in {} ms", settings.start_wait_ms);
+        }
+        let gain = weavesignal_mixer::db_to_lin(gain_db);
+        if self
+            .lock()
+            .phone
+            .start_words(person, version, gain, feed, Some(decoder))
+            .is_none()
+        {
+            bail!("`{person}` is not in a phone booth");
+        }
+        self.phone_answer(person)
+    }
+
+    /// Let a phone caller's voice in: they passed the gate (with the words off, this answers
+    /// the call too).
+    pub fn phone_admit(&self, person: &str) -> Result<()> {
+        if !self.lock().phone.admit(person) {
+            bail!("`{person}` is not in a phone booth");
+        }
+        tracing::info!(participant = %person, "a phone caller is through to the queue");
+        self.phone_answer(person)
+    }
+
+    /// End a phone call: the caller leaves the desk at once, and the room watch takes them out
+    /// of their booth, which hangs up.
+    /// A call the desk no longer has (the caller hung up first) is already ended: done.
+    pub fn phone_hang_up(&self, person: &str) -> Result<()> {
+        if !weavesignal_proto::phone::is_phone_person(person) {
+            bail!("`{person}` is not a phone caller");
+        }
+        let had = self.lock().phone.hang_up(person);
+        if self.person(person).is_some() {
+            self.remove_person(person);
+        }
+        if had {
+            tracing::info!(participant = %person, "a phone call is ended");
+        }
+        Ok(())
     }
 
     /// Mark a person away: their voice is dropped at once, their mix-minus kept for now.
@@ -1865,12 +2252,27 @@ impl Desk {
             src.set_property("video-codecs", gst::Array::new(codecs));
         }
         let room = self.room_of(identity);
-        signal(
+        let producer = self.livekit_identity(identity);
+        // A phone caller's keys come on the booth's data channel (17f).
+        let keys = weavesignal_proto::phone::is_phone_person(identity).then(|| {
+            let weak: Weak<Inner> = Arc::downgrade(&self.inner);
+            let person = identity.to_owned();
+            Arc::new(move |data: &[u8]| {
+                let Some(inner) = weak.upgrade() else { return };
+                if let Some(key) = weavesignal_proto::phone::sip_key(data) {
+                    Desk { inner }.phone_key(&person, key.code);
+                }
+            }) as DataHandler
+        });
+        signal_with_data(
             &src,
             &self.inner.config.livekit,
             &room,
             &room_identity,
-            Join::Input { producer: identity },
+            Join::Input {
+                producer: &producer,
+            },
+            keys,
         );
         let weak: Weak<Inner> = Arc::downgrade(&self.inner);
         let source = identity.to_owned();
@@ -2579,5 +2981,78 @@ fn mix_loop(weak: Weak<Inner>, realtime: bool) {
         let desk = Desk { inner };
         desk.lock().stats.realtime = rt;
         desk.mix_due();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR-0290: `signal` is where every WebRTC element the desk makes is given its settings, and
+    /// it clears the `stun-server` GStreamer defaults to Google's, unless the station names one.
+    #[test]
+    fn webrtc_elements_ask_no_stun_server_unless_one_is_named() {
+        gst::init().unwrap();
+        let config = |extra: &str| {
+            Config::from_toml(
+                &format!(
+                    "[livekit]\nurl = \"ws://127.0.0.1:1\"\napi_key = \"k\"\nroom = \"r\"\n{extra}\n"
+                ),
+                "t",
+            )
+            .unwrap()
+        };
+        let stun = |e: &gst::Element| e.property::<Option<String>>("stun-server");
+        for (factory, join) in [
+            ("livekitwebrtcsink", Join::Output { only: None }),
+            ("livekitwebrtcsrc", Join::Input { producer: "p" }),
+        ] {
+            let none = make(factory, None).unwrap();
+            assert_eq!(
+                stun(&none).as_deref(),
+                Some("stun://stun.l.google.com:19302"),
+                "{factory} no longer defaults to Google's server: the clearing below may be unneeded"
+            );
+            signal(&none, &config("").livekit, "r", "i", join);
+            assert_eq!(stun(&none), None, "{factory} still asks a STUN server");
+
+            let named = make(factory, None).unwrap();
+            let join = match factory {
+                "livekitwebrtcsink" => Join::Output { only: None },
+                _ => Join::Input { producer: "p" },
+            };
+            let cfg = config("stun_servers = \"stun.example.org:3478, other.example.net:3478\"");
+            signal(&named, &cfg.livekit, "r", "i", join);
+            assert_eq!(
+                stun(&named).as_deref(),
+                Some("stun://stun.example.org:3478"),
+                "{factory}: the first named server"
+            );
+        }
+    }
+
+    /// `desk.congestion_control` reaches the sink's own `congestion-control` property, and the
+    /// element's default stays what the desk has always used.
+    #[test]
+    fn the_senders_congestion_control_follows_the_setting() {
+        use crate::config::CongestionControl as Cc;
+        gst::init().unwrap();
+        let get = |e: &gst::Element| {
+            let v = e.property_value("congestion-control");
+            let (_, value) = glib::EnumValue::from_value(&v).expect("an enum");
+            value.nick().to_owned()
+        };
+        let sink = make("livekitwebrtcsink", None).unwrap();
+        assert_eq!(get(&sink), "gcc", "the element's default is no longer gcc");
+        assert_eq!(Cc::default(), Cc::Gcc);
+        for (mode, nick) in [
+            (Cc::Disabled, "disabled"),
+            (Cc::Homegrown, "homegrown"),
+            (Cc::Gcc, "gcc"),
+        ] {
+            let sink = make("livekitwebrtcsink", None).unwrap();
+            set_congestion_control(&sink, mode);
+            assert_eq!(get(&sink), nick);
+        }
     }
 }

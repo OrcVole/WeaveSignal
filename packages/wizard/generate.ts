@@ -12,12 +12,15 @@
 //                      the value as written), keeps what is there, makes the secrets, and
 //                      writes the file whole. Compose then substitutes the values into every
 //                      service's settings. So a value may hold no quote, backslash, dollar
-//                      sign, backtick, hash or line break.
+//                      sign, backtick, hash or line break. The consent words are the one
+//                      exception: the script keeps them in single quotes (each apostrophe as
+//                      \'), and refuses only a backslash, a dollar sign and a per cent sign.
 //   cloudron           deploy/cloudron/start.sh sources `/app/data/weavesignal.env` as shell,
 //                      before it reads Cloudron's own variables. So the file is complete (the
 //                      script's first file names settings it never adds later), every value is
 //                      quoted, and the domains and public ports, which are Cloudron's install
-//                      dialog's, are never in it.
+//                      dialog's, are never in it. The consent words go in double quotes with
+//                      every character the shell would act on escaped.
 //
 // No secret is asked, made or shown: both routes make them on the server.
 import { normaliseHex } from './accent.ts';
@@ -51,6 +54,9 @@ export interface Answers {
   /** Cloudron: ask listeners for a password. */
   streamPassword: boolean;
   video: boolean;
+  /** Compose and Quadlets, with video: a GPU for the desk (17e). `auto` leaves it to weavesignal.sh,
+   *  which looks for an NVIDIA CDI spec; Cloudron has none. */
+  gpu: GpuChoice;
   mail: 'off' | 'outbox' | 'cloudron';
   /** Compose and Quadlets: the sender address of sign-in codes. */
   mailFrom: string;
@@ -68,7 +74,48 @@ export interface Answers {
   sourceSrtPort: number;
   /** The accent colour, `#rrggbb`, or empty for the product's own. */
   accent: string;
+  /** Outside STUN servers (ADR-0290): none unless the station names one ([`STUN_CHOICES`]). */
+  stun: StunChoice;
+  /** For `other`: `host:port` each, split by commas or spaces, at most four. */
+  stunOther: string;
+  /** The station's own consent words (issue #26), on one line; empty, the shipped words. */
+  consentText: string;
 }
+
+/** A GPU for the desk's video (17e): looked for by the script, an NVIDIA card by its CDI name, or none. */
+export type GpuChoice = 'auto' | 'nvidia' | 'none';
+export const GPU_CHOICES: readonly { key: GpuChoice; label: string }[] = [
+  { key: 'auto', label: 'Look for one when the script runs (recommended)' },
+  { key: 'nvidia', label: 'An NVIDIA card: encode on it with NVENC' },
+  { key: 'none', label: 'None: encode on the CPU with SVT-AV1' },
+];
+
+/** The STUN chooser's answers. */
+export type StunChoice = 'none' | 'nextcloud' | 'freeswitch' | 'other';
+
+/** What the chooser offers (ADR-0290): none first, then the free-software projects' servers the
+ *  packages reference lists (docs: reference/packages.md, *STUN servers*), then a typed list.
+ *  Google's and Twilio's are left out on purpose. */
+export const STUN_CHOICES: readonly { key: StunChoice; label: string; servers: readonly string[]; runBy?: string }[] = [
+  { key: 'none', label: 'None (recommended): the station contacts no outside STUN server', servers: [] },
+  { key: 'nextcloud', label: 'Nextcloud’s: stun.nextcloud.com:443', servers: ['stun.nextcloud.com:443'], runBy: 'Nextcloud GmbH, for Nextcloud Talk' },
+  { key: 'freeswitch', label: 'FreeSWITCH’s: stun.freeswitch.org:3478', servers: ['stun.freeswitch.org:3478'], runBy: 'the FreeSWITCH project' },
+  { key: 'other', label: 'Another server…', servers: [] },
+];
+/** At most this many (weavesignal-proto's `MAX_STUN_SERVERS`). */
+export const MAX_STUN_SERVERS = 4;
+
+/** The consent words a station has until it writes its own (the control plane's `CONSENT_TEXT`). */
+export const DEFAULT_CONSENT_TEXT =
+  "You'll be live on {station}, and we may keep your call in our archive and podcast {kept}. To have it taken down, contact {contact}.";
+/** The fill-ins the consent words understand (the control plane's `CONSENT_PLACEHOLDERS`), and
+ *  what the station puts in each. */
+export const CONSENT_FILL_INS: readonly { token: string; means: string }[] = [
+  { token: '{station}', means: 'the station’s name' },
+  { token: '{kept}', means: 'how long recordings are kept, from the jurisdiction you chose, such as “for 42 days”' },
+  { token: '{contact}', means: 'the takedown contact: the show’s own if it has one, then the station’s' },
+  { token: '{presenter}', means: 'the presenter of the show on air; with no show on air, or a show without a presenter, the station’s name' },
+];
 
 /** What a new station is offered before anyone answers. */
 export function defaults(route: Route = 'compose'): Answers {
@@ -88,6 +135,7 @@ export function defaults(route: Route = 'compose'): Answers {
     jurisdiction: 'none',
     streamPassword: false,
     video: false,
+    gpu: 'auto',
     mail: route === 'cloudron' ? 'cloudron' : 'off',
     mailFrom: '',
     searchListing: false,
@@ -99,6 +147,9 @@ export function defaults(route: Route = 'compose'): Answers {
     sourceIcecastPort: 0,
     sourceSrtPort: 0,
     accent: '',
+    stun: 'none',
+    stunOther: '',
+    consentText: '',
   };
 }
 
@@ -156,6 +207,73 @@ function portProblem(port: number, optional: boolean): string | null {
   return null;
 }
 
+/** One STUN server as both install scripts check it (their one pattern, and the port's range). */
+const STUN_ENTRY = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*:[0-9]{1,5}$/;
+
+/** A typed list of STUN servers read as weavesignal.sh and start.sh read `STUN_SERVERS`: split
+ *  at commas and spaces, lower-cased, each `host:port` (a DNS name or an IPv4 address and a
+ *  port from 1 to 65535, no `stun:` in front), repeats dropped, at most four. */
+export function parseStunServers(text: string): { ok: true; servers: string[] } | { ok: false; message: string } {
+  const servers: string[] = [];
+  for (const raw of text.split(/[, ]+/).filter(Boolean)) {
+    const entry = raw.toLowerCase();
+    const port = Number(entry.slice(entry.lastIndexOf(':') + 1));
+    if (!STUN_ENTRY.test(entry) || port < 1 || port > 65535) {
+      return { ok: false, message: `“${raw}” is not host:port: a DNS name or an IPv4 address, a colon and a port, without stun: in front. For example stun.example.org:3478.` };
+    }
+    if (!servers.includes(entry)) servers.push(entry);
+  }
+  if (servers.length > MAX_STUN_SERVERS) return { ok: false, message: 'At most four STUN servers. Leave some out.' };
+  return { ok: true, servers };
+}
+
+/** The STUN servers the answers name, in order; none unless one is chosen. */
+export function stunServersOf(a: Pick<Answers, 'stun' | 'stunOther'>): string[] {
+  if (a.stun === 'other') {
+    const parsed = parseStunServers(a.stunOther);
+    return parsed.ok ? parsed.servers : [];
+  }
+  return [...(STUN_CHOICES.find((c) => c.key === a.stun)?.servers ?? [])];
+}
+
+function stunProblem(a: Answers): Problem | null {
+  if (!STUN_CHOICES.some((c) => c.key === a.stun)) return { field: 'stun', message: 'Choose a STUN server from the list, or None.' };
+  if (a.stun !== 'other') return null;
+  const parsed = parseStunServers(a.stunOther);
+  if (!parsed.ok) return { field: 'stunOther', message: parsed.message };
+  if (!parsed.servers.length) return { field: 'stunOther', message: 'Name the server as host:port, such as stun.example.org:3478, or choose None.' };
+  return null;
+}
+
+/** The consent words' problem for the route's settings file, or `null`. Empty is the shipped
+ *  words. The Compose bundle and the Quadlets share weavesignal.sh, which refuses a backslash,
+ *  a dollar sign and a per cent sign (a Quadlets unit would read them as its own); the Cloudron
+ *  package's file is shell, where each is escaped instead. Every route keeps the words on one line. */
+export function consentProblem(text: string, route: Route): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  if (CONTROL.test(t)) return 'Keep the consent words on one line: no line break or tab.';
+  if (route !== 'cloudron' && /[\\$%]/.test(t)) {
+    return 'On this install route the consent words cannot hold a backslash, a dollar sign or a per cent sign. Leave them out: write “per cent”, or the currency’s name.';
+  }
+  return null;
+}
+
+/** Every `{word}` in the consent words that the station does not fill in (the control plane's
+ *  `unknown_placeholders`): a caller would read it as written. */
+export function unknownFillIns(text: string): string[] {
+  const known = CONSENT_FILL_INS.map((f) => f.token);
+  const found: string[] = [];
+  for (const m of text.matchAll(/\{[a-z_]+\}/g)) if (!known.includes(m[0]) && !found.includes(m[0])) found.push(m[0]);
+  return found;
+}
+
+/** The consent words as weavesignal.sh keeps them: single quotes, each apostrophe as `\'`. */
+const composeConsent = (text: string) => `'${text.trim().replaceAll("'", "\\'")}'`;
+/** The consent words for a file bash sources: double quotes, with the four characters the shell
+ *  acts on inside them (backslash, double quote, dollar sign, backtick) escaped. */
+const shellConsent = (text: string) => `"${text.trim().replace(/[\\"$`]/g, '\\$&')}"`;
+
 const isFileRoute = (a: Answers) => a.route !== 'cloudron';
 const goesPublic = (a: Answers) => a.route === 'cloudron' || a.isPublic;
 
@@ -184,6 +302,7 @@ export function problems(a: Answers): Problem[] {
       if (a.acmeEmail.trim() && !EMAIL.test(a.acmeEmail.trim())) add('acmeEmail', 'That is not an email address.');
     }
     if (a.mail === 'cloudron') add('mail', "Cloudron's mail is for the Cloudron route.");
+    if (!GPU_CHOICES.some((c) => c.key === a.gpu)) add('gpu', 'Choose how the desk encodes video: look for a card, an NVIDIA card, or none.');
     if (a.mail !== 'off') {
       const from = a.mailFrom.trim();
       if (!from) add('mailFrom', 'Give the address sign-in codes come from.');
@@ -209,6 +328,10 @@ export function problems(a: Answers): Problem[] {
     }
   }
   if (a.accent.trim() && !normaliseHex(a.accent)) add('accent', 'A colour is six hex digits, such as #b4532a.');
+  // A station for this machine only names no STUN server: nobody outside reaches it.
+  const stun = goesPublic(a) ? stunProblem(a) : null;
+  if (stun) out.push(stun);
+  add('consentText', consentProblem(a.consentText, a.route));
   return out;
 }
 
@@ -280,6 +403,13 @@ function composeEnv(a: Answers): string {
     '',
     '# How a caller asks for their call to be taken down; call-in stays closed while it is empty.',
     `CONSENT_CONTACT=${a.contact.trim()}`,
+    ...(a.consentText.trim()
+      ? [
+          '# The consent words a caller agrees to, in place of the shipped two sentences. In single',
+          "# quotes, each apostrophe written \\'; {station}, {kept}, {contact} and {presenter} are filled in.",
+          `CONSENT_TEXT=${composeConsent(a.consentText)}`,
+        ]
+      : []),
     '',
     '# Sign-in codes by email: off (staff use passwords, the chat is read-only) or outbox (codes',
     '# are written as files, for a test).',
@@ -295,6 +425,13 @@ function composeEnv(a: Answers): string {
     "# The desk's video path: cameras, the vision mixer, a picture in the player.",
     `VIDEO=${bool(a.video)}`,
   );
+  if (a.video && a.gpu !== 'auto') {
+    lines.push(
+      "# A GPU for the desk's video: nvidia hands the card to the desk by its CDI name (NVENC), none",
+      '# keeps it on the CPU (SVT-AV1). Without this line weavesignal.sh looks for a card itself.',
+      `GPU=${a.gpu}`,
+    );
+  }
   if (a.isPublic) {
     lines.push('', '# The public route (weavesignal.sh --public adds the name itself).');
     if (a.acmeEmail.trim()) lines.push(`ACME_EMAIL=${a.acmeEmail.trim()}`);
@@ -306,6 +443,10 @@ function composeEnv(a: Answers): string {
     if (a.iceTcpPort !== 0) lines.push(`LIVEKIT_TCP_PORT=${a.iceTcpPort}`);
     if (a.sourceIcecastPort !== 0) lines.push(`SOURCE_ICECAST_PORT=${a.sourceIcecastPort}`);
     if (a.sourceSrtPort !== 0) lines.push(`SOURCE_SRT_PORT=${a.sourceSrtPort}`);
+    const stun = stunServersOf(a);
+    if (stun.length) {
+      lines.push('', '# STUN servers the station may ask (LiveKit, the desk and the join pages); without this', '# line it contacts none.', `STUN_SERVERS=${stun.join(',')}`);
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -323,7 +464,8 @@ function cloudronEnv(a: Answers): string {
     '# `listener` and the password in secrets.env (the player page cannot play it then).',
     `LISTENERS_AUTH=${a.streamPassword ? 'on' : 'off'}`,
     'LISTENERS_MOUNT=programme.opus',
-    "# LiveKit's public address for ICE candidates. Empty: discovered by STUN at start.",
+    "# LiveKit's public IPv4 address for ICE candidates. Empty: the A record of the room's domain, read",
+    "# at every start; no STUN server is asked. Set it where that is not the address guests reach.",
     `NODE_IP=${a.nodeIp.trim()}`,
     '# Internal ports, on loopback inside the container. Change only on a clash.',
     'CONTROL_PORT=7310',
@@ -334,6 +476,21 @@ function cloudronEnv(a: Answers): string {
     '',
     '# How a caller asks for their call to be taken down; call-in stays closed while it is empty.',
     `CONSENT_CONTACT=${q(a.contact.trim())}`,
+    ...(a.consentText.trim()
+      ? [
+          '# The consent words a caller agrees to, in place of the shipped two sentences. In double',
+          '# quotes, with a backslash before each " $ ` and backslash; {station}, {kept}, {contact} and',
+          '# {presenter} are filled in.',
+          `CONSENT_TEXT=${shellConsent(a.consentText)}`,
+        ]
+      : []),
+    ...(stunServersOf(a).length
+      ? [
+          '# STUN servers the station may ask (LiveKit, the desk and the join pages); without this',
+          '# line it contacts none.',
+          `STUN_SERVERS=${q(stunServersOf(a).join(','))}`,
+        ]
+      : []),
     "# Sign-in codes: cloudron (Cloudron's mail), outbox (files in /app/data/chat-outbox), or off.",
     `MAIL_MODE=${a.mail}`,
     '# Whether search engines and radio directories may list the station.',
@@ -581,8 +738,24 @@ export function generate(a: Answers): { ok: true; output: Output } | { ok: false
     if (!a.isPublic) notes.push('Every address is on this machine only: nobody else can listen or call. Run the script again with --public and a name when the station should go out.');
     if (a.ipv6 && a.isPublic) notes.push('The station is reached over IPv4 only, because its one name is also the TURN name.');
     if (a.mail === 'outbox') notes.push('Outbox writes each sign-in code to a file instead of sending it: for a test, not for listeners.');
+    if (a.video && a.gpu === 'nvidia') {
+      notes.push('The card reaches the desk through its CDI spec: install the NVIDIA Container Toolkit and run sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml before the script, which stops without it.');
+    }
   }
   if (!a.contact.trim()) notes.push('Call-in stays closed until the station has a takedown contact. The setup page can add it later.');
+  const stun = goesPublic(a) ? stunServersOf(a) : [];
+  if (stun.length) {
+    const one = stun.length === 1;
+    notes.push(
+      `The station, and each guest’s and caller’s browser, will ask ${stun.join(', ')} for its own public address. Whoever runs ${one ? 'that server' : 'each server'} sees those addresses and when they ask, and nothing else. ${one ? 'It is' : 'They are'} not ours, and nobody has promised ${one ? 'it' : 'them'} to your station.`,
+    );
+  }
+  if (a.consentText.trim()) {
+    const unknown = unknownFillIns(a.consentText);
+    if (unknown.length) notes.push(`Your consent words hold ${unknown.join(' and ')}, which the station does not fill in: callers would read ${unknown.length === 1 ? 'it' : 'them'} as written. The fill-ins are {station}, {kept}, {contact} and {presenter}.`);
+    if (!a.consentText.includes('{contact}')) notes.push('Your consent words have no {contact}, so callers are not told how to ask for their call to be taken down.');
+    notes.push('The station shows your consent words in place of the shipped ones. Change them later and every caller is asked to agree again.');
+  }
   if (a.jurisdiction === 'none') notes.push('No retention keeps nothing after a show. A licensed broadcaster must choose its jurisdiction; the setup page explains each one.');
   return {
     ok: true,

@@ -7,7 +7,7 @@ import { barPct, dbfs, heard } from './lib/meter.ts';
 import { cameraProblem, micProblem } from './lib/mic.ts';
 import { PLACE_HELD_MS, backoff, cameraCapture, connectOptions, limitSubscribers, offersCamera, rejoinUntil, shouldHear, shouldSee, voiceCapture, wantsCameraPreview } from './lib/rules.ts';
 import { kept } from './lib/store.ts';
-import { withTurnPort } from './lib/turn.ts';
+import { installStationIce, stationIceServers, useStationIce, withoutOutsideStun, withTurnPort } from './lib/turn.ts';
 
 const lim = { name_max: 60, topic_max: 140 };
 
@@ -133,5 +133,77 @@ describe('the picture (ADR-0028)', () => {
     // Inside the call they have already joined.
     expect(cameraProblem(denied, true)).not.toMatch(/still join/);
     expect(cameraProblem(denied, true)).toMatch(/hears you without your picture/);
+  });
+});
+
+describe('no outside STUN server unless the station named one (ADR-0290)', () => {
+  // What LiveKit 1.13.10 sends with no STUN and no UDP TURN configured: Twilio's and Google's.
+  const defaults: RTCIceServer = { urls: ['stun:global.stun.twilio.com:3478', 'stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] };
+  const turn: RTCIceServer = { urls: ['turns:turn.example.org:443?transport=tcp'], username: 'u', credential: 'c' };
+
+  it("drops LiveKit's default STUN servers and keeps TURN", () => {
+    expect(withoutOutsideStun([defaults, turn], [])).toEqual([turn]);
+    expect(withoutOutsideStun([defaults], [])).toEqual([]);
+    expect(withoutOutsideStun(undefined, [])).toEqual([]);
+  });
+  it('keeps the STUN URLs in a mixed server whose TURN URLs it must not touch', () => {
+    const mixed: RTCIceServer = { urls: ['turn:t.example.org:3478?transport=udp', 'stun:stun.l.google.com:19302'], username: 'u', credential: 'c' };
+    expect(withoutOutsideStun([mixed], [])).toEqual([{ urls: ['turn:t.example.org:3478?transport=udp'], username: 'u', credential: 'c' }]);
+  });
+  it('lets through only the servers the station named, whatever the URL looks like', () => {
+    const named = ['stun.example.org:3478'];
+    const out = withoutOutsideStun([{ urls: 'stun:STUN.example.org:3478' }, { urls: ['stuns:stun.example.org:5349', 'stun://other.example.net:3478?transport=udp'] }, defaults], named);
+    expect(out).toEqual([{ urls: 'stun:STUN.example.org:3478' }]);
+    // An address with no port is the scheme's default, so a station's server on 3478 matches.
+    expect(withoutOutsideStun([{ urls: 'stun:stun.example.org' }], named)).toEqual([{ urls: 'stun:stun.example.org' }]);
+    // `stuns:` defaults to 5349, a different server, so it goes and the named one is added.
+    expect(withoutOutsideStun([{ urls: 'stuns:stun.example.org' }], named)).toEqual([{ urls: ['stun:stun.example.org:3478'] }]);
+  });
+  it('judges STUN by the scheme alone: a URL it cannot read is dropped, not kept', () => {
+    const odd: RTCIceServer = { urls: ['stun:stun.l.google.com:19302/', 'STUN:Stun.l.google.com', 'stuns:stun.l.google.com:5349 ', 'stun:', 'stun://[2001:db8::1]:3478', 'turn:t.example.org:3478'] };
+    expect(withoutOutsideStun([odd], [])).toEqual([{ urls: ['turn:t.example.org:3478'] }]);
+  });
+  it('adds the servers the station named when LiveKit sent none of them', () => {
+    expect(withoutOutsideStun([defaults, turn], ['stun.example.org:3478'])).toEqual([turn, { urls: ['stun:stun.example.org:3478'] }]);
+  });
+  it('does both with the relay: the port, and no outside STUN', () => {
+    const out = stationIceServers([defaults, turn], { turn_tls_port: 5349, stun_servers: [] });
+    expect(out).toEqual([{ urls: ['turns:turn.example.org:5349?transport=tcp'], username: 'u', credential: 'c' }]);
+    // Without the station's facts the page still asks no STUN server, and TURN stays as sent.
+    expect(stationIceServers([defaults, turn], undefined)).toEqual([turn]);
+    expect(stationIceServers(undefined, undefined)).toBeUndefined();
+  });
+  it('is on every peer connection the page opens, from the first call whatever it is told', () => {
+    const seen: (RTCConfiguration | undefined)[] = [];
+    class Fake {
+      constructor(config?: RTCConfiguration) {
+        seen.push(config);
+      }
+      setConfiguration(config?: RTCConfiguration): void {
+        seen.push(config);
+      }
+    }
+    const before = globalThis.RTCPeerConnection;
+    try {
+      globalThis.RTCPeerConnection = Fake as unknown as typeof RTCPeerConnection;
+      useStationIce(undefined);
+      const pc = new RTCPeerConnection({ iceServers: [defaults, turn] });
+      pc.setConfiguration({ iceServers: [defaults, turn] });
+      expect(seen).toEqual([{ iceServers: [turn] }, { iceServers: [turn] }]);
+      // Facts that arrive later are read by the connections made after them.
+      useStationIce({ turn_tls_port: 5349, stun_servers: ['stun.example.org:3478'] });
+      seen.length = 0;
+      new RTCPeerConnection({ iceServers: [defaults, turn], iceTransportPolicy: 'relay' });
+      expect(seen).toEqual([
+        { iceServers: [{ urls: ['turns:turn.example.org:5349?transport=tcp'], username: 'u', credential: 'c' }, { urls: ['stun:stun.example.org:3478'] }], iceTransportPolicy: 'relay' },
+      ]);
+      // Installing again, as a room does beside `new Room`, keeps the facts the page was given.
+      installStationIce();
+      seen.length = 0;
+      new RTCPeerConnection({ iceServers: [defaults, turn] });
+      expect(seen).toEqual([{ iceServers: [{ urls: ['turns:turn.example.org:5349?transport=tcp'], username: 'u', credential: 'c' }, { urls: ['stun:stun.example.org:3478'] }] }]);
+    } finally {
+      globalThis.RTCPeerConnection = before;
+    }
   });
 });

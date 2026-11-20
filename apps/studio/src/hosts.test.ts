@@ -20,6 +20,7 @@ import {
   arrivalWords,
   detailBlocks,
   detailsText,
+  waysFirst,
   monitorLink,
   hostRows,
   keyStatus,
@@ -82,6 +83,7 @@ const key = (over: Partial<KeyRow> = {}): KeyRow => ({
     host: 'kettle.example',
     icecast: { port: 8005, mount: '/live', user: 'source', password: 'MREQM2YS-(shown once, when the key was made)' },
     srt: { port: 9710, streamid: 'MREQM2YS', passphrase: '(shown once, when the key was made)', pbkeylen: 16, url: null },
+    whip: { port: 0, url: null, bearer_token: '(shown once, when the key was made)' },
   },
   ...over,
 });
@@ -95,6 +97,7 @@ const live = (over: Partial<SourceNow> = {}): SourceNow => ({
   state: 'standby',
   slot: 5,
   way: 'srt',
+  pull: false,
   format: 'mpegts/aac 48 kHz stereo',
   level: -23.6,
   leveller_db: -7.4,
@@ -273,6 +276,7 @@ describe('the setup and the details', () => {
       host: 'kettle.example',
       icecast: { port: 8005, mount: '/live', user: 'source', password: 'MREQM2YS-CJ95WZA67WVREB8C8KZ5NV2E' },
       srt: { port: 9710, streamid: 'MREQM2YS', passphrase: 'CJ95WZA67WVREB8C8KZ5NV2E', pbkeylen: 16, url: 'srt://kettle.example:9710?streamid=MREQM2YS&passphrase=CJ95WZA67WVREB8C8KZ5NV2E&pbkeylen=16' },
+      whip: { port: 9712, url: 'https://kettle.example/whip/MREQM2YS', bearer_token: 'CJ95WZA67WVREB8C8KZ5NV2E' },
     },
     as_text: 'the station’s own text',
   };
@@ -330,6 +334,27 @@ describe('the setup and the details', () => {
     expect(bare).not.toContain('/monitor/#H6');
   });
 
+  it('gives WHIP as OBS asks for it, first when it is the host’s way, and leaves it out while the station has it off', () => {
+    const b = detailBlocks(made.details, 'kettle.example', made.secret);
+    expect(b.whip.map((f) => [f.label, f.value, f.copy])).toEqual([
+      ['Server', 'https://kettle.example/whip/MREQM2YS', true],
+      ['Bearer Token', 'CJ95WZA67WVREB8C8KZ5NV2E', true],
+      ['UDP port', '9712 must reach the station', false],
+    ]);
+    expect(waysFirst('whip')).toEqual(['whip', 'icecast', 'srt']);
+    expect(waysFirst('srt')).toEqual(['srt', 'icecast', 'whip']);
+    const text = detailsText({ ...made, key: { ...made.key, hint: 'whip' } }, 'Steeped', 'kettle.example', null);
+    expect(text.startsWith('Finlay Grant’s details for Steeped\n\nWHIP (')).toBe(true);
+    expect(text).toContain('  Bearer Token: CJ95WZA67WVREB8C8KZ5NV2E');
+    // With no public address, how the address is formed; with WHIP off, nothing of it.
+    const unknown = detailBlocks({ ...made.details, whip: { ...made.details.whip, url: null } }, 'kettle.example', null);
+    expect(unknown.whip[0]).toMatchObject({ value: 'the station’s public address, then /whip/MREQM2YS', copy: false });
+    expect(unknown.whip[1]).toMatchObject({ copy: false, words: true });
+    expect(detailBlocks(key().details, 'kettle.example', null).whip).toEqual([]);
+    const off = detailsText({ ...made, details: { ...made.details, whip: { port: 0, url: null, bearer_token: '' } } }, 'Steeped', 'kettle.example', null);
+    expect(off).not.toContain('WHIP');
+  });
+
   it('tells the host the design’s words: open the monitor link, and on air at the show’s time', () => {
     expect(TELL_HOST).toContain('open the monitor link');
     expect(TELL_HOST).toContain('You go on air at your show’s time, not when you connect.');
@@ -337,7 +362,7 @@ describe('the setup and the details', () => {
 });
 
 describe('the rules', () => {
-  const rules: SourceSettings = { door_before_min: 30, grace_s: 120, late_count_s: 20, test_outside: true, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710 };
+  const rules: SourceSettings = { door_before_min: 30, grace_s: 120, late_count_s: 20, test_outside: true, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710, port_whip: 9712 };
 
   it('offers the four graces the station takes', () => {
     expect(GRACES.map((g) => g.s)).toEqual([0, 60, 120, 300]);
@@ -602,7 +627,7 @@ describe('Settings › Own studios', () => {
   ];
   const producer: Me = { kind: 'staff', role: 'producer', account: { id: 'a-shona', username: 'shona', name: 'Shona Campbell', role: 'producer', disabled_ms: null, created_ms: 1 } };
   const admin: Me = { kind: 'station', role: 'admin' };
-  const rules: SourceSettings = { door_before_min: 30, grace_s: 120, late_count_s: 20, test_outside: true, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710 };
+  const rules: SourceSettings = { door_before_min: 30, grace_s: 120, late_count_s: 20, test_outside: true, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710, port_whip: 9712 };
   const seed = { shows, lists, sources: { listening: true, sources: [live()] }, zone: ZONE };
 
   it('is registered under its names, with the dialogs', () => {

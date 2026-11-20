@@ -8,7 +8,7 @@
 # the figures are a measurement, not a pass mark. A group is about 10 minutes; to share the
 # machine run each under the stack lock:  flock "$LOCK" tests/cc/matrix.sh audio1
 #
-#   tests/cc/matrix.sh [audio1|audio2|audio3|video1|video2|video3|cost|images|throttle|throttle2|busy|repeat|repeat2|threshold|all|table]
+#   tests/cc/matrix.sh [cc-audio|cc-video|cc-busy|cc-cost|cc-all|audio1|audio2|audio3|video1|video2|video3|cost|images|throttle|throttle2|busy|repeat|repeat2|threshold|all|table]
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 run="$here/run"
@@ -78,7 +78,27 @@ images() { # each image's own desk binary and GStreamer: the server image's and 
     one "image-$n-video-rate600k" GCC=on PROBE=1 VIDEO=1 SECONDS_TOTAL=60 SETTLE=15 DESK_RATE=600kbit DESK_RUN_IMAGE="$img" DESK_RUN_BIN="$bin"
   done
 }
+# 1.2.0 (Phase 16c): the three congestion controls, `desk.congestion_control` = gcc, homegrown, disabled,
+# under the same links. The names are cc-<mode>-<link>; `tests/cc/matrix.sh cc-table` prints only them.
+CCMODES="gcc homegrown disabled"
+cc-audio() { for m in $CCMODES; do # 60 s, the guest and a presenter's returns
+  one "cc-$m-audio-clean" CC=$m; one "cc-$m-audio-desk-loss5" CC=$m DESK_NETEM='loss 5%'; one "cc-$m-audio-desk-loss15" CC=$m DESK_NETEM='loss 15%'
+  one "cc-$m-audio-guest-loss5" CC=$m GUEST_NETEM='loss 5%'; one "cc-$m-audio-desk-jitter" CC=$m DESK_NETEM="$JITTER"
+done; }
+cc-video() { for m in $CCMODES; do # the programme picture from a plain moving square; 90 s
+  one "cc-$m-video-clean" CC=$m VIDEO=1 SECONDS_TOTAL=90; one "cc-$m-video-desk-loss5" CC=$m VIDEO=1 SECONDS_TOTAL=90 DESK_NETEM='loss 5%'
+  one "cc-$m-video-desk-rate600k" CC=$m VIDEO=1 SECONDS_TOTAL=90 DESK_RATE=600kbit
+  one "cc-$m-video-desk-jitter" CC=$m VIDEO=1 SECONDS_TOTAL=90 DESK_NETEM="$JITTER"; one "cc-$m-video-desk-mild" CC=$m VIDEO=1 SECONDS_TOTAL=90 DESK_NETEM="$MILD"
+done; }
+cc-busy() { for m in $CCMODES; do # a picture that wants more than the desk's 1.2 Mbit/s cap
+  one "cc-$m-busy-clean" CC=$m VIDEO=1 BUSY=1 SECONDS_TOTAL=90; one "cc-$m-busy-desk-loss5" CC=$m VIDEO=1 BUSY=1 SECONDS_TOTAL=90 DESK_NETEM='loss 5%'
+  one "cc-$m-busy-desk-rate1m" CC=$m VIDEO=1 BUSY=1 SECONDS_TOTAL=90 DESK_RATE=1000kbit
+done; }
+cc-cost() { for m in $CCMODES; do one "cc-$m-cost-8guests" CC=$m GUESTS=8 SECONDS_TOTAL=70; done; }
 case ${1:-all} in
+  cc-audio|cc-video|cc-busy|cc-cost) "$1" ;;
+  cc-all) cc-audio; cc-video; cc-busy; cc-cost ;;
+  cc-table) node "$here/summarise.mjs" table "$run/matrix.jsonl" | awk 'NR<=2||/^cc-/'; exit 0 ;;
   audio1|audio2|audio3|video1|video2|video3|cost|images|throttle|throttle2|busy|repeat|repeat2|threshold) "$1" ;;
   all) audio1; audio2; audio3; video1; video2; video3; cost; images; throttle; throttle2; busy; repeat; repeat2; threshold ;;
   table) ;;

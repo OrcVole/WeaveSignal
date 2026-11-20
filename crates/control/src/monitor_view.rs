@@ -97,6 +97,18 @@ pub struct MonitorPost {
     pub held_by: Option<String>,
     /// Who presents now, on air, by name.
     pub on_air: Vec<String>,
+    /// The handover window's heads-up, when this host is the one coming on next and the station
+    /// has given it (once an airing; design note `handover-window.md`).
+    pub heads_up: Option<HeadsUpLine>,
+}
+
+/// The station's one line to the incoming host before their post.
+#[derive(Clone, Serialize, utoipa::ToSchema)]
+pub struct HeadsUpLine {
+    /// When the station gave it.
+    pub at_ms: i64,
+    /// What the page says.
+    pub words: String,
 }
 
 /// One show in the rundown around this host's own.
@@ -233,7 +245,7 @@ pub struct MonitorView {
     pub says: String,
     /// What happens next, in one sentence with its time; absent when nothing does.
     pub then: Option<Then>,
-    /// `icecast` or `srt`, while connected.
+    /// `icecast`, `srt`, `whip`, `bridge` or `vban`, while connected; `pull` while the station holds a pull open.
     pub way: Option<String>,
     /// What their software sends, while connected.
     pub format: Option<String>,
@@ -900,6 +912,16 @@ fn project_post(f: &Facts) -> Option<MonitorPost> {
         grace_ends_ms: p.grace_ends_ms,
         held_by: p.held_by.clone(),
         on_air: p.holders.iter().filter(|h| **h != me).cloned().collect(),
+        heads_up: p
+            .window
+            .as_ref()
+            .filter(|w| incoming && w.show == show.slug && w.start_ms == show.start_ms)
+            .and_then(|w| {
+                w.heads_up_ms.map(|at_ms| HeadsUpLine {
+                    at_ms,
+                    words: format!("You are on next, at the start of {}.", w.show_name),
+                })
+            }),
     })
 }
 
@@ -1240,6 +1262,7 @@ mod tests {
             staff_id: None,
             key_id: id.into(),
             hint: "srt".into(),
+            pull_url: None,
             created_by: "t".into(),
             created_ms: 0,
             last_used_ms: None,
@@ -1274,6 +1297,7 @@ mod tests {
             state: state.into(),
             slot: Some(5),
             way: Some("srt".into()),
+            pull: false,
             format: Some("mp3".into()),
             level: None,
             leveller_db: None,
@@ -1366,6 +1390,7 @@ mod tests {
             late_ends_ms: None,
             holders: vec!["Finlay Grant".into()],
             link_lost: None,
+            window: None,
         });
         f.sources.push(row(&f.keys[1], &f.shows[1], "standby"));
         f.people.push(person(
@@ -1526,6 +1551,7 @@ mod tests {
             late_ends_ms: Some(NOW + 12_000),
             holders: vec![],
             link_lost: None,
+            window: None,
         };
         w.f.post = Some(p.clone());
         let v = build(&w.f, None);
@@ -1599,6 +1625,46 @@ mod tests {
             v.controls.bring.why_not.as_deref(),
             Some("Heather Douglas has not connected yet.")
         );
+    }
+
+    #[test]
+    fn the_heads_up_is_on_the_incoming_hosts_link_only() {
+        use weavesignal_model::handover_window::{Origin, State, WindowView};
+        let mut w = world("on_air", &[], Step::Full);
+        kettle_post(&mut w.f, SourceState::StandingBy, None, None);
+        w.f.post.as_mut().unwrap().window = Some(WindowView {
+            state: State::Ready,
+            show: "kettle".into(),
+            show_name: "Kettle Drive".into(),
+            start_ms: NOW + 3_000_000,
+            opens_ms: NOW + 2_700_000,
+            host: "Heather Douglas".into(),
+            from: Origin::Push,
+            heads_up_ms: Some(NOW),
+        });
+        // Finlay holds the air: the line is not his.
+        let his = project_post(&w.f).expect("the post he holds the air at");
+        assert!(his.heads_up.is_none());
+        // Heather's own link carries it.
+        w.f.key = w.f.keys[1].clone();
+        w.f.show = w.f.shows[1].clone();
+        let hers = project_post(&w.f)
+            .expect("her post")
+            .heads_up
+            .expect("the line");
+        assert_eq!(
+            (hers.at_ms, hers.words.as_str()),
+            (NOW, "You are on next, at the start of Kettle Drive.")
+        );
+        // Not given yet: no line.
+        w.f.post
+            .as_mut()
+            .unwrap()
+            .window
+            .as_mut()
+            .unwrap()
+            .heads_up_ms = None;
+        assert!(project_post(&w.f).unwrap().heads_up.is_none());
     }
 
     #[test]

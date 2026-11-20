@@ -78,7 +78,12 @@ pub fn format_of(content_type: &str) -> Result<&'static str, String> {
 /// The key from a basic `Authorization`: `<key id>-<secret>` as the password with any user, or
 /// the key id as the user and the secret as the password.
 pub fn credentials(head: &str) -> Option<Credentials> {
-    let value = header(head, "authorization")?;
+    credentials_value(header(head, "authorization")?)
+}
+
+/// The key from an `Authorization` header's value, as [`credentials`] reads it (the bridge's
+/// upgrade carries the same password).
+pub fn credentials_value(value: &str) -> Option<Credentials> {
     let b64 = value
         .strip_prefix("Basic ")
         .or_else(|| value.strip_prefix("basic "))?;

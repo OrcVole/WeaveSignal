@@ -128,6 +128,7 @@ async fn plane(pool: &sqlx::PgPool, id: StationId, o: Opts) -> Plane {
             ..CartsConfig::default()
         },
         started: std::time::SystemTime::now() - Duration::from_secs(5),
+        stun_in_use: Vec::new(),
     });
     setup::restore(&setup_state).await;
     let app = router(Arc::new(AppState {
@@ -291,6 +292,11 @@ fn locked_routes() -> Vec<(&'static str, &'static str, Value)> {
             "PUT",
             "/api/v1/setup/stream-password",
             json!({"enabled": true, "password": "taken-over-2026"}),
+        ),
+        (
+            "PUT",
+            "/api/v1/setup/stun",
+            json!({"servers": ["stun.taken-over.example:3478"]}),
         ),
         (
             "PUT",
@@ -948,6 +954,122 @@ async fn the_stream_password_is_written_for_the_start_script_only_where_the_inst
     assert_eq!(
         lines,
         ["LISTENERS_AUTH=off", "LISTENERS_PASSWORD=kettle-fm-2026"]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn the_stun_servers_are_written_for_the_start_script_beside_the_stream_password() {
+    let pool = database().await;
+    // Compose and Quadlets: the settings file decides; the view says what runs.
+    let p = plane(&pool, StationId::new_random(), Opts::default()).await;
+    let (_, v) = send(&p.app, "GET", "/api/v1/setup", Some(KEY), Value::Null).await;
+    assert_eq!(
+        v["stun"],
+        json!({"in_use": [], "available": false, "asked": null, "restart_needed": false})
+    );
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup/stun",
+        Some(KEY),
+        json!({"servers": ["stun.nextcloud.com:443"]}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("STUN_SERVERS"), "{v}");
+    assert!(!p.overrides.exists());
+
+    // The Cloudron package.
+    let p = plane(
+        &pool,
+        StationId::new_random(),
+        Opts {
+            stream_password: true,
+            ..Opts::default()
+        },
+    )
+    .await;
+    for bad in [
+        json!({"servers": ["stun:stun.example.org:3478"]}),
+        json!({"servers": ["stun.example.org"]}),
+        json!({"servers": ["a.example:3478,b.example:3478"]}),
+        json!({"servers": ["a:1", "b:2", "c:3", "d:4", "e:5"]}),
+        json!({"servers": ["$(reboot):3478"]}),
+        json!({"servers": "stun.example.org:3478"}),
+    ] {
+        let (code, v) = send(&p.app, "PUT", "/api/v1/setup/stun", Some(KEY), bad.clone()).await;
+        assert!(code.is_client_error(), "{bad}: {code} {v}");
+    }
+    assert!(!p.overrides.exists());
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup/stream-password",
+        Some(KEY),
+        json!({"enabled": true, "password": "kettle-fm-2026"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup/stun",
+        Some(KEY),
+        json!({"servers": ["STUN.freeswitch.org:3478", "stun.freeswitch.org:3478"]}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["stun"],
+        json!({"in_use": [], "available": true, "asked": ["stun.freeswitch.org:3478"],
+            "restart_needed": true})
+    );
+    let lines = |p: &Plane| -> Vec<String> {
+        std::fs::read_to_string(&p.overrides)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .map(str::to_owned)
+            .collect()
+    };
+    // The stream password's answer is kept beside it, and kept again when it changes.
+    assert_eq!(
+        lines(&p),
+        [
+            "LISTENERS_AUTH=on",
+            "LISTENERS_PASSWORD=kettle-fm-2026",
+            "STUN_SERVERS=stun.freeswitch.org:3478"
+        ]
+    );
+    let (_, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup/stream-password",
+        Some(KEY),
+        json!({"enabled": false}),
+    )
+    .await;
+    assert_eq!(v["stun"]["asked"], json!(["stun.freeswitch.org:3478"]));
+    // None: a line of its own, which matches what runs, so no restart is waited for.
+    let (code, v) = send(
+        &p.app,
+        "PUT",
+        "/api/v1/setup/stun",
+        Some(KEY),
+        json!({"servers": []}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{v}");
+    assert_eq!(v["stun"]["asked"], json!([]));
+    assert_eq!(v["stun"]["restart_needed"], false);
+    assert_eq!(
+        lines(&p),
+        [
+            "LISTENERS_AUTH=off",
+            "LISTENERS_PASSWORD=kettle-fm-2026",
+            "STUN_SERVERS="
+        ]
     );
 }
 

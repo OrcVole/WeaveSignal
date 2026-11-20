@@ -101,16 +101,20 @@ Before a caller can call, they tick a box under the station's consent words. The
 | `{station}` | the station's name |
 | `{kept}` | how long programme recordings are kept, from the Jurisdiction setting: "for two years", "for 42 days", "only until the show ends" |
 | `{contact}` | the show on air's takedown contact, then the station's own as the host: "shona@example.org. This station is hosted by Kettle FM: info@kettle.example" (ADR-0214, ADR-0215); with no show on air, or a show with no contact of its own, the station's alone, from `join.consent_contact` (`CONSENT_CONTACT` in the Compose bundle and `weavesignal.sh`) |
+| `{presenter}` | the show on air's presenter, as the show editor or the presenter's own setup names them: "Shona MacLeod"; with no show on air, or a show with no presenter, the station's name. The default words do not use it (from 1.2, issue #26) |
 
-With the default words, call-in stays closed until the station sets `join.consent_contact`: the station's contact is required, a show's is optional.
+With the default words, call-in stays closed until the station sets `join.consent_contact`: the station's contact is required, a show's is optional ([Decide whose contact to give callers](/docs/how-to/decide-whose-contact-to-give/) helps choose it).
 A station can write its own words in `join.consent_text`; words that use `{contact}` need the contact too, and words without it have nowhere to put a show's.
+Words that name the presenter use `{presenter}`, such as "You'll be live with {presenter} on {station}"; the default words stay as they are, so adding the fill-in is the station's choice and no caller of a station that keeps the default is asked again.
+The control plane warns at start of any other `{word}` in the words (a misspelt `{presentor}`, say): a caller would read it as written.
+The install routes write the control plane's settings file themselves, so a packaged station sets its words with `CONSENT_TEXT` (from 1.2): in `weavesignal.env` on Cloudron, in double quotes with `\"` for a quote and `\$` for a dollar sign; in the settings file `weavesignal.sh` writes for Compose and the Quadlets, in single quotes with each apostrophe as `\'`, and with no backslash, dollar sign or per cent sign, which `weavesignal.sh` refuses. Empty, the default, leaves the default words exactly as shipped ([Packages](/docs/reference/packages/#weavesignalshs-settings-file), [Install on Cloudron](/docs/how-to/install-on-cloudron/#open-call-in)).
 Any change to the words, a new retention period included, changes their version, and a caller who agreed to older words is asked again.
 
 ### The show on air
 
 The show on air is decided by the schedule, as the slate's picture is (ADR-0200): the latest episode whose air time holds now, for the episode's length, else its series' or show's slot, else an hour.
 A show's presenter and takedown contact are set in the show editor or by the presenter's own setup ([Set up your show](/docs/how-to/set-up-your-show/)).
-So the words change at a show's boundary as they do at a settings change: the call page reads them again when its consent is refused as out of date (409), and a caller ticks the box once more.
+So words that use `{contact}` or `{presenter}` change at a show's boundary as they do at a settings change: the call page reads them again when its consent is refused as out of date (409), and a caller ticks the box once more.
 
 Each call's consent record keeps the show that was on air, the presenter's name and the `{contact}` phrase exactly as the words said it, beside the whole words and their version.
 A later change to the show never rewrites what a caller agreed to.
@@ -160,6 +164,7 @@ What a station needs, found on the way (LiveKit 1.13.10):
   The pages put the station's real port (`ports.turn_tls`, which the player and pass routes report) into the URL before the browser sees it, so 5349, 15349 on Cloudron, or any other port works.
 - **LiveKit's TURN refuses to relay to private and loopback addresses, its own included.**
   A station whose LiveKit `node_ip` is private (behind NAT, or a container network) needs that address in `turn.allow_restricted_peer_cidrs`.
+- **LiveKit tells every client to use Twilio's and Google's STUN servers** when no STUN server or UDP TURN is configured, and its settings cannot make that list empty (`iceServersForParticipant`; UDP TURN is skipped for a participant that asks for TLS only). The pages remove every `stun:` and `stuns:` server that is not in `relay.stun_servers` (the station's `STUN_SERVERS`, empty by default), on every peer connection and each reconnect, also when the TURN port is 443 and when the station's facts did not load; TURN servers are untouched ([STUN servers](/docs/reference/packages/#stun-servers)).
 - **LiveKit's TURN refuses a client that reaches it over IPv6** (an allocation error, 508; LiveKit issue 5131): give the TURN name an A record and no AAAA record.
   A Cloudron app domain gets an AAAA record whenever the server has IPv6, so a phone that can reach TURN only over IPv6 cannot join a Cloudron station through it ([Known limits](/docs/reference/release-one-status/#known-limits)).
 - **The relay port range** (`turn.relay_range_start`, `turn.relay_range_end`) is a setting; the test pins it to 39600–39699.

@@ -23,6 +23,13 @@
 //! rises as the one going off falls. A person's press (Go on air now, the handover's two presses,
 //! a switch at the desk) stays instant: [`weavesignal_model::post::Cause::fades`] says which.
 //! [`move_air`] is the one place that tells the desk.
+//!
+//! **The handover window** (Phase 17c, design note `handover-window.md`): after the rule, the same
+//! facts and the rule's answer go to [`weavesignal_model::handover_window::for_post`], whose view
+//! rides in `post.window`. When it says a heads-up is due, a `heads_up` line goes under the post's
+//! key first (`airing <start> to <name>`), and only once it is down does the desk get its notice
+//! (`handover.heads_up`) and the host's monitor link its line; a restart reads the line and does
+//! not tell them twice. The window changes no act.
 
 // Every helper that checks a request returns the refusal itself as its error, as the handlers send it.
 #![allow(clippy::result_large_err)]
@@ -38,16 +45,17 @@ use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::json;
 use uuid::Uuid;
+use weavesignal_model::handover_window::{self as hw, Down, Origin};
 use weavesignal_model::post::{
     self as rule, Act, AtDesk, Cause, Facts, Hold, Holder, Line, Plan, PostView, Ready, ShowFact,
     Subject,
 };
-use weavesignal_model::shows;
-use weavesignal_model::sources::{self as model, Airing, LogEntry};
+use weavesignal_model::shows::{self, Show};
+use weavesignal_model::sources::{self as model, Airing, LogEntry, ShowKey};
 use weavesignal_proto::{Role, source_wire};
 
 use crate::app::{AppState, problem};
-use crate::desk::{DeskCommand, StationMode};
+use crate::desk::{DeskCommand, DeskPerson, StationMode};
 use crate::hub::now_ms;
 use crate::staff::{Actor, Need};
 
@@ -78,6 +86,10 @@ struct Gathered {
     hold: Option<Hold>,
     automation: bool,
     auto_mode: bool,
+    /// Who is down for each show, for the handover window.
+    down: Vec<Down>,
+    /// The heads-ups the log holds: `(airing start, when)`.
+    told: Vec<(i64, i64)>,
 }
 
 impl Gathered {
@@ -94,6 +106,114 @@ impl Gathered {
             hold: self.hold.clone(),
         }
     }
+
+    /// The handover window for the post `plan` answered with.
+    fn window(&self, now_ms: i64, post: Option<&PostView>) -> hw::AtPost {
+        hw::for_post(&hw::PostFacts {
+            now_ms,
+            window_s: i64::from(self.settings.window_s),
+            airings: &self.airings,
+            shows: &self.shows,
+            subjects: &self.subjects,
+            holders: &self.holders,
+            hold: self.hold.as_ref(),
+            post,
+            down: &self.down,
+            told: &self.told,
+            steady_ms: u64::try_from(self.settings.steady_s).unwrap_or(0) * 1000,
+        })
+    }
+}
+
+/// A key as the rule sees it: at the desk or not, connected to the ingest or not.
+pub(crate) fn key_subject(
+    k: &ShowKey,
+    people: &[DeskPerson],
+    conns: &[crate::sources::IngestConn],
+    log: Vec<Line>,
+) -> Subject {
+    let identity = source_wire::identity(&k.key_id);
+    let person = people.iter().find(|p| p.identity == identity);
+    Subject {
+        id: k.key_id.clone(),
+        name: k.label.clone(),
+        show: k.show_id,
+        in_room: false,
+        since_ms: conns
+            .iter()
+            .find(|c| c.key_id == k.key_id && c.mode == "standby")
+            .and_then(|c| i64::try_from(c.since_ms).ok()),
+        at_desk: person.map(|p| AtDesk {
+            on_air: p.on_air,
+            here: p.present && p.linked,
+            connected_ms: Some(p.source.as_ref().map_or(0, |s| s.connected_ms)),
+        }),
+        log,
+        identity,
+    }
+}
+
+/// A show's presenter in the room, signed in as themselves (only their exact account's own link
+/// counts), if they are at the desk.
+pub(crate) fn room_subject(
+    show: &Show,
+    people: &[DeskPerson],
+    log: impl FnOnce(&str) -> Vec<Line>,
+) -> Option<Subject> {
+    let identity = crate::steps::own_identity(show.presenter_account?);
+    let p = people
+        .iter()
+        .find(|p| p.identity == identity && matches!(p.role, Role::Dj | Role::Presenter))?;
+    Some(Subject {
+        id: identity.clone(),
+        name: if p.name.is_empty() {
+            identity.clone()
+        } else {
+            p.name.clone()
+        },
+        show: show.id,
+        in_room: true,
+        since_ms: None,
+        at_desk: Some(AtDesk {
+            on_air: p.on_air,
+            here: p.present && p.linked,
+            connected_ms: None,
+        }),
+        log: log(&identity),
+        identity,
+    })
+}
+
+/// Who is down for each show: the labels of its keys that have not ended (it comes from their
+/// own studio), else its presenter (the room).
+pub(crate) fn down_of(all_shows: &[Show], keys: &[ShowKey]) -> Vec<Down> {
+    all_shows
+        .iter()
+        .map(|show| {
+            let labels: Vec<String> = keys
+                .iter()
+                .filter(|k| k.show_id == show.id)
+                .map(|k| k.label.clone())
+                .collect();
+            if labels.is_empty() {
+                Down {
+                    show: show.id,
+                    names: [show.presenter.trim()]
+                        .into_iter()
+                        .filter(|n| !n.is_empty())
+                        .map(str::to_owned)
+                        .collect(),
+                    from: Origin::Room,
+                }
+            } else {
+                Down {
+                    show: show.id,
+                    names: labels,
+                    from: Origin::Push,
+                }
+            }
+        })
+        .collect()
 }
 
 fn line_of(e: &LogEntry) -> Line {
@@ -165,25 +285,7 @@ async fn gather(state: &AppState, now_ms: i64) -> Result<Option<Gathered>, sqlx:
         if !all_shows.iter().any(|s| s.id == k.show_id) {
             continue;
         }
-        let identity = source_wire::identity(&k.key_id);
-        let person = desk.people.iter().find(|p| p.identity == identity);
-        subjects.push(Subject {
-            id: k.key_id.clone(),
-            name: k.label.clone(),
-            show: k.show_id,
-            in_room: false,
-            since_ms: conns
-                .iter()
-                .find(|c| c.key_id == k.key_id && c.mode == "standby")
-                .and_then(|c| i64::try_from(c.since_ms).ok()),
-            at_desk: person.map(|p| AtDesk {
-                on_air: p.on_air,
-                here: p.present && p.linked,
-                connected_ms: Some(p.source.as_ref().map_or(0, |s| s.connected_ms)),
-            }),
-            log: lines(&k.key_id),
-            identity,
-        });
+        subjects.push(key_subject(k, &desk.people, &conns, lines(&k.key_id)));
     }
     // A show's presenter in the room, signed in as themselves, for the show on air and the next
     // (only their exact account's own link counts).
@@ -196,35 +298,9 @@ async fn gather(state: &AppState, now_ms: i64) -> Result<Option<Gathered>, sqlx:
     .map(|a| a.show)
     .collect();
     for show in all_shows.iter().filter(|s| near.contains(&s.id)) {
-        let Some(account) = show.presenter_account else {
-            continue;
-        };
-        let identity = crate::steps::own_identity(account);
-        let Some(p) = desk
-            .people
-            .iter()
-            .find(|p| p.identity == identity && matches!(p.role, Role::Dj | Role::Presenter))
-        else {
-            continue;
-        };
-        subjects.push(Subject {
-            id: identity.clone(),
-            identity: identity.clone(),
-            name: if p.name.is_empty() {
-                identity.clone()
-            } else {
-                p.name.clone()
-            },
-            show: show.id,
-            in_room: true,
-            since_ms: None,
-            at_desk: Some(AtDesk {
-                on_air: p.on_air,
-                here: p.present && p.linked,
-                connected_ms: None,
-            }),
-            log: lines(&identity),
-        });
+        if let Some(sub) = room_subject(show, &desk.people, lines) {
+            subjects.push(sub);
+        }
     }
     let holders = desk
         .people
@@ -240,6 +316,11 @@ async fn gather(state: &AppState, now_ms: i64) -> Result<Option<Gathered>, sqlx:
         })
         .collect();
     let post_lines = by_key.get(rule::POST_KEY).cloned().unwrap_or_default();
+    let told = post_lines
+        .iter()
+        .filter(|l| l.event == "heads_up")
+        .filter_map(|l| hw::heads_up_airing(&l.detail).map(|start| (start, l.at_ms)))
+        .collect();
     let (automation, auto_mode) = (
         state.hub.onair.get().is_some(),
         state.hub.read_studio(|s| s.station_mode()) == Some(StationMode::Auto),
@@ -260,6 +341,8 @@ async fn gather(state: &AppState, now_ms: i64) -> Result<Option<Gathered>, sqlx:
         hold: hold_of(&post_lines),
         automation,
         auto_mode,
+        down: down_of(&all_shows, &keys),
+        told,
     }))
 }
 
@@ -546,9 +629,46 @@ pub async fn tick(state: &AppState) -> anyhow::Result<Plan> {
             tracing::warn!(error = %format!("{e:#}"), act = ?a, "the post's rule could not do what it meant to");
         }
     }
-    let view = plan.post.clone();
+    let mut view = plan.post.clone();
+    let at = g.window(now, plan.post.as_ref());
+    let mut window = at.view;
+    if let Some(h) = at.heads_up
+        && heads_up(state, &h, now).await
+        && let Some(w) = window.as_mut()
+    {
+        w.heads_up_ms = Some(now);
+    }
+    if let Some(v) = view.as_mut() {
+        v.window = window;
+    }
     state.hub.with_studio_if(|s| s.set_post(view));
     Ok(plan)
+}
+
+/// Give the incoming host their heads-up: written down first, under the post's key, and only
+/// then the desk's notice (the host's monitor link reads it from `post.window`). A line that
+/// cannot be written tells nobody, and the next look tries again. Returns whether it was given.
+async fn heads_up(state: &AppState, h: &hw::HeadsUp, now: i64) -> bool {
+    if let Err(e) = write(
+        state,
+        Some(h.show),
+        rule::POST_KEY,
+        now,
+        "heads_up",
+        rule::BY_SCHEDULE,
+        hw::heads_up_detail(h),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "the handover window: the heads-up could not be written down");
+        return false;
+    }
+    let (title, message) = (h.title.clone(), h.message.clone());
+    state
+        .hub
+        .with_studio(|s, at| s.heads_up(at, h.identity.as_deref(), title, message));
+    tracing::info!(to = %h.name, airing = h.airing_start_s, "the handover window: heads-up given");
+    true
 }
 
 /// Look every second until the process ends.

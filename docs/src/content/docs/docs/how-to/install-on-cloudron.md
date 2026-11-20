@@ -76,8 +76,8 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.1.1 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.1.1
+podman build -t registry.station.example/weavesignal-cloudron:1.2.0 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.2.0
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.
@@ -109,7 +109,7 @@ The app writes two files in `/app/data` on its first start; open them with Cloud
 
 | File | Holds |
 |---|---|
-| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `CONSENT_CONTACT`, `FEED_BUFFER_S`, `VIDEO`, `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
+| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `STUN_SERVERS`, `CONSENT_CONTACT`, the consent words (`CONSENT_TEXT`, empty for the default words; from 1.2), `FEED_BUFFER_S`, `VIDEO`, video's encoder (`VIDEO_ENCODER`, `svt`: the app has no GPU; from 1.2), `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
 | `secrets.env` | made once (`ICECAST_OUT_PASSWORD` is an empty line for you to fill if you send to another Icecast server): `STATION_ID`, LiveKit's key and secret, the listener source password, `CONTROL_ADMIN_TOKEN`, `LISTENERS_PASSWORD`, and the three keys `CHAT_EMAIL_KEY`, `CONTROL_EMAIL_KEY` and `CONTROL_TOKEN_KEY` |
 
 On every start the package writes each service's own settings from these two files and from Cloudron's environment.
@@ -143,7 +143,7 @@ What it costs, on the package's own memory gate with video on (`deploy/cloudron/
 | The desk's CPU, share of one core | not measured in the gate | 22 to 26 % (three cameras, one 480p rung) |
 
 - **The app has 2 GiB of memory** from package 1.0.1, up from 1.5 GiB, because the gate's rule (peak ÷ 0.7) asks for 1.7 GiB with video on; the figures above leave about 40 % of it free. An app installed earlier keeps the limit it was given: raise it in Cloudron's dashboard before turning video on.
-- **Encoding is on the CPU**, with SVT-AV1 at one rung (480p at 20 fps, 600 kbit/s): a Cloudron app cannot use a GPU yet, so NVENC is not available (ADR-0228). The desk's share above is easy pictures; real cameras cost more, and each extra rung is another encoder ([Rungs](/docs/reference/desk-video/#rungs)).
+- **Encoding is on the CPU**, with SVT-AV1 at one rung (480p at 20 fps, 600 kbit/s): a Cloudron app is given no GPU, so NVENC is not available (ADR-0228), and `VIDEO_ENCODER` stays `svt`. A station that wants a card runs the Compose bundle or the Quadlets on a server with one ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)). The desk's share above is easy pictures; real cameras cost more, and each extra rung is another encoder ([Rungs](/docs/reference/desk-video/#rungs)).
 - **A server for video is a server of its own.** The desk is a hidden room participant that encodes in real time; on a shared Cloudron that is already busy, the listener stream is the first to suffer ([Before you start](#before-you-start)).
 - Not checked on a Cloudron itself: that a browser plays the HLS through Cloudron's proxy, and how many viewers the container serves. Send viewers through edges or a CDN ([Run edges](/docs/how-to/run-edges/)) rather than this container once there are more than a handful.
 
@@ -152,9 +152,16 @@ What it costs, on the package's own memory gate with video on (`deploy/cloudron/
 Call-in stays closed until `CONSENT_CONTACT` is set (ADR-0124).
 Set it in `weavesignal.env` to an email address or a link where callers ask for their call to be taken down, and restart the app; or, from 1.0.1, on the [setup page](#set-it-up), with no restart.
 
+From 1.2 the station may write its own consent words in `weavesignal.env`, as `CONSENT_TEXT`, and restart the app; empty keeps the default words.
+The file is read as a shell script, so write the words in double quotes, with `\"` for a quote and `\$` for a dollar sign: `CONSENT_TEXT="You'll be live with {presenter} on {station}, and we may keep your call {kept}. To have it taken down, contact {contact}."`.
+[The consent words](/docs/reference/public-pages/#the-consent-words) lists the fill-ins; changing the words asks every caller to agree again.
+
 ### If guests cannot connect
 
-LiveKit may have found the wrong public address: set `NODE_IP` in `weavesignal.env` to the server's public IPv4 address, and restart the app.
+LiveKit takes its public address from the A record of the room's domain, else the app's own, read at every start; it asks no STUN server (ADR-0290).
+The app's log says which address it used (`LiveKit's public address is …`).
+If that is not the server's public IPv4 address (a domain behind a proxy such as Cloudflare's, or a name with no A record, which the log warns about), set `NODE_IP` in `weavesignal.env` to the server's public IPv4 address, and restart the app.
+To let the station ask a STUN server, name it in `STUN_SERVERS` ([STUN servers](/docs/reference/packages/#stun-servers)); with none named, none is contacted.
 
 ## Keep the station private
 

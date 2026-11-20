@@ -25,7 +25,7 @@ export interface PlayerInfo {
     name_max: number;
     topic_max: number;
   };
-  relay: { turn_tls_port: number };
+  relay: { turn_tls_port: number; stun_servers: string[] };
   /** The desk's HLS while the station has video on (ADR-0009); null otherwise. */
   video: { live: string; audio: string } | null;
 }
@@ -56,7 +56,7 @@ export interface PassInfo {
   show: string;
   expires_at_ms: number;
   ended: boolean;
-  relay: { turn_tls_port: number };
+  relay: { turn_tls_port: number; stun_servers: string[] };
   /** Why the pass cannot join the room now, in the station's sentence, while the show on air
    *  runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.
    *  Null or absent when it can join. */

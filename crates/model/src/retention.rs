@@ -1384,7 +1384,11 @@ fn consent_of_row(r: ConsentRow) -> ConsentRecord {
         identity,
         name,
         topic,
-        given_by: if by == "station" { "station" } else { "caller" },
+        given_by: match by.as_str() {
+            "station" => "station",
+            "not_asked" => "not_asked",
+            _ => "caller",
+        },
         words,
         words_version,
         accepted_at_ms: ms(Some(at)).unwrap_or(0),
@@ -2560,7 +2564,8 @@ pub const ERASED: &str = "erased";
 
 /// Erase a caller's consent at their request (ADR-0122): the name and topic are redacted; the
 /// date, the words, their version and who gave it stay, as the evidence the recording was
-/// lawful. Every consent of the same call (its identity) goes with it. The rows erased.
+/// lawful. A phone call's ban key goes too (17f), so the number can no longer find it. Every
+/// consent of the same call (its identity) goes with it. The rows erased.
 pub async fn erase_consent(
     pool: &sqlx::PgPool,
     station: StationId,
@@ -2568,7 +2573,7 @@ pub async fn erase_consent(
     by: &str,
 ) -> Result<u64, sqlx::Error> {
     Ok(sqlx::query(
-        "UPDATE caller_consent SET name = $3, topic = '', erased_at = now(), erased_by = $4
+        "UPDATE caller_consent SET name = $3, topic = '', ban_key = NULL, erased_at = now(), erased_by = $4
          WHERE station_id = $1 AND erased_at IS NULL
            AND identity = (SELECT identity FROM caller_consent WHERE station_id = $1 AND id = $2)",
     )

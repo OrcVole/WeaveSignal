@@ -28,7 +28,7 @@ import { HostStation } from './station.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_CORE ?? 'playwright-core');
 const here = dirname(fileURLToPath(import.meta.url));
-const DIST = join(here, '..', '..', 'apps', 'studio', 'dist');
+const DIST = process.env.DIST ?? join(here, '..', '..', 'apps', 'studio', 'dist');
 const OUT = process.env.OUT ?? join(here, '..', '..', 'target', 'shots-hosts');
 const PORT = Number(process.env.PORT ?? 28100);
 const SIZE = { width: Number(process.env.WIDTH ?? 1440), height: Number(process.env.HEIGHT ?? 900), text: Number(process.env.TEXT ?? 1) };
@@ -1830,7 +1830,7 @@ for (const theme of ['dark', 'light', 'night']) {
   await rules.getByRole('button', { name: 'Save the rules' }).click();
   await sleep(400);
   const put = calls(st, 'PUT', /settings\/sources/).at(-1);
-  check('saving sends every rule at once, the ones this panel does not draw as they were', JSON.stringify(put?.body) === JSON.stringify({ door_before_min: 45, grace_s: 300, late_count_s: 20, test_outside: false, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710 }), JSON.stringify(put?.body));
+  check('saving sends every rule at once, the ones this panel does not draw as they were', JSON.stringify(put?.body) === JSON.stringify({ door_before_min: 45, grace_s: 300, late_count_s: 20, test_outside: false, test_max_min: 15, steady_s: 5, silence_s: 4, place_kept_s: 300, fade_ms: 2000, port_icecast: 8005, port_srt: 9710, window_s: 300, port_whip: 9712 }), JSON.stringify(put?.body));
   check('and says it is saved', (await rules.locator('.foot [role=status]').innerText()) === 'The rules are saved.');
   check('an admin’s setup offers the members of staff', await (async () => {
     await panel(page).getByRole('button', { name: 'Set up a host…' }).click();

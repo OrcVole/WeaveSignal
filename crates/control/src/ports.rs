@@ -53,7 +53,7 @@ pub struct PortSpec {
 }
 
 /// Every listening port in a station, with its default. The defaults for WeaveSignal's own
-/// services sit in 7310-7319, which no entry in the IANA registry or common software claims
+/// services sit in 7310-7320, which no entry in the IANA registry or common software claims
 /// (checked against /etc/services, 2026-10-25); LiveKit's keep LiveKit's own defaults.
 pub const PORTS: &[PortSpec] = &[
     PortSpec {
@@ -129,6 +129,22 @@ pub const PORTS: &[PortSpec] = &[
         what: "hosts' own studios from the ingest to the desk (ADR-0280); the desk listens, the ingest connects",
     },
     PortSpec {
+        key: "ingest_whip",
+        proto: Proto::Tcp,
+        default: 7319,
+        alternatives: &[17319, 27319],
+        exposure: Exposure::Loopback,
+        what: "WHIP's requests from the control plane to the ingest (17d); the ingest listens while WHIP is on, the control plane connects",
+    },
+    PortSpec {
+        key: "source_bridge",
+        proto: Proto::Tcp,
+        default: 7320,
+        alternatives: &[17320, 27320],
+        exposure: Exposure::Loopback,
+        what: "the bridge from the studio app (Phase 17g): a WebSocket the proxy passes from the public address to the ingest; 0 turns it off",
+    },
+    PortSpec {
         key: "livekit_http",
         proto: Proto::Tcp,
         default: 7880,
@@ -185,13 +201,95 @@ pub const PORTS: &[PortSpec] = &[
         exposure: Exposure::Public,
         what: "the ingest's SRT port, for hosts' own studios (ADR-0280, ADR-0284); listens only while a show key exists",
     },
+    PortSpec {
+        key: "source_whip",
+        proto: Proto::Udp,
+        default: 9712,
+        alternatives: &[19712, 29712],
+        exposure: Exposure::Public,
+        what: "the ingest's WHIP media port, for hosts sending from OBS (17d): ICE-lite, sound only, the offer over HTTPS on the public domain; listens only while a show key exists and the station's public IPv4 address is known",
+    },
 ];
+
+/// The telephone line's ports (Phase 17f). They are not under `[ports]`: the SIP port, its TLS
+/// port and the RTP range are `[phone]`'s settings (`sip_port`, `sip_tls_port`, `rtp_port` and
+/// two ports per line), and Valkey's is the Compose overlay's `PHONE_REDIS_PORT`. Nothing listens
+/// on them unless the line is on (`phone.yaml`, a trunk set). They are listed here so their
+/// defaults stay clear of every other default (`whip` 7319, the bridge 7320 and Valkey 7321 met at
+/// the 1.2 merge), and `check-ports` checks the first three while the line is on. The RTP range's
+/// entry is its first port; the range is `2 × phone.lines` (16 for 8 lines, 7340-7355).
+pub const PHONE_PORTS: &[PortSpec] = &[
+    PortSpec {
+        key: "phone.sip_port",
+        proto: Proto::Udp,
+        default: 5060,
+        alternatives: &[15060, 25060],
+        exposure: Exposure::Public,
+        what: "LiveKit's SIP service: calls from the provider (UDP and TCP), open to the provider's addresses only (17f)",
+    },
+    PortSpec {
+        key: "phone.sip_port",
+        proto: Proto::Tcp,
+        default: 5060,
+        alternatives: &[15060, 25060],
+        exposure: Exposure::Public,
+        what: "LiveKit's SIP service over TCP, the same port as over UDP (17f)",
+    },
+    PortSpec {
+        key: "phone.rtp_port",
+        proto: Proto::Udp,
+        default: 7340,
+        alternatives: &[17340, 27340],
+        exposure: Exposure::Public,
+        what: "the calls' sound (RTP), two even-started ports per line, open to the provider (17f)",
+    },
+    PortSpec {
+        key: "phone_redis",
+        proto: Proto::Tcp,
+        default: 7321,
+        alternatives: &[17321, 27321],
+        exposure: Exposure::Loopback,
+        what: "the phone line's Valkey, for LiveKit and its SIP service (17f; `PHONE_REDIS_PORT` on Compose and Quadlets)",
+    },
+];
+
+/// The phone line's ports as `[phone]` sets them, while the line is on: each SIP port over UDP
+/// and TCP, and every port of the RTP range. Valkey's port is the installation's, not the
+/// control plane's.
+pub fn phone_ports(phone: &crate::phone::config::PhoneConfig) -> Vec<(&'static PortSpec, u16)> {
+    if !phone.enabled {
+        return Vec::new();
+    }
+    let sip_udp = &PHONE_PORTS[0];
+    let sip_tcp = &PHONE_PORTS[1];
+    let rtp = &PHONE_PORTS[2];
+    let mut out = vec![(sip_udp, phone.sip_port), (sip_tcp, phone.sip_port)];
+    if phone.sip_tls_port != 0 {
+        out.push((sip_tcp, phone.sip_tls_port));
+    }
+    let (first, last) = phone.rtp_range();
+    out.extend((first..=last).map(|p| (rtp, p)));
+    out
+}
+
+/// Check the phone line's ports, as [`check_all`] does the others.
+pub fn check_phone(phone: &crate::phone::config::PhoneConfig, internal: IpAddr) -> Vec<Clash> {
+    phone_ports(phone)
+        .into_iter()
+        .filter_map(|(spec, port)| check_one(spec, port, internal).err())
+        .collect()
+}
 
 /// The ports for hosts' own studios. Named in the settings file, the installation owns them: the
 /// station's rules for sources show them and cannot change them, because the installation is what
 /// publishes them (Cloudron's dashboard, the Compose settings). Left out, the rules' own ports
 /// apply. Each may be 0, which turns that way in off (a port Cloudron's dashboard left disabled).
-pub const SOURCE_PORTS: &[&str] = &["source_icecast", "source_srt"];
+pub const SOURCE_PORTS: &[&str] = &[
+    "source_icecast",
+    "source_srt",
+    "source_whip",
+    "source_bridge",
+];
 
 /// The port specification for a key.
 /// Settings that once named a port and name nothing now: accepted and ignored, with a warning,
@@ -360,10 +458,13 @@ impl fmt::Display for Clash {
             self.port, self.proto, self.key, self.what, self.why
         )?;
         match self.next_free {
+            // `[phone]`'s keys are named whole (`phone.sip_port`); the rest are under `[ports]`.
             Some(alt) => write!(
                 f,
-                "the next free suggestion is {alt}/{} (set `ports.{} = {alt}`), and any free port may be used",
-                self.proto, self.key
+                "the next free suggestion is {alt}/{} (set `{}{} = {alt}`), and any free port may be used",
+                self.proto,
+                if self.key.contains('.') { "" } else { "ports." },
+                self.key
             ),
             None => {
                 let alts: Vec<String> = self.alternatives.iter().map(u16::to_string).collect();
@@ -474,6 +575,59 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("is 0"), "{err}");
+    }
+
+    #[test]
+    fn the_phone_lines_defaults_clash_with_no_other_default() {
+        // 7319 WHIP, 7320 the bridge, 7321 Valkey; SIP 5060, RTP 7340-7355 for 8 lines.
+        let phone = crate::phone::config::PhoneConfig::default();
+        let (first, last) = phone.rtp_range();
+        assert_eq!((first, last), (7340, 7355));
+        assert_eq!(phone.sip_port, PHONE_PORTS[0].default);
+        assert_eq!(first, PHONE_PORTS[2].default);
+        for spec in PORTS {
+            for p in PHONE_PORTS {
+                assert!(
+                    !(spec.proto == p.proto && spec.default == p.default),
+                    "{} and {} both default to {}/{}",
+                    spec.key,
+                    p.key,
+                    p.default,
+                    p.proto
+                );
+            }
+            if spec.proto == Proto::Udp {
+                assert!(
+                    !(first..=last).contains(&spec.default),
+                    "{} ({}) is inside the RTP range",
+                    spec.key,
+                    spec.default
+                );
+            }
+        }
+        assert!(
+            PHONE_PORTS
+                .iter()
+                .all(|p| !p.alternatives.contains(&p.default))
+        );
+    }
+
+    #[test]
+    fn the_phone_lines_ports_are_checked_only_while_it_is_on() {
+        let mut phone = crate::phone::config::PhoneConfig::default();
+        assert!(phone_ports(&phone).is_empty());
+        phone.enabled = true;
+        phone.lines = 4;
+        let ports = phone_ports(&phone);
+        // SIP over UDP and TCP, and 8 RTP ports.
+        assert_eq!(ports.len(), 2 + 8);
+        assert_eq!(ports.last().unwrap().1, 7347);
+        phone.sip_tls_port = 5061;
+        assert!(
+            phone_ports(&phone)
+                .iter()
+                .any(|(s, p)| *p == 5061 && s.proto == Proto::Tcp)
+        );
     }
 
     #[test]

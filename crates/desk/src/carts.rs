@@ -263,14 +263,40 @@ impl Decoder {
         let src = gst::ElementFactory::make("filesrc")
             .property("location", path.to_string_lossy().as_ref())
             .build()?;
+        // FLAC (every cart, a station's own phone words), or Ogg Opus (the phone words that ship
+        // with WeaveSignal, 17f): Ogg's demuxer makes its pad once it has read the stream's head.
+        let opus = path.extension().is_some_and(|e| e == "opus");
         let mut elements = vec![src];
-        for f in ["flacparse", "flacdec", "audioconvert", "audioresample"] {
+        let (head, tail): (&[&str], &[&str]) = if opus {
+            (&[], &["opusdec", "audioconvert", "audioresample"])
+        } else {
+            (
+                &["flacparse", "flacdec"],
+                &["audioconvert", "audioresample"],
+            )
+        };
+        let demux =
+            if opus {
+                Some(gst::ElementFactory::make("oggdemux").build().context(
+                    "GStreamer element `oggdemux` is missing (is its plugin installed?)",
+                )?)
+            } else {
+                None
+            };
+        for f in head {
             elements.push(gst::ElementFactory::make(f).build().with_context(|| {
                 format!("GStreamer element `{f}` is missing (is its plugin installed?)")
             })?);
         }
+        // With Ogg, the chain after the demuxer is linked on its own and joined at its pad.
+        let mut after: Vec<gst::Element> = Vec::new();
+        for f in tail {
+            after.push(gst::ElementFactory::make(f).build().with_context(|| {
+                format!("GStreamer element `{f}` is missing (is its plugin installed?)")
+            })?);
+        }
         let caps: gst::Caps = crate::pipeline::MIX_CAPS.parse().expect("valid caps");
-        elements.push(
+        after.push(
             gst::ElementFactory::make("capsfilter")
                 .property("caps", &caps)
                 .build()?,
@@ -329,9 +355,29 @@ impl Decoder {
                     .build(),
             );
         }
-        elements.push(sink.upcast());
-        pipeline.add_many(&elements)?;
-        gst::Element::link_many(&elements)?;
+        after.push(sink.upcast());
+        match demux {
+            Some(demux) => {
+                elements.push(demux.clone());
+                pipeline.add_many(&elements)?;
+                gst::Element::link_many(&elements)?;
+                pipeline.add_many(&after)?;
+                gst::Element::link_many(&after)?;
+                let first = after[0].downgrade();
+                demux.connect_pad_added(move |_, pad| {
+                    if let Some(sink) = first.upgrade().and_then(|e| e.static_pad("sink"))
+                        && !sink.is_linked()
+                    {
+                        let _ = pad.link(&sink);
+                    }
+                });
+            }
+            None => {
+                elements.extend(after);
+                pipeline.add_many(&elements)?;
+                gst::Element::link_many(&elements)?;
+            }
+        }
         {
             let feed = feed.clone();
             pipeline

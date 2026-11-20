@@ -17,6 +17,7 @@
 #   HTTP_PORT=27400  LISTEN_PORT=27401  ROOM_PORT=27402  PUBLIC_PORT=27403
 #   MEDIA_PORT=27482 (udp)  TURN_TLS_PORT=27449 (tcp)  MEMORY=<the manifest's memoryLimit>
 #   SOURCE_ICE_PORT=27405 (tcp)  SOURCE_SRT_PORT=27410 (udp): hosts' own studios (1.1), enabled
+#   SOURCE_WHIP_PORT=27412 (udp): WHIP from OBS (17d), enabled
 #   VIDEO=false  (true: the video path on, ADR-0227: the HLS, the camera check, a guest's camera)
 set -euo pipefail
 
@@ -32,6 +33,7 @@ MEDIA_PORT=${MEDIA_PORT:-27482}
 TURN_TLS_PORT=${TURN_TLS_PORT:-27449}
 SOURCE_ICE_PORT=${SOURCE_ICE_PORT:-27405}
 SOURCE_SRT_PORT=${SOURCE_SRT_PORT:-27410}
+SOURCE_WHIP_PORT=${SOURCE_WHIP_PORT:-27412}
 COMPAT=${COMPAT:-true}
 VIDEO=${VIDEO:-false}
 MEMORY=${MEMORY:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["memoryLimit"])' "$here/CloudronManifest.json")}
@@ -57,6 +59,7 @@ up() {
     done
     ss -Hlun "sport = :$MEDIA_PORT" | grep -q . && fail "port $MEDIA_PORT/udp is in use; set MEDIA_PORT"
     ss -Hlun "sport = :$SOURCE_SRT_PORT" | grep -q . && fail "port $SOURCE_SRT_PORT/udp is in use; set SOURCE_SRT_PORT"
+    ss -Hlun "sport = :$SOURCE_WHIP_PORT" | grep -q . && fail "port $SOURCE_WHIP_PORT/udp is in use; set SOURCE_WHIP_PORT"
     rm -rf "$work/certs" "$work/smtp"
     mkdir -p "$work/certs" "$work/smtp/mail"
     openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=weavesignal.test" \
@@ -89,6 +92,7 @@ up() {
         -p "127.0.0.1:$ROOM_PORT:8002" -p "127.0.0.1:$PUBLIC_PORT:8003" \
         -p "127.0.0.1:$MEDIA_PORT:$MEDIA_PORT/udp" -p "127.0.0.1:$TURN_TLS_PORT:$TURN_TLS_PORT/tcp" \
         -p "127.0.0.1:$SOURCE_ICE_PORT:$SOURCE_ICE_PORT/tcp" -p "127.0.0.1:$SOURCE_SRT_PORT:$SOURCE_SRT_PORT/udp" \
+        -p "127.0.0.1:$SOURCE_WHIP_PORT:$SOURCE_WHIP_PORT/udp" \
         -e CLOUDRON=1 -e CLOUDRON_APP_DOMAIN=weavesignal.test -e CLOUDRON_APP_ORIGIN=https://weavesignal.test \
         -e "CLOUDRON_POSTGRESQL_URL=postgres://weavesignal:$pg_password@postgresql:5432/weavesignal" \
         -e CLOUDRON_POSTGRESQL_HOST=postgresql -e CLOUDRON_POSTGRESQL_PORT=5432 \
@@ -100,7 +104,7 @@ up() {
         -e LISTENERS_DOMAIN=weavesignal-listen.weavesignal.test -e ROOM_DOMAIN=weavesignal-room.weavesignal.test \
         -e PUBLIC_DOMAIN=weavesignal-public.weavesignal.test \
         -e "LIVEKIT_MEDIA_PORT=$MEDIA_PORT" -e "TURN_TLS_PORT=$TURN_TLS_PORT" \
-        -e "SOURCE_ICECAST_PORT=$SOURCE_ICE_PORT" -e "SOURCE_SRT_PORT=$SOURCE_SRT_PORT" \
+        -e "SOURCE_ICECAST_PORT=$SOURCE_ICE_PORT" -e "SOURCE_SRT_PORT=$SOURCE_SRT_PORT" -e "SOURCE_WHIP_PORT=$SOURCE_WHIP_PORT" \
         "$IMAGE" >/dev/null
     # NODE_IP for this run only: the first start writes weavesignal.env, so set it and restart.
     # The start measured below is that restart: a cold start of every process, the database
@@ -203,6 +207,19 @@ checks() {
     nofile=$(podman exec "$p-app" sh -c 'grep "Max open files" /proc/$(pgrep -f listeners.liq | head -1)/limits' | awk '{print $4}')
     [[ ${nofile:-0} -ge 65536 ]] || fail "the listener process may open ${nofile:-?} files, not 65536"
     ok "the listener process may open $nofile files"
+    # ADR-0290: no STUN server unless the station names one. LiveKit has an address of its own and
+    # never asks for one (use_external_ip would ask Twilio's and Google's), the desk and the
+    # control plane name no server, and the name this test gives (no A record anywhere) was not
+    # looked up again: the run's NODE_IP is loopback.
+    lk=$(podman exec "$p-app" cat /run/weavesignal/livekit.yaml)
+    grep -q '^  use_external_ip: false$' <<<"$lk" && grep -q '^  node_ip: 127.0.0.1$' <<<"$lk" && grep -q '^  stun_servers: \[\]$' <<<"$lk" \
+        || fail "LiveKit's settings ask a STUN server, or have no address of their own: $lk"
+    podman exec "$p-app" grep -qx 'stun_servers = ""' /run/weavesignal/desk.toml \
+        && podman exec "$p-app" grep -qx 'stun_servers = ""' /run/weavesignal/control.toml \
+        || fail "the desk's or the control plane's settings name a STUN server by default"
+    podman exec "$p-app" grep -qx 'congestion_control = "gcc"' /run/weavesignal/desk.toml \
+        || fail "the desk's settings lack congestion_control = \"gcc\""
+    ok "no STUN server: LiveKit asks none for its address (use_external_ip false, node_ip 127.0.0.1), and the desk and the control plane name none"
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$mount" || true)
     [[ $code == 401 ]] || fail "the stream without the password answered $code, not 401"
     ok "stream without the password: 401"
@@ -317,6 +334,9 @@ PY
         [[ $code == 200 ]] || fail "public $path answered $code, not 200"
     done
     ok "public domain: /api/v1/chat/info, /api/v1/player, /api/v1/station, /api/v1/now-playing answer 200"
+    [[ $(curl -fsS "$pub/api/v1/player" | python3 -c 'import json,sys; print(json.load(sys.stdin)["relay"]["stun_servers"])') == '[]' ]] \
+        || fail "the player is told of a STUN server by default"
+    ok "the player's relay names no STUN server (the pages then drop every one LiveKit sends)"
     # nginx passes none of the server's proxy headers to a location that sets its own, so a
     # location that does must restate the client's address, or every chatter and caller counts
     # as 127.0.0.1 against the per-address limits (found 2026-11-17). Only the station's and the
@@ -359,7 +379,7 @@ PY
     ok "public domain: /health answers 200 with no bearer ($body)"
     # The studio's restart of playout (ADR-0289, ⌃R twice): playout shuts down cleanly and the
     # package's supervisord (autorestart=true) starts it again; the mount keeps answering.
-    playout_pid() { podman exec "$p-app" pgrep -f 'playout/weavesignal.liq' | head -1; }
+    playout_pid() { podman exec "$p-app" pgrep -f 'playout/weavesignal.liq' | head -1 || true; }
     before=$(playout_pid)
     [[ -n $before ]] || fail "no playout process to restart"
     answer=$(curl -fsS -X POST -H "Authorization: Bearer $admin" --max-time 5 "http://127.0.0.1:$HTTP_PORT/api/v1/playout/restart") \
@@ -518,6 +538,21 @@ print(v)' "$1" "$2"; }
     [[ $(j "$ice" details.icecast.port) == "$SOURCE_ICE_PORT" && $(j "$srt" details.srt.port) == "$SOURCE_SRT_PORT" ]] \
         || fail "a key's details do not give the dashboard's ports: $(j "$ice" details)"
     ok "a show on air and two keys; their details give the dashboard's ports ($SOURCE_ICE_PORT/tcp, $SOURCE_SRT_PORT/udp)"
+    # WHIP (17d): the key's details give the public domain's address and the dashboard's port, and
+    # an offer with a wrong bearer goes through nginx's /whip/ and the control plane to the
+    # ingest, which refuses it (401). An offer that is not WHIP's own media type is refused first.
+    [[ $(j "$srt" details.whip.port) == "$SOURCE_WHIP_PORT" && $(j "$srt" details.whip.url) == "https://weavesignal-public.weavesignal.test/whip/$srt_id" ]] \
+        || fail "the key's WHIP details: $(j "$srt" details)"
+    for i in $(seq 1 30); do
+        podman logs "$p-app" 2>&1 | grep 'taking WHIP from hosts' >/dev/null && break
+        sleep 0.5; [[ $i == 30 ]] && fail "the ingest did not take WHIP once a key existed"
+    done
+    local whip_code
+    whip_code=$(curl -s -o "$work/whip-wrong.txt" -w '%{http_code}' -X POST -H 'Content-Type: application/sdp' \
+        -H 'Authorization: Bearer WRONGWRONGWRONGWRONGWRON' --data-binary $'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n' \
+        "$pub/whip/$srt_id")
+    [[ $whip_code == 401 ]] || fail "a WHIP offer with a wrong bearer through the public domain: $whip_code $(cat "$work/whip-wrong.txt")"
+    ok "WHIP: the key's details give https://<public domain>/whip/<key id> and $SOURCE_WHIP_PORT/udp; a wrong bearer through nginx reaches the ingest and is refused (401)"
     for i in $(seq 1 30); do
         podman logs "$p-app" 2>&1 | grep 'listening for SRT sources' >/dev/null && break
         sleep 0.5; [[ $i == 30 ]] && fail "the ingest did not start listening once a key existed"

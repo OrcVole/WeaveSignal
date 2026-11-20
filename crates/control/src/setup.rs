@@ -265,6 +265,9 @@ pub struct SetupState {
     pub carts: crate::config::CartsConfig,
     /// When this control plane started, to tell an answer waiting for a restart.
     pub started: std::time::SystemTime,
+    /// The STUN servers this station was started with (ADR-0290): LiveKit's, the desk's and the
+    /// join pages' alike (`STUN_SERVERS`, the join pages' `join.stun_servers`). Empty: none.
+    pub stun_in_use: Vec<String>,
 }
 
 impl SetupState {
@@ -338,6 +341,7 @@ pub fn router(state: Arc<SetupState>) -> Router {
         .route("/api/v1/setup", get(view).put(save))
         .route("/api/v1/setup/finish", post(finish))
         .route("/api/v1/setup/stream-password", put(stream_password))
+        .route("/api/v1/setup/stun", put(put_stun))
         .route("/api/v1/branding", get(branding))
         .route("/api/v1/branding/accent", put(put_accent))
         .route(
@@ -392,6 +396,24 @@ pub struct StreamPassword {
     pub restart_needed: bool,
 }
 
+/// The station's STUN servers (ADR-0290): none unless the station names some. LiveKit, the desk
+/// and the join pages read one setting at start, so a change applies to all three at once, at
+/// the next restart, and never to the pages alone.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct StunView {
+    /// `host:port` each, as this station was started; empty: no STUN server is contacted.
+    pub in_use: Vec<String>,
+    /// Whether this install route lets Settings name them (the Cloudron package). Elsewhere
+    /// they are the settings file's `STUN_SERVERS`, applied by `weavesignal.sh` and a restart.
+    pub available: bool,
+    /// What Settings last asked for (an empty list is none); `null`: Settings never named any,
+    /// and the settings file decides. It applies when the station restarts, and from then on
+    /// wins over the settings file (delete `STUN_SERVERS=` from the app's `setup.env` to go back).
+    pub asked: Option<Vec<String>>,
+    /// Whether an answer is waiting for a restart.
+    pub restart_needed: bool,
+}
+
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct SetupView {
     /// `pending`: setup is offered. `done`: it is not.
@@ -405,6 +427,7 @@ pub struct SetupView {
     pub name: Answer,
     pub contact: Answer,
     pub stream_password: StreamPassword,
+    pub stun: StunView,
     pub install: InstallFacts,
     pub branding: BrandingView,
     pub updated_by: Option<String>,
@@ -444,6 +467,56 @@ fn read_overrides(path: &Path) -> (Option<bool>, bool) {
         _ => None,
     };
     (auth, last("LISTENERS_PASSWORD=").is_some())
+}
+
+/// The STUN servers the overrides file asks for: `None` when it asks nothing, or asks something
+/// the start script would ignore (so the settings file decides); `Some(vec![])` is none.
+fn read_stun(path: &Path) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let line = text
+        .lines()
+        .rev()
+        .find_map(|l| l.strip_prefix("STUN_SERVERS="))?;
+    stun_line_ok(line)
+        .then(|| weavesignal_proto::parse_stun_servers(line).ok())
+        .flatten()
+}
+
+/// What the start script takes from the overrides file's `STUN_SERVERS=`: `host:port` entries
+/// joined by commas only, at most four, as it checks them again. The control plane writes only
+/// what [`weavesignal_proto::parse_stun_servers`] gave back, which always passes.
+fn stun_line_ok(line: &str) -> bool {
+    line.is_empty()
+        || (line.split(',').count() <= weavesignal_proto::MAX_STUN_SERVERS
+            && line.split(',').all(|e| {
+                !e.is_empty()
+                    && e.bytes().all(|b| {
+                        b.is_ascii_lowercase()
+                            || b.is_ascii_digit()
+                            || matches!(b, b'.' | b'-' | b':')
+                    })
+            })
+            && weavesignal_proto::parse_stun_servers(line).is_ok_and(|v| v.join(",") == line))
+}
+
+fn stun_view(state: &SetupState) -> StunView {
+    let in_use = state.stun_in_use.clone();
+    let Some(path) = &state.overrides_file else {
+        return StunView {
+            in_use,
+            available: false,
+            asked: None,
+            restart_needed: false,
+        };
+    };
+    let asked = read_stun(path);
+    let restart_needed = asked.as_ref().is_some_and(|a| *a != in_use);
+    StunView {
+        in_use,
+        available: true,
+        asked,
+        restart_needed,
+    }
 }
 
 fn stream_view(state: &SetupState) -> StreamPassword {
@@ -506,6 +579,7 @@ async fn view_of(state: &SetupState, pool: &sqlx::PgPool) -> Result<SetupView, s
             settings_value: state.file_contact.clone(),
         },
         stream_password: stream_view(state),
+        stun: stun_view(state),
         install: state.facts.clone(),
         branding: branding_view(&look),
         updated_by: setup.updated_by,
@@ -733,20 +807,39 @@ pub fn password_ok(p: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'))
 }
 
-/// The overrides file's text. Only ever these two keys, each checked.
-fn overrides_text(enabled: bool, password: Option<&str>) -> String {
+/// The overrides file's text. Only ever these three keys, each checked; a key left `None` is
+/// left out, so the settings files decide it.
+fn overrides_text(
+    enabled: Option<bool>,
+    password: Option<&str>,
+    stun: Option<&[String]>,
+) -> String {
     let mut out = String::from(
-        "# Written by the station's setup page (ADR-0237). start.sh reads LISTENERS_AUTH and\n# LISTENERS_PASSWORD from here at each start, over weavesignal.env and secrets.env; it reads\n# nothing else, and never runs this file. Delete it to go back to those files.\n",
+        "# Written by the station's setup page (ADR-0237) and Settings. start.sh reads\n# LISTENERS_AUTH, LISTENERS_PASSWORD and STUN_SERVERS from here at each start, over\n# weavesignal.env and secrets.env; it reads nothing else, and never runs this file. Delete it\n# to go back to those files.\n",
     );
-    out.push_str(if enabled {
-        "LISTENERS_AUTH=on\n"
-    } else {
-        "LISTENERS_AUTH=off\n"
-    });
+    match enabled {
+        Some(true) => out.push_str("LISTENERS_AUTH=on\n"),
+        Some(false) => out.push_str("LISTENERS_AUTH=off\n"),
+        None => {}
+    }
     if let Some(p) = password {
         out.push_str(&format!("LISTENERS_PASSWORD={p}\n"));
     }
+    if let Some(list) = stun {
+        out.push_str(&format!("STUN_SERVERS={}\n", list.join(",")));
+    }
     out
+}
+
+/// The password the page set before, if the overrides file holds one that passes.
+fn kept_password(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path).ok().and_then(|t| {
+        t.lines()
+            .rev()
+            .find_map(|l| l.strip_prefix("LISTENERS_PASSWORD="))
+            .filter(|p| password_ok(p))
+            .map(str::to_owned)
+    })
 }
 
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
@@ -806,16 +899,13 @@ async fn stream_password(
             "A stream password is 8 to 64 letters, digits, dots, underscores, tildes or hyphens.",
         );
     }
-    // Keep the password the page set before, unless a new one is given.
-    let kept = std::fs::read_to_string(&path).ok().and_then(|t| {
-        t.lines()
-            .rev()
-            .find_map(|l| l.strip_prefix("LISTENERS_PASSWORD="))
-            .filter(|p| password_ok(p))
-            .map(str::to_owned)
-    });
-    let password = req.password.or(kept);
-    let text = overrides_text(req.enabled, password.as_deref());
+    // Keep the password the page set before, unless a new one is given, and the STUN servers.
+    let password = req.password.or_else(|| kept_password(&path));
+    let text = overrides_text(
+        Some(req.enabled),
+        password.as_deref(),
+        read_stun(&path).as_deref(),
+    );
     let written = tokio::task::spawn_blocking(move || write_private(&path, &text)).await;
     match written {
         Ok(Ok(())) => {
@@ -842,6 +932,93 @@ async fn stream_password(
             )
         }
     }
+}
+
+/// The STUN servers Settings names (ADR-0290).
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StunChange {
+    /// `host:port` each (a DNS name or an IPv4 address, without `stun:`), at most four; an
+    /// empty list is none, the default: no STUN server is contacted.
+    pub servers: Vec<String>,
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/setup/stun",
+    operation_id = "setup_stun",
+    tag = "setup",
+    summary = "Name the station's STUN servers",
+    description = "Admin only. The STUN servers LiveKit, the desk and the join pages may ask (ADR-0290): `host:port` each, at most four; an empty list is none, the default. Only where the install route lets the studio write a setting its start script reads (the Cloudron package; elsewhere `409`, and the settings file's `STUN_SERVERS` decides). The answer applies to all three when the station next restarts, never to one alone; `stun.in_use` in the setup's view says what runs now. Each server named learns the address of every browser and of the station that asks it.",
+    request_body = StunChange,
+    responses(
+        (status = 200, description = "The setup as it is now.", body = SetupView),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 422, response = crate::openapi::Unprocessable),
+        (status = 503, response = crate::openapi::Unavailable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+    extensions(("x-admin" = json!(true))),
+)]
+async fn put_stun(State(state): St, headers: HeaderMap, Json(req): Json<StunChange>) -> Response {
+    let (pool, actor) = match guard(&state, &headers) {
+        Ok(g) => g,
+        Err(r) => return r,
+    };
+    let Some(path) = state.overrides_file.clone() else {
+        return problem(
+            StatusCode::CONFLICT,
+            "On this install the STUN servers are the settings file's STUN_SERVERS: change it there, then run weavesignal.sh (Compose) or restart the services (Quadlets).",
+        );
+    };
+    let servers = match parse_servers(&req.servers) {
+        Ok(s) => s,
+        Err(why) => return refused("servers", why),
+    };
+    let auth = read_overrides(&path).0;
+    let password = kept_password(&path);
+    let text = overrides_text(auth, password.as_deref(), Some(&servers));
+    let written = tokio::task::spawn_blocking(move || write_private(&path, &text)).await;
+    match written {
+        Ok(Ok(())) => {
+            tracing::info!(
+                target: "weavesignal::setup",
+                servers = servers.len(),
+                by = %actor.label(),
+                "the STUN servers' answer was written; it applies at the next restart"
+            );
+            respond(&state, pool).await
+        }
+        Ok(Err(e)) => {
+            tracing::error!(error = %e, "setup: cannot write the overrides file");
+            problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "The station could not write the setting. Check the app's data folder and try again.",
+            )
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "setup: the writer stopped");
+            problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "The station could not write the setting. Try again.",
+            )
+        }
+    }
+}
+
+/// The servers as the setting keeps them: each checked by the one rule LiveKit's, the desk's and
+/// the start script's settings share, lower case, repeats dropped.
+fn parse_servers(given: &[String]) -> Result<Vec<String>, String> {
+    if given
+        .iter()
+        .any(|g| g.contains(',') || g.trim().contains(char::is_whitespace))
+    {
+        return Err("Give one host:port in each entry.".into());
+    }
+    let joined = given.iter().map(|g| g.trim()).collect::<Vec<_>>().join(",");
+    weavesignal_proto::parse_stun_servers(&joined)
 }
 
 // ---- the look ----
@@ -1233,6 +1410,7 @@ pub async fn restore(state: &SetupState) {
         save,
         finish,
         stream_password,
+        put_stun,
         branding,
         put_accent,
         icon,
@@ -1246,6 +1424,8 @@ pub async fn restore(state: &SetupState) {
         SetupView,
         Answer,
         StreamPassword,
+        StunView,
+        StunChange,
         InstallFacts,
         BrandingView,
         PictureView,
@@ -1379,7 +1559,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("setup.env");
         assert_eq!(read_overrides(&path), (None, false));
-        write_private(&path, &overrides_text(true, Some("kettle-fm-2026"))).unwrap();
+        write_private(
+            &path,
+            &overrides_text(Some(true), Some("kettle-fm-2026"), None),
+        )
+        .unwrap();
         assert_eq!(read_overrides(&path), (Some(true), true));
         let text = std::fs::read_to_string(&path).unwrap();
         let keys: Vec<&str> = text
@@ -1393,8 +1577,62 @@ mod tests {
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        write_private(&path, &overrides_text(false, None)).unwrap();
+        write_private(&path, &overrides_text(Some(false), None, None)).unwrap();
         assert_eq!(read_overrides(&path), (Some(false), false));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_stun_servers_are_one_checked_line_kept_beside_the_stream_password() {
+        let dir = std::env::temp_dir().join(format!("ws-setup-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("setup.env");
+        assert_eq!(read_stun(&path), None);
+        let two =
+            parse_servers(&["STUN.nextcloud.com:443".into(), " 192.0.2.10:3478".into()]).unwrap();
+        assert_eq!(two, ["stun.nextcloud.com:443", "192.0.2.10:3478"]);
+        write_private(
+            &path,
+            &overrides_text(Some(true), Some("kettle-fm-2026"), Some(&two)),
+        )
+        .unwrap();
+        assert_eq!(read_stun(&path), Some(two.clone()));
+        assert_eq!(read_overrides(&path), (Some(true), true));
+        assert_eq!(kept_password(&path).as_deref(), Some("kettle-fm-2026"));
+        // None is a line of its own, and not the settings file's say.
+        write_private(&path, &overrides_text(None, None, Some(&[]))).unwrap();
+        assert_eq!(read_stun(&path), Some(vec![]));
+        assert_eq!(read_overrides(&path), (None, false));
+        // The writer gives the start script only what it takes; anything else reads as unasked.
+        for bad in [
+            "stun:stun.example.org:3478",
+            "a.example:3478 b.example:3478",
+            "A.example:3478",
+            "a.example:3478,a.example:3478",
+            "a:1,b:2,c:3,d:4,e:5",
+            "a.example:0",
+            "$(touch x):3478",
+        ] {
+            assert!(!stun_line_ok(bad), "{bad}");
+            std::fs::write(&path, format!("STUN_SERVERS={bad}\n")).unwrap();
+            assert_eq!(read_stun(&path), None, "{bad}");
+        }
+        assert!(stun_line_ok(""));
+        assert!(stun_line_ok("stun.freeswitch.org:3478"));
+        for bad in [
+            vec!["a.example:3478,b.example:3478".to_owned()],
+            vec!["stun.example.org".to_owned()],
+            vec![
+                "a:1".into(),
+                "b:2".into(),
+                "c:3".into(),
+                "d:4".into(),
+                "e:5".into(),
+            ],
+        ] {
+            assert!(parse_servers(&bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(parse_servers(&[]).unwrap(), Vec::<String>::new());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

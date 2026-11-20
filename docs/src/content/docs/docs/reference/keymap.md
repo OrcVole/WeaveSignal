@@ -151,6 +151,7 @@ Every key on this tab works in 1.0.0; [Moderate the chat](/docs/how-to/moderate-
 | `T` | today's week, or today in the Day view |
 | `D` | the Day view: the selected block's day, else today when it is in the week shown, else the week's Monday |
 | `W` | the Week view |
+| `R` | the Rota (from 1.2): every show of the next twelve hours, who is down for it, where they come from and whether they are ready; the one on air is marked. **Rota** beside Coming up on the desk opens it too; `D` or `W` goes back to the calendar |
 | `Esc` | as **‹ Shows**: closes what the editor column holds (an episode, a date from a rule, an automation log, a card, a show) and clears the selection, so the list of shows is back |
 | `Tab`, `⏎` on a block | reach a block, open it in the editor (the browser's own keys) |
 
@@ -170,4 +171,4 @@ It never throws work away: while the episode, series or show in the column has c
 | `Esc` | takes every cued cart out of the headphones |
 
 See [Cart wall](/docs/reference/surfaces/carts/).
-The presenter kit, with presets on `⌥1` to `⌥4`, is planned for release two (ADR-0207, [Presenter kit](/docs/reference/surfaces/kit/)).
+The presenter kit's presets are buttons in **Settings › Presenter kit** from 1.2 (the station's half, on Compose and the Quadlets); keys for them, `⌥1` to `⌥4` in the design, are not built ([Presenter kit](/docs/reference/surfaces/kit/)).

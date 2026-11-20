@@ -18,6 +18,8 @@
 #   /rtc, /rtc/*          LiveKit's signalling (a browser's join); its server API (/twirp) is
 #                         never published
 #   /api/v1/chat/*        the chat (its socket included)
+#   /api/v1/sources/bridge  the studio app's bridge, a WebSocket to the ingest on loopback
+#                         (Phase 17g)
 #   /programme.opus       the listener process's mount (and the two MP3 mounts, COMPAT_MOUNT and
 #                         COMPAT_HIGH_MOUNT, when they are on), read only; its /status.json and admin
 #                         pages are never published, nor are the playout feed or the ports above
@@ -114,6 +116,16 @@ configs:
       	# last entry, the one the station's proxy added).
       	handle /api/v1/chat/* {
       		reverse_proxy 127.0.0.1:${CHAT_PORT:-7311} {
+      			header_up X-Forwarded-For {remote_host}
+      			flush_interval -1
+      		}
+      	}
+
+      	# The bridge (Phase 17g): the studio app's one WebSocket, carrying a host's own software
+      	# to the ingest on loopback. Caddy passes the upgrade as it is; the ingest counts wrong
+      	# keys by the header's last entry, the one added here.
+      	handle /api/v1/sources/bridge {
+      		reverse_proxy 127.0.0.1:${SOURCE_BRIDGE_PORT:-7320} {
       			header_up X-Forwarded-For {remote_host}
       			flush_interval -1
       		}

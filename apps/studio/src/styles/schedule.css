@@ -56,6 +56,9 @@
 
 /* the body: calendar plus editor */
 .schedule .body { display: grid; grid-template-columns: minmax(0, 1fr) 26rem; min-height: 0; }
+/* the rota (1.2) in the calendar's place: one panel across the tab; the week waits under it, not drawn */
+.schedule .body[hidden] { display: none; }
+.schedule .body.rota-body { grid-template-columns: minmax(0, 1fr); padding: var(--s-3); }
 .schedule .cal { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; border-right: 1px solid var(--hairline); position: relative; }
 .schedule .cal .corner { position: absolute; left: 0; top: 0; width: 3.75rem; height: 3rem; z-index: 2; }
 .schedule .cal .empty { padding: var(--s-4); color: var(--muted); font-size: var(--fs-13); }

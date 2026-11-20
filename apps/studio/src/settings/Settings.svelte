@@ -21,6 +21,9 @@
   import Rtmp from './Rtmp.svelte'; // rtmp-out
   import Updates from './Updates.svelte';
   import IcecastOut from './IcecastOut.svelte';
+  import Bridge from './Bridge.svelte';
+  import Kit from './Kit.svelte';
+  import Phone from './Phone.svelte';
   import ChatPictures from './ChatPictures.svelte';
   import { sandboxed, type Me } from '../lib/api.ts';
   import { account } from '../lib/account.svelte.ts';
@@ -441,6 +444,8 @@
 
     <!-- The studio app's own updates: for whoever runs this window, whatever their role. -->
     <Updates />
+    <!-- The bridge (Phase 17g): this computer's, for a host sending from their own software. -->
+    {#if !sandboxed()}<Bridge />{/if}
 
     {#if showStaff}
       <Staff me={who} />
@@ -448,11 +453,16 @@
     <!-- Own studios (ADR-0280): after Staff, for an admin or a producer. The sandbox has no
          hosts, and a station older than 1.1 has no such routes: the panel then draws nothing. -->
     {#if showHosts}<Hosts me={who} />{/if}
+    <!-- The phone line (1.2, PLAN 17f): an admin's. A station older than 1.2 has no such routes,
+         and the sandbox has no line: the panel then draws nothing. -->
+    {#if showStaff && !sandboxed()}<Phone />{/if}
     {#if showStaff}
       <Zone />
       <IcecastOut admin={canManage} />
       <Tokens />
       <Rtmp />
+      <!-- The presenter kit's station half (Phase 17g): an admin's. -->
+      {#if canManage && !sandboxed()}<Kit />{/if}
       <!-- Chat pictures (ADR-0259): the chat's own settings, which the sandbox does not simulate. -->
       {#if !sandboxed()}<ChatPictures admin={canManage} />{/if}
     {/if}

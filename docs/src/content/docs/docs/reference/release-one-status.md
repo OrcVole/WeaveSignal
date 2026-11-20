@@ -1,6 +1,6 @@
 ---
 title: "What release one does, and what it leaves out"
-description: "WeaveSignal 1.0.0 and 1.0.1: what each part of release one brings, what is not in it, what 1.0.1 added, the known limits, and what was measured. Every 'planned' mark on this site points here."
+description: "WeaveSignal 1.0.0 to 1.2.0: what each part of release one brings, what is not in it, what each later release added, the known limits, and what was measured. Every 'planned' mark on this site points here."
 type: reference
 status: draft
 last_verified: 2026-11-19
@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists. It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists; **1.2.0** on 2026-11-20 adds the list under [In 1.2.0](#in-120). It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -33,12 +33,12 @@ Where a page says **planned**, the feature is not in release one; [Not in releas
 | Part | What is left out |
 |---|---|
 | **M2**, the rest | a 30-minute show driven from the keyboard alone; the webview tests on Debian and the GNOME runtime; the studio app joining the room itself (ADR-0013); the Chat tab (`⌃4`) (the chat is on the Screener tab, and from 1.1 `⌃4` opens its Room lane; from 1.0.2 the desk's Chat panel has it to read); a fader on the desk's tiles, and a camera picture in them; the desk's rundown and show heading from the schedule, and the banned list from the moderation log, which are still settings; a listener delay read from end to end, which is still partly a setting (the parts that can be read are read, from 1.0.2); a screen for webhooks (they are made through the API) |
-| **M3**, the rest | a join from a GrapheneOS phone over a real network; WHIP for remote DJs; in 1.0.0, the DJ overlap handover (`⇧⏎` showed a note; built since, below) |
+| **M3**, the rest | a join from a GrapheneOS phone over a real network; WHIP for remote DJs (sound only from OBS in 1.2.0, below); in 1.0.0, the DJ overlap handover (`⇧⏎` showed a note; built since, below) |
 | **M4**, the rest | what playout does differently with a pre-recorded episode; studios on shows; in the studio app, restart playout (`⌃R`, built in 1.1 as two presses), restart the encoder and the backup stream (neither is a key from 1.1), playout as slot 6, playout's queue and hard posts, and the listener server's health and the logger on the desk; the screener's listener count |
-| **M5**, the rest | Safari's Opus in fMP4 measured on a device; the GPU in the Compose bundle; a still per episode and the slide schedule (a still per show is built); video for callers |
+| **M5**, the rest | Safari's Opus in fMP4 measured on a device; the GPU in the Compose bundle (built in 1.2.0 for Compose and the Quadlets, not yet measured on a card with it; below); a still per episode and the slide schedule (a still per show is built); video for callers |
 | **M7**, the rest | an edge on another network, with join time and failover in a real hls.js player; steering through Bunny tried against Bunny itself; the hours-long real-network soak of `icecast.server` against Icecast 2.5.0, which decides the listener server (ADR-0011) |
 | **M8**, the rest | a step that publishes an episode's words before it airs; opening an episode's recording and publishing it as a podcast episode from the studio app (files are attached through the API); an episode marked as aired by itself (only **On air now** does it) |
-| **M9 · The presenter kit and the Windows server** | moved to release two (ADR-0207): presets, the patchbay, VBAN, and the server on Windows. The studio app's Windows installer stays in release one |
+| **M9 · The presenter kit and the Windows server** | moved to release two (ADR-0207): presets, the patchbay, VBAN, and the server on Windows. The studio app's Windows installer stays in release one. In 1.2.0 the kit's station half is built on Compose and the Quadlets (VBAN in and out at the desk, presets, one clock; below); the half on the presenter's own computer and the server on Windows are still out |
 | **M10**, the rest | an update and a rollback run on a real install (the Windows installer has been run on Windows 11, 2026-11-15) |
 | **M11**, the rest | screenshots of every surface from the running app |
 
@@ -121,6 +121,28 @@ Released in 1.1.0 (2026-11-18):
 
 Not in 1.1: the station pulling a host's or a partner's stream, the studio app as a bridge (release two), the listener delay as two settings, and a GPU for the Compose desk (1.2, ADR-0289).
 
+### In 1.2.0
+
+Released 2026-11-20 (the changelog dates it). The part tables below say what was and was not tried.
+
+| Part | What it brings |
+|---|---|
+| **A partner's stream, pulled** (issue 20) | a show key may hold an address the station opens itself from before the show's time: HTTP or HTTPS audio, HLS, or an SRT listener; it stands by like a host's own studio; addresses inside the station's own network are refused unless allowed; made through the API (migration 0042; [Pull a partner's stream into a show](/docs/how-to/pull-a-stream/)) |
+| **The rota and the handover window** (issue 21) | the next twelve hours' shows with who is down for each and whether they are ready, and a window before each start, five minutes by default, that names the next host and gives them one heads-up (migration 0043; [Follow the rota](/docs/how-to/follow-the-rota/)) |
+| **OBS over WHIP** | a host's sound from OBS with their show key, on one UDP port the station answers itself, off by default; OBS's picture is set aside; tried with GStreamer's WHIP client, not yet a real OBS (migration 0044; [Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)) |
+| **The bridge** (issue 22) | the studio app carries a host's software to the station over one connection on 443, so neither end opens a port (migration 0045; [Send through the bridge](/docs/how-to/send-through-the-bridge/)) |
+| **The presenter kit's station half** | on Compose and the Quadlets: VBAN in and out at the desk, presets and one clock, with every source following the desk's clock ([Presenter kit](/docs/reference/surfaces/kit/)) |
+| **A telephone line** | on Compose and the Quadlets, off until a SIP trunk is set: callers dial a number, hear a few words, press a key and wait in the screener's queue; the station keeps a ban key and the last four digits; not yet tried through a provider's trunk, not yet on Cloudron (migrations 0046, 0047; [Take phone calls](/docs/how-to/take-phone-calls/)) |
+| **A GPU for the desk** (issue 8, ADR-0289) | on Compose and the Quadlets an NVIDIA card handed to the desk by its CDI name, found by `weavesignal.sh` or set with `GPU=nvidia`; `VIDEO_ENCODER` on every route; Cloudron has none; not yet measured on a card with this release ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)) |
+| **No outside STUN server** (ADR-0290) | the desk, LiveKit and the join pages ask none unless the station names one in `STUN_SERVERS` or the install wizard's chooser ([Choose a STUN server](/docs/how-to/choose-a-stun-server/)) |
+| **The consent words as a setting** (issue 26) | `CONSENT_TEXT` on every route, with a `{presenter}` fill-in ([The consent words](/docs/reference/public-pages/#the-consent-words)) |
+| **Congestion control as a setting** | `CONGESTION_CONTROL` (`gcc`, `homegrown`, `disabled`) on every route ([Settings](/docs/reference/settings/#desktoml)) |
+| **The desk at 1,440 by 900** | End show and Dump apart, a notice always in view in one column, and a compact Picture and Callers ([Desk](/docs/reference/surfaces/desk/)) |
+
+How a host's sound gets in, all six ways side by side: [Ways in for a host's sound](/docs/reference/ways-in/).
+
+Not in 1.2: the macOS studio app; TURN for guests reaching it over IPv6 (issue 11, waiting on LiveKit); a host's own picture passed through; the presenter kit on the presenter's own computer; the telephone line on Cloudron; the presenter talking from the Screener tab, a rehearsal studio beside the live one and Studios as columns in the Schedule tab (issues 25, 23 and 24).
+
 ## Decisions that changed release one
 
 | Decision | What it changed |
@@ -135,7 +157,7 @@ Not in 1.1: the station pulling a host's or a partner's stream, the studio app a
 |---|---|
 | The desk's congestion control (`rtpgccbwe`, since 1.0.1) sees only the desk's own link, and each voice goes out at a set bitrate | Nothing yet. A guest on a poor link may hear more loss than a browser-to-browser call would give |
 | LiveKit's built-in TURN refuses clients that reach it over IPv6 (an allocation error, 508; reported upstream as LiveKit issue 5131) | Give the TURN name an A record and no AAAA record (ADR-0217). On Cloudron the TURN name is the app's own domain, and Cloudron's install waits for an AAAA record on every name: add it for the install and delete it after, on a domain with manual DNS ([IPv6 and TURN](/docs/how-to/install-on-cloudron/#ipv6-and-turn)) |
-| A station asks outside STUN servers for addresses: the desk uses Google's by default; LiveKit asks Twilio's and Google's for its public address at start when `NODE_IP` is empty; and browsers joining the room can be given those servers when no STUN or UDP TURN is configured, so they would see a guest's address. This holds on Cloudron, Compose and Quadlets | Setting `NODE_IP` stops LiveKit's own lookup. 1.1.2 is planned to contact no outside STUN server by default (ADR-0290) |
+| Up to 1.1.1 a station asks outside STUN servers for addresses: the desk uses Google's by default; LiveKit asks Twilio's and Google's for its public address at start when `NODE_IP` is empty; and browsers joining the room are given those servers when no STUN or UDP TURN is configured, so they would see a guest's address. This holds on Cloudron, Compose and Quadlets | Setting `NODE_IP` stops LiveKit's own lookup. From 1.2.0 a station contacts no STUN server unless `STUN_SERVERS` names one (ADR-0290): LiveKit's address is `NODE_IP` or the A record of the station's domain, the desk sets none, and the pages drop the servers LiveKit sends ([STUN servers](/docs/reference/packages/#stun-servers)) |
 | A busy shared server starves the listener stream: on a host at load 9–22 on 12 cores, a 3 s feed cushion filled to its 10 s cap | Run a station on a server of its own. On a dedicated 4-vCPU server the default 0.5 s cushion held ([Memory and CPU](/docs/reference/resources/)) |
 | `weavesignal.sh` refuses `podman-compose`: it ignores the top-level `configs` that carry every service's settings | Use Docker Compose, or Podman with the docker-compose provider ([Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/)) |
 | Firefox for Android cannot use the microphone until Android allows it | In Android's settings, allow Firefox's microphone permission; the call page says when the microphone was refused |

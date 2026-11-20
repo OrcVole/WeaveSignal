@@ -25,6 +25,7 @@ import { CAMERA_PUBLISH, backoff, cameraCapture, connectOptions, limitSubscriber
 import { cameraProblem, micProblem } from './mic.ts';
 import type { CameraHandover } from './camera-preview.svelte.ts';
 import * as store from './store.ts';
+import { installStationIce } from './turn.ts';
 import type { Link } from './words.ts';
 
 export class Call {
@@ -213,6 +214,7 @@ export class Call {
 
   async #connect(): Promise<boolean> {
     const j = this.joined;
+    installStationIce();
     const room = new Room({ adaptiveStream: false, dynacast: false, audioCaptureDefaults: voiceCapture(), disconnectOnPageLeave: true });
     this.#room = room;
     const take = (pub: RemoteTrackPublication, who: RemoteParticipant) => {

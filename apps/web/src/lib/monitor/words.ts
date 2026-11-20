@@ -112,6 +112,23 @@ export function counting(view: Pick<MonitorView, 'then' | 'post' | 'state'>, now
   }
 }
 
+/** The handover window's heads-up (1.2; handover-window.md): the station's own sentence to the
+ *  host coming on next, and when it was given on the station's clock. The station sends it to
+ *  nobody else and once an airing, so the page adds no rule of its own: it says the line while
+ *  the station sends it, until the host is on air (the lamp says that then). */
+export interface HeadsUp {
+  words: string;
+  /** *Heads-up at 13:55*. */
+  when: string;
+}
+
+export function headsUp(view: Pick<MonitorView, 'post' | 'state'>, zone: string): HeadsUp | null {
+  const h = view.post?.heads_up;
+  const words = h?.words?.trim();
+  if (!h || !words || !Number.isFinite(h.at_ms) || view.state === 'on_air') return null;
+  return { words, when: `Heads-up at ${hm(h.at_ms, zone)}` };
+}
+
 /** A count turns amber in its last 30 s and red in its last 10 s (the figure shown, so `0:30` is the first amber). */
 export const AMBER_S = 30;
 export const RED_S = 10;
@@ -150,9 +167,9 @@ export function signed(n: number): string {
 /** The station's leveller reaches 12 dB either way (apps/studio/src/lib/hosts.ts). */
 const LEVELLER_REACH_DB = 12;
 
-/** `SRT`, `Icecast`: the two ways in, as plain words. */
+/** `SRT`, `Icecast`: the two ways in, as plain words; a stream the station pulls (PLAN 17b) says so. */
 export function wayWord(way: string | null): string {
-  return way === 'srt' ? 'SRT' : way === 'icecast' ? 'Icecast' : (way ?? '');
+  return way === 'srt' ? 'SRT' : way === 'icecast' ? 'Icecast' : way === 'pull' ? 'Pulled by the station' : (way ?? '');
 }
 
 /** *The station hears you*: rows of facts, the three checks in a test, and what is wrong. */

@@ -43,8 +43,8 @@ use weavesignal_proto::{PassClaims, PassKind, Role};
 use crate::app::{AppState, TokenRequest, problem};
 use crate::hub::now_ms;
 use crate::join::{
-    Limiter, MeState, NAME_MAX, TOPIC_MAX, clean_line, consent_version, consent_words, me_state,
-    mint_identity,
+    Limiter, MeState, NAME_MAX, TOPIC_MAX, clean_line, consent_version,
+    consent_words_with_presenter, me_state, mint_identity,
 };
 use crate::studio::{CallIn, Consent, ConsentBy};
 
@@ -187,8 +187,9 @@ pub(crate) struct Words {
 
 /// The consent words the station shows now, and their version: `{kept}` from the station's
 /// Jurisdiction setting (its programme recordings' period; No retention without a database),
-/// and `{contact}` from the show on air by the schedule, then the station's as the host
-/// (ADR-0214, ADR-0215), else the station's alone.
+/// `{contact}` from the show on air by the schedule, then the station's as the host
+/// (ADR-0214, ADR-0215), else the station's alone, and `{presenter}` the show on air's
+/// presenter, else the station's name (issue #26).
 async fn words(state: &AppState) -> Words {
     let setting = match &state.db {
         Some(pool) => weavesignal_model::retention::load_setting(pool, state.station.id)
@@ -213,7 +214,14 @@ async fn words(state: &AppState) -> Words {
             &state.consent_contact(),
         ),
     };
-    let text = consent_words(&state.join.consent_text, &station, &kept, &on_air.contact);
+    // `{presenter}` (issue #26): the show on air's presenter, else the station's name.
+    let text = consent_words_with_presenter(
+        &state.join.consent_text,
+        &station,
+        &kept,
+        &on_air.contact,
+        &on_air.presenter,
+    );
     let version = consent_version(&text);
     Words {
         text,
@@ -271,6 +279,7 @@ async fn keep_consent(state: &AppState, call: CallIn, on_air: &OnAir) -> Result<
             given_by: match c.by {
                 ConsentBy::Caller => "caller",
                 ConsentBy::Station => "station",
+                ConsentBy::NotAsked => "not_asked",
             },
             words: c.text.clone(),
             words_version: c.version.clone(),
@@ -415,6 +424,9 @@ pub struct CallInInfo {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct RelayInfo {
     pub turn_tls_port: u16,
+    /// The STUN servers (`host:port`) the page may use, as the station's operator named them
+    /// (ADR-0290). Empty by default: the page asks no STUN server, whatever LiveKit offers it.
+    pub stun_servers: Vec<String>,
 }
 
 fn call_in_closed(state: &AppState) -> Option<String> {
@@ -478,6 +490,7 @@ pub async fn player(State(state): State<Arc<AppState>>) -> Json<PlayerInfo> {
         },
         relay: RelayInfo {
             turn_tls_port: state.turn_tls_port,
+            stun_servers: state.join.stun_servers.clone(),
         },
         video: video_on(&state).then(|| {
             let base = state.join.hls_url.trim_end_matches('/');
@@ -927,6 +940,7 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         ended: state.joins.ended(&c.id, c.iat),
         relay: RelayInfo {
             turn_tls_port: state.turn_tls_port,
+            stun_servers: state.join.stun_servers.clone(),
         },
         not_now: step_refusal(&state, &c).map(|h| h.at_join().to_owned()),
     })

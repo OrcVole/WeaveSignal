@@ -54,6 +54,7 @@ the desk began a chained Ogg stream on the mount, and that switch no longer reac
 | ICE over TCP (off by default) | `tcpPorts.LIVEKIT_TCP_PORT`, 7881 | LiveKit |
 | Hosts' own studios over Icecast (off by default) | `tcpPorts.SOURCE_ICECAST_PORT`, 8005 | the ingest, on every address, only while a show key exists (ADR-0280) |
 | Hosts' own studios over SRT (off by default) | `udpPorts.SOURCE_SRT_PORT`, 9710 | the ingest, the same |
+| Hosts' own studios over WHIP from OBS (off by default) | `udpPorts.SOURCE_WHIP_PORT`, 9712; the offer at the public domain's `/whip/` | the ingest, the same; its one ICE candidate is LiveKit's address |
 
 The public ports have no `containerPort`, so Cloudron maps each to the same number inside the
 container, and `start.sh` gives LiveKit the number the administrator chose: LiveKit advertises the
@@ -103,7 +104,10 @@ the public domain to the control plane, which sets the caching (playlists not ca
 30 s) and answers 404 while the desk has video off; the join pages offer the camera check when
 the control plane says video is on. The image carries the plugins either way (`cmafmux`,
 `hlscmafsink`, `dav1ddec`, `svtav1enc`, the pango `textoverlay`, Noto Sans), and the build checks
-each. NVENC is not in the package (no GPU in a Cloudron app yet, ADR-0228).
+each. NVENC is not in the package (no GPU in a Cloudron app yet, ADR-0228): from 1.2.0
+`VIDEO_ENCODER` (added as `svt`) is the desk's `[video] encoder`, and `auto` or `nvenc` find no card
+here and fall back to SVT-AV1 with a line in the desk's log. The GPU route is Compose or the
+Quadlets (`GPU=nvidia`, `deploy/compose/gpu.yaml`; Phase 17e).
 
 Every surface still answers `noindex` while the station is private (ADR-0078).
 
@@ -148,6 +152,11 @@ Migrations (now 0001–0007) run at every start, by the control plane, before it
 Settings this version added (`CHAT_PORT`, `PLAYOUT_FEED_PORT`, `MAIL_MODE`, `PUBLISHING_URL`,
 `PUBLISHING_PLACE`, `PUBLISHING_ZONE`) are appended to an existing `weavesignal.env` with their
 defaults on the first start of 0.2.0; the administrator's lines are left as they are.
+
+The consent words (1.2, issue #26): `CONSENT_TEXT` in `weavesignal.env`, empty by default, which
+leaves the control plane's default words. `start.sh` writes a set value into `control.toml`'s
+`[join]` as `consent_text`, with backslashes, quotes, tabs and line breaks escaped, and stops on
+any other control character; `tests/wizard/start-sh.sh` reads the line back with a TOML parser.
 
 ## Build and run locally
 
@@ -311,8 +320,10 @@ the gate on a Cloudron itself, over hours.
 
 ## Not tested here, for the server
 
-- Docker's published UDP and TCP ports, LiveKit's public address (`use_external_ip`, with
-  `NODE_IP` in `weavesignal.env` as the override) and TURN over TLS from outside.
+- Docker's published UDP and TCP ports, LiveKit's public address (`NODE_IP` in `weavesignal.env`, else
+  the A record of the room's domain, read at every start: LiveKit never asks a STUN server for it,
+  ADR-0290; this test gives it loopback) and TURN over TLS from outside. A name with no A record
+  starts the app with a warning and the room unreachable from outside.
 - TURN relays: LiveKit's TURN allocates relay ports (30000–40000) on its node address; behind
   Docker's bridge the server's own traffic to them may not come back in (M3's measurement).
 - `proxyAuth` with `supportsBearerAuth`: that a Bearer request passes Cloudron's login, and

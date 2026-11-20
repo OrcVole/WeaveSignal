@@ -31,7 +31,7 @@ Running it again changes nothing that is already set.
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -95,6 +95,10 @@ Call-in stays closed until the station says how a caller can ask for their call 
 The player page then offers call-in, and the consent words name that contact.
 From 1.0.1 the [setup page](/docs/how-to/set-up-the-station/#name-and-takedown-contact) sets it on the running station instead, with no second run.
 
+From 1.2 the station may write its own consent words as `CONSENT_TEXT` in the same file, then run the script again; empty keeps the default words.
+Write them in single quotes with each apostrophe as `\'`, such as `CONSENT_TEXT='You\'ll be live with {presenter} on {station}. To have it taken down, contact {contact}.'`, and leave out backslashes, dollar signs and per cent signs, which the script refuses.
+[The consent words](/docs/reference/public-pages/#the-consent-words) lists the fill-ins; changing the words asks every caller to agree again.
+
 ### Choose ports yourself
 
 Give any port in the environment:
@@ -109,17 +113,23 @@ The names are those in `deploy/compose/.env.example`: `CONTROL_PORT`, `CHAT_PORT
 ### Hosts' own studios
 
 A host can send their show from their own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)).
-The station takes it on two ports of its own, both off until you set them:
+The station takes it on ports of its own, all off until you set them:
 
 ```sh
-SOURCE_ICECAST_PORT=8005 SOURCE_SRT_PORT=9710 deploy/compose/weavesignal.sh --public station.example
+SOURCE_ICECAST_PORT=8005 SOURCE_SRT_PORT=9710 SOURCE_WHIP_PORT=9712 deploy/compose/weavesignal.sh --public station.example
 ```
 
-`SOURCE_ICECAST_PORT` is TCP (8005, or 18005, 28005) and `SOURCE_SRT_PORT` is UDP (9710, or 19710, 29710); 0 turns either off.
+`SOURCE_ICECAST_PORT` is TCP (8005, or 18005, 28005), `SOURCE_SRT_PORT` is UDP (9710, or 19710, 29710) and `SOURCE_WHIP_PORT` is UDP (9712, or 19712, 29712); 0 turns any of them off.
+WHIP, for hosts sending from OBS, takes its offer through the public route, so it needs `--public`; it sends OBS to LiveKit's public address (`NODE_IP`, or the A record) ([Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)).
 The script checks a port you set as it checks the others, keeps it, and names it in what to open.
 The `ingest` service listens on them only while a show key exists: on every address on a public station, on loopback otherwise.
 The station's rules show these ports and cannot change them: change them here and run the script again.
 The script also makes two secrets for this, `INGEST_TOKEN` (the ingest's and the control plane's only) and `DESK_SOURCES_PASSWORD` (the ingest's and the desk's only).
+
+### A graphics card for video
+
+With `VIDEO=true` the desk encodes the picture. From 1.2 the script looks for an NVIDIA card's CDI spec when the settings file has no `GPU` line (or says `GPU=auto`), writes `GPU=nvidia` or `GPU=none`, and with `nvidia` hands the card to the desk (`gpu.yaml`).
+`VIDEO_ENCODER` (`auto`, `nvenc`, `svt`) chooses the encoder: see [Use a GPU for video](/docs/how-to/use-a-gpu-for-video/).
 
 ### Settings only
 

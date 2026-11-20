@@ -73,6 +73,12 @@
   .qrow.dropped { opacity: 0.75; }
   .tag { display: inline-flex; align-items: center; gap: var(--s-1); height: 1.5rem; padding: 0 var(--s-2); border-radius: var(--r-1); border: 1px solid var(--axis); font-size: var(--fs-12); color: var(--ink-2); white-space: nowrap; }
   .tag svg { width: 12px; height: 12px; }
+  /* the phone line (1.2, 17f): one quiet line under the queue on whether it takes calls; closed is the warning colour's edge, beside its words */
+  .phoneline { display: flex; gap: var(--s-2); align-items: center; padding: var(--s-1) var(--s-4); border-top: 1px solid var(--hairline); font-size: var(--fs-12); color: var(--ink-2); line-height: var(--lh-label); min-height: 1.75rem; }
+  .phoneline .g { width: 12px; height: 12px; flex: none; }
+  .phoneline b { color: var(--ink); font-weight: 600; }
+  .phoneline[data-phone="closed"] { box-shadow: inset 3px 0 0 var(--status-warning); }
+  .phoneline[data-phone="off"] b { color: var(--ink-2); }
   .qfoot { display: none; padding: 2px var(--s-4); border-top: 1px solid var(--hairline); gap: var(--s-1) var(--s-2); align-items: center; white-space: nowrap; overflow: hidden; font-size: var(--fs-12); color: var(--muted); min-height: 1.75rem; }
 
   /* ---- screening panel ---- */

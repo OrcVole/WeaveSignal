@@ -21,6 +21,12 @@ pub const LIVEKIT_SECRET_ENV: &str = "WEAVESIGNAL_LIVEKIT_API_SECRET";
 /// The environment variable that holds the bearer token for the control plane's admin routes,
 /// until accounts arrive. Unset, those routes answer 503.
 pub const ADMIN_TOKEN_ENV: &str = "WEAVESIGNAL_CONTROL_ADMIN_TOKEN";
+/// The environment variable that holds the station's own consent words (`CONSENT_TEXT` on the
+/// Compose bundle and the Quadlets): set and not blank, it takes the place of
+/// `join.consent_text`. Compose cannot escape a quote into the settings file it writes, but an
+/// environment variable takes any text whole. Unset, empty or blank: the settings file's words,
+/// else the default.
+pub const CONSENT_TEXT_ENV: &str = "WEAVESIGNAL_CONSENT_TEXT";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -65,6 +71,12 @@ pub struct Config {
     /// The public API: rate limits and the webhook guard (ADR-0195).
     #[serde(default)]
     pub api: crate::api::ApiConfig,
+    /// The presenter kit's server half (Phase 17g).
+    #[serde(default)]
+    pub kit: KitConfig,
+    /// The telephone line (Phase 17f); off by default, and off until a trunk is set.
+    #[serde(default)]
+    pub phone: crate::phone::config::PhoneConfig,
     /// Set from [`DATABASE_URL_ENV`]; never from the file.
     #[serde(skip)]
     pub database_url: Option<String>,
@@ -83,6 +95,15 @@ pub struct Config {
     /// file. It keys API tokens and webhook secrets (ADR-0195); with neither, they are off.
     #[serde(skip)]
     pub api_key: Option<crate::apikey::ApiKey>,
+}
+
+/// The `[kit]` settings: what the installation allows of the presenter kit.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct KitConfig {
+    /// Whether VBAN (unauthenticated UDP for one local network) may be used at all: off by
+    /// default; never on Cloudron, whatever this says.
+    pub vban: bool,
 }
 
 /// How staff sign-in codes reach a staff member's inbox (ADR-0127). Off by default: a station
@@ -376,8 +397,9 @@ pub struct JoinConfig {
     pub call_in: bool,
     /// What a caller agrees to before they can call. `{station}` becomes the station's name,
     /// `{kept}` how long programme recordings are kept (from the Jurisdiction setting), and
-    /// `{contact}` [`Self::consent_contact`]. Changing any of them changes the words' version;
-    /// a caller who agreed to older words is asked again.
+    /// `{contact}` [`Self::consent_contact`], and `{presenter}` the show on air's presenter, else
+    /// the station's name (issue #26; the default words do not use it). Changing any of them
+    /// changes the words' version; a caller who agreed to older words is asked again.
     pub consent_text: String,
     /// How a caller asks for their call to be taken down: an email address or a link. Call-in
     /// stays closed while the words name `{contact}` and this is empty (ADR-0124's wording).
@@ -413,6 +435,27 @@ pub struct JoinConfig {
     /// behind Cloudron's login. Empty, the link stays relative to wherever the app reaches.
     #[serde(skip)]
     pub public_url: String,
+    /// The STUN servers the station's operator has named (ADR-0290), `host:port` each; the
+    /// pages' only licence to ask any. Written as one comma-separated text (the station's
+    /// `STUN_SERVERS`, which LiveKit and the desk read too) or as a list. Empty, the default:
+    /// the pages strip every STUN server LiveKit hands them.
+    #[serde(deserialize_with = "stun_servers")]
+    pub stun_servers: Vec<String>,
+}
+
+/// `join.stun_servers`: a comma-separated text or a list of `host:port`, each checked.
+fn stun_servers<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Text {
+        One(String),
+        Many(Vec<String>),
+    }
+    let text = match Text::deserialize(d)? {
+        Text::One(t) => t,
+        Text::Many(list) => list.join(","),
+    };
+    weavesignal_proto::parse_stun_servers(&text).map_err(serde::de::Error::custom)
 }
 
 /// One MP3 stream the listener process encodes (`listeners.compat`, `listeners.compat_high`).
@@ -466,6 +509,7 @@ impl Default for JoinConfig {
             hls_dir: PathBuf::from("/var/lib/weavesignal/hls"),
             hls_url: "/hls".to_owned(),
             public_url: String::new(),
+            stun_servers: Vec::new(),
         }
     }
 }
@@ -689,6 +733,7 @@ impl Config {
             text = with_extra(&text, &shown, &more, &extra)?;
         }
         let mut config = Self::from_toml(&text, &shown)?;
+        config.with_consent_text(env(CONSENT_TEXT_ENV).as_deref());
         config.database_url = env(DATABASE_URL_ENV);
         config.livekit_secret = env(LIVEKIT_SECRET_ENV);
         config.admin_token = env(ADMIN_TOKEN_ENV);
@@ -706,6 +751,14 @@ impl Config {
         Ok(config)
     }
 
+    /// The consent words from [`CONSENT_TEXT_ENV`] in place of the settings file's, when given
+    /// and not blank; otherwise the file's (or the default) stay.
+    pub fn with_consent_text(&mut self, text: Option<&str>) {
+        if let Some(text) = text.filter(|t| !t.trim().is_empty()) {
+            self.join.consent_text = text.to_owned();
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.station()?;
         self.publishing.validate()?;
@@ -719,6 +772,7 @@ impl Config {
             return Err(ConfigError::Invalid("`mail.from` must not be empty".into()));
         }
         self.video.validate()?;
+        self.phone.validate()?;
         let max = weavesignal_proto::token::MAX_PARTICIPANT_TTL_S;
         if !(1..=max).contains(&self.room.token_ttl_s) {
             return Err(ConfigError::Invalid(format!(
@@ -1179,6 +1233,54 @@ name = "Kettle FM"
         assert!(Config::from_toml(&text, "t").is_err());
         let text = format!("{MINIMAL}\n[join]\nconsent_text = \" \"\n");
         assert!(Config::from_toml(&text, "t").is_err());
+    }
+
+    #[test]
+    fn consent_words_from_the_environment_replace_the_files_unless_blank() {
+        let mut c = Config::from_toml(MINIMAL, "t").unwrap();
+        // Unset, empty or blank: the default words, exactly as shipped.
+        for unset in [None, Some(""), Some("  \t")] {
+            c.with_consent_text(unset);
+            assert_eq!(c.join.consent_text, CONSENT_TEXT);
+        }
+        // A station's own words, quotes, commas, braces and all, taken whole.
+        let own = r#"You'll be on {presenter}'s show on {station}, "live"; kept {kept}, {contact} \ 100% $5."#;
+        c.with_consent_text(Some(own));
+        assert_eq!(c.join.consent_text, own);
+        // The settings file's own words stay when the environment gives none.
+        let text = format!("{MINIMAL}\n[join]\nconsent_text = \"Mine, on {{station}}.\"\n");
+        let mut c = Config::from_toml(&text, "t").unwrap();
+        c.with_consent_text(Some(""));
+        assert_eq!(c.join.consent_text, "Mine, on {station}.");
+    }
+
+    #[test]
+    fn the_pages_ask_no_stun_server_unless_the_station_names_one() {
+        let c = Config::from_toml(MINIMAL, "t").unwrap();
+        assert!(c.join.stun_servers.is_empty());
+        // As the Compose bundle and the Cloudron package write it: one text, possibly empty.
+        let text = format!("{MINIMAL}\n[join]\nstun_servers = \"\"\n");
+        assert!(
+            Config::from_toml(&text, "t")
+                .unwrap()
+                .join
+                .stun_servers
+                .is_empty()
+        );
+        let text =
+            format!("{MINIMAL}\n[join]\nstun_servers = \"A.example:3478, b.example:3478\"\n");
+        let c = Config::from_toml(&text, "t").unwrap();
+        assert_eq!(c.join.stun_servers, ["a.example:3478", "b.example:3478"]);
+        // A list is read the same way.
+        let text = format!("{MINIMAL}\n[join]\nstun_servers = [\"a.example:3478\"]\n");
+        assert_eq!(
+            Config::from_toml(&text, "t").unwrap().join.stun_servers,
+            ["a.example:3478"]
+        );
+        // A server that is not host:port stops the start, naming itself.
+        let text = format!("{MINIMAL}\n[join]\nstun_servers = \"stun.example.org\"\n");
+        let e = Config::from_toml(&text, "t").unwrap_err().to_string();
+        assert!(e.contains("stun.example.org"), "{e}");
     }
 
     #[test]

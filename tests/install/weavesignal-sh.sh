@@ -10,6 +10,8 @@
 # --uninstall --purge removes every container, volume and setting the script made.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# A GPU (17e): never this machine's own CDI spec; weavesignal.sh looks here, where there is none.
+export WEAVESIGNAL_CDI_DIRS="$root/tests/install/run/no-cdi"
 script="$root/deploy/compose/weavesignal.sh"
 run="$root/tests/install/run"; mkdir -p "$run"
 project=${WEAVESIGNAL_TEST_PREFIX:-weavesignal-m1}-sh

@@ -12,7 +12,7 @@ import { look, say, setBank, stationNow, studio, takeView } from './studio.svelt
 import { deskCallers, offNote, stationStep, type OffPart } from './steps.ts';
 import { changesAir } from './prepare.ts';
 import { followStation, nudge, preparing } from './prepare.svelte.ts';
-import { closeOpen, keyView, step as stepView, today, type Closed } from './schedule.svelte.ts';
+import { closeOpen, keyView, openRota, sched, step as stepView, today, type Closed } from './schedule.svelte.ts';
 import { openStations } from './stations.svelte.ts';
 import { firstName } from './format.ts';
 import { handoverStep } from './handover.ts';
@@ -581,13 +581,26 @@ export async function run(a: Action): Promise<void> {
       return;
     }
     case 'screen-talk': {
+      // Letting go closes exactly the talk this key opened, whatever has moved since (the
+      // selection, a screener joining): a talk_to left open keeps the talker off the programme.
+      if (!a.held) return talkHeld('screen-talk', false, null);
       const id = studio.selected;
-      const me = v?.seats.screener;
-      if (!id || !me) return void (a.held && say('good', 'Nobody to talk to', !id ? 'Select a caller first (↑ ↓ or 1 to 9).' : 'Join the room as the screener.'));
+      // Talk on this tab is the screener's seat's, or the presenter's when nobody screens (issue
+      // 25): while it is held the desk carries the talker's voice to the caller alone and the
+      // caller's answer to the talker alone; the caller stays off air and out of the cue.
+      const me = v?.seats.screener ?? v?.seats.presenter;
+      if (!id || !me)
+        return void (
+          a.held &&
+          say(
+            'good',
+            'Nobody to talk to',
+            !id ? 'Select a caller first (↑ ↓ or 1 to 9).' : 'Join the room as the screener or the presenter.',
+          )
+        );
       const c = v?.callers.find((x) => x.identity === id);
-      if (a.held && c?.state === 'waiting') await send(api.screener({ op: 'screen', identity: id }));
-      await send(api.desk({ op: 'talk_to', identity: me, to: id, on: a.held }));
-      talkingTo(id, a.held);
+      if (c?.state === 'waiting') await send(api.screener({ op: 'screen', identity: id }));
+      await talkHeld('screen-talk', true, { me, to: id });
       return;
     }
     case 'send':
@@ -631,14 +644,16 @@ export async function run(a: Action): Promise<void> {
     case 'cart-enter':
       if (studio.cartFocus) await fireSlot(studio.cartFocus);
       return;
+    // The rota is of the coming hours whatever week the calendar is on: the week's keys rest.
     case 'week':
-      stepView(a.delta);
+      if (!sched.rota) stepView(a.delta);
       return;
     case 'today':
-      today(stationNow());
+      if (!sched.rota) today(stationNow());
       return;
     case 'view':
-      keyView(a.view, stationNow());
+      if (a.view === 'rota') openRota();
+      else keyView(a.view, stationNow());
       return;
     case 'stations':
       openStations();

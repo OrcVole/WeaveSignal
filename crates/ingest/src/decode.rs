@@ -17,6 +17,7 @@
 //! | `ogg` | symphonia's Ogg reader, which follows a chained stream | Vorbis or FLAC by symphonia, Opus by opus-decoder |
 //! | `flac` | symphonia's FLAC reader | symphonia FLAC |
 //! | `mpegts` | [`crate::ts::TsAudio`], then ADTS or MPEG audio as its map says | as above |
+//! | `opus-rtp` | [`crate::opus_frames`]: a WHIP source's payloads, placed by RTP timestamp | opus-decoder, always to stereo, a gap concealed |
 
 use std::io::{self, BufReader, Read, Write};
 use std::process::ExitCode;
@@ -29,11 +30,12 @@ use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions, ReadOnlySource};
 
 use crate::frame;
-use crate::resample::Resampler;
+use crate::opus_frames::{self, Gap};
 use crate::ts::{Audio, TsAudio};
+use weavesignal_mixer::Resampler;
 
 /// The formats a worker takes, by the name the supervisor gives.
-pub const FORMATS: [&str; 5] = ["mp3", "aac", "ogg", "flac", "mpegts"];
+pub const FORMATS: [&str; 6] = ["mp3", "aac", "ogg", "flac", "mpegts", "opus-rtp"];
 /// CPU time for one worker: a long show at a few per cent of a core, with room to spare.
 const CPU_SECONDS: u64 = 6 * 3600;
 
@@ -55,6 +57,9 @@ pub fn decode(
     input: impl Read + Send + Sync + 'static,
     out: &mut impl Write,
 ) -> Result<(), DecodeError> {
+    if format == "opus-rtp" {
+        return decode_opus_rtp(input, out);
+    }
     let unsupported = |e: SymErr| DecodeError::Unsupported(e.to_string());
     let opts = FormatOptions::default();
     let mss = |r: Box<dyn symphonia::core::io::MediaSource>| {
@@ -192,6 +197,80 @@ pub fn decode(
     }
 }
 
+/// What a WHIP source's worker says it reads: RTP carries no OpusHead, so the channels are not
+/// known, and an Opus decoder makes stereo from mono packets as well.
+pub const OPUS_RTP_INFO: &str = "rtp/opus 48 kHz stereo";
+
+/// A WHIP source's Opus payloads ([`crate::opus_frames`]), each placed by its RTP timestamp:
+/// a lost one concealed by Opus's own concealment, a late one dropped, a jump of over 200 ms
+/// started again from. Always 48 kHz stereo out.
+fn decode_opus_rtp<W: Write>(input: impl Read, out: &mut W) -> Result<(), DecodeError> {
+    let mut input = BufReader::with_capacity(16 * 1024, input);
+    let mut dec = opus_decoder::OpusDecoder::new(48_000, 2)
+        .map_err(|e| DecodeError::Unsupported(format!("Opus: {e:?}")))?;
+    let mut pcm = vec![0.0f32; 5760 * 2];
+    let mut next: Option<u32> = None;
+    let mut info_sent = false;
+    let mut damaged = 0u32;
+    let mut send = |out: &mut W, samples: &[f32]| send_pcm(out, &mut info_sent, samples);
+    while let Some((ts, payload)) = opus_frames::read(&mut input)? {
+        if payload.is_empty() {
+            continue;
+        }
+        match next.map(|n| opus_frames::gap(n, ts)) {
+            Some(Gap::Late) => continue,
+            Some(Gap::Missing(mut missing)) => {
+                // Opus's concealment, a packet's length at a time; silence once it has nothing.
+                while missing > 0 {
+                    let n = dec.decode_float(&[], &mut pcm, false).unwrap_or(0);
+                    if n == 0 {
+                        let silence = vec![0.0f32; missing as usize * 2];
+                        send(out, &silence)?;
+                        break;
+                    }
+                    let take = (n as u32).min(missing);
+                    send(out, &pcm[..take as usize * 2])?;
+                    missing -= take;
+                }
+            }
+            Some(Gap::InOrder | Gap::Resync) | None => {}
+        }
+        let n = match dec.decode_float(&payload, &mut pcm, false) {
+            Ok(n) => n,
+            Err(_) => {
+                // Skipped as a player skips it; the next payload conceals its time.
+                damaged += 1;
+                if damaged > 500 {
+                    return Err(DecodeError::Malformed("nothing but damaged packets".into()));
+                }
+                continue;
+            }
+        };
+        damaged = 0;
+        send(out, &pcm[..n * 2])?;
+        next = Some(ts.wrapping_add(n as u32));
+    }
+    Ok(())
+}
+
+/// Samples out as a PCM frame, after the INFO frame the first time.
+fn send_pcm(out: &mut impl Write, info_sent: &mut bool, samples: &[f32]) -> io::Result<()> {
+    if samples.is_empty() {
+        return Ok(());
+    }
+    if !*info_sent {
+        frame::write(out, frame::INFO, OPUS_RTP_INFO.as_bytes())?;
+        *info_sent = true;
+    }
+    let mut bytes = Vec::with_capacity(samples.len() * 4);
+    for s in samples {
+        let v = if s.is_finite() { *s } else { 0.0 };
+        bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    frame::write(out, frame::PCM, &bytes)?;
+    out.flush()
+}
+
 fn trim_khz(rate: u32) -> String {
     let k = f64::from(rate) / 1000.0;
     if k.fract() == 0.0 {
@@ -295,7 +374,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Some(f) if FORMATS.contains(&f.as_str()) => f.clone(),
         _ => {
             eprintln!(
-                "usage: weavesignal-ingest decode --format mp3|aac|ogg|flac|mpegts < stream > frames"
+                "usage: weavesignal-ingest decode --format mp3|aac|ogg|flac|mpegts|opus-rtp < stream > frames"
             );
             return ExitCode::from(2);
         }
@@ -452,6 +531,136 @@ mod tests {
             assert!((pitch(&pcm[..half]) - 1000.0).abs() < 15.0, "{name}");
             assert!((pitch(&pcm[half..]) - 500.0).abs() < 15.0, "{name}");
         }
+    }
+
+    /// The Opus packets of each track of an Ogg fixture, as a WHIP source's RTP would carry them.
+    fn opus_packets(name: &str) -> Vec<Vec<Vec<u8>>> {
+        let mss = MediaSourceStream::new(
+            Box::new(std::io::Cursor::new(fixture(name))),
+            MediaSourceStreamOptions::default(),
+        );
+        let mut reader =
+            symphonia::default::formats::OggReader::try_new(mss, FormatOptions::default()).unwrap();
+        let mut tracks = vec![Vec::new()];
+        let mut track = reader.default_track(TrackType::Audio).unwrap().id;
+        loop {
+            match reader.next_packet() {
+                Ok(Some(p)) if p.track_id == track => {
+                    tracks.last_mut().unwrap().push(p.data.to_vec());
+                }
+                Ok(Some(_)) => {}
+                Err(SymErr::ResetRequired) => {
+                    track = reader.default_track(TrackType::Audio).unwrap().id;
+                    tracks.push(Vec::new());
+                }
+                Ok(None) | Err(_) => return tracks,
+            }
+        }
+    }
+
+    /// Each packet's length in samples, from a decoder of its own.
+    fn lengths(packets: &[Vec<u8>]) -> Vec<u32> {
+        let mut d = opus_decoder::OpusDecoder::new(48_000, 2).unwrap();
+        let mut pcm = vec![0.0f32; 5760 * 2];
+        packets
+            .iter()
+            .map(|p| d.decode_float(p, &mut pcm, false).unwrap() as u32)
+            .collect()
+    }
+
+    /// Run `opus-rtp` on `(ts, payload)` pairs: the info lines and the samples.
+    fn run_rtp(pairs: &[(u32, &[u8])]) -> (Vec<String>, Vec<f32>) {
+        let mut wire = Vec::new();
+        for (ts, p) in pairs {
+            wire.extend(opus_frames::write(*ts, p));
+        }
+        let mut out = Vec::new();
+        decode("opus-rtp", std::io::Cursor::new(wire), &mut out).unwrap();
+        let (mut infos, mut pcm) = (Vec::new(), Vec::new());
+        let mut r = &out[..];
+        while let Some((kind, payload)) = frame::read(&mut r).unwrap() {
+            match kind {
+                frame::INFO => infos.push(String::from_utf8(payload).unwrap()),
+                frame::PCM => pcm.extend(
+                    payload
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|b| f32::from_le_bytes(*b)),
+                ),
+                _ => panic!("kind {kind}"),
+            }
+        }
+        (infos, pcm)
+    }
+
+    #[test]
+    fn opus_over_rtp_in_order_a_gap_concealed_and_a_late_one_dropped() {
+        let tracks = opus_packets("chained-opus.ogg");
+        let packets = &tracks[0];
+        assert!(packets.len() > 20, "{} packets", packets.len());
+        let lens = lengths(packets);
+        let total: u32 = lens.iter().sum();
+        // A random start, as RTP's is, near the wrap.
+        let mut ts = u32::MAX - 5_000;
+        let mut stamped = Vec::new();
+        for (p, n) in packets.iter().zip(&lens) {
+            stamped.push((ts, p.as_slice()));
+            ts = ts.wrapping_add(*n);
+        }
+        let (infos, pcm) = run_rtp(&stamped);
+        assert_eq!(infos, vec![OPUS_RTP_INFO.to_owned()]);
+        assert_eq!(pcm.len(), total as usize * 2);
+        assert!((pitch(&pcm) - 1000.0).abs() < 15.0, "{}", pitch(&pcm));
+
+        // One lost in the middle: the same length, its time concealed.
+        let mut lost = stamped.clone();
+        lost.remove(lost.len() / 2);
+        let (_, pcm) = run_rtp(&lost);
+        assert_eq!(
+            pcm.len(),
+            total as usize * 2,
+            "the lost packet's time is filled"
+        );
+
+        // One repeated late: dropped.
+        let mut late = stamped.clone();
+        late.insert(10, stamped[3]);
+        let (_, pcm) = run_rtp(&late);
+        assert_eq!(pcm.len(), total as usize * 2, "a late packet adds nothing");
+
+        // Out of order: the later of the two plays, the earlier is late and its time concealed.
+        let mut swapped = stamped.clone();
+        swapped.swap(5, 6);
+        let (_, pcm) = run_rtp(&swapped);
+        assert_eq!(pcm.len(), total as usize * 2);
+    }
+
+    #[test]
+    fn mono_opus_over_rtp_comes_out_as_stereo() {
+        let tracks = opus_packets("chained-opus.ogg");
+        assert_eq!(tracks.len(), 2, "the fixture's second track is mono");
+        let packets = &tracks[1];
+        let lens = lengths(packets);
+        let mut ts = 0u32;
+        let mut stamped = Vec::new();
+        for (p, n) in packets.iter().zip(&lens) {
+            stamped.push((ts, p.as_slice()));
+            ts = ts.wrapping_add(*n);
+        }
+        let (infos, pcm) = run_rtp(&stamped);
+        assert_eq!(infos, vec![OPUS_RTP_INFO.to_owned()]);
+        assert_eq!(pcm.len(), lens.iter().sum::<u32>() as usize * 2);
+        assert!((pitch(&pcm) - 500.0).abs() < 15.0, "{}", pitch(&pcm));
+        let mid = &pcm[pcm.len() / 5..pcm.len() * 4 / 5];
+        assert!(
+            mid.as_chunks::<2>()
+                .0
+                .iter()
+                .all(|f| (f[0] - f[1]).abs() < 1e-3),
+            "both channels carry the mono sound"
+        );
+        assert!(rms_db(&pcm) > -40.0, "{} dB", rms_db(&pcm));
     }
 
     #[test]

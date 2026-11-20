@@ -2,6 +2,158 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.2.0 (2026-11-20)
+
+- **A show can pull a stream** (issue #20): a partner station's Icecast mount or any HTTP or HTTPS
+  audio, an HLS playlist, or an SRT listener. Made with the API as a show key with `hint: pull`
+  and the address; the station opens it from before the show's time, and it stands by, goes on
+  air at the post and comes back after a drop as a host's own studio does. Addresses inside the
+  station's own network are refused unless `WEAVESIGNAL_PULL_ALLOW_PRIVATE` is set, checked again
+  at every connection, redirect and segment. HTTPS uses rustls with Mozilla's root certificates.
+  The how-to is *Pull a partner's stream into a show*. Migration 0042.
+- **The rota and the handover window** (issue #21). `GET /api/v1/rota` lists every show of the
+  coming twelve hours with who is down for it, whether from the room or their own studio, and
+  whether they are ready. A new rule for sources, `window_s` (300 s by default, 0 off, at most
+  1,800), opens a window before each show's start: `post.window` in the studio's view and in
+  `GET /api/v1/sources` names the next host and says `announced`, `cueing`, `ready`, `overrun` or
+  `held`, and the incoming host gets one heads-up an airing (a desk notice,
+  `handover.heads_up`, and a line on their monitor link), written in the sources' log first so a
+  restart does not repeat it. The window changes nothing that goes on air. A `PUT` of the rules
+  without `window_s` keeps the stored one. Migration 0043. In the studio app the window has rows
+  under the post line of the desk's clock (who is next, from where, READY, CONNECTING or NOT HERE
+  YET), the heads-up is a quiet notice, the rota is the Schedule tab's fourth view (`R`, or Rota
+  beside Coming up), and the window's length is in Settings › Own studios › The rules; the monitor
+  page shows the heads-up above the lamp.
+- **A host can send from OBS over WHIP**, sound only, with their show key: OBS's *Server* is
+  `https://<public domain>/whip/<key id>` and its *Bearer Token* the key's secret. The station
+  answers it itself, ICE-lite on one UDP port (`SOURCE_WHIP_PORT`, 9712, **off by default** on
+  Cloudron, Compose and the Quadlets), with no STUN or TURN, and the source stands by, tests, goes
+  on air and is covered when its link drops exactly as an Icecast or SRT one. The picture OBS
+  sends with its sound is taken and thrown away, so OBS needs no change, and it does not count
+  against the source's 2 Mbit/s. A key can be made for WHIP, and its details give the WHIP
+  address and token. Needs the public domain and the
+  station's public IPv4 address. A real OBS has not been tried yet. New internal port
+  `INGEST_WHIP_PORT` (7319, loopback). Migration 0044.
+- **The bridge, and the presenter kit's station half** (issue #22). A host sends from their own
+  software to the studio app on their own computer, and the app carries it to the station over one
+  WebSocket on the public address's 443 (Settings › Bridge): no source port on the station, the
+  show key in the keychain, the way `bridge` at the desk, Ogg and FLAC heads sent again on every
+  reconnect. On Compose and the Quadlets (never Cloudron), with `KIT_VBAN=true`, a studio PC's VBAN
+  stands by as a show key's source and the desk sends VBAN out (the programme after or before the
+  delay, or a monitor mix) to one address each; presets set the routing (Settings › Presenter kit).
+  Every source is now resampled once at the desk at a ratio that follows its clock, instead of
+  skipping each time it drifts past the cushion. Migration 0045 adds the two ways and the kit's
+  settings.
+- **Listeners can ring the studio from an ordinary phone**, on Compose and the
+  Quadlets (not yet Cloudron), off until a SIP trunk is set: `PHONE=true` adds `phone.yaml`, with
+  LiveKit's SIP service (v1.25.0) and a Valkey that LiveKit shares while the line is on. A caller
+  hears a few words (the station's own recording, or a short one that ships in two synthetic voices,
+  `PHONE_DEFAULT_VOICE` `alba`, a Scottish woman's and the default, or `edinburgh`, a man's; CC BY
+  4.0, made with Piper, which is not shipped), presses any key, and waits in `screener.queue` like a caller from the player page; the desk answers a call
+  only when the gate says so and holds the caller's voice out of every mix until then. With the
+  words off (`PHONE_CONSENT_WORDS=false`) callers press no key and their record says *not asked*.
+  The station keeps a ban key and the last four digits, never the number; a withheld number is
+  taken but cannot be banned by number. Bans, a takedown by a typed number, and the station's own
+  recording of the words are new routes under `/api/v1/phone`. New ports, checked by
+  `weavesignal.sh` and `check-ports` while the line is on: SIP 5060 (UDP and TCP), RTP 7340–7355
+  for 8 lines (UDP), Valkey 7321 (loopback). The SIP service logs errors only, to one file of at
+  most 512 KB. The how-to is *Take phone calls*, and *Decide whose contact to give callers* walks
+  a station through whether it needs the words and a named person. Migration 0046. Not yet tried
+  through a provider's trunk. An admin can turn the words off and choose the voice in the studio
+  (Settings › Phone line, with Play to hear each voice first): `PUT /api/v1/phone/consent` and
+  `GET /api/v1/phone/consent/default/{alba,edinburgh}.opus`; what is chosen there is kept in the
+  database and wins over the settings file. Migration 0047.
+- **A GPU for the desk on Compose and the Quadlets** (issue #8): with video on, the
+  desk can encode on an NVIDIA card with NVENC's AV1 (and RTMP out's H.264), handed to its container
+  by the card's CDI name. `GPU=nvidia` adds `gpu.yaml` on Compose and the desk unit's `AddDevice=`
+  on the Quadlets; with no `GPU` line, or `GPU=auto`, `weavesignal.sh` looks for an NVIDIA CDI spec
+  in `/etc/cdi` and `/var/run/cdi` and writes `GPU=nvidia` or `GPU=none`, and `GPU=nvidia` with
+  no spec stops it with the `nvidia-ctk cdi generate` command. New settings: `VIDEO_ENCODER`
+  (`auto`, `nvenc`, `svt`; the desk's `[video] encoder`, which had no setting on any install
+  route), `GPU`, `GPU_DEVICE` (`nvidia.com/gpu=all`) and `NVENC_SESSIONS` (12); the install wizard
+  asks *A graphics card for video*. SVT-AV1 on the CPU stays the fallback for any rung NVENC cannot
+  take. Cloudron gives an app no GPU: its `VIDEO_ENCODER` is added as `svt`. Not yet measured on a
+  card with this release's image; `tests/gpu/measure.sh` does that, stopping at the first Xid in
+  the kernel log. A host's own picture is still not used: passing it through without encoding it
+  again is designed in *Video in the desk*, not built.
+- **A station contacts no outside STUN server unless its operator names one** (ADR-0290), on
+  Cloudron, Compose and the Quadlets. Up to 1.1.1 the desk asked Google's server for every
+  connection (GStreamer's default), LiveKit asked Twilio's and Google's for its public address when
+  `NODE_IP` was empty, and the join pages were handed LiveKit's own default servers. Now the desk
+  sets none; LiveKit always starts with an address of its own (`NODE_IP`, else the A record of the
+  station's domain, read at start on Cloudron and when `weavesignal.sh` runs on Compose and the
+  Quadlets) and `use_external_ip` off; and the pages drop every STUN server that is not in the new
+  `STUN_SERVERS` setting (empty by default; up to four `host:port`; LiveKit, the desk and the pages
+  read it). A name with no A record stops `weavesignal.sh`. On Cloudron the app starts anyway with
+  a warning, on the last address the name gave, or with the room unreachable from outside if it
+  has none. Set `NODE_IP` for a name behind a proxy. On Compose and the Quadlets run
+  `weavesignal.sh` again to update. The packages reference lists STUN servers run by free-software
+  projects, which a station may choose to name.
+- **The consent words are a setting on every install route** (issue #26): `CONSENT_TEXT`, in
+  `weavesignal.env` on Cloudron and in the settings file `weavesignal.sh` writes for Compose and
+  the Quadlets. Empty, the default, keeps the shipped words exactly, so no caller is asked again;
+  set, the station's own words may use `{station}`, `{kept}`, `{contact}` and the new
+  `{presenter}` (the show on air's presenter, else the station's name). On Cloudron write them in
+  double quotes; on Compose and the Quadlets in single quotes with each apostrophe as `\'`, and
+  without a backslash, a dollar sign or a per cent sign, which `weavesignal.sh` refuses. There the
+  words reach the control plane as `WEAVESIGNAL_CONSENT_TEXT`, which takes the place of
+  `join.consent_text` when it is not blank. The Quadlets' generator now refuses any setting with a
+  backslash or a per cent sign rather than write a unit that Quadlet would drop or systemd would
+  change.
+- **The desk's congestion control is a setting**, `CONGESTION_CONTROL`, on every install route:
+  `gcc` (the default, as since 1.0.1), `homegrown` or `disabled`, for the desk's WebRTC senders (each
+  return and the programme picture). Measured three ways with `just test-cc`; the default stays.
+- **A show can come from a stream the station pulls in the studio app**: the show editor's
+  *Comes from* has *A stream the station pulls*, which reads the address as it is typed and makes
+  the show's key; WHIP's details say it is sound only.
+- **The phone line, the presenter kit and the bridge in the studio app.** The screener shows a phone
+  caller as *Phone ···0123* or *Withheld number*, with *Ban this number…*; Settings › Phone line
+  holds the line's state, the consent words' switch and the voice. Settings › Presenter kit is a
+  form (one clock, presets as buttons, VBAN in and out rows) instead of JSON, and Settings › Bridge
+  shows what to type into your software.
+- **A compact Picture and Callers at 1,440 by 900**: the programme picture's line and the cameras
+  are in sight under the switch without scrolling, and three callers and **Take** fit where two did.
+- **The install wizard asks two more questions**: an outside STUN server (*None* first) and the
+  station's own consent words, written for each route as its install script reads them.
+- **The join pages on a phone**: the call panel no longer lays out three times too wide at 390 px,
+  which had put *Reconnect through the relay* off the screen. `just test-join-layout` keeps it.
+- **The listener count's error says what it means** (issue #17): `audience.error` in the studio's
+  view names the two real reasons it has no count; the desk reference says where the count comes
+  from on each install route.
+- **The desk keeps its controls in view at 1,440 by 900.** End show no longer runs over Dump, the
+  stage's tiles on air keep their notes and buttons while Not on air scrolls, and when the desk
+  folds to one column a notice has its own row above the status bar. Playout's tile no longer
+  repeats how to restart it: the Playout panel, the status bar and the notice each offer that.
+- **VBAN's lost packets reach the clock readout.** `GET /api/v1/kit/clock` gave every VBAN source
+  `lost: 0`, because the desk, which made the readout, never sees VBAN's packets. The ingest now
+  counts each bound stream's packets lost on the way (filled with silence; one dropped late stays
+  in `vban_dropped.late`) and reports the count beside the connection every second
+  (`lost`, VBAN only), and the readout joins it to the source by its show key.
+- **The studio app asks before its window closes while the bridge runs**, since closing stops
+  the bridge and the host's source leaves the desk: *Keep the window open* (in focus, and Esc) or
+  *Stop the bridge and close*. A second close while the question shows goes through, so a page
+  that cannot answer never holds the window. Panel `studio.close-ask`.
+- **A phone caller joins the screener's queue only once through the gate** (17f). The desk lists
+  a phone caller from the moment it answers, while the words play and their voice is held out,
+  and the queue took them in then, before any key; now it waits for the desk to say they are
+  admitted. LiveKit's `Phone 4471` no longer becomes the caller's name at the second read of
+  the desk. **Drop** on a phone caller in the queue or on air turns them off air and out of the
+  cue, ends the call at the desk and frees their line (tested end to end against the fake desk).
+- **The STUN servers from the studio, on Cloudron** (ADR-0290, the STUN chooser's Settings half).
+  `GET /api/v1/setup` gains `stun`: the servers this start uses (`in_use`; LiveKit, the desk and
+  the join pages read one setting), whether this install lets Settings name them, what was
+  asked and whether it waits for a restart. `PUT /api/v1/setup/stun` (an admin's) takes a list
+  of `host:port`, checked by the same rule as `STUN_SERVERS` (an empty list is none); on
+  Cloudron it is written to `setup.env` beside the stream password's answer and `start.sh`
+  applies it to all three parts at the next restart, ignoring a line it would not take. On
+  Compose and the Quadlets it answers 409 and the settings file decides. No migration.
+- **The presenter can talk to a caller from the Screener tab** (issue #25). With no screener in
+  the room, `T` there is the presenter's talk to the selected caller, and while it is held the
+  desk now carries the caller's answer back to the talker's ear alone (the matrix's new rule: a
+  talker hears whoever they talk to, unless that person is talking privately to someone else),
+  so the caller need not be cued, stays off the programme and is heard by nobody else. Holding
+  it takes the presenter off the programme, as every Talk key does.
+
 ## 1.1.1 (2026-11-19)
 
 - **A notice no longer hides the chat.** On the desk a toast stands first in the right column's

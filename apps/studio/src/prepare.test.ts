@@ -579,7 +579,8 @@ describe('a preparing window', () => {
     const all = buttons(body);
     // Nothing is taken away: the same buttons, in the same order.
     expect(all.map((b) => b.text)).toEqual(live.map((b) => b.text));
-    const stays = (b: { text: string }) => /^(Invite someone…|Screener)/.test(b.text);
+    // Rota, like Screener, only goes to another tab: it changes nothing on air.
+    const stays = (b: { text: string }) => /^(Invite someone…|Screener|Rota)/.test(b.text);
     for (const b of all) {
       expect(off(b), b.text).toBe(!stays(b));
       if (!stays(b)) expect(b.tag, b.text).toContain(`title="${OFF_WHY}"`);

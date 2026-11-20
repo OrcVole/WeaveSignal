@@ -21,6 +21,8 @@
 # containers and the volume are named after WEAVESIGNAL_TEST_PREFIX. `just public-check`.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# A GPU (17e): never this machine's own CDI spec; weavesignal.sh looks here, where there is none.
+export WEAVESIGNAL_CDI_DIRS="$root/tests/install/run/no-cdi"
 script="$root/deploy/compose/weavesignal.sh"
 run="$root/tests/install/run/public"
 prefix=${WEAVESIGNAL_TEST_PREFIX:-weavesignal-m1}-public
@@ -58,6 +60,11 @@ stub ss 'for t in ${STUB_TAKEN:-}; do
   esac
 done; exit 0'
 stub curl 'echo "{\"database\":\"ok\"}"'
+# getent answers station.test with STUB_A (203.0.113.7 unless it is set, empty: no record); any
+# other name has none. Nothing is asked of a real resolver, and no STUN server is reachable.
+stub getent 'if [ "${1:-} ${2:-}" = "ahostsv4 station.test" ] && [ -n "${STUB_A-203.0.113.7}" ]; then
+  printf "%s     STREAM station.test\n" "${STUB_A-203.0.113.7}"; exit 0
+fi; exit 2'
 stub loginctl 'case "$*" in *show-user*) echo yes ;; esac'
 stub systemctl 'case "$*" in *is-enabled*) exit 0 ;; esac'
 low_file="$run/port-start"; echo 1024 > "$low_file"
@@ -88,7 +95,12 @@ install --public "$domain"
   && [ "$(setting STREAM_URL)" = "https://$domain/programme.opus" ] && [ "$(setting FORWARDED_FOR)" = true ] \
   && [ "$(setting TURN_ENABLED)" = true ] || fail "the derived addresses are wrong"
 [ "$(setting TURN_CERT_DIR)" = acme-v02.api.letsencrypt.org-directory ] || fail "acme's certificate directory is wrong"
-[ "$(setting LIVEKIT_USE_EXTERNAL_IP)" = true ] && [ -z "$(setting LIVEKIT_NODE_IP)" ] || fail "no NODE_IP should leave the address to STUN"
+# ADR-0290: no NODE_IP gives the A record of the name, never `use_external_ip` (which asks STUN).
+[ "$(setting LIVEKIT_USE_EXTERNAL_IP)" = false ] && [ "$(setting LIVEKIT_NODE_IP)" = 203.0.113.7 ] || fail "no NODE_IP should give LiveKit the name's A record, with use_external_ip off"
+[ -z "$(setting NODE_IP)" ] || fail "the address read from DNS was written as the NODE_IP setting (it would stop following the name)"
+[ -z "$(setting STUN_SERVERS)" ] && grep -qx 'STUN_SERVERS=' "$env_out" || fail "STUN_SERVERS is not written, empty, by default"
+grep -qx 'CONGESTION_CONTROL=gcc' "$env_out" || fail "CONGESTION_CONTROL is not written, gcc, by default"
+grep -qF "LiveKit's public address: 203.0.113.7 (the A record of $domain). STUN servers: none." "$out" || { cat "$out" >&2; fail "the output does not say where LiveKit's address came from"; }
 [ "$(setting TURN_UDP_PORT)" = 0 ] && [ "$(setting LIVEKIT_TCP_PORT)" = 0 ] || fail "TURN over UDP and ICE over TCP are off by default"
 [ "$(stat -c %a "$env_out")" = 600 ] || fail "the settings file is not mode 600"
 called "compose --env-file $env_out -p public-check -f compose.yaml -f public.yaml up -d" || { cat "$calls" >&2; fail "compose did not get -f public.yaml"; }
@@ -106,6 +118,46 @@ pass "a second run changes nothing, and the route stays on without the flag"
 install --status; called "-f public.yaml ps" || fail "--status does not see the proxy"
 install --renew-turn; called "-f public.yaml restart livekit" || fail "--renew-turn did not restart LiveKit"
 pass "--status and --renew-turn use the overlay"
+
+# LiveKit's public address and the STUN servers (ADR-0290).
+n=$((n + 1)); : > "$calls"; out="$run/out-nodeip.txt"
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file NODE_IP=198.51.100.4 "$script" --env-file "$run/nodeip.env" --image x --public "$domain" --no-start > "$out" 2>&1 || { cat "$out" >&2; fail "a given NODE_IP was refused"; }
+grep -qx 'LIVEKIT_NODE_IP=198.51.100.4' "$run/nodeip.env" && grep -qx 'LIVEKIT_USE_EXTERNAL_IP=false' "$run/nodeip.env" && grep -qx 'NODE_IP=198.51.100.4' "$run/nodeip.env" || fail "a given NODE_IP was not used as it is"
+! called getent || fail "a given NODE_IP was looked up in DNS anyway"
+grep -qF "(NODE_IP)" "$out" || fail "the output does not say the address is the NODE_IP"
+# A name with no A record, or one a hosts file answers with a loopback: refused, naming NODE_IP and
+# the settings file, and nothing is written.
+for a in '' 127.0.1.1; do
+  n=$((n + 1)); out="$run/out-noa.txt"; rm -f "$run/noa.env"
+  if PATH="$run/bin:$PATH" STUB_A="$a" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/noa.env" --image x --public "$domain" --no-start > "$out" 2>&1; then fail "a name with no usable A record ('$a') was accepted"; fi
+  grep -qF "has no IPv4 (A) record" "$out" && grep -qF "set NODE_IP=" "$out" && grep -qF "$run/noa.env" "$out" || { cat "$out" >&2; fail "the refusal does not name the A record, NODE_IP and the file"; }
+  [ ! -e "$run/noa.env" ] || fail "settings were written for a name with no A record"
+done
+# A private answer is used, with a note about TURN_ALLOW_CIDRS and NAT.
+n=$((n + 1)); out="$run/out-private.txt"
+PATH="$run/bin:$PATH" STUB_A=192.168.1.5 WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/private.env" --image x --public "$domain" --no-start > "$out" 2>&1 || { cat "$out" >&2; fail "a private A record was refused"; }
+grep -qx 'LIVEKIT_NODE_IP=192.168.1.5' "$run/private.env" && grep -qF "TURN_ALLOW_CIDRS lists it (192.168.1.5/32)" "$out" || { cat "$out" >&2; fail "a private A record is not used and explained"; }
+# STUN servers: none by default; named ones are kept, lower-cased and listed once; a mistake is
+# refused with the entry named, and so is a fifth server.
+n=$((n + 1)); out="$run/out-stun.txt"
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file STUN_SERVERS="Stun.Example.org:3478, other.example.net:19302 stun.example.org:3478" "$script" --env-file "$run/stun.env" --image x --public "$domain" --no-start > "$out" 2>&1 || { cat "$out" >&2; fail "named STUN servers were refused"; }
+grep -qx 'STUN_SERVERS=stun.example.org:3478,other.example.net:19302' "$run/stun.env" && grep -qF "STUN servers: stun.example.org:3478,other.example.net:19302." "$out" || { cat "$run/stun.env" >&2; fail "named STUN servers were not kept as one list"; }
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/stun.env" --image x --public "$domain" --no-start > /dev/null 2>&1 || fail "a second run refused the kept STUN servers"
+grep -qx 'STUN_SERVERS=stun.example.org:3478,other.example.net:19302' "$run/stun.env" || fail "a second run dropped the STUN servers"
+# The desk's congestion control (16c): written as gcc by default, kept when chosen, refused when not one of three.
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file CONGESTION_CONTROL=Homegrown "$script" --env-file "$run/cc.env" --image x --no-start > /dev/null 2>&1 || fail "CONGESTION_CONTROL=Homegrown was refused"
+grep -qx 'CONGESTION_CONTROL=homegrown' "$run/cc.env" || fail "CONGESTION_CONTROL was not kept as homegrown"
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file "$script" --env-file "$run/cc.env" --image x --no-start > /dev/null 2>&1 || fail "a second run refused the kept CONGESTION_CONTROL"
+grep -qx 'CONGESTION_CONTROL=homegrown' "$run/cc.env" || fail "a second run dropped CONGESTION_CONTROL"
+if PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file CONGESTION_CONTROL=google "$script" --env-file "$run/cc-bad.env" --image x --no-start > /dev/null 2>&1; then fail "CONGESTION_CONTROL=google was accepted"; fi
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file STUN_SERVERS="stun.example.org:3478" "$script" --env-file "$run/stun-loop.env" --image x --no-start > /dev/null 2>&1 || fail "STUN_SERVERS was refused on a loopback station"
+grep -qx 'STUN_SERVERS=stun.example.org:3478' "$run/stun-loop.env" || fail "a loopback station does not keep STUN_SERVERS (the desk reads it there too)"
+for bad in "stun.example.org" "stun:stun.example.org:3478" "stun.example.org:99999" "a.example:1,b.example:1,c.example:1,d.example:1,e.example:1"; do
+  if PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file STUN_SERVERS="$bad" "$script" --env-file "$run/stun-bad.env" --image x --public "$domain" --no-start > "$run/stun-bad.txt" 2>&1; then fail "STUN_SERVERS='$bad' was accepted"; fi
+  grep -qF "STUN_SERVERS in" "$run/stun-bad.txt" || { cat "$run/stun-bad.txt" >&2; fail "the refusal of '$bad' does not name STUN_SERVERS"; }
+done
+rm -f "$run"/nodeip.env "$run"/private.env "$run"/stun*.env "$run"/noa.env
+pass "LiveKit's address: NODE_IP as given, else the name's A record (never written back as NODE_IP); no record or a loopback one refused; a private one explained; STUN_SERVERS none by default, kept once, checked"
 
 # Taken ports: the proxy's are not moved to an alternative on their own.
 n=$((n + 1)); : > "$calls"; out="$run/out-taken.txt"
@@ -127,20 +179,20 @@ pass "taken ports: the proxy's refused (8443 and forwarding named), TURN over TL
 
 # Hosts in their own studios (ADR-0280): both ports off unless set; a set one is checked, kept,
 # named in what to open, and the ingest takes every address on the public route only.
-[ "$(sed -n 's/^SOURCE_ICECAST_PORT=//p' "$run/first.env")" = 0 ] && [ "$(sed -n 's/^SOURCE_SRT_PORT=//p' "$run/first.env")" = 0 ] \
+[ "$(sed -n 's/^SOURCE_ICECAST_PORT=//p' "$run/first.env")" = 0 ] && [ "$(sed -n 's/^SOURCE_SRT_PORT=//p' "$run/first.env")" = 0 ] && [ "$(sed -n 's/^SOURCE_WHIP_PORT=//p' "$run/first.env")" = 0 ] \
   && [ "$(sed -n 's/^INGEST_BIND=//p' "$run/first.env")" = 0.0.0.0 ] || fail "hosts' ports are not off by default, or the public ingest is not on every address"
 n=$((n + 1)); out="$run/out-hosts.txt"
-PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file SOURCE_ICECAST_PORT=8005 SOURCE_SRT_PORT=9710 "$script" --env-file "$run/hosts.env" --image x --public "$domain" > "$out" 2>&1 \
+PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file SOURCE_ICECAST_PORT=8005 SOURCE_SRT_PORT=9710 SOURCE_WHIP_PORT=9712 "$script" --env-file "$run/hosts.env" --image x --public "$domain" > "$out" 2>&1 \
   || { cat "$out" >&2; fail "hosts' ports were refused"; }
-grep -q "^SOURCE_ICECAST_PORT=8005$" "$run/hosts.env" && grep -q "^SOURCE_SRT_PORT=9710$" "$run/hosts.env" || fail "hosts' ports were not kept"
-grep -qF "hosts' own studios TCP 8005 (Icecast) and UDP 9710 (SRT)" "$out" || { cat "$out" >&2; fail "the output does not name hosts' ports to open"; }
+grep -q "^SOURCE_ICECAST_PORT=8005$" "$run/hosts.env" && grep -q "^SOURCE_SRT_PORT=9710$" "$run/hosts.env" && grep -q "^SOURCE_WHIP_PORT=9712$" "$run/hosts.env" || fail "hosts' ports were not kept"
+grep -qF "hosts' own studios TCP 8005 (Icecast), UDP 9710 (SRT) and UDP 9712 (WHIP)" "$out" || { cat "$out" >&2; fail "the output does not name hosts' ports to open"; }
 n=$((n + 1)); out="$run/out-hosts2.txt"
 if PATH="$run/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE=$low_file SOURCE_SRT_PORT=9710 STUB_TAKEN="udp:9710" "$script" --env-file "$run/hosts2.env" --image x --public "$domain" --no-start > "$out" 2>&1; then
   fail "a taken SOURCE_SRT_PORT was accepted"
 fi
 grep -qF "SOURCE_SRT_PORT=9710 (udp) is in use" "$out" || fail "the hosts' SRT clash is not named"
 rm -f "$run/hosts.env" "$run/hosts2.env"
-pass "hosts' own studios: both ports off by default; set, they are checked, kept and named to open; the public ingest takes every address"
+pass "hosts' own studios: the three ports off by default; set, they are checked, kept and named to open; the public ingest takes every address"
 
 # The show and steering (issue 5): kept as written, and a value the settings file cannot take is
 # refused with the setting named, not left for the control plane to stop on.
@@ -224,6 +276,9 @@ https, tls, lk = e["PROXY_HTTPS_PORT"], e["TURN_TLS_PORT"], e["LIVEKIT_HTTP_PORT
 if "proxy" in loop["services"] or "proxy" in loop["configs"]: fail("the loopback bundle has a proxy")
 if "enabled: false" not in cfg(loop, "livekit") or "udp_port: 0" not in cfg(loop, "livekit"): fail("loopback LiveKit has TURN on")
 if "tcp_port: 0" not in cfg(loop, "livekit") or "node_ip: 127.0.0.1" not in cfg(loop, "livekit"): fail("loopback LiveKit is not loopback")
+for name, c in (("loopback", loop),):
+    if "stun_servers: []" not in cfg(c, "livekit") or 'stun_servers = ""' not in cfg(c, "desk") or 'stun_servers = ""' not in cfg(c, "control"):
+        fail(f"the {name} bundle names a STUN server by default (ADR-0290)")
 if "forwarded_for = false" not in cfg(loop, "control") or "forwarded_for = false" not in cfg(loop, "chat"): fail("loopback forwarded_for is on")
 if 'public_url = "ws://127.0.0.1:' not in cfg(loop, "control") or 'stream_url = "http://127.0.0.1:' not in cfg(loop, "control"): fail("loopback addresses changed")
 if '[publishing]\npublic_url = ""' not in cfg(loop, "control"): fail("loopback cards and feeds are not off")
@@ -245,6 +300,8 @@ for want in ["enabled: true", f"tls_port: {tls}", "udp_port: 0", f'domain: "{e["
              "allow_restricted_peer_cidrs: [127.0.0.1/32]", "use_external_ip: false", "node_ip: 127.0.0.1", "tcp_port: 0",
              "bind_addresses: [\"127.0.0.1\"]"]:
     if want not in live: fail(f"LiveKit's settings lack: {want}")
+if "stun_servers: []" not in live or 'stun_servers = ""' not in cfg(pub, "desk") or 'stun_servers = ""' not in cfg(pub, "control"):
+    fail("the public bundle names a STUN server by default (ADR-0290)")
 control, chat = cfg(pub, "control"), cfg(pub, "chat")
 for want in [f"turn_tls = {tls}", f"proxy_https = {https}", f'public_url = "wss://{e["PUBLIC_DOMAIN"]}:{https}"',
              f'stream_url = "https://{e["PUBLIC_DOMAIN"]}:{https}/programme.opus"', "forwarded_for = true",

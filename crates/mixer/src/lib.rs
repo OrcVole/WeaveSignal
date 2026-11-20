@@ -25,6 +25,10 @@
 //! - [`Fade`] and [`ramp_toward`]: a voice's gate over seconds instead of one block, for the
 //!   schedule's moves (ADR-0280).
 //! - [`mix_into`]: one voice added into a bus with a gain ramped across the block.
+//! - [`Resampler`]: any rate to 48 kHz (the ingest's workers), and a ratio steered while it
+//!   runs (the desk's one clock, Phase 17g).
+//! - [`RateFollower`]: steers that ratio so a source with a clock of its own stays a cushion
+//!   ahead of the mixing pass.
 
 mod cart;
 mod chain;
@@ -32,9 +36,11 @@ mod compressor;
 mod delay;
 mod expander;
 mod fade;
+mod follow;
 mod leveller;
 mod limiter;
 mod loudness;
+mod resample;
 mod ring;
 mod source_leveller;
 mod telephone;
@@ -45,9 +51,11 @@ pub use compressor::{Compressor, CompressorSettings};
 pub use delay::{DelayLine, DelaySettings, DelayState};
 pub use expander::{Expander, ExpanderSettings};
 pub use fade::{Fade, ramp_toward};
+pub use follow::{MAX_PPM, RateFollower};
 pub use leveller::{Leveller, LevellerSettings};
 pub use limiter::{Limiter, LimiterSettings};
 pub use loudness::{FLOOR_LUFS, Loudness, LoudnessMeter};
+pub use resample::Resampler;
 pub use ring::{InputRing, RingStats};
 pub use source_leveller::{SourceLeveller, SourceLevellerSettings};
 pub use telephone::{Telephone, TelephoneSettings};

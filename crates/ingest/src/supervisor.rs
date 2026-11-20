@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 
-//! The ingest's supervisor (`weavesignal-ingest run`): the two public listeners, Icecast (TCP)
-//! and SRT (UDP), each on the port the station's rules give and only while a show key exists.
+//! The ingest's supervisor (`weavesignal-ingest run`): the public listeners, Icecast (TCP), SRT
+//! (UDP) and WHIP (UDP, [`crate::whip`]; its HTTP side comes through the control plane), each on
+//! the port the station's rules give and only while a show key exists.
 //!
 //! For each connection it reads only what the protocol needs to name the key (the HTTP head, or
 //! SRT's stream id), asks the control plane (`/api/v1/internal/sources/admit`) before any media
@@ -21,10 +22,23 @@
 //! - reports every connection to the control plane every second, and closes those the reply
 //!   names (a key ended, a source disconnected at the desk).
 //!
+//! **Pulls** (PLAN 17b): the control plane names, in its settings for the ingest, the pulls whose
+//! slot's door is open (from `door_before_min` before the show). For each, a task opens the
+//! address ([`crate::pull::open`]), asks `admit` with way `pull`, and runs the same session a
+//! pushed source has: the worker, the report, the desk link, the closes. When the stream ends it
+//! opens it again after a wait ([`crate::pull::Backoff`]); when the control plane stops naming the
+//! pull, its session is closed and the task ends.
+//!
 //! A worker that dies ends its own source only. The supervisor itself parses no media.
+//!
+//! Two more ways in (Phase 17g): the **bridge**, the studio app's WebSocket that the station's
+//! proxy passes to a loopback port ([`crate::bridge`]), admitted with the Icecast password and
+//! decoded as push is; and **VBAN** from a studio PC on the station's network
+//! ([`crate::vban_in`]), only from a sender and stream the kit binds to a key, already PCM, so it
+//! needs no worker: its 48 kHz float goes to the desk as a worker's would.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -41,11 +55,14 @@ use srt_protocol::settings::KeySettings;
 use srt_tokio::SrtListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio::task::JoinHandle;
 use weavesignal_proto::source_wire as wire;
 
-use crate::{frame, icecast};
+use weavesignal_proto::bridge_wire::State as BridgeState;
+
+use crate::vban_in::{self, Counts};
+use crate::{bridge, frame, icecast};
 
 /// The most bytes a source may send over [`RATE_WINDOW`]: 2 Mbit/s, with a quarter's grace.
 const MAX_BYTES_PER_WINDOW: usize = 2_000_000 / 8 * 10 * 5 / 4;
@@ -72,13 +89,18 @@ pub struct Settings {
     /// The desk's sources listener.
     pub desk: SocketAddr,
     pub desk_password: String,
-    /// Where the two public listeners bind.
+    /// Where the public listeners bind.
     pub bind: IpAddr,
     /// This program, run again as the worker.
     pub exe: PathBuf,
+    /// Where WHIP's requests arrive from the control plane, on loopback (`ingest_whip`).
+    pub whip_http: SocketAddr,
+    /// The station's public IPv4 address, the one candidate in a WHIP answer. Without it WHIP
+    /// stays off, whatever its port.
+    pub public_ip: Option<Ipv4Addr>,
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
@@ -91,19 +113,69 @@ struct Config {
     listen: bool,
     port_icecast: u16,
     port_srt: u16,
+    /// 0 (or left out by an older control plane): WHIP is off.
+    #[serde(default)]
+    port_whip: u16,
     test_max_ms: u64,
+    /// The pulls to hold open now (absent from a control plane older than 1.2).
+    #[serde(default)]
+    pulls: Vec<PullJob>,
+    /// The bridge's loopback port; 0 or absent: off.
+    #[serde(default)]
+    port_bridge: u16,
+    /// VBAN in: where, and the bindings; absent: not at all.
+    #[serde(default)]
+    vban: Option<VbanConfig>,
 }
 
+/// A pull the control plane names: its key, its address, and whether the station's own network
+/// may be reached.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct PullJob {
+    key_id: String,
+    url: String,
+    #[serde(default)]
+    allow_private: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct VbanConfig {
+    bind: IpAddr,
+    port: u16,
+    rules: Vec<vban_in::Rule>,
+}
+
+/// How long a VBAN stream the control plane refused is not asked about again.
+const VBAN_REFUSED_FOR: Duration = Duration::from_secs(10);
+
 #[derive(Clone, Debug, Deserialize)]
-struct Admit {
-    decision: String,
-    reason: Option<String>,
-    message: Option<String>,
+pub(crate) struct Admit {
+    pub(crate) decision: String,
+    pub(crate) reason: Option<String>,
+    pub(crate) message: Option<String>,
     identity: Option<String>,
     name: Option<String>,
     show: Option<String>,
     passphrase: Option<String>,
     max_ms: Option<i64>,
+}
+
+impl Admit {
+    /// The bridge's state for this decision.
+    fn bridge_state(&self) -> BridgeState {
+        let (state, message) = match self.decision.as_str() {
+            "standby" => ("standing_by", "Standing by at the desk.".to_owned()),
+            "test" => (
+                "test",
+                "A private test: the desk does not hear it outside your slot.".to_owned(),
+            ),
+            _ => ("refused", self.message.clone().unwrap_or_default()),
+        };
+        BridgeState {
+            state: state.into(),
+            message,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -116,10 +188,14 @@ struct Reported {
     kbps: u32,
     level_db: Option<f32>,
     title: Option<String>,
+    /// VBAN: packets lost on the way since it opened (the clock readout's `lost`); absent for
+    /// every other way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lost: Option<u64>,
 }
 
 #[derive(Clone)]
-struct Control {
+pub(crate) struct Control {
     base: String,
     token: String,
     agent: ureq::Agent,
@@ -170,7 +246,7 @@ impl Control {
             .context("the control plane sent no settings")
     }
 
-    async fn admit(
+    pub(crate) async fn admit(
         &self,
         key_id: &str,
         secret: Option<&str>,
@@ -178,9 +254,26 @@ impl Control {
         addr: &str,
         again: bool,
     ) -> Result<Admit> {
+        self.admit_stream(key_id, secret, way, addr, again, None)
+            .await
+    }
+
+    /// As [`Control::admit`], naming a VBAN stream.
+    async fn admit_stream(
+        &self,
+        key_id: &str,
+        secret: Option<&str>,
+        way: &str,
+        addr: &str,
+        again: bool,
+        stream: Option<&str>,
+    ) -> Result<Admit> {
         let mut body = json!({"key_id": key_id, "way": way, "address": addr, "again": again});
         if let Some(s) = secret {
             body["secret"] = json!(s);
+        }
+        if let Some(s) = stream {
+            body["stream"] = json!(s);
         }
         self.call("admit", Some(body))
             .await?
@@ -188,7 +281,7 @@ impl Control {
     }
 
     /// Log what happened; failures are only logged here.
-    async fn event(
+    pub(crate) async fn event(
         &self,
         key_id: &str,
         event: &str,
@@ -212,15 +305,16 @@ enum Mode {
     Test { until: Instant },
 }
 
-struct Conn {
+pub(crate) struct Conn {
     id: u64,
     way: &'static str,
     mode: Mode,
     format: String,
     since_ms: u64,
     title: Option<String>,
-    /// The Icecast password's secret, to check a metadata update against.
-    secret: Option<String>,
+    /// The Icecast password's or WHIP bearer's secret, to check a metadata update or a WHIP
+    /// `DELETE` against.
+    pub(crate) secret: Option<String>,
     last_bytes: Instant,
     /// (when, how many) over the rate window.
     arrivals: VecDeque<(Instant, usize)>,
@@ -232,6 +326,8 @@ struct Conn {
     /// long, in ms. `demote` wakes the connection's loop to do it.
     demote_ms: Option<u64>,
     demote: Arc<Notify>,
+    /// VBAN: the listener's count of packets lost on the way.
+    lost: Option<Arc<AtomicU64>>,
 }
 
 impl Conn {
@@ -247,15 +343,19 @@ impl Conn {
     }
 }
 
-struct Shared {
-    settings: Settings,
-    control: Control,
-    conns: Mutex<HashMap<String, Conn>>,
+pub(crate) struct Shared {
+    pub(crate) settings: Settings,
+    pub(crate) control: Control,
+    pub(crate) conns: Mutex<HashMap<String, Conn>>,
     next: AtomicU64,
     test_max: Mutex<Duration>,
+    /// VBAN packets dropped, by reason.
+    vban_counts: Arc<Counts>,
+    /// VBAN streams the control plane refused, and when.
+    vban_refused: Mutex<HashMap<(IpAddr, String), Instant>>,
 }
 
-type Ingest = Arc<Shared>;
+pub(crate) type Ingest = Arc<Shared>;
 
 /// Run until the process is stopped.
 pub async fn run(settings: Settings) -> Result<()> {
@@ -266,9 +366,13 @@ pub async fn run(settings: Settings) -> Result<()> {
         conns: Mutex::new(HashMap::new()),
         next: AtomicU64::new(1),
         test_max: Mutex::new(Duration::from_secs(15 * 60)),
+        vban_counts: Arc::new(Counts::default()),
+        vban_refused: Mutex::new(HashMap::new()),
     });
+    let mut vban: Option<Vban> = None;
     tokio::spawn(report_loop(shared.clone()));
     let mut listening: Option<(Config, Vec<JoinHandle<()>>)> = None;
+    let mut pulls: HashMap<String, Pulling> = HashMap::new();
     let mut warned = false;
     loop {
         match shared.control.config().await {
@@ -276,10 +380,14 @@ pub async fn run(settings: Settings) -> Result<()> {
                 warned = false;
                 *shared.test_max.lock().expect("ingest lock") =
                     Duration::from_millis(cfg.test_max_ms);
+                reconcile_pulls(&shared, &mut pulls, &cfg.pulls);
+                vban = vban_listening(&shared, vban, cfg.vban.as_ref().filter(|_| cfg.listen));
                 let same = listening.as_ref().is_some_and(|(c, _)| {
                     c.listen == cfg.listen
                         && c.port_icecast == cfg.port_icecast
                         && c.port_srt == cfg.port_srt
+                        && c.port_whip == cfg.port_whip
+                        && c.port_bridge == cfg.port_bridge
                 });
                 if !same {
                     if let Some((_, tasks)) = listening.take() {
@@ -302,9 +410,32 @@ pub async fn run(settings: Settings) -> Result<()> {
                             tracing::info!(%srt, "listening for SRT sources from hosts' own studios (ADR-0280)");
                             tasks.push(tokio::spawn(srt_listener(shared.clone(), srt)));
                         }
+                        if cfg.port_whip != 0 {
+                            match shared.settings.public_ip {
+                                Some(ip) => {
+                                    let udp = SocketAddr::new(shared.settings.bind, cfg.port_whip);
+                                    let candidate = SocketAddr::new(IpAddr::V4(ip), cfg.port_whip);
+                                    tracing::info!(%udp, %candidate, http = %shared.settings.whip_http, "taking WHIP from hosts' own studios (17d)");
+                                    tasks.push(tokio::spawn(crate::whip::serve(
+                                        shared.clone(),
+                                        udp,
+                                        candidate,
+                                    )));
+                                }
+                                None => tracing::warn!(
+                                    "WHIP's port is set, but the station's public IPv4 address is not (WEAVESIGNAL_INGEST_PUBLIC_IP): WHIP stays off"
+                                ),
+                            }
+                        }
+                        if cfg.port_bridge != 0 {
+                            // Behind the station's own proxy, on this machine only.
+                            let at = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), cfg.port_bridge);
+                            tracing::info!(%at, "listening for the studio app's bridge, behind the proxy (Phase 17g)");
+                            tasks.push(tokio::spawn(bridge_listener(shared.clone(), at)));
+                        }
                         if tasks.is_empty() {
                             tracing::warn!(
-                                "a show key exists, but both ways in are off (their ports are 0)"
+                                "a show key exists, but every way in is off (their ports are 0)"
                             );
                         }
                         tasks
@@ -323,6 +454,153 @@ pub async fn run(settings: Settings) -> Result<()> {
             }
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+// ---- pulls ----
+
+/// A pull's task, and the word that ends it.
+struct Pulling {
+    job: PullJob,
+    end: tokio::sync::watch::Sender<bool>,
+    task: JoinHandle<()>,
+}
+
+/// Start the pulls newly named (or whose address changed), and end those no longer named.
+fn reconcile_pulls(shared: &Ingest, running: &mut HashMap<String, Pulling>, jobs: &[PullJob]) {
+    running.retain(|key, p| {
+        let keep = jobs.iter().any(|j| j == &p.job) && !p.task.is_finished();
+        if !keep {
+            // Its session is closed and logged as any other's; the task then ends by itself.
+            let _ = p.end.send(true);
+            tracing::info!(key = %key, "a pull is no longer due: closing it");
+        }
+        keep
+    });
+    for job in jobs {
+        if running.contains_key(&job.key_id) {
+            continue;
+        }
+        let (end, ended) = tokio::sync::watch::channel(false);
+        let task = tokio::spawn(pull_task(shared.clone(), job.clone(), ended));
+        tracing::info!(key = %job.key_id, "a pull is due: opening it (PLAN 17b)");
+        running.insert(
+            job.key_id.clone(),
+            Pulling {
+                job: job.clone(),
+                end,
+                task,
+            },
+        );
+    }
+}
+
+/// Wait for `d`, or less if the pull is ended meanwhile; true when it was ended.
+async fn wait_or_end(d: Duration, ended: &mut tokio::sync::watch::Receiver<bool>) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(d) => {}
+        _ = ended.wait_for(|e| *e) => return true,
+    }
+    *ended.borrow()
+}
+
+/// One pull, open while it is due: open, admit, the session, and again after a wait.
+async fn pull_task(shared: Ingest, job: PullJob, mut ended: tokio::sync::watch::Receiver<bool>) {
+    let mut backoff = crate::pull::Backoff::default();
+    let mut said: Option<String> = None;
+    loop {
+        if *ended.borrow() {
+            return;
+        }
+        let tried = Instant::now();
+        let opened = tokio::select! {
+            o = crate::pull::open(&job.url, job.allow_private) => o,
+            _ = ended.wait_for(|e| *e) => return,
+        };
+        let opened = match opened {
+            Ok(o) => o,
+            Err(e) => {
+                // Said to the log once for each new reason, not at every try.
+                let why = e.to_string();
+                if said.as_deref() != Some(why.as_str()) {
+                    tracing::warn!(key = %job.key_id, error = %why, "cannot open a pull; trying again");
+                    shared
+                        .control
+                        .event(
+                            &job.key_id,
+                            "ended",
+                            None,
+                            &format!("cannot open: {why}"),
+                            "pull",
+                            None,
+                        )
+                        .await;
+                    said = Some(why);
+                }
+                if wait_or_end(backoff.after(Duration::ZERO), &mut ended).await {
+                    return;
+                }
+                continue;
+            }
+        };
+        said = None;
+        let admitted = match shared
+            .control
+            .admit(&job.key_id, None, "pull", &opened.address, false)
+            .await
+        {
+            Ok(a) if a.decision == "standby" => a,
+            Ok(a) => {
+                tracing::info!(key = %job.key_id, decision = %a.decision, why = ?a.message, "a pull was not admitted");
+                if wait_or_end(backoff.after(Duration::ZERO), &mut ended).await {
+                    return;
+                }
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(key = %job.key_id, error = %format!("{e:#}"), "cannot ask the control plane about a pull");
+                if wait_or_end(backoff.after(Duration::ZERO), &mut ended).await {
+                    return;
+                }
+                continue;
+            }
+        };
+        let mut opened = opened;
+        let input = std::mem::replace(&mut opened.input, mpsc::channel(1).1);
+        let sess = session(
+            shared.clone(),
+            job.key_id.clone(),
+            "pull",
+            opened.address.clone(),
+            admitted,
+            opened.format,
+            input,
+            None,
+            Extras::default(),
+        );
+        tokio::pin!(sess);
+        let mut closing = false;
+        let mut again = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tokio::select! {
+                _ = &mut sess => break,
+                _ = ended.wait_for(|e| *e), if !closing => closing = true,
+                _ = again.tick(), if closing => {
+                    // Asked until the session has its place in the table and ends.
+                    mark(&shared, &job.key_id, |c| {
+                        c.stopped_for = None;
+                        c.stop.notify_one();
+                    });
+                }
+            }
+        }
+        drop(opened);
+        if closing || *ended.borrow() {
+            return;
+        }
+        if wait_or_end(backoff.after(tried.elapsed()), &mut ended).await {
+            return;
+        }
     }
 }
 
@@ -347,6 +625,7 @@ async fn report_loop(shared: Ingest) {
                     kbps: c.kbps(),
                     level_db: c.level_db,
                     title: c.title.clone(),
+                    lost: c.lost.as_ref().map(|l| l.load(Ordering::Relaxed)),
                 })
                 .collect()
         };
@@ -362,9 +641,13 @@ async fn report_loop(shared: Ingest) {
             key_id: String,
             max_ms: u64,
         }
+        let dropped = shared.vban_counts.snapshot();
         match shared
             .control
-            .call::<Reply>("report", Some(json!({ "connections": report })))
+            .call::<Reply>(
+                "report",
+                Some(json!({ "connections": report, "vban_dropped": dropped })),
+            )
             .await
         {
             Ok(Some(r)) => {
@@ -397,7 +680,7 @@ async fn report_loop(shared: Ingest) {
 }
 
 /// Whether a newer connection for `key_id` may take over; asks an older silent one to go.
-fn claim(shared: &Ingest, key_id: &str) -> bool {
+pub(crate) fn claim(shared: &Ingest, key_id: &str) -> bool {
     let conns = shared.conns.lock().expect("ingest lock");
     match conns.get(key_id) {
         Some(c) if c.last_bytes.elapsed() < GIVES_WAY => false,
@@ -409,7 +692,7 @@ fn claim(shared: &Ingest, key_id: &str) -> bool {
     }
 }
 
-fn full(shared: &Ingest) -> bool {
+pub(crate) fn full(shared: &Ingest) -> bool {
     shared.conns.lock().expect("ingest lock").len() >= MAX_CONNECTIONS
 }
 
@@ -615,6 +898,7 @@ async fn icecast_conn(shared: Ingest, mut stream: TcpStream, peer: SocketAddr) -
         format,
         rx,
         Some(credentials.secret),
+        Extras::default(),
     )
     .await;
     reader.abort();
@@ -750,15 +1034,293 @@ async fn srt_conn(shared: Ingest, request: srt_tokio::ConnectionRequest) -> Resu
         }
         let _ = socket.close().await;
     });
-    session(shared, key_id, "srt", addr, admitted, "mpegts", rx, None).await;
+    session(
+        shared,
+        key_id,
+        "srt",
+        addr,
+        admitted,
+        "mpegts",
+        rx,
+        None,
+        Extras::default(),
+    )
+    .await;
     reader.abort();
+    Ok(())
+}
+
+// ---- the bridge (Phase 17g) ----
+
+async fn bridge_listener(shared: Ingest, addr: SocketAddr) {
+    let listener = loop {
+        match TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) => {
+                tracing::error!(%addr, error = %e, "cannot listen for the bridge; trying again in 10 s");
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            }
+        }
+    };
+    loop {
+        match listener.accept().await {
+            Ok((stream, peer)) => {
+                let s = shared.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = bridge_conn(s, stream, peer).await {
+                        tracing::info!(%peer, error = %format!("{e:#}"), "a bridge ended");
+                    }
+                });
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "bridge listener");
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+    }
+}
+
+async fn bridge_conn(shared: Ingest, stream: TcpStream, peer: SocketAddr) -> Result<()> {
+    let mut a = match bridge::accept(stream, peer).await {
+        Ok(a) => a,
+        Err(e) => {
+            // A request without a key is a wrong key from that address, as for Icecast.
+            if format!("{e:#}").contains("upgrade failed") {
+                shared
+                    .control
+                    .admit("", None, "bridge", &peer.ip().to_string(), false)
+                    .await
+                    .ok();
+            }
+            return Err(e);
+        }
+    };
+    let addr = a.address.to_string();
+    let refuse = |message: String| BridgeState {
+        state: "refused".into(),
+        message,
+    };
+    if full(&shared) {
+        let s = refuse("The station is busy. Try again in a minute.".into());
+        let _ = bridge::send_state(&mut a.ws, &s.state, &s.message).await;
+        return Ok(());
+    }
+    let key_id = a.credentials.key_id.clone();
+    let admitted = shared
+        .control
+        .admit(&key_id, Some(&a.credentials.secret), "bridge", &addr, false)
+        .await?;
+    if admitted.decision == "refused" {
+        let s = admitted.bridge_state();
+        let _ = bridge::send_state(&mut a.ws, &s.state, &s.message).await;
+        return Ok(());
+    }
+    if !claim(&shared, &key_id) {
+        shared
+            .control
+            .event(
+                &key_id,
+                "refused",
+                Some("in_use"),
+                "",
+                "bridge",
+                Some(&addr),
+            )
+            .await;
+        let s =
+            refuse("Another connection is using this key. Close your other software first.".into());
+        let _ = bridge::send_state(&mut a.ws, &s.state, &s.message).await;
+        return Ok(());
+    }
+    tracing::info!(key = %key_id, software = %a.software, format = a.format, "a bridge from the studio app");
+    // The pump owns the socket and stops with it: its channels are taken out for the session,
+    // and it is kept until the session ends.
+    let mut pump = bridge::pump(a.ws, SILENT_END);
+    let media = std::mem::replace(&mut pump.media, mpsc::channel(1).1);
+    let titles = std::mem::replace(&mut pump.titles, mpsc::channel(1).1);
+    session(
+        shared,
+        key_id,
+        "bridge",
+        addr,
+        admitted,
+        a.format,
+        media,
+        Some(a.credentials.secret),
+        Extras {
+            notify: Some(pump.states.clone()),
+            titles: Some(titles),
+            ..Extras::default()
+        },
+    )
+    .await;
+    drop(pump);
+    Ok(())
+}
+
+// ---- VBAN in (Phase 17g) ----
+
+/// VBAN in while it listens: where, the bindings' sender, and its two tasks.
+struct Vban {
+    at: (IpAddr, u16),
+    rules: watch::Sender<Vec<vban_in::Rule>>,
+    tasks: [JoinHandle<()>; 2],
+}
+
+impl Drop for Vban {
+    fn drop(&mut self) {
+        for t in &self.tasks {
+            t.abort();
+        }
+    }
+}
+
+/// Start, keep, change or stop VBAN in to match `cfg`.
+fn vban_listening(shared: &Ingest, now: Option<Vban>, cfg: Option<&VbanConfig>) -> Option<Vban> {
+    let Some(cfg) = cfg else {
+        if now.is_some() {
+            tracing::info!("stopped listening for VBAN");
+        }
+        return None;
+    };
+    if let Some(v) = now
+        && v.at == (cfg.bind, cfg.port)
+    {
+        v.rules.send_if_modified(|r| {
+            let changed = *r != cfg.rules;
+            if changed {
+                r.clone_from(&cfg.rules);
+            }
+            changed
+        });
+        return Some(v);
+    }
+    let (rules, rules_rx) = watch::channel(cfg.rules.clone());
+    let (open_tx, open_rx) = mpsc::channel(4);
+    let at = SocketAddr::new(cfg.bind, cfg.port);
+    let counts = shared.vban_counts.clone();
+    let listen = tokio::spawn(async move {
+        let socket = loop {
+            match tokio::net::UdpSocket::bind(at).await {
+                Ok(s) => break s,
+                Err(e) => {
+                    tracing::error!(%at, error = %e, "cannot listen for VBAN; trying again in 10 s");
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            }
+        };
+        tracing::info!(%at, "listening for VBAN from bound senders (Phase 17g)");
+        vban_in::listen(socket, rules_rx, open_tx, counts).await;
+    });
+    let opened = tokio::spawn(vban_opened(shared.clone(), open_rx));
+    Some(Vban {
+        at: (cfg.bind, cfg.port),
+        rules,
+        tasks: [listen, opened],
+    })
+}
+
+async fn vban_opened(shared: Ingest, mut open: mpsc::Receiver<vban_in::Opened>) {
+    while let Some(o) = open.recv().await {
+        let s = shared.clone();
+        tokio::spawn(async move {
+            if let Err(e) = vban_stream(s, o).await {
+                tracing::info!(error = %format!("{e:#}"), "a VBAN stream ended");
+            }
+        });
+    }
+}
+
+async fn vban_stream(shared: Ingest, o: vban_in::Opened) -> Result<()> {
+    let addr = o.address.to_string();
+    let who = (o.address, o.name.clone());
+    {
+        let mut refused = shared.vban_refused.lock().expect("ingest lock");
+        refused.retain(|_, at| at.elapsed() < VBAN_REFUSED_FOR);
+        if refused.contains_key(&who) {
+            return Ok(());
+        }
+    }
+    if full(&shared) {
+        return Ok(());
+    }
+    let admitted = shared
+        .control
+        .admit_stream(&o.key_id, None, "vban", &addr, false, Some(&o.name))
+        .await?;
+    if admitted.decision == "refused" {
+        shared
+            .vban_refused
+            .lock()
+            .expect("ingest lock")
+            .insert(who, Instant::now());
+        bail!(
+            "refused: {}",
+            admitted.reason.as_deref().unwrap_or_default()
+        );
+    }
+    if !claim(&shared, &o.key_id) {
+        shared
+            .control
+            .event(
+                &o.key_id,
+                "refused",
+                Some("in_use"),
+                "",
+                "vban",
+                Some(&addr),
+            )
+            .await;
+        return Ok(());
+    }
+    let (_never, input) = mpsc::channel::<Bytes>(1);
+    session(
+        shared,
+        o.key_id.clone(),
+        "vban",
+        addr,
+        admitted,
+        "vban",
+        input,
+        None,
+        Extras {
+            pcm: Some((o.info, o.pcm)),
+            stream: Some(o.name),
+            lost: Some(o.lost),
+            ..Extras::default()
+        },
+    )
+    .await;
     Ok(())
 }
 
 // ---- one source ----
 
+/// What a session takes besides an Icecast or SRT connection's bytes.
+#[derive(Default)]
+pub(crate) struct Extras {
+    /// Where to tell a bridge's app where its source stands.
+    notify: Option<mpsc::UnboundedSender<BridgeState>>,
+    /// Titles from a bridge's app.
+    titles: Option<mpsc::Receiver<String>>,
+    /// VBAN: what it sends, and its 48 kHz float, in place of a worker.
+    pcm: Option<(String, mpsc::Receiver<Vec<u8>>)>,
+    /// VBAN: the stream's name, which the control plane checks with the address each time.
+    stream: Option<String>,
+    /// VBAN: the listener's count of packets lost on the way, for the report.
+    lost: Option<Arc<AtomicU64>>,
+}
+
+impl Extras {
+    fn tell(&self, s: BridgeState) {
+        if let Some(n) = &self.notify {
+            let _ = n.send(s);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-async fn session(
+pub(crate) async fn session(
     shared: Ingest,
     key_id: String,
     way: &'static str,
@@ -767,6 +1329,7 @@ async fn session(
     format: &'static str,
     mut input: mpsc::Receiver<Bytes>,
     secret: Option<String>,
+    mut extras: Extras,
 ) {
     let id = shared.next.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(Notify::new());
@@ -806,6 +1369,7 @@ async fn session(
                 stopped_for: None,
                 demote_ms: None,
                 demote: demote.clone(),
+                lost: extras.lost.take(),
             },
         );
         if let Some(old) = replaced {
@@ -822,6 +1386,7 @@ async fn session(
         .event(&key_id, event, None, "", way, Some(&addr))
         .await;
     tracing::info!(key = %key_id, %way, mode = %event, "a host's own studio connected");
+    extras.tell(admitted.bridge_state());
 
     let mut identity = admitted
         .identity
@@ -844,6 +1409,7 @@ async fn session(
         &mut name,
         &mut show,
         secret.as_deref(),
+        &mut extras,
     )
     .await
     {
@@ -894,43 +1460,65 @@ async fn run_worker(
     name: &mut String,
     show: &mut String,
     secret: Option<&str>,
+    extras: &mut Extras,
 ) -> Result<&'static str> {
-    let mut child = tokio::process::Command::new(&shared.settings.exe)
-        .args(["decode", "--format", format])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .context("cannot start the decoding worker")?;
-    let mut stdin = child.stdin.take().expect("piped");
-    let mut stdout = child.stdout.take().expect("piped");
-    let mut stderr = child.stderr.take().expect("piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut s = String::new();
-        let _ = (&mut stderr).take(4096).read_to_string(&mut s).await;
-        s
-    });
-    // The worker's output, as frames, on a channel.
+    // The worker's output, as frames, on a channel; or VBAN's float, as the same frames.
     let (ftx, mut frames) = mpsc::channel::<(u8, Vec<u8>)>(64);
-    let out_task = tokio::spawn(async move {
-        loop {
-            let mut head = [0u8; 5];
-            if stdout.read_exact(&mut head).await.is_err() {
+    let mut worker = None;
+    let mut stdin = None;
+    let out_task = if let Some((info, mut pcm)) = extras.pcm.take() {
+        // The sender's end closing is the host's software going: `input` ends with it.
+        let (end_tx, end_rx) = mpsc::channel::<Bytes>(1);
+        *input = end_rx;
+        tokio::spawn(async move {
+            let _end = end_tx;
+            if ftx.send((frame::INFO, info.into_bytes())).await.is_err() {
                 return;
             }
-            let len = u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize;
-            if len > frame::MAX {
-                return;
+            while let Some(p) = pcm.recv().await {
+                if ftx.send((frame::PCM, p)).await.is_err() {
+                    return;
+                }
             }
-            let mut payload = vec![0u8; len];
-            if stdout.read_exact(&mut payload).await.is_err()
-                || ftx.send((head[0], payload)).await.is_err()
-            {
-                return;
+        })
+    } else {
+        let mut child = tokio::process::Command::new(&shared.settings.exe)
+            .args(["decode", "--format", format])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .context("cannot start the decoding worker")?;
+        stdin = child.stdin.take();
+        let mut stdout = child.stdout.take().expect("piped");
+        let mut stderr = child.stderr.take().expect("piped");
+        let stderr_task = tokio::spawn(async move {
+            let mut s = String::new();
+            let _ = (&mut stderr).take(4096).read_to_string(&mut s).await;
+            s
+        });
+        worker = Some((child, stderr_task));
+        tokio::spawn(async move {
+            loop {
+                let mut head = [0u8; 5];
+                if stdout.read_exact(&mut head).await.is_err() {
+                    return;
+                }
+                let len = u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize;
+                if len > frame::MAX {
+                    return;
+                }
+                let mut payload = vec![0u8; len];
+                if stdout.read_exact(&mut payload).await.is_err()
+                    || ftx.send((head[0], payload)).await.is_err()
+                {
+                    return;
+                }
             }
-        }
-    });
+        })
+    };
+    let mut titles = extras.titles.take();
     let mut desk: Option<DeskLink> = None;
     let mut format_seen = String::new();
     let (mut sq, mut sn) = (0.0f64, 0usize);
@@ -966,7 +1554,8 @@ async fn run_worker(
                 if over {
                     break "more than 2 Mbit/s";
                 }
-                if stdin.write_all(&chunk).await.is_err() {
+                let Some(w) = stdin.as_mut() else { continue };
+                if w.write_all(&chunk).await.is_err() {
                     break "the decoder stopped";
                 }
             }
@@ -982,6 +1571,10 @@ async fn run_worker(
                         }
                     }
                     frame::PCM => {
+                        if worker.is_none() {
+                            // VBAN: no bytes to count, so its sound is what shows it is there.
+                            mark(shared, key_id, |c| c.last_bytes = Instant::now());
+                        }
                         for b in payload.as_chunks::<4>().0 {
                             let v = f64::from(f32::from_le_bytes(*b));
                             sq += v * v;
@@ -1012,26 +1605,42 @@ async fn run_worker(
                     desk = None;
                     let now_mode = mode.clone();
                     mark(shared, key_id, |c| c.mode = now_mode);
+                    extras.tell(BridgeState {
+                        state: "test".into(),
+                        message: "The slot's door closed: a private test from now.".into(),
+                    });
                     shared.control.event(key_id, "test", None, DOOR_CLOSED_DETAIL, way, Some(addr)).await;
                     tracing::info!(key = %key_id, "the slot's door closed: now a private test");
                 }
             }
+            t = async { titles.as_mut().expect("guarded").recv().await }, if titles.is_some() => {
+                match t {
+                    Some(t) => mark(shared, key_id, |c| c.title = (!t.is_empty()).then_some(t)),
+                    None => titles = None,
+                }
+            }
             _ = recheck.tick(), if matches!(mode, Mode::Test { .. }) => {
                 // A test still open when its slot's door opens stands by without reconnecting.
-                if let Ok(a) = shared.control.admit(key_id, secret, way, addr, true).await {
+                let stream = extras.stream.as_deref();
+                if let Ok(a) = shared.control.admit_stream(key_id, secret, way, addr, true, stream).await {
                     match a.decision.as_str() {
                         "standby" => {
+                            let told = a.bridge_state();
                             *mode = Mode::Standby;
                             if let Some(i) = a.identity { *identity = i; }
                             if let Some(n) = a.name { *name = n; }
                             if let Some(s) = a.show { *show = s; }
                             mark(shared, key_id, |c| c.mode = Mode::Standby);
+                            extras.tell(told);
                             shared.control.event(key_id, "admitted", None, "the slot's door opened", way, Some(addr)).await;
                             if !format_seen.is_empty() {
                                 desk = Some(DeskLink::open(shared, identity, name, way, &format_seen, key_id, show));
                             }
                         }
-                        "refused" => break "refused on a second look",
+                        "refused" => {
+                            extras.tell(a.bridge_state());
+                            break "refused on a second look";
+                        }
                         _ => {}
                     }
                 }
@@ -1040,9 +1649,12 @@ async fn run_worker(
     };
     drop(stdin);
     drop(desk);
+    out_task.abort();
+    let Some((mut child, stderr_task)) = worker else {
+        return Ok(why);
+    };
     let _ = child.start_kill();
     let _ = child.wait().await;
-    out_task.abort();
     let complaint = stderr_task.await.unwrap_or_default();
     if let Some(line) = complaint.lines().find(|l| l.contains("\"error\"")) {
         tracing::info!(key = %key_id, worker = %line, "the decoding worker's last word");

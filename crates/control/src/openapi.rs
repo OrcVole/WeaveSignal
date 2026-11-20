@@ -115,6 +115,17 @@ impl Modify for Bearers {
             ),
         );
         components.add_security_scheme(
+            "show_key",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some(
+                        "A show key's secret (ADR-0284), 24 characters, as WHIP's bearer (17d; OBS's *Bearer Token*): the same secret as the Icecast password's second part and the SRT passphrase.",
+                    ))
+                    .build(),
+            ),
+        );
+        components.add_security_scheme(
             "pass",
             SecurityScheme::Http(
                 HttpBuilder::new()
@@ -196,6 +207,7 @@ fn api_token_description() -> String {
         (name = "sources", description = "Hosts in their own studios (ADR-0280): show keys, the sources connected or due, disconnecting one, and the station's rules for them."),
         (name = "monitor", description = "A host's monitor link (ADR-0280): their own source's state and the station's clock, and a listen-only room token for the sound of the programme without them. The bearer is the monitor secret from the key's making; it needs no account."),
         (name = "internal", description = "Routes for the station's own processes on the same machine; never reachable through the proxy."),
+        (name = "phone", description = "The telephone line (17f): its state, number bans and the takedown search. A person's, never an API token's; no number is kept or echoed."),
         (name = "rtmp", description = "RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown."),
     ),
     components(responses(Unauthorized, Forbidden, NotFound, Conflict, Unprocessable, Unavailable, TooManyRequests, ScopeMissing)),
@@ -223,9 +235,13 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::open::Api::openapi(),
         crate::rtmp::Api::openapi(),
         crate::sources::Api::openapi(),
+        crate::kit::Api::openapi(),
         crate::post::Api::openapi(),
+        crate::rota::Api::openapi(),
         crate::monitor::Api::openapi(),
+        crate::whip_route::Api::openapi(),
         crate::setup::Api::openapi(),
+        crate::phone::api::Api::openapi(),
     ] {
         doc.merge(part);
     }
@@ -324,8 +340,10 @@ mod tests {
     fn registered() -> BTreeSet<(String, String)> {
         let dir = root().join("crates/control/src");
         let mut out = BTreeSet::new();
+        // The phone line's routes (17f) live in a folder of their own.
         let mut files: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
+            .chain(std::fs::read_dir(dir.join("phone")).unwrap())
             .map(|e| e.unwrap().path())
             .filter(|p| p.extension().is_some_and(|e| e == "rs"))
             // This file only talks about `.route(`.

@@ -38,6 +38,8 @@ listeners do not, until someone at the desk puts it on air.
 | For | a host on their own: their music and their voice | the same, and a show with callers or a co-host |
 
 Callers and co-hosts would hear an Icecast host seconds late, so use SRT for a show with callers.
+A host with OBS 30 or later can also send over **WHIP**, sound only, with the same key, where the
+station has turned its WHIP port on ([Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)).
 Over SRT the key is also the passphrase that encrypts the sound; over Icecast it crosses the
 internet as every Icecast password does, so prefer SRT on a network the host does not trust.
 
@@ -145,6 +147,8 @@ only ever brings on a source whose key belongs to the show on air, or to the sho
 
 Every act is in the key's log, marked as the schedule's.
 The schedule never puts back on air someone who was on air and has been taken off since the post.
+
+From 1.2, five minutes before the post (the rules' `window_s`) the station names the next host, says whether they are ready, and gives them one heads-up; it changes none of the above ([Follow the rota and the handover window](/docs/how-to/follow-the-rota/)).
 
 ## If something goes wrong
 

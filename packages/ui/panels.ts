@@ -16,7 +16,7 @@ export interface PanelInfo {
 }
 
 export const DESK_B: readonly PanelInfo[] = [
-  { name: 'desk.clock', what: 'In the left panel. The studio clock: room time with tenths, back-timing to the next hard post, and when listeners hear it, from the listener delay setting (not measured yet). With a host in their own studio next (ADR-0280) the line is the schedule’s: the post, the grace with Hold, a late host’s count, or who keeps the air.' },
+  { name: 'desk.clock', what: 'In the left panel. The studio clock: room time with tenths, back-timing to the next hard post, and when listeners hear it, from the listener delay setting (not measured yet). With a host in their own studio next (ADR-0280) the line is the schedule’s: the post, the grace with Hold, a late host’s count, or who keeps the air. Under it, the handover window (1.2): who is next, where they come from and whether they are ready; a late host and the next one both, the late one first.' },
   { name: 'desk.rundown', what: 'In the left panel. Coming up: the next ten minutes as rows (the post, the handover, the carts they need).' },
   { name: 'desk.playout', what: 'In the left panel. Playout (Liquidsoap): its state chip, the queue, and restart when it is down.' },
   { name: 'desk.stage', what: 'The stage: every source listeners can hear, as tiles, under the lamp and the delay.' },
@@ -39,7 +39,7 @@ export const DESK_B: readonly PanelInfo[] = [
   { name: 'desk.picture', what: 'In the right panel. The programme picture: the camera on air or the slate, switched with F7 (ADR-0010).' },
   { name: 'desk.carts', what: "In the right panel. The glance: the top row of the show's cart bank, F1 to F6 from any tab." },
   { name: 'desk.chat', what: 'In the right panel. The chat to read: the room’s last messages, and one line when something waits for a moderator.' },
-  { name: 'desk.toast', what: 'The reserved slot a toast takes, above the chat glance: nothing moves and no control is covered.' },
+  { name: 'desk.toast', what: 'The reserved slot a toast takes, above the chat glance: nothing moves and no control is covered. In one column (a narrow window, or large text) it is a row of its own above the status bar.' },
   { name: 'desk.status', what: "The station's health in one line: the room, the link to playout, the listener server, and the talk rule." },
 ];
 
@@ -47,6 +47,7 @@ export const SCREENER: readonly PanelInfo[] = [
   { name: 'screener.status', what: 'The verdict first, then the show, whether the desk takes callers, listeners, and the two clocks.' },
   { name: 'screener.queue', what: 'Callers from the player page in arrival order: ordinal key, name, town, state, link, topic.' },
   { name: 'screener.screening', what: 'The selected caller: the line for the presenter, the private note, name on air, consent, send to desk.' },
+  { name: 'screener.ban-number', what: 'The dialog that bans a phone caller’s number from their card (1.2): why, and for how long. The station keeps the last four digits and a key, never the number.' },
   { name: 'screener.needs', what: "Needs you: the chat modes, then reports, held messages, notices, chatters' pictures waiting for approval, and pictures and documents posted in the chat waiting for approval (ADR-0262), each with its keyed actions." },
   { name: 'screener.studio', what: 'To the studio: private messages only the screener and the presenter see (D40).' },
   { name: 'screener.statement', what: 'The statement of reasons: the action, the reason, the log note, and the words the user receives (D31); for a message, a picture refused or removed, or a picture or document posted in the chat.' },
@@ -81,6 +82,7 @@ export const CALENDAR: readonly PanelInfo[] = [
   { name: 'calendar.day', what: 'One day at the week’s scale: a lane for each clashing show, nothing folded.' },
   { name: 'calendar.day.strip', what: 'Above the Day view’s grid, the week’s seven days as buttons: the open day, today, and each day’s clashes.' },
   { name: 'calendar.clash', what: 'On a block in a clash: the shows it clashes with, Show it on each, who is on air by the schedule, Open the day.' },
+  { name: 'calendar.rota', what: 'The rota (1.2), in the calendar’s place: each show in the next twelve hours, who is down for it, where they come from and whether they are ready; the one on air is marked. R on the tab, or Rota beside Coming up on the desk.' },
   { name: 'calendar.shows', what: 'The editor column with nothing open: every show with its rule in short and its next date; the shows with no dates yet, and the finished.' },
   { name: 'calendar.show-dates', what: 'The show level’s Dates tab: the show’s dates as rows (drafted, not drafted, skipped, moved, clashing, aired), with Draft, Skip, Move… and a way to the week.' },
   { name: 'calendar.episode-editor', what: "The selected episode: inherited fields marked against fields set here, and the foot's save, next and season actions." },
@@ -131,6 +133,7 @@ export const ACCOUNT: readonly PanelInfo[] = [
   { name: 'setup.sign-in', what: 'Sign in to a station: its address, a username and password (ADR-0127), or the station key instead.' },
   { name: 'studio.account', what: 'Who this window runs as: name and role, or the station key; sign out and change your password.' },
   { name: 'studio.session-ended', what: 'The sign-in has ended: one way back, Sign in again.' },
+  { name: 'studio.close-ask', what: 'Closing the window while the bridge runs: keep it open, or stop the bridge and close.' },
   { name: 'studio.station', what: 'In the frame: the station this window is on, by its name; it opens the list of stations this computer keeps (ADR-0285).' },
   { name: 'studio.stations', what: 'The stations this computer keeps, each with its own sign-in: switch to one, add one, give one a name here, sign out of one, remove one (ADR-0285).' },
   { name: 'studio.stations.leave', what: 'Asked before this window leaves a station that is on air: what stays on there, then Stay or Switch (ADR-0285).' },
@@ -146,6 +149,7 @@ export const ACCOUNT: readonly PanelInfo[] = [
   { name: 'settings.hosts.details', what: 'A host’s connection details for Icecast and SRT and their monitor link; the secret, shown this once, with Copy on each field and Copy everything as text.' },
   { name: 'settings.hosts.new-key', what: 'Making a new key, confirmed: the old one ends now, or when the host disconnects.' },
   { name: 'settings.hosts.end', what: 'Ending a key, confirmed: what stops, and what listeners hear if the host is on air.' },
+  { name: 'settings.phone', what: 'The phone line (1.2): whether it takes calls and what puts it right, whether the consent words play and which voice a caller hears (Alba, Edinburgh or the station’s own recording of them), the station’s takedown contact, and the banned numbers with Ban a number and Find a number’s calls. An admin’s.' },
   { name: 'settings.tokens', what: "API tokens: a named credential for each integration, limited to the scopes chosen, with an end date and revoking; the secret is shown once when it is made (ADR-0195)." },
   { name: 'settings.tokens.make', what: "Making an API token: its name, scopes and end date." },
   { name: 'settings.tokens.secret', what: "A new token's secret, shown this once, with Copy." },
@@ -155,6 +159,8 @@ export const ACCOUNT: readonly PanelInfo[] = [
   { name: 'settings.chat-pictures.delete', what: "Deleting a kept picture from the server at once: why, for the moderation record; for evidence of suspected child sexual abuse material, the law's words and a confirmation (ADR-0257)." },
   { name: 'settings.chat-pictures.look', what: "A picture kept as evidence, shown to the one named person who may see it (ADR-0257)." },
   { name: 'settings.icecast-out', what: "The programme sent to another Icecast server, such as a DJ's AzuraCast: whether it is connected, the last error, and when it sends - while the desk is on air, always, or never (ADR-0226)." },
+  { name: 'settings.bridge', what: "The bridge (Phase 17g): this computer stands in for the station, so a host's own software sends to it on loopback behind a local password, and the studio app carries it to the station over one connection on 443; the station's public address, the show key kept in the keychain, the local addresses to copy, and the uplink's state with the desk's answer." },
+  { name: 'settings.kit', what: "The presenter kit's station half (Phase 17g): VBAN in bound to show keys, VBAN out from the desk, the presets, whether the installation allows VBAN at all (never on Cloudron), and the one clock's figures." },
 ];
 
 /** The DJ's show setup (ADR-0218, ADR-0219): the wizard over the surface, and its panel in

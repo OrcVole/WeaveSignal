@@ -21,9 +21,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use weavesignal_proto::source_wire as wire;
 
+use weavesignal_mixer::{RateFollower, Resampler};
+
 use crate::config::SourcesIn;
 use crate::feed::{Placer, check_request, read_head, running_frames};
-use crate::pipeline::{Desk, RATE, SOURCE_PREFIX, SourceFacts};
+use crate::pipeline::{Desk, RATE, SOURCE_PREFIX, SourceClock, SourceFacts};
 
 const CHANNELS: usize = 2;
 /// A source that sends nothing for this long is gone (the ingest closes it sooner itself).
@@ -66,6 +68,7 @@ impl Sources {
             shared: shared.clone(),
             password,
             cushion: i64::from(settings.cushion_ms) * i64::from(RATE) / 1000,
+            follow: settings.follow,
         };
         let spawned = std::thread::Builder::new()
             .name("desk-sources".into())
@@ -94,6 +97,8 @@ struct Ctx {
     shared: Arc<Shared>,
     password: String,
     cushion: i64,
+    /// Follow each source's clock (Phase 17g).
+    follow: bool,
 }
 
 /// What the request says of the source.
@@ -218,12 +223,14 @@ impl Ctx {
             .lock()
             .expect("sources lock")
             .insert(req.identity.clone(), generation);
+        let clock = Arc::new(SourceClock::new());
         let facts = SourceFacts {
             way: req.way.clone(),
             format: req.format.clone(),
             key: req.key.clone(),
             show: req.show.clone(),
             since: Instant::now(),
+            clock: clock.clone(),
         };
         let name = if req.name.is_empty() {
             req.key.clone()
@@ -232,7 +239,14 @@ impl Ctx {
         };
         let ring = self.desk.add_source(&req.identity, &name, facts)?;
         tracing::info!(source = %req.identity, way = %req.way, format = %req.format, show = %req.show, "a source is standing by");
-        let result = self.read_pcm(&mut reader, channels, &req.identity, generation, &ring);
+        let result = self.read_pcm(
+            &mut reader,
+            channels,
+            &req.identity,
+            generation,
+            &ring,
+            &clock,
+        );
         let mut current = self.shared.current.lock().expect("sources lock");
         if current.get(&req.identity) == Some(&generation) {
             current.remove(&req.identity);
@@ -249,6 +263,7 @@ impl Ctx {
         identity: &str,
         generation: u64,
         ring: &weavesignal_mixer::InputRing,
+        clock: &SourceClock,
     ) -> Result<()> {
         let frame_bytes = 4 * usize::from(channels);
         let mut buf = vec![0u8; 16 * 1024];
@@ -256,6 +271,7 @@ impl Ctx {
         let mut placer = Placer::new(self.cushion);
         let mut quiet = Duration::ZERO;
         let mut samples = Vec::with_capacity(8 * 1024);
+        let mut follow = Follow::new(self.cushion, self.follow);
         loop {
             if self.stopped() {
                 bail!("the desk is stopping");
@@ -302,9 +318,69 @@ impl Ctx {
             let Some(now) = running_frames(self.desk.pipeline()) else {
                 continue;
             };
-            let frames = (samples.len() / CHANNELS) as i64;
-            let (pos, _) = placer.place(now, frames);
-            ring.push(pos, &samples, now);
+            let out = follow.resample(&samples);
+            let frames = (out.len() / CHANNELS) as i64;
+            if frames == 0 {
+                continue;
+            }
+            let (pos, afresh) = placer.place(now, frames);
+            ring.push(pos, out, now);
+            if afresh && placer.placed > 1 {
+                clock.replaced.fetch_add(1, Ordering::Relaxed);
+            }
+            follow.placed(now, pos + frames - now, afresh, clock);
+        }
+    }
+}
+
+/// A source's one resampling at the desk's edge (Phase 17g): the [`RateFollower`] steers a
+/// [`Resampler`] (always through its kernel, so the ratio moves without a step) to hold the
+/// source the cushion ahead of the mixing pass; positions stay back to back, and only a gap
+/// or a restart is placed afresh, which tells the follower. With following off, the samples
+/// pass as they came.
+struct Follow {
+    on: bool,
+    follower: RateFollower,
+    resampler: Resampler,
+    out: Vec<f32>,
+    passed: Vec<f32>,
+}
+
+impl Follow {
+    fn new(cushion: i64, on: bool) -> Self {
+        Follow {
+            on,
+            follower: RateFollower::new(cushion),
+            resampler: Resampler::steered(RATE),
+            out: Vec::with_capacity(8 * 1024),
+            passed: Vec::new(),
+        }
+    }
+
+    /// The samples as they go to the ring.
+    fn resample(&mut self, samples: &[f32]) -> &[f32] {
+        if !self.on {
+            self.passed.clear();
+            self.passed.extend_from_slice(samples);
+            return &self.passed;
+        }
+        self.out.clear();
+        self.resampler.process(samples, &mut self.out);
+        &self.out
+    }
+
+    /// The piece was placed at `ahead` frames past the pass; steer the next.
+    fn placed(&mut self, now: i64, ahead: i64, afresh: bool, clock: &SourceClock) {
+        if !self.on {
+            return;
+        }
+        if afresh {
+            self.follower.gap();
+        }
+        let ratio = self.follower.update(now, ahead);
+        self.resampler.set_ratio(ratio);
+        if self.follower.estimated() {
+            clock.set_ppm(self.follower.ppm());
         }
     }
 }
@@ -357,6 +433,54 @@ mod tests {
             let head = format!("PUT {path} HTTP/1.0\r\n\r\n");
             assert!(parse_request(&head).is_err(), "{path}");
         }
+    }
+
+    /// A source whose clock runs `ppm` fast, in 1,152-frame pieces arriving when made, through
+    /// `Follow` (the real kernel) and the `Placer` as `read_pcm` uses them, against a pass
+    /// at the desk's rate: how often it was placed afresh, and the clock it read.
+    fn drift(ppm: f64, seconds: f64, cushion_ms: i64, follow: bool) -> (u64, Option<f32>) {
+        let cushion = cushion_ms * i64::from(RATE) / 1000;
+        let mut placer = Placer::new(cushion);
+        let mut f = Follow::new(cushion, follow);
+        let clock = SourceClock::new();
+        let piece = vec![0.1f32; 2 * 1152];
+        let rate = f64::from(RATE) * (1.0 + ppm * 1e-6);
+        let mut k = 0u64;
+        loop {
+            let made = (k + 1) as f64 * 1152.0 / rate;
+            if made > seconds {
+                break;
+            }
+            let now = (made * f64::from(RATE)) as i64;
+            let out = f.resample(&piece);
+            let frames = (out.len() / CHANNELS) as i64;
+            k += 1;
+            if frames == 0 {
+                continue;
+            }
+            let (pos, afresh) = placer.place(now, frames);
+            if afresh && placer.placed > 1 {
+                clock.replaced.fetch_add(1, Ordering::Relaxed);
+            }
+            f.placed(now, pos + frames - now, afresh, &clock);
+        }
+        (clock.replaced.load(Ordering::Relaxed), clock.ppm())
+    }
+
+    #[test]
+    fn a_followed_source_is_never_placed_afresh_and_an_unfollowed_one_is() {
+        // At +500 ppm a 50 ms cushion is used up every 100 s: four minutes place an unfollowed
+        // source afresh twice; followed, never, and its clock is read.
+        let (replaced, ppm) = drift(500.0, 240.0, 50, false);
+        assert!(replaced >= 2, "{replaced}");
+        assert_eq!(ppm, None);
+        let (replaced, ppm) = drift(500.0, 240.0, 50, true);
+        assert_eq!(replaced, 0);
+        let ppm = ppm.expect("the clock is read");
+        assert!((ppm - 500.0).abs() < 50.0, "{ppm} ppm");
+        let (replaced, ppm) = drift(-200.0, 120.0, 50, true);
+        assert_eq!(replaced, 0);
+        assert!((ppm.unwrap() + 200.0).abs() < 40.0);
     }
 
     #[test]

@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The telephone line (Phase 17f; being built for 1.2): LiveKit's SIP service (Apache-2.0, beside
+# our code as LiveKit is) and the Valkey (BSD-3-Clause) it and livekit-server share, which puts
+# livekit-server into Redis mode. Run with the bundle, with PHONE=true and a trunk in .env:
+#
+#   podman compose -f compose.yaml -f phone.yaml up -d
+#
+# Valkey keeps nothing on disk (no snapshots, no append-only file): the trunk's password and each
+# live call's state, the number with it, may be in it, and the control plane makes the trunk and
+# the dispatch rule again at every start. It listens on loopback with a password. LiveKit's SIP
+# service takes the station's public address from PHONE_PUBLIC_IP (nat_1_to_1_ip): it never asks
+# an outside STUN server (ADR-0290). Every port is a setting (ADR-0075).
+
+services:
+  livekit:
+    environment:
+      # livekit-server's own variables for Redis mode (cmd/server/main.go, v1.13.10).
+      REDIS_HOST: 127.0.0.1:${PHONE_REDIS_PORT:-7321}
+      REDIS_PASSWORD: ${PHONE_REDIS_PASSWORD:?set PHONE_REDIS_PASSWORD in .env}
+    depends_on: [valkey]
+
+  valkey:
+    image: docker.io/valkey/valkey:8.1.12-alpine
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
+    network_mode: host
+    # The password comes as an environment variable (a Podman secret on Quadlets) and is written
+    # to a file only the server reads, never onto its command line or into a settings file.
+    environment:
+      VALKEY_PASSWORD: ${PHONE_REDIS_PASSWORD:?set PHONE_REDIS_PASSWORD in .env}
+    # One-word entrypoint: the Quadlet generator writes the entrypoint as a single word.
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-c"
+      - 'umask 077 && printf "requirepass %s\n" "$$VALKEY_PASSWORD" > /tmp/password.conf && unset VALKEY_PASSWORD && exec valkey-server /etc/valkey/valkey.conf --include /tmp/password.conf'
+    configs:
+      - source: valkey
+        target: /etc/valkey/valkey.conf
+    restart: unless-stopped
+
+  livekit-sip:
+    image: docker.io/livekit/sip:v1.25.0
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
+    network_mode: host
+    # The image's entrypoint names a settings file (/sip/config.yaml); without it, livekit-sip
+    # reads SIP_CONFIG_BODY. The settings come as one variable because they hold Valkey's
+    # password: a Podman secret on Quadlets.
+    entrypoint: ["livekit-sip"]
+    environment:
+      SIP_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY}
+        ws_url: ws://127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}
+        redis:
+          address: 127.0.0.1:${PHONE_REDIS_PORT:-7321}
+          password: ${PHONE_REDIS_PASSWORD}
+        sip_port: ${PHONE_SIP_PORT:-5060}
+        rtp_port: ${PHONE_RTP_PORT:-7340}-${PHONE_RTP_LAST:-7355}
+        nat_1_to_1_ip: ${PHONE_PUBLIC_IP:-}
+        use_external_ip: false
+        health_port: 0
+        prometheus_port: 0
+        # error, not info: livekit-sip v1.25.0 logs the caller's full number (fromUser) on every
+        # call at info, and on a failed call at warn, even with hide_phone_number (the spike,
+        # 2026-11-20). Its log still holds numbers when a call errors: keep it briefly.
+        logging:
+          level: error
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+    # Its log as brief as the container engine allows (the operator's choice, 2026-11-20): the
+    # error lines above go to one file of at most 512 KB, overwritten as it fills and removed
+    # with the container, never to the system journal (Podman's default), whose keeping is the
+    # machine's. Docker reads json-file as written; Podman reads it as its k8s-file.
+    logging:
+      driver: json-file
+      options:
+        max-size: 512k
+        max-file: "1"
+    depends_on: [livekit, valkey]
+    restart: unless-stopped
+
+configs:
+  valkey:
+    content: |
+      bind 127.0.0.1
+      port ${PHONE_REDIS_PORT:-7321}
+      save ""
+      appendonly no

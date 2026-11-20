@@ -11,6 +11,7 @@
 //  - this window's **look**: what is drawn. It is the station's step, or `full` while Show
 //    everything is on, which reveals the studio and switches nothing on (ADR-0274).
 
+import { callerName, deskName } from './phone.ts';
 import type { Caller, ShowStep, Source, StepView, View } from './api.ts';
 import type { Action, Tab } from '../../../../packages/ui/keymap.ts';
 import { firstName, hm } from './format.ts';
@@ -251,7 +252,7 @@ function staysOff(to: ShowStep): Rich | null {
   return null;
 }
 
-const short = (p: { name: string; identity: string; caller?: Source['caller'] }): string => p.caller?.name_on_air || firstName(p.name, p.identity);
+const short = (p: { name: string; identity: string; caller?: Source['caller'] }): string => deskName(p, p.caller?.name_on_air);
 
 /** Callers who are only waiting: in the queue, on no strip, not on air or in cue. A falling
  *  step lets them go (`releasable` in the control plane's studio.rs). */
@@ -279,7 +280,7 @@ export function stepChanges(from: ShowStep, to: ShowStep, v: View | null, show: 
     lines.push(['The Screener tab closes, and its seat cannot be taken. The picture is held on the slate, and the handover goes off.']);
   }
   if (atLeast(from, 'callers') && !atLeast(to, 'callers')) {
-    const waiting = onAir ? onlyWaiting(v).map((c) => c.name_on_air || firstName(c.name, c.identity)) : [];
+    const waiting = onAir ? onlyWaiting(v).map((c) => c.name_on_air || (c.phone && !c.name ? callerName(c) : firstName(c.name, c.identity))) : [];
     const closed: Rich = ['The call-in page says the lines are closed.'];
     if (waiting.length) {
       people = true;
@@ -402,7 +403,8 @@ export function deskCallers(v: View | null): DeskCallers {
   const strip = (v?.sources ?? []).find((s) => s.role === 'caller') ?? null;
   const holds = strip ? { name: short(strip), slot: strip.slot } : null;
   const can = waiting.find((c) => c.dropped_ms === null && c.consent !== null) ?? null;
-  const next = can ? { identity: can.identity, name: can.name_on_air || firstName(can.name, can.identity) } : null;
+  // A phone caller (1.2, 17f) has no name until someone types one: their line stands for it, never their key.
+  const next = can ? { identity: can.identity, name: can.name_on_air || (can.phone && !can.name ? callerName(can) : firstName(can.name, can.identity)) } : null;
   const count = waiting.length;
   const head = [count ? `${count} waiting` : '', holds ? `strip ${holds.slot} taken` : 'lines open'].filter(Boolean).join(' · ');
   const title = holds
@@ -410,7 +412,7 @@ export function deskCallers(v: View | null): DeskCallers {
     : 'They join strip 4 off air. Cue to listen, hold Talk to speak to them, then On.';
   return {
     head,
-    rows: waiting.slice(0, ROWS).map((c, i) => ({ identity: c.identity, n: i + 1, name: c.name, topic: c.topic || c.line, since_ms: c.arrived_ms, dropped: c.dropped_ms !== null })),
+    rows: waiting.slice(0, ROWS).map((c, i) => ({ identity: c.identity, n: i + 1, name: c.name || callerName(c), topic: c.topic || c.line, since_ms: c.arrived_ms, dropped: c.dropped_ms !== null })),
     more: Math.max(0, count - ROWS),
     next,
     holds,

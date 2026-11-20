@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# An NVIDIA GPU for the desk (Phase 17e, issue #8, ADR-0289): the desk encodes the picture with
+# NVENC's AV1 (and RTMP out's H.264) on the card, and SVT-AV1 or OpenH264 on the CPU take any
+# encode the card cannot. The card is handed over by its CDI name (the Container Device Interface:
+# a spec in /etc/cdi or /var/run/cdi that `nvidia-ctk cdi generate` writes), so the image carries
+# no driver of its own: the host's driver libraries come in with the device.
+#
+#   podman compose -f compose.yaml -f gpu.yaml up -d
+#
+# weavesignal.sh adds it when the settings say GPU=nvidia and VIDEO=true, and finds the card itself
+# when GPU is unset or auto; generate.sh turns it into the desk's AddDevice= for the Quadlets.
+# GPU_DEVICE picks one card on a machine with several (nvidia.com/gpu=0); every setting is a
+# setting (ADR-0075).
+
+services:
+  desk:
+    devices:
+      - ${GPU_DEVICE:-nvidia.com/gpu=all}
+    # SELinux keeps a container from the device nodes the CDI spec adds unless labelling is off for
+    # it (the desk image's own note on a GPU run).
+    security_opt: [label=disable]

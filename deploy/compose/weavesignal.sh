@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -35,11 +35,19 @@
 # media port (UDP) and the TURN port (TCP) must be open to the internet. A rootless Podman cannot
 # bind 80 and 443 unless `net.ipv4.ip_unprivileged_port_start` allows it: the script says so.
 # Settings (environment or the settings file): PUBLIC_TLS=internal (Caddy's own CA, for a private
-# network or a test; browsers do not trust it), ACME_EMAIL, NODE_IP (LiveKit's public address;
-# else found by STUN), TURN_ALLOW_CIDRS (addresses TURN may relay to, for a private NODE_IP),
+# network or a test; browsers do not trust it), ACME_EMAIL, NODE_IP (LiveKit's public IPv4 address;
+# else the A record of the name, read on each run: no STUN server is asked, ADR-0290; the Quadlets
+# generated from this settings file keep the address it chose until this runs again),
+# TURN_ALLOW_CIDRS (addresses TURN may relay to, for a private NODE_IP),
 # PROXY_HTTP_PORT, PROXY_HTTPS_PORT, TURN_TLS_PORT, TURN_UDP_PORT and LIVEKIT_TCP_PORT (0 is off).
-# Hosts in their own studios (ADR-0280): SOURCE_ICECAST_PORT (TCP, 8005 suggested) and
-# SOURCE_SRT_PORT (UDP, 9710), 0 or unset is off. Set, each is checked free and the ingest listens
+# STUN_SERVERS: STUN servers the station may ask (host:port each, comma-separated, at most four;
+# LiveKit, the desk and the join pages all read it); empty, none is contacted (ADR-0290).
+# The telephone line (17f): PHONE=true adds phone.yaml and checks PHONE_SIP_PORT (5060, UDP and
+# TCP), the RTP range from PHONE_RTP_PORT (7340, two UDP ports per PHONE_LINES) and PHONE_REDIS_PORT
+# (7321, loopback), and makes PHONE_REDIS_PASSWORD; the trunk's settings are in .env.example.
+# Hosts in their own studios (ADR-0280): SOURCE_ICECAST_PORT (TCP, 8005 suggested),
+# SOURCE_SRT_PORT (UDP, 9710) and SOURCE_WHIP_PORT (UDP, 9712; WHIP from OBS, 17d, its offer through
+# the public route), 0 or unset is off. Set, each is checked free and the ingest listens
 # on it while a show key exists: on every address with --public, else on loopback.
 set -euo pipefail
 umask 077
@@ -58,7 +66,14 @@ public_arg=''      # --public's value; "off" turns the public route off
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'weavesignal.sh: %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '5,40p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,50p' "$0" | sed 's/^# \{0,1\}//'; }
+a_record() { # name: its first IPv4 address, not a loopback or link-local one (a hosts-file entry)
+  local ip _
+  while read -r ip _; do
+    [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && ! $ip =~ ^(0|127)\. && ! $ip =~ ^169\.254\. ]] && { echo "$ip"; return 0; }
+  done < <(timeout 10 getent ahostsv4 "$1" 2>/dev/null)
+  return 1
+}
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -130,8 +145,18 @@ fi
 # --status and --uninstall see the proxy too. Install sets $public_domain from --public first.
 public_domain=''
 [ -f "$env_file" ] && public_domain=$(sed -n 's/^PUBLIC_DOMAIN=//p' "$env_file" | head -1)
+# The telephone line (17f) is the overlay phone.yaml, used whenever the settings file says
+# PHONE=true; install decides it below.
+phone_on=false
+[ -f "$env_file" ] && grep -qx 'PHONE=true' "$env_file" && phone_on=true
+# A GPU for the desk (17e) is the overlay gpu.yaml, used when the settings file says GPU=nvidia
+# and VIDEO=true (a desk without video has nothing to encode); install decides it below.
+gpu_on=false
+[ -f "$env_file" ] && grep -qx 'GPU=nvidia' "$env_file" && grep -qx 'VIDEO=true' "$env_file" && gpu_on=true
 compose() {
   local files=(-f compose.yaml); [ -z "$public_domain" ] || files+=(-f public.yaml)
+  [ "$phone_on" = false ] || files+=(-f phone.yaml)
+  [ "$gpu_on" = false ] || files+=(-f gpu.yaml)
   (cd "$here" && "$engine" compose --env-file "$env_file" -p "$project" "${files[@]}" "$@")
 }
 running() { [ -f "$env_file" ] && [ -n "$(compose ps -q 2>/dev/null)" ]; }
@@ -195,7 +220,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.1.1)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -225,6 +250,26 @@ mail_from=$(keep MAIL_FROM chat@station.example)
 avatar_uploads=$(keep AVATAR_UPLOADS true)
 chat_attachments=$(keep CHAT_ATTACHMENTS false)
 consent_contact=$(keep CONSENT_CONTACT "")
+# The station's own consent words (issue #26); empty, the default words. The file holds them in
+# single quotes with each apostrophe as \', the one form Compose reads back whole (unquoted, it
+# would cut the words at " #" and read "$" as a variable). A value in the file without quotes,
+# or in double quotes, is taken as written; one from the environment is the words themselves.
+if [ -n "${have[CONSENT_TEXT]:-}" ]; then
+  consent_text=${have[CONSENT_TEXT]}
+  if [[ ${#consent_text} -ge 2 && $consent_text == \'*\' ]]; then
+    consent_text=${consent_text:1:-1}; consent_text=${consent_text//\\\'/\'}
+  elif [[ ${#consent_text} -ge 2 && $consent_text == \"*\" ]]; then
+    consent_text=${consent_text:1:-1}; consent_text=${consent_text//\\\"/\"}
+  fi
+else
+  consent_text=${CONSENT_TEXT:-}
+fi
+# A Quadlets unit would read a backslash or a per cent sign as its own (and drop or change the
+# words), and "$" is not proved through it: refused on both routes, which share this file.
+[[ $consent_text != *[\\\$%]* ]] \
+  || die "CONSENT_TEXT holds a backslash, a dollar sign or a per cent sign, which the station's units cannot carry whole; leave them out (write per cent, or the currency's name)"
+[[ $consent_text != *[[:cntrl:]]* ]] \
+  || die "CONSENT_TEXT holds a line break, a tab or another control character; keep the words on one line"
 search_listing=$(keep SEARCH_LISTING false)
 directory_listing=$(keep DIRECTORY_LISTING false)
 # The show and steering's settings (issue 5) go into the control plane's settings file inside quotes
@@ -237,6 +282,74 @@ for key in STUDIO_LISTENER_DELAY_MS STUDIO_PLAYER_ALLOWANCE_MS STEERING_TTL_S ST
   v=$(keep "$key" ""); v=${v#[\"\']}; v=${v%[\"\']}
   [[ -z $v || $v =~ ^[0-9]+$ ]] || die "$key=$v in $env_file is not a whole number"
 done
+
+# --- STUN (ADR-0290): none unless the station names a server --------------------------------
+# One setting for LiveKit, the desk and the join pages: host:port each, a DNS name or an IPv4
+# address, at most four (the same rule as weavesignal-proto's parse_stun_servers).
+stun_servers=''
+raw=$(keep STUN_SERVERS ""); raw=${raw#[\"\']}; raw=${raw%[\"\']}
+IFS=', ' read -ra stun_items <<< "$raw"
+for s in "${stun_items[@]}"; do
+  s=${s,,}
+  [[ $s =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*:[0-9]{1,5}$ ]] && (( 10#${s##*:} >= 1 && 10#${s##*:} <= 65535 )) \
+    || die "STUN_SERVERS in $env_file: '$s' is not host:port (a DNS name or an IPv4 address, a colon and a port, without stun:)"
+  [[ ,$stun_servers, == *",$s,"* ]] || stun_servers+=${stun_servers:+,}$s
+done
+stun_commas=${stun_servers//[^,]/}
+[ "${#stun_commas}" -lt 4 ] || die "STUN_SERVERS in $env_file names more than four servers"
+
+# --- The desk's congestion control: gcc (the default), homegrown or disabled -----------------
+congestion_control=$(keep CONGESTION_CONTROL gcc); congestion_control=${congestion_control#[\"\']}; congestion_control=${congestion_control%[\"\']}
+congestion_control=${congestion_control,,}
+case $congestion_control in
+  gcc|homegrown|disabled) ;;
+  *) die "CONGESTION_CONTROL in $env_file is '$congestion_control'; it must be gcc, homegrown or disabled" ;;
+esac
+
+# --- Video's encoder, and a GPU for the desk (17e, issue #8, ADR-0289) ------------------------
+# VIDEO_ENCODER: auto (NVENC when the desk has a card, else SVT-AV1 on the CPU), nvenc or svt.
+# GPU: nvidia hands the card to the desk by its CDI name (gpu.yaml, GPU_DEVICE), none keeps it on
+# the CPU, and auto (or unset) looks for an NVIDIA CDI spec now and writes what it found, so the
+# next run changes nothing; set GPU=auto again to look again. The spec is what `nvidia-ctk cdi
+# generate` writes; WEAVESIGNAL_CDI_DIRS names where to look (the tests point it at their own).
+unquote() { local v=$1; v=${v#[\"\']}; printf '%s' "${v%[\"\']}"; }
+video=$(unquote "$(keep VIDEO false)")
+video_encoder=$(unquote "$(keep VIDEO_ENCODER auto)"); video_encoder=${video_encoder,,}
+case $video_encoder in
+  auto|nvenc|svt) ;;
+  *) die "VIDEO_ENCODER in $env_file is '$video_encoder'; it must be auto, nvenc or svt" ;;
+esac
+cdi_dirs=${WEAVESIGNAL_CDI_DIRS:-/etc/cdi /var/run/cdi}
+cdi_nvidia() { # the first CDI spec that declares NVIDIA GPUs, or nothing
+  local d f
+  for d in $cdi_dirs; do
+    for f in "$d"/*.yaml "$d"/*.yml "$d"/*.json; do
+      [ -f "$f" ] && grep -Eq '^[[:space:]]*"?kind"?[[:space:]]*:[[:space:]]*"?nvidia\.com/gpu"?' "$f" && { printf '%s' "$f"; return 0; }
+    done
+  done
+  return 1
+}
+gpu=$(unquote "$(keep GPU auto)"); gpu=${gpu,,}
+case $gpu in
+  auto)
+    if cdi_spec=$(cdi_nvidia); then
+      gpu=nvidia; say "GPU: an NVIDIA card's CDI spec is at $cdi_spec, so GPU=nvidia (the desk encodes video on it with VIDEO=true; GPU=none turns it off)"
+    else
+      gpu=none
+    fi ;;
+  nvidia)
+    cdi_nvidia >/dev/null || die "GPU=nvidia, but no CDI spec in $cdi_dirs declares nvidia.com/gpu. Install the NVIDIA Container Toolkit and run 'sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml', or set GPU=none" ;;
+  none) ;;
+  *) die "GPU in $env_file is '$gpu'; it must be auto, nvidia or none" ;;
+esac
+gpu_device=$(unquote "$(keep GPU_DEVICE nvidia.com/gpu=all)")
+[[ $gpu_device =~ ^nvidia\.com/gpu=[A-Za-z0-9][A-Za-z0-9_.:-]*$ ]] \
+  || die "GPU_DEVICE in $env_file is '$gpu_device'; it is a CDI name such as nvidia.com/gpu=all or nvidia.com/gpu=0"
+nvenc_sessions=$(unquote "$(keep NVENC_SESSIONS 12)")
+[[ $nvenc_sessions =~ ^[0-9]+$ ]] && [ "$nvenc_sessions" -le 64 ] \
+  || die "NVENC_SESSIONS in $env_file is '$nvenc_sessions'; it is 0 to 64"
+[ "$video_encoder" != nvenc ] || [ "$gpu" = nvidia ] \
+  || say "VIDEO_ENCODER=nvenc with GPU=none: the desk has no card, so it encodes on the CPU with SVT-AV1 and says so in its log"
 
 # --- The public route (opt-in): a name for the station, and what follows from it -------------
 case $public_arg in
@@ -253,7 +366,7 @@ if [ -n "$public_domain" ]; then
   acme_email=$(keep ACME_EMAIL "")
   [[ -z $acme_email || $acme_email =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]] || die "ACME_EMAIL is not an email address"
   node_ip=$(keep NODE_IP "")
-  [[ -z $node_ip || $node_ip =~ ^[0-9a-fA-F:.]+$ ]] || die "NODE_IP is an IP address (LiveKit's public one), or empty to find it by STUN"
+  [[ -z $node_ip || $node_ip =~ ^[0-9a-fA-F:.,]+$ ]] || die "NODE_IP is an IP address (LiveKit's public one), or empty to use the A record of the name"
   turn_cidrs=$(keep TURN_ALLOW_CIDRS "")
   [[ -z $turn_cidrs || $turn_cidrs =~ ^[0-9a-fA-F:./,\ ]+$ ]] || die "TURN_ALLOW_CIDRS is a comma-separated list of addresses such as 10.0.0.0/8, 192.168.0.0/16"
 fi
@@ -269,6 +382,8 @@ port_specs=(
   "PLAYOUT_FEED_PORT tcp 7315 17315 27315"
   "DESK_FEED_PORT tcp 7317 17317 27317"
   "DESK_SOURCES_PORT tcp 7318 17318 27318"
+  "INGEST_WHIP_PORT tcp 7319 17319 27319"
+  "SOURCE_BRIDGE_PORT tcp 7320 17320 27320"
   "LIVEKIT_HTTP_PORT tcp 7880 17880 27880"
   # 443, the control plane's other suggestion, needs privileges a rootless engine lacks.
   "LIVEKIT_MEDIA_PORT udp 7882 52000"
@@ -288,7 +403,7 @@ fi
 # The bundle binds every port to loopback except LiveKit's media port, which takes every
 # address (and, on a public station, the proxy's and TURN's). A loopback port clashes with a listener on loopback or on every address; one bound to
 # another interface's address does not stop it.
-public_keys=" LIVEKIT_MEDIA_PORT PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT "
+public_keys=" LIVEKIT_MEDIA_PORT PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_WHIP_PORT "
 in_use() { # protocol port [any]: true when a listener would stop the bundle binding it
   local flag=-Hltn; [ "$1" = udp ] && flag=-Hlun
   local addrs
@@ -323,6 +438,10 @@ for spec in "${port_specs[@]}"; do
   read -r key proto def alts <<< "$spec"
   scope=''; [[ $public_keys == *" $key "* ]] && scope=any
   strict=false; [[ $strict_keys == *" $key "* ]] && strict=true
+  # The bridge (Phase 17g) alone may be 0, which turns it off.
+  if [ "$key" = SOURCE_BRIDGE_PORT ] && [ "${have[$key]:-${!key:-}}" = 0 ]; then
+    port[$key]=0; continue
+  fi
   if [ -n "${have[$key]:-}" ]; then
     p=${have[$key]}
     # The station's own containers hold its ports while it runs.
@@ -375,7 +494,7 @@ if [ -n "$public_domain" ]; then
 fi
 # Hosts in their own studios (ADR-0280): off (0) unless the station sets a port. A set
 # port is checked like any public one, as the ingest takes every address on a public station.
-for spec in "SOURCE_ICECAST_PORT tcp 8005 18005 28005" "SOURCE_SRT_PORT udp 9710 19710 29710"; do
+for spec in "SOURCE_ICECAST_PORT tcp 8005 18005 28005" "SOURCE_SRT_PORT udp 9710 19710 29710" "SOURCE_WHIP_PORT udp 9712 19712 29712"; do
   read -r key proto def alts <<< "$spec"
   p=$(keep "$key" 0)
   [[ $p =~ ^[0-9]+$ ]] && [ "$p" -le 65535 ] || die "$key=$p is not a port (0 turns it off)"
@@ -388,6 +507,59 @@ for spec in "SOURCE_ICECAST_PORT tcp 8005 18005 28005" "SOURCE_SRT_PORT udp 9710
   fi
   port[$key]=$p
 done
+# The telephone line (17f): off unless PHONE=true. On, its SIP port (UDP and TCP, open to the
+# provider), its RTP range (two ports per line, starting on an even port, UDP, open to the
+# provider) and Valkey's loopback port are each free, or the next suggestion, as above; a port
+# the settings file already holds is kept. Valkey's password is made here like the others.
+phone=$(keep PHONE false)
+case $phone in true|false) ;; *) die "PHONE is true or false, not '$phone'" ;; esac
+phone_lines=$(keep PHONE_LINES 8)
+# Written back with the line on, so a trunk given in the environment on the first run is kept.
+phone_settings="PHONE_NUMBERS PHONE_ALLOWED_ADDRESSES PHONE_AUTH_USERNAME PHONE_PUBLIC_IP PHONE_COUNTRY_CODE PHONE_CONSENT_WORDS PHONE_DEFAULT_VOICE"
+[[ $phone_lines =~ ^[0-9]+$ ]] && [ "$phone_lines" -ge 1 ] && [ "$phone_lines" -le 16 ] \
+  || die "PHONE_LINES is 1 to 16 (calls at once), not '$phone_lines'"
+phone_free() { # first protocols scope: the range of `count` ports from `first` is free on each
+  local first=$1 protos=$2 scope=$3 count=${4:-1} i pr
+  for ((i = 0; i < count; i++)); do
+    for pr in $protos; do free "$pr" $((first + i)) "$scope" || return 1; done
+  done
+}
+phone_pick() { # key protocols scope count default alternatives...
+  local key=$1 protos=$2 scope=$3 count=$4 p i pr; shift 4
+  p=$(keep "$key" "")
+  if [ -n "$p" ]; then
+    [[ $p =~ ^[0-9]+$ ]] && [ "$p" -ge 1024 ] && [ $((p + count - 1)) -le 65535 ] \
+      || die "$key=$p is not a port from 1024 up with room for $count"
+    if [ "$ours" = false ] || [ -z "${have[$key]:-}" ]; then
+      phone_free "$p" "$protos" "$scope" "$count" \
+        || die "$key=$p ($protos) is in use; free it, or choose another port ($* are the usual)"
+    fi
+  else
+    for a in "$@"; do phone_free "$a" "$protos" "$scope" "$count" && { p=$a; break; }; done
+    [ -n "$p" ] || die "$key: $* are all in use; set $key to any free port"
+    [ "$p" = "$1" ] || say "$key: $1 is in use, so $p is used instead"
+  fi
+  for ((i = 0; i < count; i++)); do for pr in $protos; do claim "$pr" $((p + i)); done; done
+  port[$key]=$p
+}
+if [ "$phone" = true ]; then
+  # The control plane refuses the line on without a trunk (phone.enabled needs a number, the
+  # provider's addresses or a digest user, and the station's public address), so the station
+  # would not start: say so here instead.
+  [ -n "$(keep PHONE_NUMBERS "")" ] && [ -n "$(keep PHONE_PUBLIC_IP "")" ] \
+    && { [ -n "$(keep PHONE_ALLOWED_ADDRESSES "")" ] || [ -n "$(keep PHONE_AUTH_USERNAME "")" ]; } \
+    || die "PHONE=true needs a trunk first: PHONE_NUMBERS, PHONE_PUBLIC_IP, and PHONE_ALLOWED_ADDRESSES or PHONE_AUTH_USERNAME (see .env.example and Take phone calls)"
+  case $(keep PHONE_DEFAULT_VOICE alba) in alba|edinburgh|own) ;;
+    *) die "PHONE_DEFAULT_VOICE is alba, edinburgh or own, not '$(keep PHONE_DEFAULT_VOICE alba)'" ;; esac
+  phone_pick PHONE_SIP_PORT "udp tcp" any 1 5060 15060 25060
+  phone_pick PHONE_RTP_PORT udp any $((2 * phone_lines)) 7340 17340 27340
+  [ $((port[PHONE_RTP_PORT] % 2)) = 0 ] || die "PHONE_RTP_PORT=${port[PHONE_RTP_PORT]} is odd; LiveKit's SIP service takes even ports, so the range starts on one"
+  port[PHONE_RTP_LAST]=$((port[PHONE_RTP_PORT] + 2 * phone_lines - 1))
+  phone_pick PHONE_REDIS_PORT tcp '' 1 7321 17321 27321
+  phone_redis_pw=${have[PHONE_REDIS_PASSWORD]:-$(secret)}
+fi
+phone_on=$phone
+gpu_on=false; [ "$gpu" != nvidia ] || [ "$video" != true ] || gpu_on=true
 # Liquidsoap also opens TCP on the port above two of its listeners, on loopback, with no setting
 # to turn it off: icecast.server's legacy source port (LISTENERS_PORT + 1) and the playout feed's
 # harbor (PLAYOUT_FEED_PORT + 1). Both, like the feed itself, stay internal: never published.
@@ -412,9 +584,27 @@ if [ -n "$public_domain" ]; then
   local_certs=''; acme_option=''
   if [ "$public_tls" = internal ]; then cert_dir=local; local_certs=local_certs; fi
   [ -z "$acme_email" ] || acme_option="email $acme_email"
-  # LiveKit: the address in its candidates is the one given, else found by STUN. Without a
-  # given address it is not a private one, so nothing is added to its TURN allow list.
-  if [ -n "$node_ip" ]; then use_external=false; lk_node=$node_ip; else use_external=true; lk_node=''; fi
+  # LiveKit: the address in its candidates is the one given (NODE_IP), else the A record of the
+  # name, read now (ADR-0290). It always has an address of its own and use_external_ip off:
+  # `use_external_ip` asks Twilio's and Google's STUN servers, even beside a node_ip, and a
+  # LiveKit with no node_ip gives its own connections Google's. IPv4 only: TURN relays from it.
+  lk_node=$node_ip; lk_from=NODE_IP
+  if [ -z "$lk_node" ]; then
+    lk_node=$(a_record "$public_domain") || die "LiveKit's public address is unknown: $public_domain has no IPv4 (A) record this machine can read. Give the name an A record that points at this machine's public address, or set NODE_IP=<that address> in $env_file. WeaveSignal no longer asks a STUN server for it (ADR-0290)."
+    lk_from="the A record of $public_domain"
+  fi
+  use_external=false
+  say "LiveKit's public address: $lk_node ($lk_from). STUN servers: ${stun_servers:-none}."
+  if [ "$lk_from" != NODE_IP ]; then
+    if [[ $lk_node =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.) ]]; then
+      say "  That is a private address: guests off this network reach it only if the router forwards it, and LiveKit's TURN"
+      say "  refuses to relay to it unless TURN_ALLOW_CIDRS lists it ($lk_node/32). If the public address differs (NAT, or a name"
+      say "  behind a proxy such as Cloudflare's), set NODE_IP to it."
+    else
+      say "  If this machine is behind NAT, or the name is behind a proxy (Cloudflare's orange cloud), that is not the address"
+      say "  guests reach: set NODE_IP to the public one."
+    fi
+  fi
   derived="PUBLIC_ORIGIN=$origin
 ROOM_PUBLIC_URL=$room_origin
 STREAM_URL=$origin/programme.opus
@@ -477,6 +667,10 @@ trap 'rm -f "$tmp"' EXIT
   say "# How a caller asks for their call to be taken down (an email address or a link); call-in"
   say "# stays closed until it is set (ADR-0124)."
   say "CONSENT_CONTACT=$consent_contact"
+  say "# The consent words a caller agrees to (issue #26); empty, the default words. In single quotes,"
+  say "# each apostrophe written \\'; {station}, {kept}, {contact} and {presenter} are filled in. No"
+  say "# backslash, dollar sign or per cent sign. A caller who agreed to other words is asked again."
+  if [ -n "$consent_text" ]; then say "CONSENT_TEXT='${consent_text//\'/\\\'}'"; else say "CONSENT_TEXT="; fi
   say ""
   say "# Listing, off until the station goes public: search engines may list the public address"
   say "# (ADR-0133); the stream asks internet radio directories to list it (ADR-0129)."
@@ -490,18 +684,52 @@ trap 'rm -f "$tmp"' EXIT
     say "# test (browsers do not trust it)."
     say "PUBLIC_TLS=$public_tls"
     say "ACME_EMAIL=$acme_email"
-    say "# LiveKit's public IP address; empty, it is found by STUN. TURN_ALLOW_CIDRS: addresses TURN may"
-    say "# relay to besides public ones, e.g. 10.0.0.5/32 for a NODE_IP that is a private address."
+    say "# LiveKit's public IPv4 address; empty, the A record of the name, read on each run (no STUN"
+    say "# server is asked, ADR-0290). TURN_ALLOW_CIDRS: addresses TURN may relay to besides public"
+    say "# ones, e.g. 10.0.0.5/32 for a NODE_IP that is a private address."
     say "NODE_IP=$node_ip"
     say "TURN_ALLOW_CIDRS=$turn_cidrs"
     say ""
   fi
+  say "# STUN servers the station may ask (ADR-0290): host:port each, comma-separated, at most four;"
+  say "# LiveKit, the desk and the join pages all read it. Empty: none is contacted."
+  say "STUN_SERVERS=$stun_servers"
+  say ""
+  say "# How the desk's senders control congestion: gcc (the default; GStreamer's free implementation of"
+  say "# Google's published algorithm), homegrown (its own simple heuristic) or disabled."
+  say "CONGESTION_CONTROL=$congestion_control"
+  say ""
+  say "# Video's encoder (with VIDEO=true): auto (NVENC when the desk has a card, else SVT-AV1 on the"
+  say "# CPU), nvenc or svt. GPU: nvidia hands the card named by GPU_DEVICE to the desk (gpu.yaml, by"
+  say "# its CDI name), none keeps video on the CPU, auto looks for an NVIDIA CDI spec on the next run."
+  say "VIDEO_ENCODER=$video_encoder"
+  say "GPU=$gpu"
+  if [ "$gpu" = nvidia ]; then
+    say "GPU_DEVICE=$gpu_device"
+    say "# NVENC sessions the desk may open (0 to 64); a consumer card allows a few for the whole machine."
+    say "NVENC_SESSIONS=$nvenc_sessions"
+  fi
+  say ""
   say "# Ports (ADR-0075): any free port may be used instead."
   for spec in "${port_specs[@]}"; do read -r key _ <<< "$spec"; say "$key=${port[$key]}"; done
-  say "# Hosts in their own studios (ADR-0280): Icecast (TCP) and SRT (UDP) from hosts'"
-  say "# own software; 0 is off. Set, the ingest listens on them while a show key exists."
+  say "# Hosts in their own studios (ADR-0280): Icecast (TCP), SRT (UDP) and WHIP (UDP, from OBS,"
+  say "# its offer through the public route) from hosts' own software; 0 is off. Set, the ingest"
+  say "# listens on them while a show key exists."
   say "SOURCE_ICECAST_PORT=${port[SOURCE_ICECAST_PORT]}"
   say "SOURCE_SRT_PORT=${port[SOURCE_SRT_PORT]}"
+  say "SOURCE_WHIP_PORT=${port[SOURCE_WHIP_PORT]}"
+  say "# The telephone line (17f): true runs phone.yaml (Valkey and LiveKit's SIP service); set the trunk"
+  say "# first (PHONE_NUMBERS and the rest: see .env.example and Take phone calls), or it is refused."
+  say "PHONE=$phone"
+  if [ "$phone" = true ]; then
+    say "# Calls at once; SIP (UDP and TCP) and the RTP range (UDP, two ports per line) open to the"
+    say "# provider only; Valkey on loopback, with its password."
+    say "PHONE_LINES=$phone_lines"
+    for key in PHONE_SIP_PORT PHONE_RTP_PORT PHONE_RTP_LAST PHONE_REDIS_PORT; do say "$key=${port[$key]}"; done
+    say "PHONE_REDIS_PASSWORD=$phone_redis_pw"
+    say "# The trunk and the words (from this file, else the environment on the first run)."
+    for key in $phone_settings; do v=$(keep "$key" ""); [ -z "$v" ] || say "$key=$v"; done
+  fi
   if [ -n "$public_domain" ]; then
     say "# TURN over UDP and ICE over TCP: 0 is off (TURN over TLS reaches the same guests)."
     say "TURN_UDP_PORT=${port[TURN_UDP_PORT]}"
@@ -511,7 +739,10 @@ trap 'rm -f "$tmp"' EXIT
     printf '%s\n' "$derived"
   fi
   # Anything else the file held is kept as it was.
-  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND "
+  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU "
+  known+="PHONE "
+  [ "$gpu" != nvidia ] || known+="GPU_DEVICE NVENC_SESSIONS "
+  [ "$phone" = false ] || known+="PHONE_LINES PHONE_SIP_PORT PHONE_RTP_PORT PHONE_RTP_LAST PHONE_REDIS_PORT PHONE_REDIS_PASSWORD $phone_settings "
   extra=''
   for k in "${!have[@]}"; do [[ $known == *" $k "* ]] || extra+="$k=${have[$k]}"$'\n'; done
   [ -z "$extra" ] || { say ""; printf '%s' "$extra" | sort; }
@@ -601,10 +832,15 @@ if [ -n "$public_domain" ]; then
   turn_udp=off; [ "${port[TURN_UDP_PORT]}" = 0 ] || turn_udp="UDP ${port[TURN_UDP_PORT]}"
   ice_tcp=off; [ "${port[LIVEKIT_TCP_PORT]}" = 0 ] || ice_tcp="TCP ${port[LIVEKIT_TCP_PORT]}"
   hosts=off
-  if [ "${port[SOURCE_ICECAST_PORT]}" != 0 ] || [ "${port[SOURCE_SRT_PORT]}" != 0 ]; then
-    hosts=''
-    [ "${port[SOURCE_ICECAST_PORT]}" = 0 ] || hosts="TCP ${port[SOURCE_ICECAST_PORT]} (Icecast)"
-    [ "${port[SOURCE_SRT_PORT]}" = 0 ] || hosts="${hosts:+$hosts and }UDP ${port[SOURCE_SRT_PORT]} (SRT)"
+  if [ "${port[SOURCE_ICECAST_PORT]}" != 0 ] || [ "${port[SOURCE_SRT_PORT]}" != 0 ] || [ "${port[SOURCE_WHIP_PORT]}" != 0 ]; then
+    ways=()
+    [ "${port[SOURCE_ICECAST_PORT]}" = 0 ] || ways+=("TCP ${port[SOURCE_ICECAST_PORT]} (Icecast)")
+    [ "${port[SOURCE_SRT_PORT]}" = 0 ] || ways+=("UDP ${port[SOURCE_SRT_PORT]} (SRT)")
+    [ "${port[SOURCE_WHIP_PORT]}" = 0 ] || ways+=("UDP ${port[SOURCE_WHIP_PORT]} (WHIP)")
+    hosts=${ways[0]}
+    for ((i = 1; i < ${#ways[@]}; i++)); do
+      if [ "$i" = $((${#ways[@]} - 1)) ]; then hosts="$hosts and ${ways[$i]}"; else hosts="$hosts, ${ways[$i]}"; fi
+    done
     hosts="$hosts, listening once a show key exists"
   fi
   cat <<EOF

@@ -30,6 +30,7 @@
   import Hurry from './Hurry.svelte';
   import { HANDOVER_KEY, type HandoverButton } from '../lib/handover.ts';
   import { STEP_WORD, stationStep } from '../lib/steps.ts';
+  import { isPhonePerson } from '../lib/phone.ts';
   import { preparing } from '../lib/prepare.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
   import { DISCONNECT_WHY, MONITOR_WHY, MONITOR_WORD, levellerFigure, talkOffWhy, tileLink, tileNote, tileRole } from '../lib/hosts.ts';
@@ -58,8 +59,11 @@
     count?: { at_ms: number; key: string } | null;
     /** Someone else presents and is on air: a source that reconnects is not put back by itself. */
     othersOnAir?: boolean;
+    /** The seat notice (handover-window.md): this host is on next, said on their own tile from
+     *  the window's opening until their post. One line; it takes the place of the tile's note. */
+    next?: string | null;
   }
-  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null, handoverOff = false, kept = null, count = null, othersOnAir = false }: Props = $props();
+  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null, handoverOff = false, kept = null, count = null, othersOnAir = false, next = null }: Props = $props();
 
   const keys = $derived(slotKeys(slot));
   /** This window is preparing (ADR-0276): the tile shows the live desk, and its controls are off. */
@@ -118,7 +122,8 @@
       ? stationStep(studio.view) === 'callers'
         ? 'Caller · you took the call'
         : `Caller · ${source.caller?.sent ? 'sent by the screener' : 'from the screener'}`
-      : role[1],
+      : // A source says what it is by how it arrived (1.2): a pulled stream, a studio PC over VBAN.
+        (ownRole?.short ?? role[1]),
   );
   // At Solo the DJ's tile is whole, so the four buttons keep their row and their keys from the
   // first day; Talk is disabled, as playout's buttons are, because there is nobody to talk to.
@@ -126,7 +131,8 @@
   const monitorOpen = $derived(!!own?.monitor);
   const talkOff = $derived((look() === 'solo' && source?.role === 'presenter') || (isSource && !monitorOpen));
   const talkWhy = $derived(isSource ? (gone ? GONE_WHY : talkOffWhy(firstName(source?.name ?? '', 'This host'))) : 'Talk needs someone to talk to. It comes with Guests.');
-  const name = $derived(source ? source.caller?.name_on_air || source.name || source.identity : 'Playout');
+  // A phone caller the desk has no name for is *Phone caller*, never their key (1.2, 17f).
+  const name = $derived(source ? source.caller?.name_on_air || source.name || (isPhonePerson(source.identity) ? 'Phone caller' : source.identity) : 'Playout');
   const hears = $derived(
     !source
       ? 'Takes the desk into the programme'
@@ -354,6 +360,13 @@
         aria-describedby="hand-then-{slot}"
         onclick={() => !handoverOff && run({ type: 'handover' })}><span>{handover.label}</span><kbd>{HANDOVER_KEY}</kbd></button
       ><span id="hand-then-{slot}" class="sr-only">{offWhy || handover.then}</span>
+    {:else if isPlayout && !playoutUp}
+      <!-- Playout is down: the tile says what that means in the place of what playout does, so it
+           is as tall down as up. Until 1.2.0 a note of two lines was added under these, and the
+           row under Not on air grew by 39 px the moment playout dropped: every tile above it
+           lost that height, the live buttons moved, and a note on an on-air tile was cut at
+           1,440 × 900. How to restart it is in the Playout panel, the status bar and the toast. -->
+      <span class="down" data-testid="playout-down-line"><svg class="g-serious" aria-hidden="true"><use href="#g-playout" /></svg><span>Listeners hear nothing of the room</span></span>
     {:else if gone}
       <span class="fmt"><svg aria-hidden="true"><use href="#g-disc" /></svg><span>nothing arriving</span></span>
     {:else if own}
@@ -419,14 +432,15 @@
     {/if}
     {#if keptSays}
       <div class="extra kept">{keptSays}</div>
+    {:else if next && !count}
+      <!-- The seat notice: one line in the note's place, so the tile is no taller for it. The
+           late count, when it runs, says more and has the place. -->
+      <div class="extra next" data-testid="seat-next"><svg aria-hidden="true"><use href="#g-delay" /></svg><span>{next}</span></div>
     {:else if ownNote}
       <div class="extra">{ownNote}</div>
     {/if}
     {#if awayNote && away !== null}
       <div class="extra">Left the room {dur(away)} ago; their place on the desk is kept for 30 s.</div>
-    {/if}
-    {#if isPlayout && !playoutUp}
-      <div class="extra">Listeners hear nothing of the room until playout is back. Restart it with ⌃R twice.</div>
     {/if}
   </div>
 </section>

@@ -26,6 +26,8 @@ path = [
   "playout/*.json",
   "docs/openapi/*.json",
   "tests/demo-video/script.json",
+  "tests/phone/acceptance/script.json",
+  "tests/phone/acceptance/timed.json",
   "tests/newshow/import-preview.json",
   "tests/newshow/import-made.json",
   "tests/newshow/kettle-old-schedule.ics",

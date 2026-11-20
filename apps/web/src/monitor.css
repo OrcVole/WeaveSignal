@@ -40,6 +40,11 @@
 .mon .say p { font-size: var(--fs-20); line-height: 1.35; color: var(--ink-2); max-width: 36rem; }
 .mon .say p b { color: var(--ink); }
 .mon .say p.then { font-size: var(--fs-16); line-height: var(--lh-label); }
+/* the heads-up (1.2): the station's line to the host coming on next, across the card above the
+   lamp and the count. The accent's edge marks it as the station speaking; no state colour. */
+.mon .headsup { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-1) var(--s-4); margin: 0; padding: var(--s-2) var(--s-3); background: var(--surface-2); border: 1px solid var(--hairline); border-left: 3px solid var(--accent); border-radius: var(--r-2); font-size: var(--fs-16); line-height: var(--lh-label); color: var(--ink); min-width: 0; }
+.mon .headsup b { font-weight: 650; overflow-wrap: anywhere; min-width: 0; }
+.mon .headsup .small { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mon .cnt { display: grid; justify-items: end; text-align: right; gap: 2px; min-width: 15rem; }
 .mon .cnt b { font-family: var(--font-mono); font-size: var(--fs-56); font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
 /* a count's last seconds (14a): amber in the last 30 s, red in the last 10 s, from the status tokens

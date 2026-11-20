@@ -53,7 +53,7 @@ if (mode === 'run') {
   const [gp, gd] = [n(k.lk_packets), n(k.lk_dropped)];
   const mean = dp ? db / dp : 0;
   const out = {
-    name: k.name, gcc: k.gcc, video: k.video === '1', extra_guests: n(k.guests), desk_binary: k.bin,
+    name: k.name, gcc: k.gcc, cc: k.cc, video: k.video === '1', extra_guests: n(k.guests), desk_binary: k.bin,
     desk_link: { netem: k.desk_netem, rate: k.desk_rate }, guest_link: { netem: k.guest_netem, rate: k.guest_rate },
     desk_uplink_kbps_sent: Math.round((db * 8) / dt / 1000),
     desk_uplink_kbps_offered: Math.round(((db + dd * mean) * 8) / dt / 1000),
