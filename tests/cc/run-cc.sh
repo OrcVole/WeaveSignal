@@ -64,7 +64,7 @@ PROBE=${PROBE:-}
 BUSY=${BUSY:-}
 DESK_CPU_QUOTA=${DESK_CPU_QUOTA:-}
 LK_CPU_QUOTA=${LK_CPU_QUOTA:-}
-DESK_IMAGE=${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:m5}
+DESK_IMAGE=${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:current}
 # The desk to run: by default the worktree's build in the desk image; DESK_RUN_IMAGE and
 # DESK_RUN_BIN run another image's own binary instead (the server image's, the Cloudron image's).
 DESK_RUN_IMAGE=${DESK_RUN_IMAGE:-$DESK_IMAGE}

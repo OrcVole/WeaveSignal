@@ -38,6 +38,7 @@ There you will find:
 - **API tokens**, **Send to another Icecast server** (such as an AzuraCast) and **RTMP out** (video platforms), for linking the station to other services.
 - **Your show**: your own on-air name and your show.
 - **Updates**: a new version of the studio app.
+- **Bridge**: for a host who broadcasts from their own computer. Their own software sends to the studio app, and the app carries it to the station over the ordinary web port, so nothing is opened on a router or at the station ([What the bridge is](/docs/how-to/send-through-the-bridge/#what-the-bridge-is)).
 - **Chat pictures**: whether chatters may upload a picture of their own as their avatar.
 
 Shows, their times and their cards are on the **Schedule** tab, not in Settings.

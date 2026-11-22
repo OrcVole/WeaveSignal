@@ -272,6 +272,23 @@ export interface HandoverWindow {
   from: HostOrigin;
   /** When the incoming host was given their heads-up (once an airing). */
   heads_up_ms?: number | null;
+  /** The host the show under way still waits for, once the window has moved on to the next
+   *  show (1.2.1). Null when nobody is late; absent on a station older than 1.2.1, where the
+   *  desk reads the late host from the post's own source. */
+  late?: HandoverLate | null;
+}
+
+/** A host who never came: the show under way is theirs, and the window is about the next. */
+export interface HandoverLate {
+  show: string;
+  show_name: string;
+  /** When their show started. */
+  start_ms: number;
+  /** Who is down for it, by name. */
+  host: string;
+  from: HostOrigin;
+  /** How far they have got: never `on_air`. */
+  state: HandoverReadiness;
 }
 
 /** One airing on the rota. */

@@ -48,5 +48,9 @@
     <symbol id="g-repeat" viewBox="0 0 14 14"><path d="M3 7a4 4 0 0 1 4-4h3.5M10.5 3 8.8 1.3M10.5 3 8.8 4.7M11 7a4 4 0 0 1-4 4H3.5M3.5 11l1.7 1.7M3.5 11l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="g-moved" viewBox="0 0 14 14"><path d="M2 7h8M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="g-up" viewBox="0 0 14 14"><path d="M7 11V3M3.5 6.5 7 3l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <!-- the cart wall's own (1.2.1): change a cart, add one, a sound dropped in. Drawn for WeaveSignal. -->
+    <symbol id="g-edit" viewBox="0 0 14 14"><path d="M2.25 11.75 2.9 9.1l6.4-6.4a1.1 1.1 0 0 1 1.55 0l.45.45a1.1 1.1 0 0 1 0 1.55l-6.4 6.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.4 3.6l2 2" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="g-add" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="g-drop" viewBox="0 0 14 14"><path d="M7 1.5v6.5M4.2 5.4 7 8.2l2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.75 8.5v2.75a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1V8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>

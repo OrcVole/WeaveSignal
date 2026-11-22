@@ -171,14 +171,13 @@ async fn put_rule(
         let siblings = shows::list_episodes(pool, series.id).await?;
         let r = shows::resolve_episode(&show, &series, &ep, &people, &zone, &siblings);
         if let Err(Fail::Status(_, m)) =
-            crate::shows::draw_and_keep(state, Level::Episode, ep.id, &r).await
+            crate::shows::save_cards(state, Level::Episode, ep.id, &r).await
         {
             tracing::warn!(episode = %ep.id, problem = %m, "a moved episode's cards were not drawn again");
         }
     }
     let r = shows::resolve_show(&show, &people);
-    if let Err(Fail::Status(_, m)) =
-        crate::shows::draw_and_keep(state, Level::Show, show.id, &r).await
+    if let Err(Fail::Status(_, m)) = crate::shows::save_cards(state, Level::Show, show.id, &r).await
     {
         tracing::warn!(show = %show.slug, problem = %m, "a show's cards were not drawn again");
     }

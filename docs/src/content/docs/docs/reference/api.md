@@ -613,6 +613,33 @@ Request body (`application/octet-stream`): [File](#schema-file). The audio file 
 | 500 | The cart wall failed. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### PATCH /api/v1/carts/banks/{bank}/slots/{slot}
+
+**Change a station slot's cart**
+
+Needs: staff: any staff session, or the station key; or an API token with `carts:write`.
+
+Changes the cart in that slot of the station's bank and keeps its sound: its `label`, `detail`, `mode`, `ramp_ms` (`null` takes the ramp away) and `licence`; `bank` and `slot` move it to an empty slot of the station's banks, and the slot is its key on the wall. A field left out stays as it is. The cart keeps its id and its file, so one that is sounding goes on sounding. An empty slot is 404; a move onto a slot that holds a cart is 409, and so nothing is ever replaced by a move. To change the sound, `PUT` a file to the slot.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `bank` | path | integer (int32) | yes | The bank's number |
+| `slot` | path | integer (int32) | yes | The slot in the bank |
+
+Request body: [CartEdit](#schema-cartedit).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The cart as it is now. | [Cart](#schema-cart) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 500 | The cart wall failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ### DELETE /api/v1/carts/banks/{bank}/slots/{slot}
 
 **Empty a station slot**
@@ -682,6 +709,41 @@ Request body: [CartCommand](#schema-cartcommand).
 | 502 | The desk refused the command. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### GET /api/v1/carts/pack
+
+**The station's default pack**
+
+Needs: staff: any staff session, or the station key; or an API token with `carts:read`.
+
+The pack the station loaded into its banks at its first start (`carts.demo_pack`): its banks with each sound's slot, name and mode, and `untouched`, the ids of the station's carts that are still a default pack's cart as it was loaded (the same name, slot and mode, nothing added), which a load with `replace` may replace or remove. `available` is false, with `problem`, on a station that has no pack.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The pack. | [PackView](#schema-packview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+
+### POST /api/v1/carts/pack
+
+**Load the default pack into station banks**
+
+Needs: staff: any staff session, or the station key; or an API token with `carts:write`.
+
+Loads banks of the station's default pack into station banks: each of `loads` names one of the pack's banks and the station bank it goes `into` (made, under the pack's name, if it has not been). A station bank that holds carts is refused (409, saying what would happen) unless `replace` is true. With `replace`, only default carts nobody changed are replaced, and those the pack has no sound for are removed; a cart a person added, renamed, moved or changed stays, and the pack's sound for its slot is left out. Answers 202 at once with the plan: the sounds then go through the media worker one by one, counted in the studio view's `carts.importing`. A second load while one runs is 409. As the slots' own routes: any member of staff, or a token with `carts:write`.
+
+Request body: [PackLoad](#schema-packload).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 202 | The load has started. | [PackStarted](#schema-packstarted) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ### PUT /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}
 
 **Put an audio file in a show's slot**
@@ -712,6 +774,33 @@ Request body (`application/octet-stream`): [File](#schema-file). The audio file 
 | 404 | There is no such thing. | [Problem](#schema-problem) |
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 413 | The file is larger than `carts.max_upload_mb`. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 500 | The cart wall failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PATCH /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}
+
+**Change a show's slot's cart**
+
+Needs: staff: any staff session, or the station key.
+
+As `PATCH /api/v1/carts/banks/{bank}/slots/{slot}`, in the show's own bank; a move stays within the show's own banks. Who may: as for the show's banks.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug |
+| `bank` | path | integer (int32) | yes | The bank's number |
+| `slot` | path | integer (int32) | yes | The slot in the bank |
+
+Request body: [CartEdit](#schema-cartedit).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The cart as it is now. | [Cart](#schema-cart) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 500 | The cart wall failed. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
@@ -832,7 +921,7 @@ The show, resolved, and its series.
 
 Needs: staff: any staff session, or the station key; or an API token with `shows:write`.
 
-Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.
+Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). A station with no public address (`publishing.public_url` empty) still makes and saves the show, its names checked the same way, and keeps no cards until it has one (1.2.1). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -3498,7 +3587,7 @@ The telephone line (17f): its state, number bans and the takedown search. A pers
 
 Needs: staff: any staff session, or the station key.
 
-Whether the line takes calls and why not, the calls at the gate and in the queue, and the words a caller hears first. For staff.
+Whether the line takes calls and why not, the calls at the gate and in the queue, the words a caller hears first, and whether the line's trunk and dispatch rule are made in LiveKit (`trunk`). For staff.
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -4140,6 +4229,20 @@ One of:
 - **`op` is `clear_cue`**. `Esc`: take every cued cart out of the cue.
 
 
+### Schema: CartEdit
+
+A change to a cart that keeps its sound (`PATCH` on its slot): any of its words, its mode, its ramp, and its place. A field left out stays as it is.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bank` | integer (int32), or null | no | Move it to this bank of the same owner's (1 to 5); left out, it stays in its bank. |
+| `detail` | string, or null | no | The second line; empty for none. |
+| `label` | string, or null | no | The cart's name on the wall: 1 to 120 characters. |
+| `licence` | string, or null | no | At most 80 characters. |
+| `mode` | [CartMode](#schema-cartmode), or null | no |  |
+| `ramp_ms` | integer (int32), or null | no | Milliseconds to the first vocal, at most the cart's length; `null` takes the ramp away. |
+| `slot` | integer (int32), or null | no | Move it to this slot (1 to 24), which is its key on the wall; the slot must be empty. |
+
 ### Schema: CartMode
 
 How a cart plays (report 08's three modes).
@@ -4170,6 +4273,8 @@ The cart wall in the studio's view (every change is an event); the banks and car
 | `banks` | array of [Bank](#schema-bank) | yes | The station's banks (`show` null) and the show's (`show` its slug), each numbered 1 to 5 apart. |
 | `carts` | array of [CatalogueCart](#schema-cataloguecart) | yes |  |
 | `loudness_lufs` | number (double) | yes | The loudness every cart is brought to, in LUFS. |
+| `max_seconds` | number (double) | yes | The longest cart, in seconds (`carts.max_seconds`). |
+| `max_upload_mb` | integer (int64) | yes | The largest file a slot takes, in megabytes (`carts.max_upload_mb`). |
 | `show` | string, or null | no | The show whose own banks are here beside the station's, by its slug; `null`: the station's alone. |
 | `version` | integer (int64) | yes |  |
 
@@ -5081,6 +5186,29 @@ The least a rule requires, in days, and the rule.
 | `gaps` | array of string | yes | What could not be filled, in words. |
 | `items` | integer | yes | How many items the log now holds for the span. |
 
+### Schema: GpuFacts
+
+A graphics card the desk could encode the station's video on (NVENC), as the install knows it (1.2.1, ADR-0292): that a card is there, not its model, so not whether it has the AV1 encoder the station's video needs (the desk falls back to the CPU where it has not). The studio's Settings offers a card that is there and not in use; nothing turns one on but the settings file's `GPU=nvidia`, set by a person, and an update never does.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `found` | boolean | yes | Whether the install script found an NVIDIA card on this server that the desk could be handed (its CDI spec, looked for by `weavesignal.sh` on every run). Always false on the Cloudron package, whose apps are given no card. |
+| `in_use` | boolean | yes | Whether the desk has been handed the card (`GPU=nvidia`): the setting, not a reading of the desk. With video on it then encodes on the card what the card takes, and the rest on the CPU; the desk's log says which. |
+| `video` | boolean | yes | Whether video is on (`VIDEO=true`): a card encodes nothing without it. |
+
+### Schema: HandoverLate
+
+A host who never came (1.2.1): the show under way is theirs, nobody of theirs has taken the air since it started, and the window is already about the next show.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `from` | [HostOrigin](#schema-hostorigin) | yes | `room` or `push`. |
+| `host` | string | yes | Who is down for it, by name: the source the post's rule names, else the furthest of its hosts, else every name down for it. |
+| `show` | string | yes | The show under way. |
+| `show_name` | string | yes |  |
+| `start_ms` | integer (int64) | yes | When it started. |
+| `state` | [HandoverReadiness](#schema-handoverreadiness) | yes | How far they have got: `not_connected`, `connecting` or `ready` (standing by, not on air). |
+
 ### Schema: HandoverReadiness
 
 How ready the incoming host is.
@@ -5108,6 +5236,7 @@ The handover window as `GET /studio` and `GET /sources` carry it, inside `post`.
 | `from` | [HostOrigin](#schema-hostorigin) | yes | `room` or `push`. |
 | `heads_up_ms` | integer (int64), or null | no | When the incoming host was given their heads-up for this airing (once an airing). |
 | `host` | string | yes | Who is down for it, by name: the source the post's rule names, else every name down. |
+| `late` | [HandoverLate](#schema-handoverlate), or null | no |  |
 | `opens_ms` | integer (int64) | yes | When the window opens (`start_ms` less the rules' `window_s`). |
 | `show` | string | yes | The show it is about: the post's show (`post.show`), or the next show once that one's window has opened while the post's show is still waiting for a host who never came. |
 | `show_name` | string | yes |  |
@@ -5384,6 +5513,7 @@ What the page explains but cannot change: the install's own settings, as this co
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
+| `gpu` | [GpuFacts](#schema-gpufacts) | yes | A graphics card for the desk's video (1.2.1). |
 | `listed` | boolean | yes | Whether search engines may list the public pages. |
 | `mail` | string | yes | How sign-in codes go out: `command`, `outbox` or `off`. |
 | `media_port` | integer (int32) | yes | The live room's media port (UDP). |
@@ -5935,6 +6065,81 @@ A date to draft, for the week's dotted blocks.
 | `current` | string | yes |  |
 | `new` | string | yes |  |
 
+### Schema: PackBankView
+
+One of the pack's banks.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `carts` | array of [PackCartView](#schema-packcartview) | yes |  |
+| `name` | string | yes |  |
+| `number` | integer (int32) | yes | Its number in the pack. |
+
+### Schema: PackCartView
+
+One of the pack's sounds, as the wall's dialog lists it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `label` | string | yes |  |
+| `mode` | [CartMode](#schema-cartmode) | yes |  |
+| `slot` | integer (int32) | yes |  |
+
+### Schema: PackInto
+
+One of the pack's banks to load, and the station's bank it goes into.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bank` | integer (int32) | yes | The pack's bank, by its number in the pack. |
+| `into` | integer (int32) | yes | The station's bank it is loaded into (1 to 5). |
+
+### Schema: PackLoad
+
+`POST /api/v1/carts/pack`: which of the pack's banks to load, and where.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `loads` | array of [PackInto](#schema-packinto) | yes | At least one; no station bank twice. |
+| `replace` | boolean | no | Go on where a bank holds carts: replace the default carts nobody changed, keep every other cart. Left out or false, a bank that holds carts is refused (409) with what would happen to it. |
+
+### Schema: PackPlan
+
+What loading one of the pack's banks into a station bank does.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `bank` | integer (int32) | yes | The pack's bank, and its name. |
+| `into` | integer (int32) | yes | The station's bank it goes into, and whether that bank has been made. |
+| `keep` | array of integer (int32) | yes | Carts that are a person's own and stay, by slot. |
+| `left_out` | integer | yes | The pack's sounds left out because a cart that stays is in their slot. |
+| `load` | integer | yes | The pack's sounds that are loaded. |
+| `made` | boolean | yes |  |
+| `name` | string | yes |  |
+| `remove` | integer | yes | Default carts nobody changed that go because the pack has no sound for their slot. |
+| `replace` | integer | yes | Of those, how many take the place of a default cart nobody changed. |
+
+### Schema: PackStarted
+
+`202` from `POST /api/v1/carts/pack`: what is being done. The studio's view counts the sounds as they go through the media worker (`carts.importing`).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `loading` | integer | yes | The sounds to load, over every bank asked for. |
+| `plans` | array of [PackPlan](#schema-packplan) | yes |  |
+
+### Schema: PackView
+
+`GET /api/v1/carts/pack`: the station's default pack, and which of the station's carts are still a default pack's as they were loaded.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `available` | boolean | yes | The station has a pack to load (`carts.demo_pack`) and it reads. |
+| `banks` | array of [PackBankView](#schema-packbankview) | yes |  |
+| `loading` | boolean | yes | A pack is loading now: another load is refused until it ends. |
+| `problem` | string, or null | no | Why not, when it is not. |
+| `untouched` | array of string (uuid) | yes | The station's carts that a load with `replace` may replace or remove, by id: default carts nobody changed. Every other cart stays. |
+
 ### Schema: PassInfo
 
 | Field | Type | Needed | Meaning |
@@ -6042,6 +6247,7 @@ The phone line's state.
 | `lines` | integer (int32) | yes | Calls at once (`phone.lines`); 0 with the line off. |
 | `open` | boolean | yes | Whether the line takes calls now. |
 | `recording` | [RecordingView](#schema-recordingview), or null | no |  |
+| `trunk` | [TrunkStatus](#schema-trunkstatus), or null | no |  |
 | `words` | [PhoneWordsView](#schema-phonewordsview), or null | no |  |
 | `words_to_record` | string, or null | no | What the station's own recording should say today (its takedown contact is the station's, not the show's, so it does not go out of date at each change of show); absent with the line off. |
 
@@ -7695,6 +7901,16 @@ A track in the library.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `tracks` | array of [Track](#schema-track) | yes |  |
+
+### Schema: TrunkStatus
+
+Where the trunk stands, as `GET /api/v1/phone` shows it.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `checked_ms` | integer (int64), or null | no | When it was last made or found as made (ms since the epoch). |
+| `message` | string, or null | no | Why, when it is `failed`. |
+| `state` | string | yes | `making` (not made yet: LiveKit not reached, or the first try under way), `made` (the station's trunk and dispatch rule are in LiveKit, so calls reach the line) or `failed` (tried and refused; `message` says why, and it is tried again). |
 
 ### Schema: VbanIn
 

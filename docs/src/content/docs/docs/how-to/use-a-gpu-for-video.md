@@ -1,9 +1,9 @@
 ---
 title: "Use a GPU for video"
-description: "Let the desk encode the station's picture on an NVIDIA card with NVENC, on the Compose bundle or the Quadlets: the card's CDI spec, GPU=nvidia (or found by weavesignal.sh), the encoder setting, and how to check it. Cloudron has no GPU; SVT-AV1 on the CPU is the fallback everywhere."
+description: "Let the desk encode the station's picture on an NVIDIA card with NVENC, on the Compose bundle or the Quadlets: the card's CDI spec, GPU=nvidia (or found by weavesignal.sh on a new install), the hint in the studio app's Settings, the encoder setting, and how to check it. An update never moves a station to the card. Cloudron has no GPU; SVT-AV1 on the CPU is the fallback everywhere."
 type: howto
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 41
 ---
@@ -12,8 +12,11 @@ With video on, the desk encodes the station's picture as AV1, one encoder per ru
 On the CPU that is SVT-AV1, which costs the server the cores the sound needs.
 An NVIDIA card with an AV1 encoder (NVIDIA's Ada generation or later: the GeForce RTX 40 series, or the matching workstation cards) does it with **NVENC** instead, and RTMP out's H.264 too ([RTMP out](/docs/reference/rtmp-out/)).
 
-From 1.2 the Compose bundle and the Quadlets hand the desk a card, by its **CDI** name (the Container Device Interface), when the station says so or `weavesignal.sh` finds one.
+From 1.2 the Compose bundle and the Quadlets hand the desk a card, by its **CDI** name (the Container Device Interface), when the station says so, or when `weavesignal.sh` finds one on a new install.
 The image carries no driver: the host's driver comes in with the device.
+
+**An update never moves a station to the card** (from 1.2.1).
+A station that was installed before keeps encoding on the CPU until someone sets `GPU=nvidia`; the script says the card is there, and so does the studio app ([The hint in Settings](#the-hint-in-settings)).
 
 **A Cloudron app has no GPU.** The package encodes on the CPU with SVT-AV1 (`VIDEO_ENCODER=svt`), and `auto` or `nvenc` there find no card and fall back with a line in the desk's log ([Install on Cloudron](/docs/how-to/install-on-cloudron/#video)).
 
@@ -42,6 +45,7 @@ The image carries no driver: the host's driver comes in with the device.
    `GPU=auto` asks the script to look for an NVIDIA CDI spec in `/etc/cdi` and `/var/run/cdi`.
    It writes what it found, `GPU=nvidia` or `GPU=none`, and says so; the next run changes nothing until you set `auto` again.
    A new install with no `GPU` line looks the same way.
+   A station installed before (its settings file already holds its secrets) and with no `GPU` line is **not** switched: the script writes `GPU=none`, says once that the card is there, and leaves the rest to you. Write `GPU=nvidia` (or `GPU=auto`) yourself to use it.
 2. Run the script again, from the folder it is in:
 
    ```sh
@@ -55,11 +59,29 @@ The image carries no driver: the host's driver comes in with the device.
 
 The install wizard asks the same question under *A graphics card for video* when video is ticked ([Install wizard](/docs/install-wizard/)).
 
+## The hint in Settings
+
+From 1.2.1 the studio app's **Settings** has a panel, **Graphics card** (`settings.graphics-card`), for an admin, whenever the script found an NVIDIA card on the server:
+
+- **Not in use**: *This server has an NVIDIA graphics card, and the station is not using it*, with the two steps above (set `GPU=nvidia`, and `VIDEO=true` if video is off; run `weavesignal.sh` again).
+- **With the desk**: the desk has been given the card and video is on.
+- **With the desk · video off**: the desk has been given the card, and nothing is encoded yet.
+
+The panel says what the install knows: that a card is there, and whether the desk has been given it. It does not know the card's model, so it does not promise NVENC: a card with an AV1 encoder (the RTX 40 series or later) takes the station's video, and with an older card the desk stays on the CPU and says so in its log ([Check it](#check-it)).
+
+The panel changes nothing by itself: a card is handed to the desk when its container is made, which only the install script does, and the studio app cannot write the settings file.
+It reads what the script found on its last run (`GPU_FOUND`, below), so a card fitted since shows after the next run of the script.
+A server with no card, and a Cloudron station, show no such panel.
+
+**If 1.2.0 already moved your station to the card.** 1.2.0 looked for a card on every station with no `GPU` line, an updated one included, and wrote `GPU=nvidia` where it found one.
+1.2.1 does not undo that (it would be a second change nobody asked for): the panel says **With the desk**, and `GPU=none` with another run of the script puts video back on the CPU.
+
 ## The settings
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `GPU` | `auto` (written as what was found) | `nvidia`: hand the desk the card; `none`: the CPU only; `auto`: look for a CDI spec on the next run |
+| `GPU` | a new install: `auto` (written as what was found); a station installed before, with no `GPU` line: `none` | `nvidia`: hand the desk the card; `none`: the CPU only; `auto`: look for a CDI spec on the next run |
+| `GPU_FOUND` | written by the script on every run | `nvidia` or `none`: whether the script found a card's CDI spec on the server. Not a setting to change: the control plane is told it (`[setup] gpu_found`), and Settings offers the card from it |
 | `GPU_DEVICE` | `nvidia.com/gpu=all` | which card, by its CDI name: `nvidia.com/gpu=0` for the first of several |
 | `VIDEO_ENCODER` | `auto` (Cloudron: `svt`) | `auto`: NVENC when the desk has a card, else SVT-AV1; `nvenc`; `svt` keeps the picture on the CPU with the card there |
 | `NVENC_SESSIONS` | `12` | NVENC sessions the desk may open, 0 to 64: one per rung and one for RTMP out. A consumer card's driver limits sessions for the whole machine, other programs included |
@@ -75,7 +97,9 @@ A rung past the session limit, or one NVENC refuses, is encoded by SVT-AV1, and 
 - **The driver's faults are Xid lines in the kernel log**: `journalctl -k | grep Xid`. A card that has logged one can stop the whole machine; set `GPU=none`, run the script again, and look at the card before trying again.
 
 To measure the card before a show, the repository has `tests/gpu/measure.sh` (`just gpu-measure`): it runs the desk's AV1 chain from the server image on the card at each rung, several at once, and on the CPU for comparison, watches the kernel log from its start, and stops at the first Xid.
-It needs the card free: it refuses to start while another program uses it.
+It needs the card free: it refuses to start while `nvidia-smi` lists a compute process.
+On a desktop it always lists the compositor (`kwin_wayland`, `gnome-shell`) and the browser's GPU process, so stop every job that encodes or computes on the card (a local model, a speech engine), check that only those are left, and run it with `--force`.
+`tests/gpu/measure.sh --help` lists its options.
 
 ## A host's own GPU
 

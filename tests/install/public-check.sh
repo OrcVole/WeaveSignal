@@ -239,7 +239,7 @@ pass "NODE_IP, TURN_ALLOW_CIDRS, ACME_EMAIL, PUBLIC_TLS=internal and other proxy
 install --public off
 [ -z "$(setting PUBLIC_DOMAIN)" ] && [ -z "$(setting STREAM_URL)" ] && [ -z "$(setting TURN_TLS_PORT)" ] || fail "--public off left public settings"
 called "-f public.yaml" && fail "--public off still passes the overlay"
-grep -q "Every listener is on loopback" "$out" || fail "the loopback output is missing"
+grep -q "is on loopback: nobody off this machine can join or" "$out" || fail "the loopback output is missing"
 if install --renew-turn 2>/dev/null; then fail "--renew-turn worked on a loopback station"; fi
 pass "--public off: loopback again, no overlay; --renew-turn refused"
 

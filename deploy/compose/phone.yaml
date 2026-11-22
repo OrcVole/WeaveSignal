@@ -54,6 +54,9 @@ services:
           address: 127.0.0.1:${PHONE_REDIS_PORT:-7321}
           password: ${PHONE_REDIS_PASSWORD}
         sip_port: ${PHONE_SIP_PORT:-5060}
+        # Where SIP listens (UDP and TCP): every address unless PHONE_SIP_LISTEN names one of the
+        # machine's (livekit-sip's listen_ip; empty, 0.0.0.0). It must face the provider.
+        listen_ip: "${PHONE_SIP_LISTEN:-}"
         rtp_port: ${PHONE_RTP_PORT:-7340}-${PHONE_RTP_LAST:-7355}
         nat_1_to_1_ip: ${PHONE_PUBLIC_IP:-}
         use_external_ip: false

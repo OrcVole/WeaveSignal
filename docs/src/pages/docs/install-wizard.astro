@@ -12,7 +12,7 @@
 // make them on the server.
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import { PRESETS } from '../../../../packages/wizard/presets.ts';
-import { CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, GPU_CHOICES, STUN_CHOICES } from '../../../../packages/wizard/generate.ts';
+import { CONSENT_EXAMPLE, CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, GPU_CHOICES, STUN_CHOICES } from '../../../../packages/wizard/generate.ts';
 ---
 
 <StarlightPage
@@ -57,11 +57,12 @@ import { CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, GPU_CHOICES, STUN_CHOICES } fro
       </div>
       <div class="q">
         <label for="w-consent">Consent words (optional)</label>
-        <textarea id="w-consent" name="consentText" rows="3" autocomplete="off" placeholder={DEFAULT_CONSENT_TEXT} aria-describedby="w-consent-hint w-consent-fills w-consentText-err"></textarea>
+        <textarea id="w-consent" name="consentText" rows="3" autocomplete="off" placeholder={DEFAULT_CONSENT_TEXT} aria-describedby="w-consent-hint w-consent-fills w-consent-example w-consentText-err"></textarea>
         <p class="hint" id="w-consent-hint">What a caller reads and agrees to before they call. Leave it empty and the station uses the two sentences shown. Write your own on one line; the station fills these in each time:</p>
         <ul class="fills" id="w-consent-fills">
           {CONSENT_FILL_INS.map((f) => <li><code>{f.token}</code> {f.means}</li>)}
         </ul>
+        <p class="hint" id="w-consent-example">For example, to name the presenter: <code>{CONSENT_EXAMPLE}</code> The words a station records for its own phone line are made from these too. The setting is <code>CONSENT_TEXT</code>; change it later in the station’s settings file.</p>
         <p class="err" id="w-consentText-err" hidden></p>
       </div>
       <div class="q">
@@ -582,7 +583,8 @@ import { CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, GPU_CHOICES, STUN_CHOICES } fro
   /* The consent words: a sentence or two, so a box that wraps; the same edge and ring as the other fields. */
   #install-wizard textarea { min-height: 5.5rem; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid var(--sl-color-gray-4); background: var(--sl-color-black); color: var(--sl-color-white); font: inherit; font-size: 1rem; line-height: 1.45; width: 100%; min-width: 0; resize: vertical; }
   #install-wizard .fills { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.2rem; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); line-height: 1.45; }
-  #install-wizard .fills code { color: var(--sl-color-white); }
+  #install-wizard .fills code, #install-wizard #w-consent-example code { color: var(--sl-color-white); }
+  #install-wizard #w-consent-example code { overflow-wrap: anywhere; }
   #install-wizard .hint a { color: var(--sl-color-text-accent); }
   #install-wizard input[type='file'] { min-height: 44px; font: inherit; color: var(--sl-color-gray-2); max-width: 100%; }
   #install-wizard input[type='file']::file-selector-button { min-height: 44px; padding: 0 1rem; margin-right: 0.75rem; border-radius: 8px; border: 1px solid var(--sl-color-gray-4); background: var(--sl-color-gray-5); color: var(--sl-color-white); font: inherit; font-weight: 600; cursor: pointer; }

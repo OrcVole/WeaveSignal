@@ -26,6 +26,7 @@ These are the studio words you are most likely to meet, in the sense they carry 
 - **A bed.** A cart that plays under speech, ducked beneath the voice.
 - **Count-in.** The producer's talkback before a show starts, so a remote guest knows when to speak.
 - **The screener.** The person who answers callers off air, talks to them, and sends one to the desk.
+- **The bridge.** A way for a host to broadcast from their own computer: their own software (BUTT, Mixxx, OBS, Voicemeeter) sends to the studio app, and the app carries it to the station over the ordinary web port, so nothing is opened on a router or at the station. It is in Settings, off until started.
 
 ## If it does not work
 

@@ -94,3 +94,31 @@ points to cannot get past it.
 A station whose encoder is on its own network, or a test station, can allow it by setting
 `WEAVESIGNAL_PULL_ALLOW_PRIVATE=1` in the control plane's environment
 ([Settings](/docs/reference/settings/)).
+On Compose and the Quadlets that is `PULL_ALLOW_PRIVATE=true` in the settings file beside
+`compose.yaml`; run `weavesignal.sh` again to apply it (from 1.2.1).
+
+## How it is tested
+
+`just test-pull` runs pulls end to end in containers on one machine, with the setting above on.
+The control plane, the ingest and the desk come from the station's own image.
+Two partners stand in for other stations: an Icecast 2.5 mount fed with MP3, and an SRT listener
+sending AAC in MPEG-TS (Liquidsoap sends both).
+Each is pulled for its own show, and the test checks that each pull:
+
+- stands by before its show's time, and is heard at the desk;
+- goes on air at the show's post: at once from automation, and after the grace from the pull
+  before it;
+- shows LINK LOST when the partner drops, is opened again by the station, and goes back on air.
+
+It also checks that the first pull is closed once its door shuts.
+HLS, HTTPS and a refused address are covered by the ingest's and the control plane's own tests,
+not by this one.
+
+**Known limit in 1.2.0: an SRT pull from an SRT listener built on libsrt gets no sound.**
+Liquidsoap and GStreamer, both on libsrt, refused to send the station their usual 1,316-byte
+messages when the station called them (found by this test, 2026-11-21); ffmpeg and OBS use the
+same library.
+Until a fix ships, pull an HTTP, HTTPS or HLS address instead.
+Alternatively, have the host send to the station over SRT with a show key
+([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)): the
+release tests send that way with ffmpeg.

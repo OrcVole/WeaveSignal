@@ -306,7 +306,7 @@ pub async fn open_srt(t: &PullTarget, allow_private: bool) -> Result<Opened, Pul
     let stream_id = t.query_value("streamid");
     let mut socket = None;
     for a in &addrs {
-        let call = SrtSocket::builder().call(*a, stream_id.as_deref());
+        let call = srt_caller().call(*a, stream_id.as_deref());
         if let Ok(Ok(s)) = tokio::time::timeout(CONNECT, call).await {
             socket = Some(s);
             break;
@@ -329,6 +329,22 @@ pub async fn open_srt(t: &PullTarget, allow_private: bool) -> Result<Opened, Pul
         input: rx,
         address: address_of(t),
         task: Some(task),
+    })
+}
+
+/// The SRT MSS a pull's call announces: SRT's own default (`SRTO_MSS`, 1500 bytes).
+pub const SRT_CALL_MSS: u64 = 1500;
+
+/// The caller a pull uses. srt-tokio 0.4.4 announces its own largest *payload* (1316 bytes, SRT's
+/// live default) in the handshake's MSS field, and the listener takes the smaller of the two MSS:
+/// a libsrt listener (ffmpeg, OBS, GStreamer, Liquidsoap) then keeps 1316 - 44 = 1272 bytes a
+/// message and refuses every 1316-byte live message it sends ("Message too large to send"), so
+/// the pull got nothing (`just test-pull`, 2026-11-21). The station only receives on this
+/// connection, and srt-tokio uses the value only for the handshake and to cut what it sends, so
+/// the call announces SRT's real MSS.
+fn srt_caller() -> srt_tokio::SrtSocketBuilder {
+    SrtSocket::builder().set(|o| {
+        o.sender.max_payload_size = srt_tokio::options::PacketSize(SRT_CALL_MSS);
     })
 }
 

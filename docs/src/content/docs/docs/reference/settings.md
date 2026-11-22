@@ -3,7 +3,7 @@ title: "Settings"
 description: "The control plane's and the desk's settings files, and the environment variables that carry their secrets."
 type: reference
 status: draft
-last_verified: 2026-11-10
+last_verified: 2026-11-21
 sidebar:
   order: 10
 ---
@@ -28,7 +28,7 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | `WEAVESIGNAL_CONTROL_EXTRA` | control plane | a second settings file the control plane adds to its own when it exists, holding only `[studio]` and `[steering]` (from 1.0.1): for installs whose `control.toml` is generated. The Cloudron package sets it to `/app/data/station.toml` ([Set the show](/docs/how-to/set-the-show/)) |
 | `WEAVESIGNAL_CONTROL_TOKEN_KEY` | control plane | the secret that keys API tokens and webhook secrets (ADR-0195): at least 32 characters, for example `openssl rand -hex 32`. Every install route makes one (ADR-0202): `weavesignal.sh` and the Quadlets as `CONTROL_TOKEN_KEY` in the settings file, the Cloudron package in its `secrets.env`. Unset (a station installed before that), a key is derived from the station key (`WEAVESIGNAL_CONTROL_ADMIN_TOKEN`) and the control plane's log says to set one; with neither, tokens and webhooks are off. A different key revokes every token and ends every webhook's signatures, so rotating the station key does the same unless this is set. Never in the settings file; keep it with the database's backups. See [Integrations](/docs/reference/integrations/#the-key) |
 | `WEAVESIGNAL_INGEST_TOKEN` | control plane, ingest | the ingest's bearer for the control plane's internal routes for hosts' own studios (ADR-0280), at least 32 characters; unset, those routes are off. Every install route makes one (`INGEST_TOKEN`) |
-| `WEAVESIGNAL_PULL_ALLOW_PRIVATE` | control plane | `1` lets a pulled source open an address inside the station's own network (loopback, private, link-local, carrier-grade NAT, unique-local IPv6); unset, those are refused when a pull is saved and at every connection (1.2). For a test station, or an encoder beside the station. See [Pull a partner's stream into a show](/docs/how-to/pull-a-stream/) |
+| `WEAVESIGNAL_PULL_ALLOW_PRIVATE` | control plane | `1` lets a pulled source open an address inside the station's own network (loopback, private, link-local, carrier-grade NAT, unique-local IPv6); unset, those are refused when a pull is saved and at every connection (1.2). For a test station, or an encoder beside the station. On Compose and the Quadlets, set `PULL_ALLOW_PRIVATE=true` in the settings file and run `weavesignal.sh` again (from 1.2.1); the Cloudron package has no such setting. See [Pull a partner's stream into a show](/docs/how-to/pull-a-stream/) |
 | `WEAVESIGNAL_DESK_SOURCES_PASSWORD` | desk, ingest | the password the ingest sends the desk with each host's source; unset, the desk takes no sources and the ingest does not start. Every install route makes one (`DESK_SOURCES_PASSWORD`) |
 | `WEAVESIGNAL_INGEST_CONTROL`, `WEAVESIGNAL_INGEST_DESK`, `WEAVESIGNAL_INGEST_BIND` | ingest | the control plane's address, the desk's sources listener (`127.0.0.1:7318`), and where the two public listeners bind (`0.0.0.0`; the Compose bundle's loopback unless public) |
 | `WEAVESIGNAL_ICECAST_OUT_PASSWORD` | the listener process | the password of another Icecast server the programme is sent to (ADR-0226). Optional. Never in the playout data: the Compose bundle keeps it in `.env` as `ICECAST_OUT_PASSWORD`, the Quadlets in a Podman secret, the Cloudron package in `secrets.env`. See [The outgoing Icecast source](/docs/reference/playout/#the-outgoing-icecast-source) |
@@ -56,14 +56,14 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | `[carts]` | `media_dir` | `/var/lib/weavesignal/carts` | the cart files the media worker writes (the desk's `carts.dir`) |
 | | `loudness_lufs`, `ceiling_dbtp` | `-23`, `-1` | the carts' loudness target (−40 to −5) and the true peak no cart is raised above (−10 to 0) |
 | | `max_upload_mb`, `max_seconds`, `worker_timeout_s` | `64`, `600`, `120` | the largest upload, the longest cart, and how long the media worker may take over one file |
-| | `worker`, `demo_pack` | none | the media worker's program (left out, this one), and a cart pack loaded when the station has no banks ([Carts in the desk](/docs/reference/desk-carts/)) |
+| | `worker`, `demo_pack` | none | the media worker's program (left out, this one), and a cart pack loaded when the station has no banks, and again on asking from 1.2.1 ([Carts in the desk](/docs/reference/desk-carts/#loading-the-default-pack-again)) |
 | `[retention]` | `recordings_dir`, `sweep_every_s` | `/var/lib/weavesignal/recordings`, `3600` | where recordings are kept (the sweeper deletes nothing outside it) and how often it runs, in seconds (60 or more: at most once a minute); the periods are the station's setting, in the database ([Set retention](/docs/how-to/set-retention/)) |
 | `[studio]` | `show` | empty | the show on air, as the desk and the screener head it; the schedule does not set it ([Set the show](/docs/how-to/set-the-show/)) |
 | | `rundown` | none | "coming up" rows; the schedule does not fill them (ADR-0102) |
 | | `banned` | none | callers banned before; the chat's moderation log does not fill it (ADR-0102) |
 | | `player_allowance_ms` | `500` | what a listener's player is taken to add to how far behind the studio listeners hear, on top of the listener mount's own hold of the stream, which is fixed at 12 s and not a setting. The profanity delay and the listener process's buffer are read live and added (ADR-0103, ADR-0272, ADR-0289) |
 | | `listener_delay_ms` | `13000` | the older way to say the mount's 12 s and the allowance as one figure, with the buffer's 0.5 s inside it (so 13000 is 12000 and 500 and the buffer). A station that sets only this keeps its figure, exactly as before; it is ignored, with a warning in the log, while `player_allowance_ms` is set and this one was changed |
-| `[publishing]` | `public_url` | empty | `https://` and the station's public host, where its public pages are served; every show card prints it without the scheme (ADR-0056), the feeds, card images and episode files are reached under it, and an invitation's link points at its `/join/` page; empty, cards and feeds are off |
+| `[publishing]` | `public_url` | empty | `https://` and the station's public host, where its public pages are served; every show card prints it without the scheme (ADR-0056), the feeds, card images and episode files are reached under it, and an invitation's link points at its `/join/` page; empty, cards and feeds are off (shows, series and episodes are still made and saved, from 1.2.1; their cards are drawn at the first save once it is set) |
 | | `place` | empty | where the station is, printed on the cards and written as `podcast:location` |
 | | `zone` | `Europe/London` | the station's time zone as first offered: a new station starts with it and an admin confirms or changes it in Settings (ADR-0189); the zone in force is in the database |
 | | `language` | `en-gb` | the feeds' language |
@@ -132,12 +132,17 @@ reason = "Abuse on air"
 ### `[setup]`
 
 From 1.0.1. The station's [setup page](/docs/how-to/set-up-the-station/) (ADR-0237) keeps what it stores in the database: the station's name and takedown contact, which then win over `station.name` and `join.consent_contact`, and [the look](/docs/reference/branding/). It needs no setting.
-These two are for a package whose own proxy asks listeners for a password; the Cloudron package sets both and the Compose bundle neither.
+The first two are for a package whose own proxy asks listeners for a password; the Cloudron package sets both and the Compose bundle neither.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `overrides_file` | unset | an absolute path. Set, the setup page offers the stream's password and writes its answer here (`LISTENERS_AUTH`, `LISTENERS_PASSWORD`), mode 600, for the package's start script to read at the next start |
 | `stream_auth` | unset | whether the stream asks for a password as the station was started, for the page to show |
+| `gpu_found` | unset | from 1.2.1: `nvidia` when the install script found an NVIDIA card's CDI spec on the server (`weavesignal.sh`'s `GPU_FOUND`), `none` when it looked and found none. Unset on the Cloudron package, whose apps are given no card |
+| `gpu` | unset | from 1.2.1: the settings file's `GPU`, `nvidia` when the desk is handed the card, else `none` |
+| `video` | unset | from 1.2.1: the settings file's `VIDEO` |
+
+The last three change nothing: they tell the control plane what the install script found, so that `install.gpu` in `GET /api/v1/setup` and the studio app's Settings can say when the server has a card the desk is not using ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/#the-hint-in-settings)). The Compose bundle and the Quadlets set them; nothing turns a card on but `GPU=nvidia` in the settings file.
 
 ## `desk.toml`
 

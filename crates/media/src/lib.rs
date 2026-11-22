@@ -598,10 +598,11 @@ mod tests {
 
     #[test]
     fn a_five_one_opus_is_downmixed_to_stereo() {
-        // The demo pack's drum roll is 5.1 (mapping family 1).
+        // A 5.1 Ogg Opus (mapping family 1): the 1.2.0 demo pack's drum roll, kept as a fixture
+        // because the 1.2.1 pack has no 5.1 file.
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/carts-demo/drumroll-1.opus"
+            "/tests/fixtures/five-one-drumroll.opus"
         );
         let (pcm, fmt) = decode(&std::fs::read(path).unwrap(), DEFAULT_MAX_SECONDS).unwrap();
         assert_eq!((fmt.as_str(), pcm.channels), ("ogg/opus", 2));
@@ -624,8 +625,8 @@ mod tests {
         let (_, r) = process(&bytes, Target::default(), DEFAULT_MAX_SECONDS).unwrap();
         assert_eq!(r.format, "ogg/opus");
         assert_eq!(r.sample_rate, 48_000);
-        // CREDITS.md: 1.03 s, set to -16 LUFS with peaks under -1 dBTP.
-        assert!((r.duration_ms as i64 - 1030).abs() <= 25, "{r:?}");
+        // The 1.2.1 pack's ding: 0.55 s, at about -16 LUFS with peaks well under -1 dBTP.
+        assert!((r.duration_ms as i64 - 546).abs() <= 25, "{r:?}");
         assert!((r.integrated_lufs - -16.0).abs() < 1.0, "{r:?}");
         assert!(r.true_peak_dbtp < -0.5, "{r:?}");
     }

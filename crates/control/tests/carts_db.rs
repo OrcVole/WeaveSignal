@@ -172,6 +172,135 @@ async fn an_upload_becomes_a_cart_through_the_media_worker() {
     );
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), before);
 
+    // A cart is changed where it is and keeps its sound (1.2.1): a new name, a second line, a
+    // mode and a ramp; the same id, the same file, the same measured gain.
+    let (code, tone) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/1",
+            Body::from(
+                r#"{"label": "Concert A", "detail": "", "mode": "bed", "ramp_ms": 500, "licence": "CC0 1.0"}"#,
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{tone}");
+    assert_eq!(tone["id"], cart["id"]);
+    assert_eq!(tone["file"], cart["file"]);
+    assert_eq!(tone["gain_db"], cart["gain_db"]);
+    assert_eq!(
+        (
+            &tone["label"],
+            &tone["detail"],
+            &tone["mode"],
+            &tone["ramp_ms"],
+            &tone["licence"]
+        ),
+        (
+            &serde_json::json!("Concert A"),
+            &serde_json::json!(""),
+            &serde_json::json!("bed"),
+            &serde_json::json!(500),
+            &serde_json::json!("CC0 1.0")
+        )
+    );
+    // A move never lands on another cart (409, naming it), and nothing has moved.
+    let (code, body) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/1",
+            Body::from(r#"{"slot": 2}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("Rimshot"),
+        "{body}"
+    );
+    // A bank nobody made is 404; an empty slot is 404.
+    let (code, body) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/1",
+            Body::from(r#"{"bank": 4}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND, "{body}");
+    let (code, _) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/7",
+            Body::from(r#"{"label": "Nobody"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    // To an empty slot it goes, its key with it, and comes back; the ramp is taken away.
+    let (code, moved) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/1",
+            Body::from(r#"{"slot": 24, "ramp_ms": null}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{moved}");
+    assert_eq!(
+        (
+            &moved["id"],
+            &moved["slot"],
+            &moved["ramp_ms"],
+            &moved["label"]
+        ),
+        (
+            &cart["id"],
+            &serde_json::json!(24),
+            &serde_json::Value::Null,
+            &serde_json::json!("Concert A")
+        )
+    );
+    let (_, cat) = send(&app, req("GET", "/api/v1/carts", Body::empty())).await;
+    let slots: Vec<i64> = cat["carts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["slot"].as_i64().unwrap())
+        .collect();
+    assert_eq!(slots, vec![2, 24]);
+    assert!(dir.join(&file).exists(), "the move kept its file");
+    let (code, _) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/24",
+            Body::from(r#"{"slot": 1, "mode": "one_shot"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    // A replaced sound is a new file under the same slot: the old file goes.
+    let (code, again) = send(
+        &app,
+        req(
+            "PUT",
+            "/api/v1/carts/banks/1/slots/1?label=Concert%20A&mode=one_shot",
+            Body::from(weavesignal_media::wav_sine(44_100, 2, 1.0, 440.0, 0.25)),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{again}");
+    assert_eq!(again["duration_ms"], 1000);
+    assert!(!dir.join(&file).exists(), "the sound it replaced is gone");
+    let file = again["file"].as_str().unwrap().to_owned();
+    let cart = again;
+
     // A file that goes is FILE MISSING once the wall looks at the disk again.
     std::fs::remove_file(dir.join(&file)).unwrap();
     hub.check_cart_files();
@@ -408,6 +537,65 @@ async fn a_shows_own_banks_are_kept_apart_and_changed_by_its_people() {
     )
     .await;
     assert_eq!(code, StatusCode::OK);
+    // A show's cart is changed by its people, as its banks are (1.2.1): Eilidh may not rename
+    // Woof; Iona may, from her preparing window, and may move it to the producer's bank 2. A
+    // move stays within the show's own banks: the station's bank 1 is not a place for it.
+    let woof_slot = "/api/v1/shows/steeped/carts/banks/1/slots/1";
+    let (code, _) = send(
+        &app,
+        as_(
+            "eilidh",
+            "PATCH",
+            woof_slot,
+            Body::from(r#"{"label": "Hers now"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let (code, woof2) = send(
+        &app,
+        as_(
+            "iona",
+            "PATCH",
+            woof_slot,
+            Body::from(r#"{"label": "Woof, twice", "bank": 2, "slot": 6}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{woof2}");
+    assert_eq!(
+        (&woof2["id"], &woof2["show"], &woof2["bank"], &woof2["slot"]),
+        (
+            &woof["id"],
+            &serde_json::json!("steeped"),
+            &serde_json::json!(2),
+            &serde_json::json!(6)
+        )
+    );
+    // The station's routes do not reach a show's cart: the station's bank 2 was never made,
+    // and its bank 1 slot 1 is empty.
+    let (code, _) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/2/slots/6",
+            Body::from(r#"{"label": "Not the station's"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    let (code, _) = send(
+        &app,
+        as_(
+            "iona",
+            "PATCH",
+            "/api/v1/shows/steeped/carts/banks/2/slots/6",
+            Body::from(r#"{"label": "Woof", "bank": 1, "slot": 1}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+
     // Eilidh's own show's bank 1 is apart from Steeped's and the station's.
     let (code, _) = send(
         &app,
@@ -629,4 +817,251 @@ async fn deleting_a_show_takes_its_cart_banks_files_and_the_walls_listing() {
     assert_eq!(banks_of(&wall("morning-kettle")), vec!["Miaow"]);
     assert!(dir.join(&files[1]).exists());
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Loading the default pack again (1.2.1): a station that loaded the pack of 1.0.0 to 1.2.0 at
+/// its first start gets a newer pack's sounds on asking. Into a bank that holds carts it asks
+/// first, then replaces only the default carts nobody changed; a cart a person renamed or added
+/// stays, and an old default the pack no longer has a sound for goes. An empty bank loads
+/// directly. The packs here are made for the test, the old one under three of the old pack's
+/// own ids and names.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn the_default_pack_is_loaded_again_and_keeps_what_is_a_persons() {
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    let station = ensure_station(
+        &pool,
+        &Station::new(StationId::new_random(), "Kettle FM").unwrap(),
+    )
+    .await
+    .unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("pack-{}", uuid::Uuid::new_v4()));
+    let (dir, pack) = (root.join("carts"), root.join("pack"));
+    std::fs::create_dir_all(&pack).unwrap();
+    let sound = |name: &str, hz: f64| {
+        std::fs::write(
+            pack.join(name),
+            weavesignal_media::wav_sine(44_100, 1, 0.5, hz, 0.4),
+        )
+        .unwrap()
+    };
+    let entry = |id: &str, label: &str, bank: u8, slot: u8, category: &str, looping: bool| {
+        // The old pack's three carts carry the licences it gave them: a credit is part of what
+        // makes a cart still the pack's own.
+        let licence = match id {
+            "applause-2" => "Public domain",
+            "laugh-1" => "CC BY 3.0",
+            _ => "CC0 1.0",
+        };
+        serde_json::json!({"id": id, "label": label, "file": format!("{id}.wav"), "category": category,
+            "suggested": {"bank": bank, "slot": slot}, "loop": looping, "licence": licence})
+    };
+    // The old pack, as a 1.2.0 station loaded it.
+    for id in ["applause-1", "applause-2", "laugh-1"] {
+        sound(&format!("{id}.wav"), 440.0);
+    }
+    let old = serde_json::json!({"banks": {"1": "Reactions and comedy"}, "carts": [
+        entry("applause-1", "Applause after a concert", 1, 1, "applause", false),
+        entry("applause-2", "Applause, short", 1, 2, "applause", false),
+        entry("laugh-1", "Audience laugh, short", 1, 6, "laugh", false),
+    ]});
+    std::fs::write(pack.join("carts.json"), old.to_string()).unwrap();
+    let config = CartsConfig {
+        media_dir: dir.clone(),
+        worker: Some(env!("CARGO_BIN_EXE_weavesignal-control").into()),
+        demo_pack: Some(pack.clone()),
+        ..CartsConfig::default()
+    };
+    let hub = Hub::new(
+        &station.name,
+        Studio::default(),
+        DeskClient::new(None),
+        None,
+        Duration::from_millis(250),
+        CartsLink::new(config, Some((pool.clone(), station.id))),
+    );
+    // A new station loads the pack by itself.
+    hub.start_carts().await;
+    let app = router(Arc::new(AppState {
+        station: station.clone(),
+        db: Some(pool),
+        room: None,
+        admin_token: Some(ADMIN.into()),
+        staff: Default::default(),
+        hub: hub.clone(),
+        join: weavesignal_control::config::JoinConfig::default(),
+        video: Default::default(),
+        joins: Default::default(),
+        turn_tls_port: 5349,
+        steering: Default::default(),
+    }));
+    let wall = |app: axum::Router, n: usize, hub: Arc<Hub>| async move {
+        for _ in 0..400 {
+            let (_, cat) = send(&app, req("GET", "/api/v1/carts", Body::empty())).await;
+            if hub.carts_view().importing.is_none() && cat["carts"].as_array().unwrap().len() == n {
+                return cat;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the wall never held {n} carts");
+    };
+    let at = |cat: &serde_json::Value, bank: i64, slot: i64| -> serde_json::Value {
+        cat["carts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["bank"] == bank && c["slot"] == slot)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let cat = wall(app.clone(), 3, hub.clone()).await;
+    let (old_1, old_2, old_6) = (at(&cat, 1, 1), at(&cat, 1, 2), at(&cat, 1, 6));
+    assert_eq!(old_1["origin"], "demo:applause-1");
+
+    // The station's people make it theirs: one default renamed, one sound of their own added.
+    let (code, renamed) = send(
+        &app,
+        req(
+            "PATCH",
+            "/api/v1/carts/banks/1/slots/2",
+            Body::from(r#"{"label": "Our applause"}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{renamed}");
+    let (code, own) = send(
+        &app,
+        req(
+            "PUT",
+            "/api/v1/carts/banks/1/slots/7?label=Station%20ident&mode=one_shot&origin=ident.wav",
+            Body::from(weavesignal_media::wav_sine(44_100, 1, 0.5, 880.0, 0.4)),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{own}");
+
+    // A newer release's pack takes the old one's place on the disk.
+    for id in ["clap", "swish", "rain", "ident"] {
+        sound(&format!("{id}.wav"), 660.0);
+    }
+    let new = serde_json::json!({"banks": {"1": "Reactions and comedy", "2": "Idents"}, "carts": [
+        entry("clap", "Clap", 1, 1, "applause", false),
+        entry("swish", "Swish", 1, 2, "whoosh", false),
+        entry("rain", "Rain (loop)", 1, 3, "weather", true),
+        entry("ident", "Ident", 2, 1, "jingle", false),
+    ]});
+    std::fs::write(pack.join("carts.json"), new.to_string()).unwrap();
+
+    // The pack as the wall's dialog reads it: two banks, and the two defaults nobody changed.
+    let (code, view) = send(&app, req("GET", "/api/v1/carts/pack", Body::empty())).await;
+    assert_eq!(code, StatusCode::OK, "{view}");
+    assert_eq!(view["available"], true);
+    assert_eq!(view["banks"].as_array().unwrap().len(), 2);
+    assert_eq!(view["banks"][0]["carts"][1]["mode"], "sweeper");
+    let mut untouched: Vec<String> = view["untouched"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    untouched.sort();
+    let mut expected = vec![
+        old_1["id"].as_str().unwrap().to_owned(),
+        old_6["id"].as_str().unwrap().to_owned(),
+    ];
+    expected.sort();
+    assert_eq!(untouched, expected);
+
+    // Into a bank that holds carts it asks first, and nothing has changed.
+    let load = |replace: bool| {
+        Body::from(
+            serde_json::json!({"loads": [{"bank": 1, "into": 1}, {"bank": 2, "into": 5}], "replace": replace})
+                .to_string(),
+        )
+    };
+    let (code, body) = send(&app, req("POST", "/api/v1/carts/pack", load(false))).await;
+    assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    assert_eq!(
+        body["error"],
+        "bank 1 holds 4 carts: 2 default carts nobody changed would be replaced or removed, and 2 carts of yours would stay; send `replace: true` to go on"
+    );
+    let (_, cat) = send(&app, req("GET", "/api/v1/carts", Body::empty())).await;
+    assert_eq!(at(&cat, 1, 1)["id"], old_1["id"]);
+    // A pack bank that is not there, a station bank off the wall, one named twice: 422.
+    for bad in [
+        r#"{"loads": [{"bank": 9, "into": 1}], "replace": true}"#,
+        r#"{"loads": [{"bank": 1, "into": 6}], "replace": true}"#,
+        r#"{"loads": [{"bank": 1, "into": 3}, {"bank": 2, "into": 3}], "replace": true}"#,
+        r#"{"loads": [], "replace": true}"#,
+    ] {
+        let (code, body) = send(&app, req("POST", "/api/v1/carts/pack", Body::from(bad))).await;
+        assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {body}");
+    }
+
+    // Asked to go on, it says what it does and does it: bank 1 where the defaults were, the
+    // pack's bank 2 into the station's empty bank 5.
+    let (code, started) = send(&app, req("POST", "/api/v1/carts/pack", load(true))).await;
+    assert_eq!(code, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(started["loading"], 3);
+    assert_eq!(
+        started["plans"][0],
+        serde_json::json!({"bank": 1, "name": "Reactions and comedy", "into": 1, "made": true,
+            "load": 2, "replace": 1, "remove": 1, "keep": [2, 7], "left_out": 1})
+    );
+    assert_eq!(
+        started["plans"][1],
+        serde_json::json!({"bank": 2, "name": "Idents", "into": 5, "made": false,
+            "load": 1, "replace": 0, "remove": 0, "keep": [], "left_out": 0})
+    );
+    // Clap, Our applause, Rain, Station ident, and Ident in bank 5.
+    let cat = wall(app.clone(), 5, hub.clone()).await;
+    let clap = at(&cat, 1, 1);
+    assert_eq!(
+        (&clap["label"], &clap["origin"]),
+        (&serde_json::json!("Clap"), &serde_json::json!("demo:clap"))
+    );
+    assert_ne!(clap["id"], old_1["id"]);
+    // What is a person's is as it was: the same carts, the same sounds.
+    let kept = at(&cat, 1, 2);
+    assert_eq!(
+        (&kept["id"], &kept["label"], &kept["file"]),
+        (
+            &old_2["id"],
+            &serde_json::json!("Our applause"),
+            &old_2["file"]
+        )
+    );
+    assert_eq!(at(&cat, 1, 7)["id"], own["id"]);
+    assert_eq!(at(&cat, 1, 3)["mode"], "bed");
+    // The old default the pack has nothing for is gone, with its file and the replaced one's.
+    assert_eq!(at(&cat, 1, 6), serde_json::Value::Null);
+    for gone in [&old_1, &old_6] {
+        assert!(!dir.join(gone["file"].as_str().unwrap()).exists());
+    }
+    for stays in [&old_2, &own, &clap] {
+        assert!(dir.join(stays["file"].as_str().unwrap()).exists());
+    }
+    // Bank 5 was made under the pack's name for it.
+    let five = cat["banks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["number"] == 5)
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        (&five["name"], &five["colour_slot"]),
+        (&serde_json::json!("Idents"), &serde_json::json!(5))
+    );
+    assert_eq!(at(&cat, 5, 1)["label"], "Ident");
+    // Loaded again, the new defaults are the ones nobody changed: nothing of a person's moves.
+    let (code, again) = send(&app, req("POST", "/api/v1/carts/pack", load(true))).await;
+    assert_eq!(code, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["plans"][0]["keep"], serde_json::json!([2, 7]));
+    assert_eq!(again["plans"][0]["remove"], 0);
+    let _ = wall(app.clone(), 5, hub.clone()).await;
+    let _ = std::fs::remove_dir_all(root);
 }

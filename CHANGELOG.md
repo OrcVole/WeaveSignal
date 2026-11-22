@@ -2,6 +2,148 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.2.1 (2026-11-22)
+
+- **The Screener's columns no longer cut the Room off.** Its first two columns were fixed widths
+  and the Room took what was left, with no floor; under 1,360 px of studio width (the window's
+  width divided by the text size, so a 1,440 px window at 120 %) the columns stacked into a
+  layout that crushed the panels to strips and cut the Room and the status bar's *Talk to*
+  button off. Every column now has a floor and the Room is given its own first: a larger text
+  size narrows the callers' and the moderation columns before it takes anything from the Room,
+  the queue scrolls before the caller's card loses its actions, and the status bar drops detail
+  and shortens the show's name before it would cut *Talk to*. The columns stack, and the tab
+  scrolls, only under about 1,140 px (a 1,440 px window at 150 % text), and that layout now
+  keeps each panel's height. The wide layout's key hints under the queue wrap where they were
+  cut. `just test-screener-layout` measures every panel from 1,440 by 900 to 3,840 by 2,160 at
+  100, 120 and 150 % text in WebKitGTK, the app's own engine, and in Chromium.
+- **The screener no longer promises a phone caller their place back.** A phone call that ended
+  was shown as *place held* with "Comes back here, not at the back", but nothing matches a new
+  call to the old one. The row now says *call ended* and that a new call joins at the back, the
+  notice says the same, and its button is *Clear the row*. A caller from the player page, whose
+  place is kept for 5 minutes, reads as before. Words only: nothing is re-matched.
+- **Settings › Phone line says beside the consent switch why it cannot be pressed.** With the
+  line off, or on a station whose version sets it at install, *Play the consent words* was a
+  fixed switch with a hint underneath and read as broken. The reason is now in words on the
+  switch's own row (*Turn the phone line on to change this*), and the line under it says how.
+  The station still refuses the change while the line is off.
+- **Bridge is explained in plain words.** Settings › Bridge opens with what it is: a host's own
+  broadcasting software (BUTT, Mixxx, OBS, Voicemeeter) on their own computer sends to the studio
+  app, which carries it to the station over the ordinary web port, 443, so nothing is opened on a
+  router or at the station; off until started; it needs the station's public address and the
+  show key. *Send through the bridge* has a heading of its own, *What the bridge is*, and the
+  glossary and the guides' word list have the entry.
+- **The desk names both hosts when one never arrives.** When a show's host never comes and the
+  handover window has moved on to the next show, the rows under the desk's post line say both, the
+  late one first (*Late*, their name, how far they have got, their show and since when), then
+  *Next*. 1.2.0 did this only for a host with a show key; a presenter who never came to the room
+  has no source for the post to name, and the next host was shown alone. The station now says who
+  is late itself: `post.window.late` in the studio's view and in `GET /api/v1/sources` (the show,
+  since when, the host by name, `room` or `push`, and `not_connected`, `connecting` or `ready`),
+  `null` when nobody is. Nobody is called late once one of the show's hosts has been on air since
+  it started, nor, for a show from the room, while someone presents from the room. It changes
+  nothing that goes on air.
+- **An update never moves a station's video to a graphics card, and Settings says when one is
+  there** (ADR-0292). In 1.2.0 `weavesignal.sh` looked for an NVIDIA card on every station whose
+  settings file had no `GPU` line, an updated one included, and wrote `GPU=nvidia` where it found
+  one. Now only a new install looks. A station installed before (its settings file already holds
+  its secrets) gets `GPU=none`, and the script says once that the card is there and how to use
+  it. On every run it writes what it found as `GPU_FOUND` (`nvidia` or `none`; not a setting to
+  change), the control plane is told (`[setup] gpu_found`, `gpu`, `video`) and reports it as
+  `install.gpu` in `GET /api/v1/setup` (`found`, `in_use`, `video`), and the studio app's
+  Settings has a panel, *Graphics card*, for an admin: that the server has an NVIDIA card and
+  the station is not using it, with the two steps that put it to use (`GPU=nvidia`, then the
+  script again), or that the desk has been given it. It says a card is there, not that it has
+  the AV1 encoder NVENC needs for the station's video (the RTX 40 series or later; with an older
+  card the desk stays on the CPU). The panel changes nothing by itself: a card is handed to the
+  desk where the station is installed. `GPU=nvidia` and
+  `GPU=auto` written by a person work as before, and new installs keep `auto`. A station that
+  1.2.0 already moved to the card stays on it (`GPU=none` puts it back). Cloudron has no card
+  and shows no panel. `compose-check`, `quadlet-check` and `wizard-check` cover an updated
+  station.
+- **The install wizard's consent words field shows an example.** The field itself (the station's
+  own words in place of the shipped two sentences, written as `CONSENT_TEXT` for each install
+  route) has been in the wizard since 1.2.0. Under its four fill-ins it now gives a sentence that
+  names the show's presenter with `{presenter}`, which every route takes as it is, and says that
+  the words a station records for its phone line are made from the same words.
+
+
+- **Add and change carts from the cart wall.** An empty slot now says *Add a cart*: its pad, a
+  sound dropped on it, or (only while nothing is on air, or in a preparing window) its key on the
+  Carts tab opens a dialog to choose the sound (WAV, FLAC,
+  MP3, Ogg or M4A, within the station's limits, which the dialog prints), name it and say how it
+  plays. A cart that is not sounding has an Edit button on its pad: its name, second line, mode,
+  ramp, credit and key are changed without sending the sound again, its sound can be replaced,
+  and Remove asks first. *Edit bank…* and *Make bank…* beside the tabs make a bank or change its
+  name and colour, the station's or the show's own, which until now only the API could. A
+  preparing window fires nothing and still adds and edits. The file is checked before it is sent,
+  a refusal is the station's own sentence, and Stop ends the wait for a file on its way. The
+  wall has a notice of its own in the bank strip: a note said on the Carts tab was not shown
+  there before. New: `PATCH /api/v1/carts/banks/{bank}/slots/{slot}` and the same under
+  `/api/v1/shows/{show}/` (a cart changed or moved to an empty slot, keeping its id and sound; an
+  API token needs `carts:write` for the station's), and `max_upload_mb` and `max_seconds` in
+  `GET /api/v1/carts`. The desktop app reads a dropped sound itself. The how-to is *Add your own
+  cart*. No migration.
+- **Load the default pack again.** A station loads the sounds WeaveSignal ships only at its first
+  start, so one that already had banks never got a later release's. *Default pack…* on the cart
+  wall loads one of the pack's banks, or all of them, into a station bank you choose. An empty
+  bank is loaded directly. In a bank that holds carts the dialog first says what will happen,
+  and then only default sounds nobody changed are replaced (and those the pack no longer has a
+  sound for removed): a cart you added, renamed, moved or changed in any way stays, and the
+  pack's sound for its key is left out. New: `GET` and `POST /api/v1/carts/pack` (an API token
+  needs `carts:read` and `carts:write`).
+
+### Known issues in 1.2.0
+
+<!-- From the real-kit tries of 2026-11-21 (branch p121-realkit); each is fixed in 1.2.1. -->
+- **The phone line never answers a call.** The station did not make its SIP trunk and dispatch
+  rule in LiveKit, so LiveKit's SIP service refused every call (`404 Does not match Trunks or
+  Dispatch Rules`). 1.2.1 makes both at start, checks them every 30 seconds (Valkey keeps nothing
+  on disk), deletes them when the line is turned off, and shows where they stand (`trunk` in
+  `GET /api/v1/phone`, and Settings › Phone line).
+- **`weavesignal.sh` removes `KIT_VBAN` and a hand-set `PUBLIC_ORIGIN`** from the settings file on
+  every run, so the documented way to turn VBAN on does nothing, and a station without `--public`
+  cannot be given an address to print. 1.2.1 keeps both.
+- **A station without a public address cannot make a show** (New show answers 503 *cards are
+  off*), which is every station installed with `weavesignal.sh` and no `--public`. 1.2.1 makes and
+  saves shows, series and episodes without cards, still checking that their names fit, and draws
+  the cards once the station has an address.
+- **Opus inside MPEG-TS over SRT stands by in silence for over five minutes** before it is
+  refused, from OBS with its encoder left on Opus or from FFmpeg. 1.2.1 refuses it as soon as the
+  stream starts, names it, and says to send AAC; over the bridge the app shows the words and tries
+  again ever more slowly.
+- **The bridge panel says *Standing by* while the source is on air.** 1.2.1 says *On air* when the
+  app is signed in to the station as staff, and *Connected to the desk* when it cannot tell.
+- **The phone line's SIP port listens on every address while `weavesignal.sh` says every listener
+  is on loopback.** It must face the provider; 1.2.1 says so in the summary, and
+  `PHONE_SIP_LISTEN` narrows it to one of the machine's addresses.
+- **`tests/gpu/measure.sh` refuses to run on a desktop** unless given `--force` (the compositor
+  and the browser count as the card's users), and its help did not say so. 1.2.1's help, refusal
+  and docs do.
+- **The phone acceptance run's words check passed on a ringback.** 1.2.1 needs the call answered
+  and compares what the caller heard with the words' recording.
+- **OBS over WHIP on the station's own machine fails after about 37 seconds** when the station
+  was installed without `--public`: its one candidate is `127.0.0.1`, and the connection checks
+  never complete (most likely in OBS's WebRTC library; not proved). Only that loopback address
+  is affected, not a real station; 1.2.1's *Send from OBS over WHIP* says so and how to try it on
+  one machine. No code change.
+- **An SRT pull heard nothing.** srt-tokio 0.4.4 announced its largest payload, 1316 bytes, in
+  the handshake's MSS field. A libsrt listener (Liquidsoap, FFmpeg, OBS, GStreamer) then kept
+  1272 bytes a message and refused every 1316-byte live message, so the pull stood by in silence.
+  1.2.1 announces SRT's own MSS, 1500 bytes. `just test-pull` passed on 2026-11-21: Icecast and
+  SRT stand by, go on air at the post, come back after a drop, and are heard at the desk. Compose
+  and the Quadlets keep `PULL_ALLOW_PRIVATE` across a second run of `weavesignal.sh`, and the
+  Compose ingest image falls back to 1.2.0 with the other services.
+- **An SRT or Icecast pull could freeze for good under a burst of sound.** The ingest process
+  wrote the decoding worker's input from the same loop that read its output; when a burst
+  (an Icecast mount's first seconds) filled the worker's pipe while the worker was blocked
+  writing its own, both waited on each other and the pull stopped delivering sound, with no
+  error. A task of its own now owns the worker's input behind a bounded queue (1,024 chunks,
+  about 16 MiB). Found by `just test-pull` on 2026-11-21, which failed every time on one host
+  whose pipes were 8 KiB; the 1.2.0 image failed it too, so the fault was there in 1.2.0.
+  Small pipes are the one trigger seen; there is no test that provokes it on purpose, and
+  `just test-pull` is the gate.
+<!-- end p121-realkit -->
+
 ## 1.2.0 (2026-11-20)
 
 - **A show can pull a stream** (issue #20): a partner station's Icecast mount or any HTTP or HTTPS

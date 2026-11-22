@@ -103,6 +103,39 @@ describe('the handover window’s rows', () => {
     expect(rows[1]).toMatchObject({ label: 'Next', who: 'Heather Douglas', readiness: 'ready', from: 'in the room', show: 'kettle-drive' });
   });
 
+  it('names a presenter who never came to the room, as the station says who is late (1.2.1)', () => {
+    // Steeped began at 14:00 from the room and Heather never came to the desk: the post has no
+    // source of hers to name and is already Kettle Drive's, whose window is open.
+    const p = post({
+      show: { slug: 'kettle-drive', name: 'Kettle Drive', start_ms: AT_16, started: false },
+      state: 'standing_by',
+      window: win({
+        state: 'ready',
+        show: 'kettle-drive',
+        show_name: 'Kettle Drive',
+        start_ms: AT_16,
+        opens_ms: AT_16 - 300_000,
+        late: { show: 'steeped', show_name: 'Steeped', start_ms: AT_14, host: 'Heather Douglas', from: 'room', state: 'not_connected' },
+      }),
+    });
+    const rows = windowRows(p, AT_16 - 240_000);
+    expect(rows.map((r) => r.is)).toEqual(['late', 'next']);
+    expect(rows[0]).toMatchObject({ label: 'Late', who: 'Heather Douglas', from: 'in the room', readiness: 'not_here', show: 'steeped' });
+    expect(rows[0].what).toMatch(/^Steeped · since \d\d:00$/);
+    expect(rows[0].said).toMatch(/^Late: Heather Douglas, Steeped · since \d\d:00, in the room, not here yet\.$/);
+    expect(rows[1]).toMatchObject({ label: 'Next', who: 'Finlay Grant', readiness: 'ready', show: 'kettle-drive' });
+  });
+
+  it('takes the station’s word that nobody is late, and how far a late host has got', () => {
+    const base = { show: { slug: 'steeped', name: 'Steeped', start_ms: AT_14, started: true }, state: 'not_connected' as const };
+    const next = { state: 'announced' as const, show: 'kettle-drive', show_name: 'Kettle Drive', start_ms: AT_16, opens_ms: AT_16 - 300_000, host: 'Heather Douglas' };
+    // A 1.2.1 station that says null: no late row, whatever the post's source reads.
+    expect(windowRows(post({ ...base, window: win({ ...next, late: null }) }), AT_16 - 240_000).map((r) => r.is)).toEqual(['next']);
+    // Connecting, from their own studio.
+    const [late] = windowRows(post({ ...base, window: win({ ...next, late: { show: 'steeped', show_name: 'Steeped', start_ms: AT_14, host: 'Finlay Grant', from: 'push', state: 'connecting' } }) }), AT_16 - 240_000);
+    expect(late).toMatchObject({ is: 'late', who: 'Finlay Grant', from: 'own studio', readiness: 'connecting' });
+  });
+
   it('the late row is left out once the show under way has been dealt with', () => {
     // Its host went on air and came off: the window moved on, and nobody is late.
     const p = post({

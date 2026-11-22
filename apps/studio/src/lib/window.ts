@@ -10,8 +10,11 @@
 // The rows sit under the clock's post line (`desk.clock`), at most two. Usually there is one:
 // the next host. There are two when the show under way still waits for a host who never came
 // and the next show's window has opened: the station then moves the window to the next show
-// (`post.window.show` differs from `post.show.slug`), and the desk says both, the late one
-// first, so that neither host is lost from sight.
+// and the desk says both, the late one first, so that neither host is lost from sight. From
+// 1.2.1 the station names the late host itself (`post.window.late`): a presenter who never came
+// to the room has no source for the post to name, and was left out. A 1.2.0 station sends no
+// `late`, and the desk reads it from the post as before (`post.window.show` differs from
+// `post.show.slug`).
 
 import type { HandoverWindow, HostOrigin, Notice, PostState, PostView, Source, View } from './api.ts';
 import { firstName, hm } from './format.ts';
@@ -92,8 +95,24 @@ export function windowRows(post: PostView | null | undefined, now: number): Wind
   const what = `${w.show_name} · ${hm(w.start_ms)}`;
 
   // The show under way still waits for its host, and the window has moved on to the next show:
-  // the late one first.
-  const waiting = post.show && !mine && post.show.started ? ofPost(post.state) : null;
+  // the late one first. The station says who (1.2.1); an older one leaves it to the post.
+  if (w.late !== undefined) {
+    const l = w.late;
+    if (l)
+      rows.push(
+        row({
+          is: 'late',
+          label: 'Late',
+          who: l.host,
+          what: `${l.show_name} · since ${hm(l.start_ms)}`,
+          show: l.show,
+          from: fromWords(l.from),
+          note: null,
+          readiness: l.state === 'ready' ? 'ready' : l.state === 'connecting' ? 'connecting' : 'not_here',
+        }),
+      );
+  }
+  const waiting = w.late === undefined && post.show && !mine && post.show.started ? ofPost(post.state) : null;
   if (post.show && waiting && post.source_name) {
     rows.push(
       row({

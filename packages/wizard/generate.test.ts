@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, STUN_CHOICES, consentProblem, defaults, generate, keysOf, parseStunServers, problems, readAnswersFile, stunServersOf, unknownFillIns, type Answers, type Output } from './generate.ts';
+import { CONSENT_EXAMPLE, CONSENT_FILL_INS, DEFAULT_CONSENT_TEXT, STUN_CHOICES, consentProblem, defaults, generate, keysOf, parseStunServers, problems, readAnswersFile, stunServersOf, unknownFillIns, type Answers, type Output } from './generate.ts';
 
 const controlConfig = readFileSync(new URL('../../crates/control/src/config.rs', import.meta.url), 'utf8');
 const controlJoin = readFileSync(new URL('../../crates/control/src/join.rs', import.meta.url), 'utf8');
@@ -206,6 +206,13 @@ describe('the STUN chooser (ADR-0290)', () => {
 });
 
 describe('the consent words (issue #26)', () => {
+  it('the example under the field names the presenter, uses every fill-in, and every route takes it', () => {
+    for (const f of CONSENT_FILL_INS) expect(CONSENT_EXAMPLE).toContain(f.token);
+    expect(unknownFillIns(CONSENT_EXAMPLE)).toEqual([]);
+    for (const route of ['compose', 'quadlets', 'cloudron'] as const) expect(consentProblem(CONSENT_EXAMPLE, route), route).toBeNull();
+    // As a station's answer it reaches the Compose file whole, its apostrophe escaped.
+    expect(value(out(compose({ consentText: CONSENT_EXAMPLE })).file.text, 'CONSENT_TEXT')).toBe(`'${CONSENT_EXAMPLE.replaceAll("'", "\\'")}'`);
+  });
   const words = 'You\'ll be on {presenter}\'s show, "live", on {station}; kept {kept} # all. Ask {contact}.';
   it('shows the shipped words and fill-ins the control plane has', () => {
     expect(controlConfig).toContain(`pub const CONSENT_TEXT: &str = ${JSON.stringify(DEFAULT_CONSENT_TEXT)};`);

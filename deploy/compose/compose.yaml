@@ -94,7 +94,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
@@ -145,7 +145,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
@@ -165,6 +165,9 @@ services:
       WEAVESIGNAL_CONSENT_TEXT: ${CONSENT_TEXT:-}
       # The phone line's trunk password (17f), when the provider uses digest auth.
       WEAVESIGNAL_PHONE_TRUNK_PASSWORD: ${PHONE_TRUNK_PASSWORD:-}
+      # Whether a pulled source (1.2) may open an address inside the station's own network
+      # (PULL_ALLOW_PRIVATE=true); empty or false, the default, refuses those.
+      WEAVESIGNAL_PULL_ALLOW_PRIVATE: ${PULL_ALLOW_PRIVATE:-}
     configs:
       - source: control
         target: /etc/weavesignal/control.toml
@@ -193,7 +196,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
@@ -230,7 +233,7 @@ services:
   # SOURCE_WHIP_PORT, its offers passed on by the control plane to INGEST_WHIP_PORT on loopback,
   # and its one ICE candidate LiveKit's address (LIVEKIT_NODE_IP, which weavesignal.sh sets).
   ingest:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.0.4}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-ingest", "run"]
@@ -451,6 +454,15 @@ configs:
       # weavesignal.sh sets it only for a station left with the demo name.
       [video]
       demo_still = "${DEMO_STILL:-}"
+
+      # A graphics card for the desk's video, as weavesignal.sh found it (1.2.1, ADR-0292): the
+      # studio's Settings says when this server has an NVIDIA card the desk is not using, and
+      # how to use it. GPU_FOUND is the script's own finding on every run; nothing here hands a
+      # card over (that is GPU=nvidia, set by a person: an update never sets it).
+      [setup]
+      gpu_found = "${GPU_FOUND:-none}"
+      gpu = "${GPU:-none}"
+      video = ${VIDEO:-false}
 
       # The public pages, from the image (M3): the player with call-in at /, invites at /join/.
       # `listed` is whether search engines may list the public address (ADR-0133).

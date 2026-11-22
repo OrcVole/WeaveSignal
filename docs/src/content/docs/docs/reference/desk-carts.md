@@ -3,7 +3,7 @@ title: "Carts in the desk"
 description: "How a fired cart reaches every ear: the control plane's cart routes, the desk's cart players and its socket words, cue, ducking, the play events, the media worker, and loading a pack."
 type: reference
 status: draft
-last_verified: 2026-11-12
+last_verified: 2026-11-21
 ---
 
 A cart is a row in PostgreSQL (`cart_bank`, `cart`) with a FLAC file, a gain, a mode and an optional ramp.
@@ -69,6 +69,7 @@ All take a staff bearer: a staff session or the station key ([Add staff](/docs/h
 | `POST /api/v1/carts/commands` | `toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue` |
 | `PUT /api/v1/carts/banks/{n}` | makes or renames a station bank: `{"name", "colour_slot"}` |
 | `PUT /api/v1/carts/banks/{bank}/slots/{slot}?label=&mode=` | an audio file as the body; the media worker makes it the station slot's cart |
+| `PATCH /api/v1/carts/banks/{bank}/slots/{slot}` | changes the slot's cart and keeps its sound (from 1.2.1): any of `label`, `detail`, `mode`, `ramp_ms` (`null` takes the ramp away) and `licence`; `bank` and `slot` move it to an empty slot of the station's banks |
 | `DELETE /api/v1/carts/banks/{bank}/slots/{slot}` | empties a station slot, and deletes its file |
 
 A show's own banks have the same routes under the show (1.0.2), and one more to remove a bank:
@@ -78,11 +79,48 @@ A show's own banks have the same routes under the show (1.0.2), and one more to 
 | `PUT /api/v1/shows/{show}/carts/banks/{n}` | makes or renames the show's bank `n` |
 | `DELETE /api/v1/shows/{show}/carts/banks/{n}` | removes it with its carts and their files; a cart of it that sounds is stopped |
 | `PUT /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}?label=&mode=` | an audio file into the show's slot |
+| `PATCH /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}` | changes the show's slot's cart and keeps its sound (from 1.2.1); a move stays within the show's own banks |
 | `DELETE /api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}` | empties the show's slot |
 
 They change only that show's banks, never another show's or the station's.
 The people who may change a show's step may change its banks: the station key, an admin, a producer, or the show's presenter; a preparing window may, as its own show is not on air; an API token may not.
 Each answers with the station's catalogue and the show's; the station's routes answer with the station's alone.
+
+### Changing a cart without its sound
+
+`PATCH` on a slot (from 1.2.1) changes the cart where it is: a field left out stays as it is.
+The cart keeps its id and its file, so one that is sounding goes on sounding and the play log still names it.
+A move (`bank`, `slot`) goes only to an empty slot of the same owner's banks: onto a slot that holds a cart it is 409, naming the cart in the way, so a move never replaces anything.
+An empty slot is 404, as is a bank nobody has made; a name that is not 1 to 120 characters, a slot off the wall or a ramp longer than the cart is 422.
+To change the sound, `PUT` a file to the slot: that makes a new cart there, with a new id, and deletes the old file.
+The station's route takes what its `PUT` and `DELETE` take (any staff session, the station key, or an API token with `carts:write`); a show's, those who may change its banks, and never a token.
+
+### What an upload is held to
+
+`GET /api/v1/carts` carries the limits beside `loudness_lufs` (from 1.2.1): `max_upload_mb`, the largest file a slot takes (`carts.max_upload_mb`, 64), and `max_seconds`, the longest cart (`carts.max_seconds`, 600).
+The studio app prints them in its cart dialog and refuses a larger file before sending it.
+A body over the limit is 413 without a sentence; a sound too long, silent or not a sound is 422 with the media worker's sentence, *the file was refused: …*; a ramp (`ramp_ms` in the query) longer than the sound is 422, and nothing is written.
+On Cloudron the proxy in front of the control plane passes bodies up to 200 MB, above the default 64.
+
+### Loading the default pack again
+
+A station loads its pack (`carts.demo_pack`) by itself only while it has no station banks. From 1.2.1 two routes load it on asking:
+
+| Route | Does |
+|---|---|
+| `GET /api/v1/carts/pack` | the pack: `available` (false, with `problem`, on a station that has none), its `banks` with each sound's `slot`, `label` and `mode`, whether one is `loading`, and `untouched`, the ids of the station's carts a load may replace or remove |
+| `POST /api/v1/carts/pack` | `{"loads": [{"bank": 1, "into": 1}], "replace": false}`: loads the pack's bank `bank` into the station's bank `into` (1 to 5; made under the pack's name if it has not been); several at once, no station bank twice |
+
+A station bank that holds carts is refused (409) unless `replace` is true, and the refusal says what would happen: *bank 1 holds 14 carts: 12 default carts nobody changed would be replaced or removed, and 2 carts of yours would stay; send `replace: true` to go on*.
+With `replace`:
+
+- a cart is replaced only if it is **a default cart nobody changed**: it came from a pack (`origin` is `demo:<id>`), and still has the name, slot, mode and licence that pack gave it, with no second line and no ramp. The bank is not part of the test, as one of the pack's banks may be loaded into another: a default cart moved through the API to the same slot of another bank still counts. The pack the station has now counts, and so does the pack shipped from 1.0.0 to 1.2.0, which the control plane lists (`crates/control/src/carts/pack.rs`), since a newer pack takes its files' place;
+- a default cart nobody changed whose slot the pack has no sound for is removed;
+- every other cart stays: one a person uploaded, renamed, moved to another key, or whose mode, second line, ramp or credit they changed. The pack's sound for its slot is left out. A cart that comes into a slot while the load runs stays too;
+- a cart that is sounding is never stopped by a load: it stays as it is, and the pack's sound for its slot is left out this time.
+
+The answer is 202 with the plan for each bank (`load`, `replace`, `remove`, `keep`, `left_out`); the sounds then go through the media worker one by one, counted in the studio view's `carts.importing`. A second load while one runs is 409; a station with no pack is 503.
+Who may: as the station's slot routes (any staff session, the station key, or an API token with `carts:write`; reading needs `carts:read`). The pack goes into the station's banks only.
 
 Every bank and cart in the catalogue names its show (`show`, the show's slug), or `null` for the station's.
 A cart in a show's bank starts (`toggle`, `fire` or `cue` when it is not sounding) only while that show is the one the station's step comes from: the show on air, or between shows the show last on air ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)).

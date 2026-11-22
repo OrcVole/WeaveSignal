@@ -39,7 +39,7 @@ pub const SCOPES: &[(&str, &str)] = &[
     ),
     (
         "carts:write",
-        "Make and rename banks; load and empty cart slots.",
+        "Make and rename banks; load, change and empty cart slots; load the default pack.",
     ),
     (
         "schedule:read",
@@ -92,9 +92,16 @@ pub const TABLE: &[(&str, &str, &str)] = &[
     ("POST", "/api/v1/chat/modes", "chat:moderate"),
     ("GET", "/api/v1/carts", "carts:read"),
     ("POST", "/api/v1/carts/commands", "carts:fire"),
+    ("GET", "/api/v1/carts/pack", "carts:read"),
+    ("POST", "/api/v1/carts/pack", "carts:write"),
     ("PUT", "/api/v1/carts/banks/{number}", "carts:write"),
     (
         "PUT",
+        "/api/v1/carts/banks/{bank}/slots/{slot}",
+        "carts:write",
+    ),
+    (
+        "PATCH",
         "/api/v1/carts/banks/{bank}/slots/{slot}",
         "carts:write",
     ),

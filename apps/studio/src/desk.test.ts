@@ -367,7 +367,10 @@ describe('the cart wall', () => {
   });
 
   it('draws its panels under their registered names, and the grid under the left hand', () => {
+    // The wall's notice is drawn while there is something to say (1.2.1).
+    studio.note = { id: 1, tone: 'good', title: 'Cart added', message: '“Woof” is on Q.', until: NOW + 5_000 };
     const { body } = render(CartWall);
+    expect(body).toMatch(/data-panel="carts\.toast"[^>]*role="status"[^>]*>[\s\S]*?<b data-panel-title="">Cart added\.<\/b> “Woof” is on Q\./);
     for (const p of CARTS) expect(body.includes(`data-panel="${p.name}"`), p.name).toBe(true);
     for (const m of body.matchAll(/data-panel="([^"]+)"/g)) expect(() => panel(m[1])).not.toThrow();
     const keys = [...body.matchAll(/data-cart-slot="(\d+)"[^>]*>(?:<!--[^>]*-->)*<span class="top"><kbd>([^<]+)<\/kbd>/g)].map((m) => m[2]);
@@ -388,7 +391,10 @@ describe('the cart wall', () => {
     expect(pad(19)).toContain('File missing');
     expect(pad(19)).toContain('The key does nothing.');
     expect(pad(19)).toContain('aria-disabled="true"');
-    expect(pad(3)).toContain('No cart here yet.');
+    // An empty slot is the invitation to add (1.2.1): its pad opens the dialog.
+    expect(pad(3)).toContain('Add a cart');
+    expect(pad(3)).toContain('aria-label="3, empty slot. Add a cart"');
+    expect(pad(3)).toContain('aria-haspopup="dialog"');
     expect(pad(20)).toContain('ramp 12 s to the vocal');
     expect(pad(20)).toContain('<small>Firth Lights</small>');
     expect(body).toContain('Sounding: Back-anno bed, Applause');

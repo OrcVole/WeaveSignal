@@ -960,7 +960,7 @@ export function catalogueFrom(pack: { banks: Record<string, string>; carts: Pack
     if (p) carts.push(cart(p, 1, i + 1));
   });
   for (const p of pack.carts) carts.push(cart(p, p.suggested.bank + 1, p.suggested.slot, `${p.id}@${p.suggested.bank + 1}`));
-  return { version: 1, show: null, banks, carts, loudness_lufs: -16 };
+  return { version: 1, show: null, banks, carts, loudness_lufs: -16, max_upload_mb: 64, max_seconds: 600 };
 }
 
 /** The catalogue as `GET /api/v1/carts?show=` answers: the station's banks and carts, and that

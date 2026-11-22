@@ -203,7 +203,10 @@ const REFUSAL: Record<string, string> = {
 
 /** `refused today 13:41: the key is wrong`. A word this studio does not know is shown as given. */
 export function refusalWords(e: SourceLogEntry, now: number, zone: string): string {
-  const why = (e.reason && REFUSAL[e.reason]) || e.detail || e.reason || 'the station gave no reason';
+  let why = (e.reason && REFUSAL[e.reason]) || e.detail || e.reason || 'the station gave no reason';
+  // What it could not read, when the station names it (Opus inside MPEG-TS, from 1.2.1).
+  const named = e.detail?.trim();
+  if (e.reason === 'format' && named && !/^the station cannot read/i.test(named)) why = `${why}: ${named}`;
   return `refused ${whenWords(e.at_ms, now, zone)}: ${why}`;
 }
 

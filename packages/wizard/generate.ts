@@ -117,6 +117,10 @@ export const CONSENT_FILL_INS: readonly { token: string; means: string }[] = [
   { token: '{presenter}', means: 'the presenter of the show on air; with no show on air, or a show without a presenter, the station’s name' },
 ];
 
+/** An example of a station's own words that names the show's presenter, shown under the field
+ *  (1.2.1): it uses all four fill-ins and nothing an install route refuses. */
+export const CONSENT_EXAMPLE = "You'll be live with {presenter} on {station}, and we may keep your call {kept}. To have it taken down, contact {contact}.";
+
 /** What a new station is offered before anyone answers. */
 export function defaults(route: Route = 'compose'): Answers {
   return {

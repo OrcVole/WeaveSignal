@@ -14,6 +14,7 @@
 //! - [`limits`]: bans by ban key, calls per number, lines at once.
 //! - [`line`]: the gates at run time, one per phone booth, fed from each status poll.
 //! - [`trunk`]: the inbound trunk and dispatch rule as LiveKit's SIP API takes them.
+//! - [`sync`]: keeps both in LiveKit while the line is on, and deletes them when it is off.
 //! - [`api`]: the line's routes.
 
 pub mod api;
@@ -21,5 +22,6 @@ pub mod config;
 pub mod gate;
 pub mod limits;
 pub mod line;
+pub mod sync;
 pub mod trunk;
 pub mod words;

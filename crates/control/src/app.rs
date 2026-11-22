@@ -21,7 +21,10 @@
 //! | `POST /api/v1/carts/commands` | `toggle`, `fire`, `stop`, `cue` a cart; `stop_last`; `fade_all`; `clear_cue` (carts sound in the desk, ADR-0117) |
 //! | `PUT /api/v1/carts/banks/{n}` | make or rename a bank: `name`, `colour_slot` |
 //! | `PUT /api/v1/carts/banks/{bank}/slots/{slot}?label=&mode=` | an audio file as the body: the media worker normalises it into that slot |
+//! | `PATCH /api/v1/carts/banks/{bank}/slots/{slot}` | change the slot's cart and keep its sound: `label`, `detail`, `mode`, `ramp_ms`, `licence`; `bank` and `slot` move it to an empty slot |
 //! | `DELETE /api/v1/carts/banks/{bank}/slots/{slot}` | empty a slot |
+//! | `GET /api/v1/carts/pack` | the station's default pack, and which carts are still its own as loaded |
+//! | `POST /api/v1/carts/pack` | load banks of the pack into station banks: `loads`, `replace` |
 //!
 //! | `POST /api/v1/invites` | an invite link for a guest, a remote DJ or a presenter (`public.rs`) |
 //! | `/api/v1/retention/...` | the Jurisdiction setting, holds, the sweep, recordings and consent links ([`crate::retention`]) |
@@ -49,7 +52,7 @@ use tower_http::trace::TraceLayer;
 use weavesignal_model::Station;
 use weavesignal_proto::{Keys, Role, check_identity};
 
-use crate::carts::{CartCommand, CartMeta, CartProblem, Owner};
+use crate::carts::{CartCommand, CartEdit, CartMeta, CartProblem, Owner};
 use crate::config::{JoinConfig, RoomConfig};
 use crate::desk::{DeskCommand, DeskError};
 use crate::hub::Hub;
@@ -117,10 +120,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         // The cart wall (ADR-0020).
         .route("/api/v1/carts", get(carts_catalogue))
         .route("/api/v1/carts/commands", post(cart_command))
+        .route("/api/v1/carts/pack", get(pack_view).post(load_pack))
         .route("/api/v1/carts/banks/{number}", put(put_bank))
         .route(
             "/api/v1/carts/banks/{bank}/slots/{slot}",
             put(import_cart)
+                .patch(edit_cart)
                 .delete(delete_cart)
                 .layer(DefaultBodyLimit::max(upload_limit))
                 .route_layer(axum::middleware::from_fn_with_state(
@@ -136,6 +141,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}",
             put(import_show_cart)
+                .patch(edit_show_cart)
                 .delete(delete_show_cart)
                 .layer(DefaultBodyLimit::max(upload_limit))
                 .route_layer(axum::middleware::from_fn_with_state(
@@ -1164,15 +1170,21 @@ async fn chat_modes(
 
 fn cart_problem(e: &CartProblem) -> Response {
     let code = match e {
-        CartProblem::NoCart(_) | CartProblem::NoBank(_) => StatusCode::NOT_FOUND,
+        CartProblem::NoCart(_) | CartProblem::NoBank(_) | CartProblem::EmptySlot(..) => {
+            StatusCode::NOT_FOUND
+        }
         CartProblem::Missing(_)
+        | CartProblem::PackLoading
+        | CartProblem::PackAsks(_)
+        | CartProblem::Taken(..)
         | CartProblem::AlreadySounding(_)
         | CartProblem::OnAir(_)
         | CartProblem::OtherShow(_)
         | CartProblem::NothingSounding
         | CartProblem::Busy(_) => StatusCode::CONFLICT,
         CartProblem::Desk(DeskError::NotConfigured | DeskError::Unreachable { .. })
-        | CartProblem::NoDatabase => StatusCode::SERVICE_UNAVAILABLE,
+        | CartProblem::NoDatabase
+        | CartProblem::NoPack(_) => StatusCode::SERVICE_UNAVAILABLE,
         CartProblem::Desk(DeskError::Refused(_) | DeskError::Rejected { .. }) => {
             StatusCode::BAD_GATEWAY
         }
@@ -1392,6 +1404,48 @@ async fn import_into(
     }
 }
 
+/// The slot's cart changed where it is, or moved: its sound is not touched.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/carts/banks/{bank}/slots/{slot}",
+    operation_id = "edit_cart",
+    tag = "carts",
+    summary = "Change a station slot's cart",
+    description = "Changes the cart in that slot of the station's bank and keeps its sound: its `label`, `detail`, `mode`, `ramp_ms` (`null` takes the ramp away) and `licence`; `bank` and `slot` move it to an empty slot of the station's banks, and the slot is its key on the wall. A field left out stays as it is. The cart keeps its id and its file, so one that is sounding goes on sounding. An empty slot is 404; a move onto a slot that holds a cart is 409, and so nothing is ever replaced by a move. To change the sound, `PUT` a file to the slot.",
+    params(("bank" = u8, Path, description = "The bank's number"), ("slot" = u8, Path, description = "The slot in the bank")),
+    request_body = CartEdit,
+    responses(
+        (status = 200, description = "The cart as it is now.", body = weavesignal_model::carts::Cart),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 404, response = crate::openapi::NotFound),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 422, response = crate::openapi::Unprocessable),
+        (status = 503, response = crate::openapi::Unavailable),
+        (status = 500, description = "The cart wall failed.", body = crate::openapi::Problem),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn edit_cart(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((bank, slot)): Path<(u8, u8)>,
+    Json(edit): Json<CartEdit>,
+) -> Response {
+    // As the slot's upload and its emptying: any member of staff, a preparing window too (the
+    // wall's words are not what is on air), and an integration's token with `carts:write`.
+    if let Some(r) = refusal(&state, &headers) {
+        return r;
+    }
+    match state
+        .hub
+        .edit_cart(&Owner::Station, bank, slot, &edit)
+        .await
+    {
+        Ok(cart) => Json(cart).into_response(),
+        Err(e) => cart_problem(&e),
+    }
+}
+
 #[utoipa::path(
     delete,
     path = "/api/v1/carts/banks/{bank}/slots/{slot}",
@@ -1419,6 +1473,61 @@ async fn delete_cart(
     }
     match state.hub.delete_cart(&Owner::Station, bank, slot).await {
         Ok(()) => Json(state.hub.catalogue(None)).into_response(),
+        Err(e) => cart_problem(&e),
+    }
+}
+
+/// The default pack, for the wall's Load the default pack.
+#[utoipa::path(
+    get,
+    path = "/api/v1/carts/pack",
+    operation_id = "pack_view",
+    tag = "carts",
+    summary = "The station's default pack",
+    description = "The pack the station loaded into its banks at its first start (`carts.demo_pack`): its banks with each sound's slot, name and mode, and `untouched`, the ids of the station's carts that are still a default pack's cart as it was loaded (the same name, slot and mode, nothing added), which a load with `replace` may replace or remove. `available` is false, with `problem`, on a station that has no pack.",
+    responses(
+        (status = 200, description = "The pack.", body = crate::carts::pack::PackView),
+        (status = 401, response = crate::openapi::Unauthorized),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn pack_view(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Some(r) = refusal(&state, &headers) {
+        return r;
+    }
+    Json(state.hub.pack_view().await).into_response()
+}
+
+/// Load the default pack again, a bank at a time, into station banks.
+#[utoipa::path(
+    post,
+    path = "/api/v1/carts/pack",
+    operation_id = "load_pack",
+    tag = "carts",
+    summary = "Load the default pack into station banks",
+    description = "Loads banks of the station's default pack into station banks: each of `loads` names one of the pack's banks and the station bank it goes `into` (made, under the pack's name, if it has not been). A station bank that holds carts is refused (409, saying what would happen) unless `replace` is true. With `replace`, only default carts nobody changed are replaced, and those the pack has no sound for are removed; a cart a person added, renamed, moved or changed stays, and the pack's sound for its slot is left out. Answers 202 at once with the plan: the sounds then go through the media worker one by one, counted in the studio view's `carts.importing`. A second load while one runs is 409. As the slots' own routes: any member of staff, or a token with `carts:write`.",
+    request_body = crate::carts::pack::PackLoad,
+    responses(
+        (status = 202, description = "The load has started.", body = crate::carts::pack::PackStarted),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 422, response = crate::openapi::Unprocessable),
+        (status = 503, response = crate::openapi::Unavailable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn load_pack(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<crate::carts::pack::PackLoad>,
+) -> Response {
+    // What it does to the station's banks, the slots' own routes can do one cart at a time: the
+    // same people may.
+    if let Some(r) = refusal(&state, &headers) {
+        return r;
+    }
+    match state.hub.start_pack_load(&req).await {
+        Ok(started) => (StatusCode::ACCEPTED, Json(started)).into_response(),
         Err(e) => cart_problem(&e),
     }
 }
@@ -1528,6 +1637,43 @@ async fn import_show_cart(
         Err(r) => return r,
     };
     import_into(&state, &owner, bank, slot, meta, body).await
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/shows/{show}/carts/banks/{bank}/slots/{slot}",
+    operation_id = "edit_show_cart",
+    tag = "carts",
+    summary = "Change a show's slot's cart",
+    description = "As `PATCH /api/v1/carts/banks/{bank}/slots/{slot}`, in the show's own bank; a move stays within the show's own banks. Who may: as for the show's banks.",
+    params(("show" = String, Path, description = "The show's slug"), ("bank" = u8, Path, description = "The bank's number"), ("slot" = u8, Path, description = "The slot in the bank")),
+    request_body = CartEdit,
+    responses(
+        (status = 200, description = "The cart as it is now.", body = weavesignal_model::carts::Cart),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
+        (status = 404, response = crate::openapi::NotFound),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 422, response = crate::openapi::Unprocessable),
+        (status = 503, response = crate::openapi::Unavailable),
+        (status = 500, description = "The cart wall failed.", body = crate::openapi::Problem),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn edit_show_cart(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((show, bank, slot)): Path<(String, u8, u8)>,
+    Json(edit): Json<CartEdit>,
+) -> Response {
+    let owner = match show_owner(&state, &headers, &show).await {
+        Ok(o) => o,
+        Err(r) => return r,
+    };
+    match state.hub.edit_cart(&owner, bank, slot, &edit).await {
+        Ok(cart) => Json(cart).into_response(),
+        Err(e) => cart_problem(&e),
+    }
 }
 
 #[utoipa::path(
@@ -1651,10 +1797,14 @@ async fn station(State(state): State<Arc<AppState>>) -> Json<Station> {
     cart_command,
     put_bank,
     import_cart,
+    edit_cart,
     delete_cart,
+    pack_view,
+    load_pack,
     put_show_bank,
     delete_show_bank,
     import_show_cart,
+    edit_show_cart,
     delete_show_cart
 ))]
 pub(crate) struct Api;
@@ -2598,6 +2748,143 @@ mod tests {
         )
         .await;
         assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    /// `PATCH` a slot's cart, with or without a bearer.
+    async fn patch_json(
+        app: Router,
+        uri: &str,
+        bearer: Option<&str>,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut req = Request::patch(uri).header("content-type", "application/json");
+        if let Some(b) = bearer {
+            req = req.header("authorization", format!("Bearer {b}"));
+        }
+        let res = app
+            .oneshot(req.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        let code = res.status();
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        (code, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    #[tokio::test]
+    async fn a_carts_edit_is_checked_before_anything_is_written() {
+        // The wall in memory, no database: every refusal below is decided before the write,
+        // and a good edit gets as far as the database, which is not there (503).
+        let (app, _hub, _fake, _ids, dir) = cart_app().await;
+        let slot = |n: u8| format!("/api/v1/carts/banks/1/slots/{n}");
+        let j = |v: serde_json::Value| v;
+        // A stranger is refused; so is a wrong bearer.
+        let (code, _) = patch_json(app.clone(), &slot(1), None, j(serde_json::json!({}))).await;
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+        // An empty slot has no cart to change.
+        let (code, body) = patch_json(
+            app.clone(),
+            &slot(9),
+            Some(ADMIN),
+            serde_json::json!({"label": "Ding"}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::NOT_FOUND, "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("slot 9 is empty"),
+            "{body}"
+        );
+        // A name that is not one, a slot off the wall, a ramp longer than the cart: 422 each.
+        for bad in [
+            serde_json::json!({"label": "  "}),
+            serde_json::json!({"label": "two\nlines"}),
+            serde_json::json!({"slot": 25}),
+            serde_json::json!({"bank": 6}),
+            serde_json::json!({"ramp_ms": 3_001}),
+        ] {
+            let (code, body) = patch_json(app.clone(), &slot(1), Some(ADMIN), bad.clone()).await;
+            assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {body}");
+        }
+        // What an edit cannot change is refused as a body, not skipped.
+        let (code, _) = patch_json(
+            app.clone(),
+            &slot(1),
+            Some(ADMIN),
+            serde_json::json!({"gain_db": 20}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
+        // A move never lands on another cart: the answer names the cart in the way.
+        let (code, body) = patch_json(
+            app.clone(),
+            &slot(1),
+            Some(ADMIN),
+            serde_json::json!({"slot": 3}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CONFLICT, "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("Back-anno bed"),
+            "{body}"
+        );
+        // A good edit reaches the write.
+        for good in [
+            serde_json::json!({"label": "Applause, long"}),
+            serde_json::json!({"slot": 24}),
+            serde_json::json!({"ramp_ms": null, "mode": "sweeper"}),
+        ] {
+            let (code, body) = patch_json(app.clone(), &slot(1), Some(ADMIN), good.clone()).await;
+            assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{good}: {body}");
+        }
+        // And the wall is as it was: nothing was written in memory alone.
+        let (_, cat) = get_admin(app, "/api/v1/carts").await;
+        assert_eq!(cat["carts"][0]["label"], "Applause");
+        assert_eq!(cat["carts"][0]["slot"], 1);
+        // The limits an upload is held to come with the catalogue, for the studio's words.
+        assert_eq!(cat["max_upload_mb"], 64);
+        assert_eq!(cat["max_seconds"], 600.0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_station_without_a_default_pack_says_so() {
+        let (app, _hub, _fake, _ids, dir) = cart_app().await;
+        let (code, view) = get_admin(app.clone(), "/api/v1/carts/pack").await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(view["available"], false);
+        assert!(
+            view["problem"]
+                .as_str()
+                .unwrap()
+                .contains("`carts.demo_pack` is not set"),
+            "{view}"
+        );
+        assert_eq!(view["banks"], serde_json::json!([]));
+        // A stranger is told nothing; a load has nothing to load from.
+        let res = app
+            .clone()
+            .oneshot(
+                Request::get("/api/v1/carts/pack")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let load = serde_json::json!({"loads": [{"bank": 1, "into": 1}]});
+        let (code, _) = post_json(app.clone(), "/api/v1/carts/pack", None, load.clone()).await;
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+        let (code, body) = post_json(app.clone(), "/api/v1/carts/pack", Some(ADMIN), load).await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        // What is not a load is refused as a body.
+        let (code, _) = post_json(
+            app,
+            "/api/v1/carts/pack",
+            Some(ADMIN),
+            serde_json::json!({"loads": [{"bank": 1}], "force": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

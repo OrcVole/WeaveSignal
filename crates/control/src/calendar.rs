@@ -718,7 +718,9 @@ async fn import(State(state): State<Arc<ShowsState>>, headers: HeaderMap, body: 
     let mut drawing = tokio::task::JoinSet::new();
     for (i, c) in chosen.iter().enumerate() {
         let provisional = provisional(c, &c.slug);
-        let data = crate::shows::card_data(&state, &provisional)?;
+        // Without a public address (cards off) the names are checked all the same, against a
+        // stand-in address, and nothing drawn is kept (1.2.1).
+        let data = crate::shows::card_data_or_stand_in(&state, &provisional);
         drawing.spawn(async move { (i, crate::shows::draw(data).await) });
     }
     let mut renders: HashMap<usize, Vec<weavesignal_cards::Rendered>> = HashMap::new();
@@ -743,7 +745,11 @@ async fn import(State(state): State<Arc<ShowsState>>, headers: HeaderMap, body: 
     tracing::info!(count = made.len(), by = %actor.label(), "shows were made from a calendar file");
     // The cards are kept once the shows exist; a card that cannot be kept is drawn again on the
     // show's next save, and does not undo the import.
+    let cards_on = state.printed_address().is_some();
     for (i, show) in made.iter().enumerate() {
+        if !cards_on {
+            break;
+        }
         // A path taken meanwhile was made free again: its cards are drawn again for it.
         if show.slug != chosen[i].slug {
             let again = crate::shows::card_data(&state, &provisional(&chosen[i], &show.slug));

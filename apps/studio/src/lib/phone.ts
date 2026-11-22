@@ -48,6 +48,16 @@ export interface PhoneStatus {
    *  `PHONE_DEFAULT_VOICE`, changed with `PUT /api/v1/phone/consent`). */
   default_voice?: ConsentVoice | null;
   default_voice_help?: string;
+  /** Where the line's trunk and dispatch rule stand in LiveKit (1.2.1): calls reach the line
+   *  only once they are `made`. Absent with the line off, and from a 1.2.0 station. */
+  trunk?: PhoneTrunk | null;
+}
+
+/** `PhoneStatus.trunk`. */
+export interface PhoneTrunk {
+  state: 'making' | 'made' | 'failed';
+  message: string | null;
+  checked_ms: number | null;
 }
 
 /** `phone.default_voice`: `alba` (the default) or `edinburgh`, which come with WeaveSignal, or
@@ -61,6 +71,25 @@ export const DEFAULT_VOICES: readonly { voice: Exclude<ConsentVoice, 'own'>; nam
 /** Whether this station lets the screen change the consent settings: it says what is in force
  *  (`consent_words`), so it has `PUT /api/v1/phone/consent`, and the line is on. */
 export const canSetConsent = (s: PhoneStatus | null | undefined): boolean => !!s && typeof s.consent_words === 'boolean' && s.default_voice != null && s.closed !== 'off';
+
+/** Why the consent switch cannot be pressed, said beside it (1.2.1: with only a hint underneath
+ *  it read as a dead switch). `word` goes next to the switch, `how` under it; null when it can
+ *  be pressed. The station refuses the change while the line is off (`PUT /api/v1/phone/consent`
+ *  answers 409: there is no line to set), so the screen says so instead of offering it. */
+export function consentLock(s: PhoneStatus | null | undefined): { why: 'line_off' | 'version'; word: string; how: string } | null {
+  if (!s || canSetConsent(s)) return null;
+  if (s.closed === 'off')
+    return {
+      why: 'line_off',
+      word: 'Turn the phone line on to change this',
+      how: 'The words play before a phone caller joins the queue, so there is nothing to switch until the line takes calls. Turn the phone line on first (it needs a trunk, set where the station is installed); this switch then works here.',
+    };
+  return {
+    why: 'version',
+    word: 'Shown only: this station’s version sets it at install',
+    how: `${SET_AT_INSTALL} Its name is PHONE_CONSENT_WORDS.`,
+  };
+}
 
 /** Which recording a caller hears, as the station says: its own whenever it has one (it plays
  *  instead of either voice), else the shipped voice chosen (`own` with none: nothing, and the
@@ -167,6 +196,7 @@ export interface LineWords {
   fix: string | null;
 }
 
+const sentence = (w: string) => (/[.!?]$/.test(w.trim()) ? w.trim() : `${w.trim()}.`);
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Where the line stands, for the screener and Settings. */
@@ -184,6 +214,10 @@ export function lineWords(s: PhoneStatus): LineWords {
     if (s.closed.words === 'no_recording') return { state: 'closed', word: 'Closed', line: 'The line takes no calls: it is set to play only the station’s own recording, and there is none yet.', fix: 'Record the station’s own words below, or choose Alba or Edinburgh.' };
     return { state: 'closed', word: 'Closed', line: 'The line takes no calls: the words are on, and the recordings that come with WeaveSignal are missing from this installation.', fix: 'Record the station’s own words below, or install the station again from its image, which carries them.' };
   }
+  if (s.trunk?.state === 'making')
+    return { state: 'closed', word: 'Starting', line: 'The line is on, and the station is still making its trunk in LiveKit: calls are refused until it has.', fix: s.trunk.message ? `LiveKit has not answered yet (${s.trunk.message}). It is tried again every few seconds.` : null };
+  if (s.trunk?.state === 'failed')
+    return { state: 'closed', word: 'Closed', line: 'The line takes no calls: the station could not make its trunk in LiveKit, so every call is refused.', fix: `${sentence(s.trunk.message ?? 'LiveKit gave no reason')} It is tried again every few seconds; correct the trunk’s settings where the station is installed if they are the cause.` };
   if (!s.open) return { state: 'closed', word: 'Closed', line: 'The line is on, and call-in is closed just now.', fix: 'It opens with call-in: the show’s step, and the station’s takedown contact.' };
   const busy = [s.at_gate ? `${s.at_gate} hearing the words` : null, s.in_queue ? `${s.in_queue} in the queue` : null].filter(Boolean).join(' · ');
   return { state: 'open', word: 'Taking calls', line: `Taking calls on ${plural(s.lines, 'line', 'lines')}${busy ? ` · ${busy}` : ''}.`, fix: null };

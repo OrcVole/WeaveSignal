@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+#
+# `just test-no-stun` only (tests/no-stun/run.sh): the Compose bundle in one network namespace of
+# its own instead of the host's. Every station service joins `netns`'s namespace, so they still
+# reach each other on 127.0.0.1 exactly as on the host network, while everything that leaves the
+# station goes out through `netns`'s one interface (eth0, on the project's Podman network). That
+# namespace belongs to the rootless user namespace, so the test can capture on eth0 with tcpdump
+# under `podman unshare` and no root. Nothing is published on the host.
+services:
+  netns:
+    image: ${SERVER_IMAGE}
+    entrypoint: ["sleep", "infinity"]
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
+  livekit:
+    network_mode: "service:netns"
+  listeners:
+    network_mode: "service:netns"
+  playout:
+    network_mode: "service:netns"
+  desk:
+    network_mode: "service:netns"
+  postgres:
+    network_mode: "service:netns"
+  control:
+    network_mode: "service:netns"
+  chat:
+    network_mode: "service:netns"
+  ingest:
+    network_mode: "service:netns"

@@ -20,6 +20,8 @@
 //! sit inside the profanity delay, and beds dip under an open microphone there, worked out
 //! by the desk's mixing pass. They no longer go through playout.
 
+pub mod pack;
+
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -169,6 +171,10 @@ pub struct Catalogue {
     pub carts: Vec<CatalogueCart>,
     /// The loudness every cart is brought to, in LUFS.
     pub loudness_lufs: f64,
+    /// The largest file a slot takes, in megabytes (`carts.max_upload_mb`).
+    pub max_upload_mb: u64,
+    /// The longest cart, in seconds (`carts.max_seconds`).
+    pub max_seconds: f64,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, utoipa::ToSchema)]
@@ -210,6 +216,10 @@ pub enum CartProblem {
     NoCart(Uuid),
     #[error("bank {0} has not been made")]
     NoBank(u8),
+    #[error("bank {0} slot {1} is empty: there is no cart to change")]
+    EmptySlot(u8, u8),
+    #[error("bank {0} slot {1} already holds “{2}”; move or remove that cart first")]
+    Taken(u8, u8, String),
     #[error("FILE MISSING: “{0}” has no file. Re-link it in the library.")]
     Missing(String),
     #[error("“{0}” is already sounding")]
@@ -226,6 +236,12 @@ pub enum CartProblem {
     Desk(#[from] DeskError),
     #[error("carts are kept in the database, and none is configured")]
     NoDatabase,
+    #[error("this station has no default pack to load: {0}")]
+    NoPack(String),
+    #[error("a pack is loading now; wait until it has finished")]
+    PackLoading,
+    #[error("{0}; send `replace: true` to go on")]
+    PackAsks(String),
     #[error("{0}")]
     Invalid(String),
     #[error("the file was refused: {0}")]
@@ -278,7 +294,7 @@ impl CartWall {
     }
 
     /// The station's banks and carts, and `show`'s own beside them.
-    pub fn catalogue(&self, loudness_lufs: f64, show: Option<&str>) -> Catalogue {
+    pub fn catalogue(&self, config: &CartsConfig, show: Option<&str>) -> Catalogue {
         let shown = |owner: &Option<String>| owner.is_none() || owner.as_deref() == show;
         Catalogue {
             version: self.version,
@@ -298,7 +314,9 @@ impl CartWall {
                     missing: self.missing.contains(&c.id),
                 })
                 .collect(),
-            loudness_lufs,
+            loudness_lufs: config.loudness_lufs,
+            max_upload_mb: config.max_upload_mb,
+            max_seconds: config.max_seconds,
         }
     }
 
@@ -433,32 +451,32 @@ impl CartWall {
 
 /// A demo or station pack: `carts.json` beside its files (`assets/carts-demo`).
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-struct Pack {
-    banks: std::collections::BTreeMap<String, String>,
-    carts: Vec<PackCart>,
+pub(crate) struct Pack {
+    pub(crate) banks: std::collections::BTreeMap<String, String>,
+    pub(crate) carts: Vec<PackCart>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-struct PackCart {
-    id: String,
-    label: String,
-    file: String,
-    category: String,
-    suggested: PackSlot,
+pub(crate) struct PackCart {
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) file: String,
+    pub(crate) category: String,
+    pub(crate) suggested: PackSlot,
     #[serde(rename = "loop")]
-    looping: bool,
-    licence: String,
+    pub(crate) looping: bool,
+    pub(crate) licence: String,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-struct PackSlot {
-    bank: u8,
-    slot: u8,
+pub(crate) struct PackSlot {
+    pub(crate) bank: u8,
+    pub(crate) slot: u8,
 }
 
 impl PackCart {
     /// A loop is a bed; a whoosh is a sweeper; the rest play once.
-    fn mode(&self) -> CartMode {
+    pub(crate) fn mode(&self) -> CartMode {
         if self.looping {
             CartMode::Bed
         } else if self.category == "whoosh" {
@@ -486,6 +504,85 @@ pub struct CartMeta {
     pub licence: String,
 }
 
+/// `Some(None)` from JSON `null` (take the ramp away); a field left out is `None`.
+fn double<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Some(Option::deserialize(d)?))
+}
+
+/// A change to a cart that keeps its sound (`PATCH` on its slot): any of its words, its mode,
+/// its ramp, and its place. A field left out stays as it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CartEdit {
+    /// The cart's name on the wall: 1 to 120 characters.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// The second line; empty for none.
+    #[serde(default)]
+    pub detail: Option<String>,
+    #[serde(default)]
+    pub mode: Option<CartMode>,
+    /// Milliseconds to the first vocal, at most the cart's length; `null` takes the ramp away.
+    #[serde(default, deserialize_with = "double")]
+    #[schema(value_type = Option<u32>)]
+    pub ramp_ms: Option<Option<u32>>,
+    /// At most 80 characters.
+    #[serde(default)]
+    pub licence: Option<String>,
+    /// Move it to this bank of the same owner's (1 to 5); left out, it stays in its bank.
+    #[serde(default)]
+    pub bank: Option<u8>,
+    /// Move it to this slot (1 to 24), which is its key on the wall; the slot must be empty.
+    #[serde(default)]
+    pub slot: Option<u8>,
+}
+
+impl CartEdit {
+    /// The cart as this edit leaves it; nothing is checked here.
+    pub fn apply(&self, cart: &Cart) -> Cart {
+        let mut c = cart.clone();
+        if let Some(l) = &self.label {
+            c.label = l.trim().to_owned();
+        }
+        if let Some(d) = &self.detail {
+            c.detail = d.trim().to_owned();
+        }
+        if let Some(m) = self.mode {
+            c.mode = m;
+        }
+        if let Some(r) = self.ramp_ms {
+            c.ramp_ms = r;
+        }
+        if let Some(l) = &self.licence {
+            c.licence = l.trim().chars().take(80).collect();
+        }
+        if let Some(b) = self.bank {
+            c.bank = b;
+        }
+        if let Some(s) = self.slot {
+            c.slot = s;
+        }
+        c
+    }
+}
+
+/// A ramp is no longer than its cart (a cart whose length is not known takes any).
+fn check_ramp(cart: &Cart) -> Result<(), CartProblem> {
+    match cart.ramp_ms {
+        Some(r) if cart.duration_ms > 0 && r > cart.duration_ms => {
+            Err(CartProblem::Invalid(format!(
+                "the ramp is {r} ms and the cart {} ms long; a ramp ends before its cart does",
+                cart.duration_ms
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
 impl Hub {
     fn wall<R>(&self, f: impl FnOnce(&mut CartWall) -> R) -> R {
         self.with_inner(|inner| f(&mut inner.carts))
@@ -497,8 +594,7 @@ impl Hub {
 
     /// The station's banks and carts, and `show`'s own beside them (by its slug).
     pub fn catalogue(&self, show: Option<&str>) -> Catalogue {
-        let lufs = self.carts.config.loudness_lufs;
-        self.with_inner(|i| i.carts.catalogue(lufs, show))
+        self.with_inner(|i| i.carts.catalogue(&self.carts.config, show))
     }
 
     /// Every cart's label by its id, the station's and every show's (the schedule's log names
@@ -870,12 +966,14 @@ impl Hub {
             )));
         }
         let (flac, report) = media::normalise(&self.carts.config, bytes).await?;
+        cart.duration_ms = u32::try_from(report.duration_ms).unwrap_or(u32::MAX);
+        // Known only now that the worker has measured it; nothing is written yet.
+        check_ramp(&cart)?;
         let dir = &self.carts.config.media_dir;
         let name = media::store(dir, &flac)
             .await
             .map_err(|e| CartProblem::Failed(format!("cannot write the cart file: {e}")))?;
         cart.file = Some(name.clone());
-        cart.duration_ms = u32::try_from(report.duration_ms).unwrap_or(u32::MAX);
         cart.gain_db = report.play_gain_db as f32;
         cart.loudness_lufs = Some(report.integrated_lufs as f32);
         cart.true_peak_dbtp = Some(report.true_peak_dbtp as f32);
@@ -897,6 +995,66 @@ impl Hub {
             lufs = report.integrated_lufs, gain_db = report.play_gain_db, "cart imported"
         );
         self.reload_carts().await?;
+        Ok(cart)
+    }
+
+    /// Change the cart in a slot of the owner's bank without touching its sound: its words,
+    /// mode and ramp, or its place (an empty slot of the same owner's banks). It keeps its id,
+    /// so a cart that is sounding goes on sounding and the play log still names it.
+    pub async fn edit_cart(
+        &self,
+        owner: &Owner,
+        bank: u8,
+        slot: u8,
+        edit: &CartEdit,
+    ) -> Result<Cart, CartProblem> {
+        let at = |i: &crate::hub::Inner, bank: u8, slot: u8| {
+            i.carts
+                .carts
+                .iter()
+                .find(|c| c.bank == bank && c.slot == slot && c.show.as_deref() == owner.slug())
+                .cloned()
+        };
+        let Some(old) = self.read_inner(|i| at(i, bank, slot)) else {
+            return Err(CartProblem::EmptySlot(bank, slot));
+        };
+        let cart = edit.apply(&old);
+        // Checked before the database is asked, so a bad word or slot costs nothing.
+        cart.check()?;
+        check_ramp(&cart)?;
+        if (cart.bank, cart.slot) != (bank, slot)
+            && let Some(there) = self.read_inner(|i| at(i, cart.bank, cart.slot))
+        {
+            return Err(CartProblem::Taken(cart.bank, cart.slot, there.label));
+        }
+        let (pool, station) = self.db()?;
+        match carts::update_cart(pool, station, owner.id(), &cart).await? {
+            carts::CartUpdate::Updated => {}
+            carts::CartUpdate::Gone => return Err(CartProblem::EmptySlot(bank, slot)),
+            carts::CartUpdate::NoBank => return Err(CartProblem::NoBank(cart.bank)),
+            carts::CartUpdate::Taken => {
+                // Someone filled the slot since this window last read the wall.
+                self.reload_carts().await?;
+                let label = self
+                    .with_inner(|i| at(i, cart.bank, cart.slot))
+                    .map(|c| c.label)
+                    .unwrap_or_default();
+                return Err(CartProblem::Taken(cart.bank, cart.slot, label));
+            }
+        }
+        tracing::info!(
+            cart = %cart.id, show = ?owner.slug(), bank = cart.bank, slot = cart.slot,
+            label = %cart.label, mode = cart.mode.as_str(), "cart changed"
+        );
+        self.reload_carts().await?;
+        // What is sounding names its cart by the label it had when it started: a new name
+        // shows at once.
+        self.wall(|w| {
+            w.sounding
+                .iter_mut()
+                .filter(|s| s.cart == cart.id)
+                .for_each(|s| s.label = cart.label.clone())
+        });
         Ok(cart)
     }
 
@@ -1060,13 +1218,65 @@ mod tests {
         let mut w = CartWall::default();
         w.replace(vec![], vec![a.clone(), b.clone(), c.clone()], &dir);
         assert_eq!(w.missing, BTreeSet::from([b.id, c.id]));
-        let cat = w.catalogue(-23.0, None);
+        let cat = w.catalogue(&CartsConfig::default(), None);
+        assert_eq!(
+            (cat.loudness_lufs, cat.max_upload_mb, cat.max_seconds),
+            (-23.0, 64, 600.0),
+            "the limits an upload is held to come with the catalogue"
+        );
         assert!(!cat.carts[0].missing && cat.carts[1].missing);
         std::fs::remove_file(dir.join(&present)).unwrap();
         assert!(w.refresh_missing(&dir));
         assert!(w.missing.contains(&a.id));
         assert!(!w.refresh_missing(&dir), "no change the second time");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_edit_changes_only_what_it_names() {
+        let mut old = cart(2, 7, CartMode::OneShot, None);
+        old.ramp_ms = Some(1_500);
+        old.licence = "CC0 1.0".into();
+        // Nothing named: nothing changed.
+        let none: CartEdit = serde_json::from_str("{}").unwrap();
+        assert_eq!(none.apply(&old), old);
+        // A ramp left out stays; `null` takes it away.
+        let relabel: CartEdit =
+            serde_json::from_str(r#"{"label": "  Top of the hour  ", "mode": "sweeper"}"#).unwrap();
+        let c = relabel.apply(&old);
+        assert_eq!(
+            (c.label.as_str(), c.mode, c.ramp_ms),
+            ("Top of the hour", CartMode::Sweeper, Some(1_500))
+        );
+        assert_eq!((c.id, c.bank, c.slot), (old.id, 2, 7), "its id and place");
+        let no_ramp: CartEdit = serde_json::from_str(r#"{"ramp_ms": null}"#).unwrap();
+        assert_eq!(no_ramp.apply(&old).ramp_ms, None);
+        // A move is a bank, a slot or both; the cart is the same cart.
+        let moved: CartEdit = serde_json::from_str(r#"{"slot": 24}"#).unwrap();
+        let c = moved.apply(&old);
+        assert_eq!((c.id, c.bank, c.slot, &c.file), (old.id, 2, 24, &old.file));
+        // The sound is not an edit's to change.
+        for body in [r#"{"file": "x.flac"}"#, r#"{"gain_db": 6}"#, r#"{"id": 1}"#] {
+            assert!(serde_json::from_str::<CartEdit>(body).is_err(), "{body}");
+        }
+        // A licence is cut to 80 characters, as an upload's is.
+        let long: CartEdit =
+            serde_json::from_str(&format!(r#"{{"licence": "{}"}}"#, "x".repeat(90))).unwrap();
+        assert_eq!(long.apply(&old).licence.chars().count(), 80);
+    }
+
+    #[test]
+    fn a_ramp_ends_before_its_cart_does() {
+        let mut c = cart(1, 1, CartMode::OneShot, None);
+        c.ramp_ms = Some(4_000);
+        assert!(check_ramp(&c).is_ok(), "as long as the cart, at the most");
+        c.ramp_ms = Some(4_001);
+        assert!(matches!(check_ramp(&c), Err(CartProblem::Invalid(_))));
+        c.duration_ms = 0;
+        assert!(
+            check_ramp(&c).is_ok(),
+            "a length not known holds nothing back"
+        );
     }
 
     #[test]

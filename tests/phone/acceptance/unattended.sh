@@ -22,9 +22,11 @@
 # real line. --dry-run makes the caller's microphone, prints the schedule and stops: no container.
 #
 # Checked afterwards (RESULT.txt in --out):
-#   - the call was answered (baresip's log says established) and the words were heard: what the
-#     caller heard has sound in the lead-in, before the key;
-#   - with the API: a phone caller (phone-…) reached the queue after the key, its card shows the
+#   - the call was answered (baresip's log says Call established) and the consent words were
+#     heard: what the caller heard before the key matches the shipped recording's level contour
+#     (words_match.mojo; a ringback or other sound does not), or is quiet with the words off;
+#   - with the API: the station's trunk is made in LiveKit before the call (GET /api/v1/phone's
+#     `trunk`; 1.2.1); a phone caller (phone-…) reached the queue after the key, its card shows the
 #     last digits and no name from LiveKit, and after the drop no phone caller is left;
 #   - the call was ended by the studio (baresip's log says closed) within a few seconds of the drop;
 #   - the From number appears in no file the control plane wrote (its log is the operator's to add).
@@ -79,6 +81,23 @@ for c in json.load(sys.stdin).get("callers", []):
 with_api=false
 [ -n "${WEAVESIGNAL_CONTROL_URL:-}" ] && [ -n "${WEAVESIGNAL_CONTROL_TOKEN:-}" ] && with_api=true
 [ "$with_api" = true ] || note "no WEAVESIGNAL_CONTROL_URL and token: the call only, no studio acts or API checks"
+# The station makes its own trunk and dispatch rule in LiveKit (1.2.1); until it has, LiveKit
+# refuses every call with a 404. Wait for it rather than ring too soon.
+if [ "$with_api" = true ]; then
+  trunk=''
+  for _ in $(seq 1 60); do
+    trunk=$(api GET /api/v1/phone 2>/dev/null | python3 -I -c 'import json,sys; t=json.load(sys.stdin).get("trunk") or {}; print(t.get("state","none"))' || true)
+    [ "$trunk" = made ] && break
+    sleep 2
+  done
+  [ "$trunk" = made ] && check ok "the station's trunk is made in LiveKit" \
+    || check no "the station's trunk is not made (trunk: ${trunk:-no answer}); the call is made anyway"
+fi
+# Which words the caller should hear: the shipped recordings (default), the station's own, or none.
+words_kind=default
+if [ "$with_api" = true ]; then
+  words_kind=$(api GET /api/v1/phone 2>/dev/null | python3 -I -c 'import json,sys; print((json.load(sys.stdin).get("words") or {}).get("kind","default"))' || echo default)
+fi
 
 cleanup() { exec 8>&- 2>/dev/null || true; podman rm -f "$P" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -110,7 +129,9 @@ note "T0: dialling sip:$to@$sip"
 echo "/dial sip:$to@$sip" >&8
 wait_until() { local s=$(( t0 + $1 - $(date +%s) )); [ "$s" -le 0 ] || sleep "$s"; }
 wait_until "$key_at"
-podman logs "$P" 2>&1 | grep -qi established && check ok "the call was answered by ${key_at}s" \
+answered=false
+podman logs "$P" 2>&1 | grep -q "Call established" && answered=true
+[ "$answered" = true ] && check ok "the call was answered by ${key_at}s" \
   || check no "the call was not answered by ${key_at}s"
 echo "$key" >&8
 note "pressed $key"
@@ -150,14 +171,34 @@ sleep 2
 kill "$cues" 2>/dev/null || true
 podman logs "$P" > "$out/caller.log" 2>&1 || true
 
-# What the caller heard: sound before the key is the words (none with the words off).
-if [ -s "$out/heard.wav" ]; then
+# What the caller heard before the key. Any sound is not enough: baresip plays its own ringback
+# after 180 Ringing, and on a call LiveKit refused that passed as the words (the real-kit tries,
+# 2026-11-21). The call must have been answered, and what was heard must match the words'
+# recording (words_match.mojo, the level contour against the shipped voices).
+if [ ! -s "$out/heard.wav" ]; then
+  check no "the caller recorded nothing"
+elif [ "$answered" != true ]; then
+  check no "the words: the call was never answered, so none were heard (a ringback is not the words)"
+else
   lead=$(ffmpeg -hide_banner -t "$key_at" -i "$out/heard.wav" -af volumedetect -f null - 2>&1 | sed -n 's/.*mean_volume: \([-0-9.]*\) dB/\1/p')
   note "what the caller heard before the key: mean ${lead:-?} dB"
-  awk -v v="${lead:--99}" 'BEGIN { exit !(v > -50) }' && check ok "the words were heard before the key" \
-    || note "CHECK the words were not heard before the key (right only with the words off)"
-else
-  check no "the caller recorded nothing"
+  root=$(cd "$here/../../.." && pwd)
+  case $words_kind in
+    off)
+      awk -v v="${lead:--99}" 'BEGIN { exit !(v < -50) }' && check ok "no words were played, as the line is set" \
+        || check no "the words are off, yet the caller heard sound before the key (${lead} dB)" ;;
+    station)
+      # The station's own recording is not in this repository: by level only, and said so.
+      awk -v v="${lead:--99}" 'BEGIN { exit !(v > -50) }' && note "CHECK the station's own words: sound was heard before the key (by level only; listen to heard.wav)" \
+        || check no "the station's own words were not heard before the key" ;;
+    *)
+      if m=$(mojo run "$here/words_match.mojo" "$out/heard.wav" --within "$key_at" \
+          "$root/assets/phone/phone-words-alba.opus" "$root/assets/phone/phone-words-edinburgh.opus" 2>&1); then
+        check ok "the consent words were heard before the key ($(tail -1 <<<"$m" | awk '{ n = split($3, p, "/"); printf "%s, %.2f", p[n], $2 }'))"
+      else
+        check no "what the caller heard before the key is not the consent words ($(tail -1 <<<"$m"))"
+      fi ;;
+  esac
 fi
 digits=${from#+}
 if grep -rqs -- "$digits" "$out"/*.txt "$out"/*.tsv 2>/dev/null; then check no "the number is in a file of this run"; fi

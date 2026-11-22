@@ -7,8 +7,9 @@
 #
 # Build, from the repository's root:
 #   podman build -t localhost/weavesignal-server:m1 -f deploy/images/server/Containerfile .
+# (BUILD is the desk image `just desk-image` makes; `just server-image` passes it.)
 
-ARG BUILD=localhost/weavesignal-desk-dev:m5
+ARG BUILD=localhost/weavesignal-desk-dev:current
 ARG RUNTIME=localhost/weavesignal-desk-spike:dev
 ARG NODE=docker.io/library/node:24.22.1-bookworm-slim
 

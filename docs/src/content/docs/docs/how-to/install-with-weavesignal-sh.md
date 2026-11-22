@@ -31,7 +31,7 @@ Running it again changes nothing that is already set.
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -74,9 +74,12 @@ WeaveSignal is running (project 'weavesignal', podman).
 
 Sign in: the studio uses the control plane's address above with the admin token, which is
 CONTROL_ADMIN_TOKEN in deploy/compose/.env (mode 600). It is not shown here.
-Every listener is on loopback: nobody off this machine can join or listen. To publish the
-station, run this again with --public and the name that reaches this machine.
+Every listener but LiveKit's media port is on loopback: nobody off this machine can join or
+listen. To publish the station, run this again with --public and the name that reaches this machine.
 ```
+
+With the phone line on, it adds a line saying where its SIP and media ports listen: they face
+the phone provider, so they are not on loopback (`PHONE_SIP_LISTEN` narrows SIP to one address).
 
 The SRT link (7313), the playout feed (7315), the desk's feed (7317), and the ports above the playout feed and above the listener port are internal: the script checks they are free but never shows or publishes them.
 
@@ -128,7 +131,8 @@ The script also makes two secrets for this, `INGEST_TOKEN` (the ingest's and the
 
 ### A graphics card for video
 
-With `VIDEO=true` the desk encodes the picture. From 1.2 the script looks for an NVIDIA card's CDI spec when the settings file has no `GPU` line (or says `GPU=auto`), writes `GPU=nvidia` or `GPU=none`, and with `nvidia` hands the card to the desk (`gpu.yaml`).
+With `VIDEO=true` the desk encodes the picture. From 1.2 the script looks for an NVIDIA card's CDI spec on a new install whose settings file has no `GPU` line (or on any station that says `GPU=auto`), writes `GPU=nvidia` or `GPU=none`, and with `nvidia` hands the card to the desk (`gpu.yaml`).
+From 1.2.1 an update never moves a station to the card: a station installed before, with no `GPU` line, gets `GPU=none`, and the script and the studio app's Settings say the card is there (`GPU_FOUND`).
 `VIDEO_ENCODER` (`auto`, `nvenc`, `svt`) chooses the encoder: see [Use a GPU for video](/docs/how-to/use-a-gpu-for-video/).
 
 ### Settings only

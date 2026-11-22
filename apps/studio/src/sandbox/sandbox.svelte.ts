@@ -14,6 +14,7 @@ import { catalogueFor, catalogueFrom, Refusal, Station, type PackCart } from './
 import { Sound, type Hear } from './sound.ts';
 import { PREPARING_REFUSAL } from '../lib/prepare.ts';
 import { rungFor, scenarioFor, type Lever } from './scenarios/index.ts';
+import { cartChange, isCartChange, isUpload, type Decoded } from './cartEdit.ts';
 import pack from '../../../../assets/carts-demo/carts.json';
 
 const catalogue: Catalogue = catalogueFrom(pack as { banks: Record<string, string>; carts: PackCart[] });
@@ -42,6 +43,8 @@ export const sandbox = $state({
 });
 
 let sound: Sound | null = null;
+/** How many sounds the visitor has added to the wall, for their names in the page. */
+let added = 0;
 
 /** The visitor's first press: the sound may start only from a gesture. */
 export async function begin(): Promise<void> {
@@ -188,6 +191,30 @@ export const sandboxFetch: typeof fetch = async (input, init) => {
     return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
   }
   if (method === 'GET' && path === '/api/v1/carts') return json(200, catalogueFor(catalogue, url.searchParams.get('show') || null));
+  if (isCartChange(method, path)) {
+    // The cart wall changed from the page (1.2.1), on the catalogue the page holds. A sound is
+    // decoded here and never sent anywhere; it is gone when the page is reloaded.
+    let decoded: Decoded | null = null;
+    let fields: Record<string, unknown> = {};
+    if (isUpload(method, path)) {
+      try {
+        sound ??= new Sound();
+        const file = `yours-${++added}.snd`;
+        decoded = { file, durationMs: await sound.adopt(file, await new Response(init?.body).arrayBuffer()) };
+      } catch {
+        decoded = null;
+      }
+    } else if (init?.body) {
+      try {
+        fields = (await body(init)) as Record<string, unknown>;
+      } catch {
+        return json(400, { error: 'the body is not JSON' });
+      }
+    }
+    const a = cartChange(catalogue, method, path, url.searchParams, fields, decoded, (owner) => catalogueFor(catalogue, owner));
+    if (a.status < 300) push();
+    return json(a.status, a.body);
+  }
   if (method === 'GET' && path === '/api/v1/sessions/me') return json(200, ME);
   if (method === 'PUT' && path === '/api/v1/sessions/me/mode') {
     // Live or Preparing, as a real station keeps it on the session; the sandbox starts live.

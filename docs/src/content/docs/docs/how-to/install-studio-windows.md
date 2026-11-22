@@ -13,7 +13,7 @@ It is an NSIS installer and it is not signed (ADR-0076).
 
 ## Download it
 
-Download `WeaveSignal_1.2.0_x64-setup.exe` and the checksum file `SHA256SUMS-1.2.0-windows` from the assets of [release v1.2.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.2.0); the updater reads the same files from `https://weavesignal.top/updates/`.
+Download `WeaveSignal_1.2.1_x64-setup.exe` and the checksum file `SHA256SUMS-1.2.1-windows` from the assets of [release v1.2.1 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.2.1); the updater reads the same files from `https://weavesignal.top/updates/`.
 
 Edge holds the installer at first: it says the file *isn't commonly downloaded*. To keep it:
 
@@ -29,7 +29,7 @@ The release lists it in `SHA256SUMS-<version>-windows`.
 In PowerShell, in the folder you saved it to:
 
 ```powershell
-Get-FileHash .\WeaveSignal_1.2.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\WeaveSignal_1.2.1_x64-setup.exe -Algorithm SHA256
 ```
 
 The `Hash` it prints must match the line for the installer, letter for letter (case does not matter).

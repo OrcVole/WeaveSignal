@@ -11,7 +11,7 @@
   // and what to type into their own software, each line with Copy.
   import { onDestroy, onMount, untrack } from 'svelte';
   import StateChip from '../../../../packages/ui/StateChip.svelte';
-  import { packaged } from '../lib/api.ts';
+  import { base, listSources, packaged } from '../lib/api.ts';
   import {
     bridgeChip,
     bridgeForget,
@@ -20,15 +20,18 @@
     bridgeStart,
     bridgeStop,
     bridgeView,
+    deskStateOf,
     droppedKb,
     keyProblem,
     softwareFields,
     uplinkWords,
     type BridgeView,
+    type DeskState,
   } from '../lib/bridge.ts';
 
-  /** `initial` is a test's view: the panel is then drawn in a browser build too, and asks nothing. */
-  let { initial = null }: { initial?: BridgeView | null } = $props();
+  /** `initial` is a test's view: the panel is then drawn in a browser build too, and asks nothing;
+   *  `initialDesk` the source's state at the desk with it. */
+  let { initial = null, initialDesk = null }: { initial?: BridgeView | null; initialDesk?: DeskState } = $props();
 
   const seed = untrack(() => initial);
   const here = packaged() || !!seed;
@@ -42,10 +45,27 @@
   let busy = $state(false);
   let copied = $state<string | null>(null);
   let timer: ReturnType<typeof setInterval> | undefined;
+  // Where the bridged source stands at the desk (on air, standing by), from the station's own
+  // sources: the bridge's messages say only how it was admitted. Unknown (null) when this app is
+  // signed in to another station (the key is not among its sources), or cannot read them: the
+  // panel then says Connected.
+  let desk = $state<DeskState>(untrack(() => initialDesk));
+  let ticks = 0;
+  async function readDesk(v: BridgeView) {
+    if (v.status.uplink !== 'up' || v.status.station_state !== 'standing_by' || !v.saved.key_id || !base()) {
+      desk = null;
+      return;
+    }
+    try {
+      desk = deskStateOf((await listSources()).sources, v.saved.key_id);
+    } catch {
+      desk = null;
+    }
+  }
 
   const words = (e: unknown) => (typeof e === 'string' ? e : e instanceof Error ? e.message : String(e));
   const problem = $derived(keyProblem(password));
-  const chip = $derived(view ? bridgeChip(view) : null);
+  const chip = $derived(view ? bridgeChip(view, desk) : null);
   const fields = $derived(view?.local_password ? softwareFields(view) : null);
   const dirty = $derived(!!view && (url.trim() !== view.saved.url || !!password.trim() || icecastPort !== view.saved.icecast_port || srtPort !== view.saved.srt_port));
   const portsProblem = $derived(
@@ -81,6 +101,8 @@
     }
     timer = setInterval(async () => {
       if (view?.running) view = await bridgeView().catch(() => view);
+      // The desk's state every 3 s, while connected.
+      if (view && ticks++ % 3 === 0) await readDesk(view);
     }, 1000);
   });
   onDestroy(() => clearInterval(timer));
@@ -113,8 +135,13 @@
       <h2 id="bridge-h" data-panel-title>Bridge</h2>
       {#if chip}<StateChip chip={chip.chip} word={chip.word} />{/if}
     </div>
+    <!-- What the bridge is, in one plain line first (1.2.1: the operator asked what "Bridge"
+         means; the panel assumed the reader knew), then what it needs. -->
+    <p class="what" data-testid="bridge-what">
+      <b>The bridge lets a host broadcast from their own computer:</b> your own broadcasting software (BUTT, Mixxx, OBS, Voicemeeter) sends to this app, and this app carries it to the station over the ordinary web port (443), so nothing is opened on your router or at the station.
+    </p>
     <p class="help">
-      Send from your own software (BUTT, Mixxx, OBS, Voicemeeter) to this computer, and the studio app carries it to the station over the web’s usual port. Nothing has to be opened on your router or at the station. Your software mixes your voice and your music together.
+      It is off until you start it, and needs the station’s public address and your show key (below). Your software mixes your voice and your music together.
     </p>
 
     {#if error}<p class="err" role="alert">{error}</p>{/if}
@@ -122,8 +149,8 @@
     {#if view}
       <div class="now" data-uplink={view.status.uplink} data-testid="bridge-now">
         <div class="says" role="status" aria-live="polite">
-          <b>{uplinkWords(view.status)}</b>
-          {#if view.status.station_message}<span>{view.status.station_message}</span>{/if}
+          <b>{uplinkWords(view.status, desk)}</b>
+          {#if view.status.station_message && desk !== 'on_air'}<span>{view.status.station_message}</span>{/if}
           {#if view.status.software}<span class="num">{view.status.software} · {view.status.format ?? 'format not read yet'} · {view.status.kbps} kbit/s</span>{/if}
           {#if view.status.dropped_bytes > 0}<span>{droppedKb(view.status.dropped_bytes)} dropped while the network fell behind.</span>{/if}
         </div>
@@ -269,6 +296,14 @@
   }
   .ph h2 {
     font-size: var(--fs-20);
+  }
+  .what {
+    color: var(--ink);
+    line-height: var(--lh-body);
+    max-width: 60rem;
+  }
+  .what b {
+    font-weight: 600;
   }
   .help {
     color: var(--ink-2);

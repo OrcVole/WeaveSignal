@@ -21,9 +21,21 @@
   .bank.none b { color: var(--ink-2); font-weight: 400; }
   .banks .right { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
   .banks .right b { color: var(--ink); font-weight: 600; }
+  /* The wall's notice takes the status line's place and no more room than two lines of it: the
+     strip keeps its height, so no pad moves under a hand. The whole sentence is its tooltip. */
+  .banks .right { min-height: 2.25rem; min-width: 0; }
+  .banks .note { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-2); align-items: center; max-width: 40rem; min-height: 2.25rem; padding-left: var(--s-2); border-left: 4px solid var(--axis); font-size: var(--fs-13); line-height: var(--lh-label); color: var(--ink-2); }
+  .banks .note svg { width: 16px; height: 16px; flex: none; }
+  .banks .note b { font-weight: 700; }
+  .banks .note .words { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .banks .note.good { border-left-color: var(--status-good); } .banks .note.good svg { color: var(--status-good); }
+  .banks .note.warning { border-left-color: var(--status-warning); } .banks .note.warning svg { color: var(--status-warning); }
+  .banks .note.serious { border-left-color: var(--status-serious); } .banks .note.serious svg { color: var(--status-serious); }
 
   /* the grid: six wide, four deep, the left hand of the keyboard */
   .wall { padding: var(--s-4); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); gap: var(--s-3); min-height: 0; }
+  /* A slot: its pad, and beside it (never inside it: a button holds no button) the cart's Edit. */
+  .cell { position: relative; min-width: 0; min-height: 0; display: grid; }
   .pad { position: relative; min-height: 0; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-2); display: grid; grid-template-rows: auto 1fr auto; padding: var(--s-3) var(--s-3) var(--s-2); gap: var(--s-1); text-align: left; color: var(--ink); cursor: pointer; font: inherit; box-shadow: var(--e-1); overflow: hidden; transition: border-color var(--t-state) var(--ease-out), background var(--t-state) var(--ease-out); }
   .pad::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--cart-colour, var(--deemph)); }
   .pad:hover { background: var(--surface-2); }
@@ -66,6 +78,29 @@
   .pad .duck { font-family: var(--font-ui); font-size: var(--fs-12); color: var(--ink-2); display: inline-flex; align-items: center; gap: var(--s-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pad .duck svg { width: 12px; height: 12px; color: var(--live-onair); flex: none; }
 
+  /* Adding and changing carts (1.2.1). An empty slot this window may fill is the invitation: its
+     pad adds a cart, by a press, its key or a sound dropped on it. */
+  .pad.add .label { display: inline-flex; align-items: center; gap: var(--s-2); font-weight: 600; font-size: var(--fs-14); }
+  .pad.add .label .plus { width: 14px; height: 14px; flex: none; }
+  .pad.add .fix { font-family: var(--font-ui); font-size: var(--fs-12); color: var(--ink-2); opacity: 0; transition: opacity var(--t-state) var(--ease-out); }
+  .pad.add .fix b { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+  .pad.add:hover, .pad.add:focus-visible { border-color: var(--ink-2); }
+  .pad.add:hover .label, .pad.add:focus-visible .label { color: var(--ink); }
+  .pad.add:hover .fix, .pad.add:focus-visible .fix { opacity: 1; }
+  /* A cart's Edit: quiet in the corner the ring takes while the cart sounds (a sounding cart is
+     not offered for change), plain to see when the pointer or the focus is on its slot. */
+  .padedit { position: absolute; right: var(--s-2); bottom: var(--s-2); width: 1.75rem; height: 1.75rem; display: grid; place-items: center; appearance: none; padding: 0; border: 1px solid transparent; border-radius: var(--r-1); background: transparent; color: var(--ink-2); cursor: pointer; transition: border-color var(--t-state) var(--ease-out), background var(--t-state) var(--ease-out); }
+  .padedit svg { width: 14px; height: 14px; }
+  .cell:hover .padedit, .cell:focus-within .padedit { color: var(--ink); border-color: var(--axis); background: var(--surface-3); }
+  .padedit:hover { border-color: var(--ink-2); }
+  .cell:has(.padedit) .pad .foot { padding-right: 2.25rem; }
+  .bankedit { flex: none; }
+  /* A sound dragged over the window: every pad is somewhere to drop it, and the one under it says so. */
+  .wall.dragging .pad { border-style: dashed; border-color: var(--accent); }
+  .wall.dragging .cell.over .pad { border-style: solid; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); box-shadow: inset 0 0 0 1px var(--accent); }
+  .wall.dragging .pad.add .fix { opacity: 1; }
+  .wall.dragging .padedit { visibility: hidden; }
+
   /* bottom strip: what is sounding, and the keys */
   .now { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-2) var(--s-4); border-top: 1px solid var(--hairline); background: var(--surface); min-height: 3.25rem; flex-wrap: wrap; }
   .now .sounding { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
@@ -88,3 +123,53 @@
   @media (prefers-reduced-motion: reduce) { .pad { transition: none; } }
   @container (max-width: 1000px) { & { overflow: auto; height: auto; } .wall { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: none; } .wall .pad { min-height: 8rem; } }
 }
+
+/* The cart and bank dialogs (carts.edit, carts.bank-edit; 1.2.1). Both are guided dialogs and
+   take `dialog.wz` whole from rule.css; only what is theirs alone is here. Neither takes a class
+   the wall uses (`.bank` is a tab: it would draw the closed dialog). */
+dialog.wz.carts .where { display: flex; align-items: center; gap: var(--s-2); color: var(--ink-2); font-size: var(--fs-13); line-height: var(--lh-body); }
+dialog.wz.carts .where kbd { min-width: 2.1rem; height: 1.75rem; font-size: var(--fs-14); font-weight: 600; flex: none; }
+dialog.wz.carts .where .band { width: 5px; align-self: stretch; min-height: 1.5rem; border-radius: 2px; background: var(--bank-colour, var(--deemph)); flex: none; }
+dialog.wz.carts .has { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink); }
+dialog.wz.carts .has .from { color: var(--ink-2); overflow-wrap: anywhere; }
+dialog.wz.carts .hint.ink { color: var(--ink); }
+dialog.wz.carts .opt { font-weight: 400; font-size: var(--fs-13); color: var(--ink-2); margin-left: 0.25em; }
+dialog.wz.carts .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); align-items: start; }
+dialog.wz.carts input.n { width: 5rem; text-align: center; font-variant-numeric: tabular-nums; }
+/* the sound: a file chosen, or dropped anywhere on the window while the dialog is open */
+dialog.wz.carts .pickfile { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-3) var(--s-4); border: 1px dashed var(--axis); border-radius: var(--r-2); background: var(--surface-2); }
+dialog.wz.carts .pickfile .g { width: 1.125rem; height: 1.125rem; flex: none; color: var(--ink-2); }
+dialog.wz.carts .pickfile .dropline { color: var(--ink-2); font-size: var(--fs-13); }
+dialog.wz.carts .pickfile .picked { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; line-height: var(--lh-body); }
+dialog.wz.carts .pickfile .picked .num, dialog.wz.carts .pickfile .picked .swap { color: var(--ink-2); font-size: var(--fs-13); }
+dialog.wz.carts .pickfile .takes { flex: 1 0 100%; color: var(--ink-2); }
+dialog.wz.carts .pickfile.chosen { border-style: solid; }
+dialog.wz.carts .pickfile.chosen .g { color: var(--status-good); }
+dialog.wz.carts .pickfile.over { border-color: var(--accent); border-style: solid; background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); }
+dialog.wz.carts .pickfile.over .dropline { color: var(--ink); font-weight: 600; }
+dialog.wz.carts.over { outline: 2px dashed var(--accent); outline-offset: -0.375rem; }
+dialog.wz.carts .sandbox { border-left: 3px solid var(--axis); padding-left: var(--s-2); color: var(--ink-2); }
+/* the three modes, side by side: each says what it does */
+dialog.wz.carts .modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
+dialog.wz.carts.bankdlg .modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+dialog.wz.carts .modes label { align-items: start; padding: var(--s-2); border-color: var(--hairline); height: 100%; }
+dialog.wz.carts .modes label input { margin-top: 0.2rem; }
+dialog.wz.carts .modes .what { display: block; font-weight: 400; font-size: var(--fs-13); color: var(--ink-2); line-height: var(--lh-label); margin-top: 2px; }
+/* a file on its way: no figure is known for how far it has got, so the bar says only that it is */
+dialog.wz.carts .working { display: grid; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); }
+dialog.wz.carts .working .bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+dialog.wz.carts .working .bar i { display: block; width: 35%; height: 100%; border-radius: 2px; background: var(--accent); animation: cart-sending 1.4s ease-in-out infinite; }
+@keyframes cart-sending { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
+@media (prefers-reduced-motion: reduce) { dialog.wz.carts .working .bar i { width: 100%; animation: none; opacity: 0.55; } }
+dialog.wz.carts .err:focus { outline: none; }
+/* Remove asks first, in the dialog's own foot: Keep it has the focus */
+dialog.wz.carts .ask { display: grid; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--status-critical); border-radius: var(--r-2); background: var(--surface-2); line-height: var(--lh-body); }
+dialog.wz.carts .ask > span { color: var(--ink-2); font-size: var(--fs-13); }
+dialog.wz.carts .note .btn { margin-top: var(--s-1); }
+@media (max-width: 40rem) { dialog.wz.carts .two, dialog.wz.carts .modes { grid-template-columns: minmax(0, 1fr); } }
+/* the default pack (carts.pack): what a load will do, a line for each station bank */
+dialog.wz.carts .happens { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s-2); }
+dialog.wz.carts .happens li { padding: var(--s-2) var(--s-3); border-left: 3px solid var(--axis); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink); }
+dialog.wz.carts .happens li.asks { border-left-color: var(--status-warning); }
+dialog.wz.carts.packdlg .choices .count { color: var(--ink-2); font-weight: 400; font-size: var(--fs-13); }
+

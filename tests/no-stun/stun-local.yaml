@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+#
+# `just test-no-stun`'s second phase: a STUN server the station is told to use (STUN_SERVERS =
+# stun-local:3478), in a container of its own on the project's network, so the station's
+# requests to it leave the station's namespace and the capture has to see them.
+services:
+  stun-local:
+    image: ${SERVER_IMAGE}
+    entrypoint: ["python3", "-I", "/opt/stun-responder.py", "3478"]
+    oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
+    security_opt: [label=disable]
+    volumes:
+      - ../../tests/no-stun/stun-responder.py:/opt/stun-responder.py:ro

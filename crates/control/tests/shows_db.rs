@@ -1726,6 +1726,76 @@ async fn an_older_studio_keeps_a_rule_it_cannot_see_and_a_slot_still_means_a_wee
     assert!(v["show"]["slot"].is_null());
 }
 
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_station_with_no_public_address_makes_shows_with_their_cards_off() {
+    // A loopback install (1.2.1): 1.2.0 refused New show with 503 "cards are off".
+    let r = rig_at("").await;
+    let body = ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/folk-club",
+            show_body(
+                "The Folk Club",
+                serde_json::json!({"rule": first_tuesday(), "draft_first": true, "hosts": ["Shona Campbell"]}),
+            ),
+        )
+        .await,
+    );
+    assert_eq!(body["show"]["name"], "The Folk Club");
+    assert!(
+        body["show"]["cards"].is_null(),
+        "no cards are kept: {}",
+        body["show"]["cards"]
+    );
+    assert_eq!(
+        body["drafted"]["episode"]["number"], 1,
+        "series 1 and its first episode too"
+    );
+    assert!(body["drafted"]["episode"]["cards"].is_null());
+    assert!(
+        std::fs::read_dir(r.dir.join("cards")).map_or(true, |d| d.count() == 0),
+        "no card file written"
+    );
+    // A change saves as well.
+    ok_body(
+        json(
+            &r.app,
+            "PUT",
+            "/api/v1/shows/folk-club",
+            show_body("The Folk Club on Tuesdays", serde_json::json!({})),
+        )
+        .await,
+    );
+    // The names are still checked against the cards: one that cannot fit is refused.
+    let (code, body) = json(
+        &r.app,
+        "PUT",
+        "/api/v1/shows/too-long",
+        show_body(
+            "The Not Quite Late Enough Saturday Night Shipping Forecast Appreciation Society, Extended Edition, With Added Weather For The Inshore Waters And The Coastal Stations",
+            serde_json::json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    // Asking for the cards themselves says why they are off, and what turns them on.
+    let (code, body) = json(
+        &r.app,
+        "POST",
+        "/api/v1/shows/folk-club/cards",
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+    let why = body["error"].as_str().unwrap();
+    assert!(
+        why.contains("no public address") && why.contains("weavesignal.sh --public"),
+        "{why}"
+    );
+}
+
 /// The studio makes the calendar links it gives out (Subscribe…, ADR-0281) from the station's
 /// public address, which the week's reply carries: on Cloudron the address the studio talks to
 /// is behind the login, and a link made from it would lead listeners to a login page.

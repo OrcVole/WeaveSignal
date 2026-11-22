@@ -101,7 +101,7 @@ impl ShowsState {
     }
 
     /// The address a card prints: the public address without its scheme (ADR-0056).
-    fn printed_address(&self) -> Option<String> {
+    pub(crate) fn printed_address(&self) -> Option<String> {
         self.public()
             .map(|p| p.split_once("://").map_or(p, |(_, rest)| rest).to_owned())
     }
@@ -271,11 +271,19 @@ pub(crate) fn db(state: &ShowsState) -> Result<&sqlx::PgPool, Fail> {
     })
 }
 
+/// Why cards are off, in words an admin can act on: a station with no public address (a
+/// loopback install) prints none. Shows are still made and saved without them (1.2.1).
+pub(crate) const CARDS_OFF: &str = "cards are off: this station has no public address to print on them. Set `publishing.public_url` (on Compose and the Quadlets, `weavesignal.sh --public`, or PUBLIC_ORIGIN in the settings file for a station on a private network) and restart; shows and episodes are saved meanwhile, and their cards are drawn at their next save";
+
+/// The address a save's cards are drawn with to check that the names fit, when the station has
+/// none to print: nothing drawn with it is kept.
+const FIT_CHECK_ADDRESS: &str = "station.example";
+
 fn public(state: &ShowsState) -> Result<&str, Fail> {
     state.public().ok_or_else(|| {
         Fail::Status(
             StatusCode::SERVICE_UNAVAILABLE,
-            "cards and feeds are off: set `publishing.public_url`".into(),
+            "cards and feeds are off: this station has no public address. Set `publishing.public_url` (on Compose and the Quadlets, `weavesignal.sh --public`, or PUBLIC_ORIGIN in the settings file) and restart".into(),
         )
     })
 }
@@ -284,14 +292,25 @@ pub(crate) type Answer = Result<Response, Fail>;
 
 // Cards.
 
-/// The card's fields from a resolved show, series or episode.
+/// The card's fields from a resolved show, series or episode; 503 when cards are off.
 pub(crate) fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fail> {
-    let address = state.printed_address().ok_or_else(|| {
-        Fail::Status(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "cards are off: set `publishing.public_url`".into(),
-        )
-    })?;
+    let address = state
+        .printed_address()
+        .ok_or_else(|| Fail::Status(StatusCode::SERVICE_UNAVAILABLE, CARDS_OFF.into()))?;
+    Ok(card_data_at(state, r, address))
+}
+
+/// The card's fields for checking that the names fit: the station's address, or a stand-in when
+/// it has none (cards off). What is drawn from it is kept only when cards are on.
+pub(crate) fn card_data_or_stand_in(state: &ShowsState, r: &Resolved) -> CardData {
+    let address = state
+        .printed_address()
+        .unwrap_or_else(|| FIT_CHECK_ADDRESS.into());
+    card_data_at(state, r, address)
+}
+
+/// The card's fields, printing `address`.
+fn card_data_at(state: &ShowsState, r: &Resolved, address: String) -> CardData {
     let zone = state.zone();
     let slot = r.slot.map(|s| {
         let start = jiff::civil::Time::new((s.start / 60) as i8, (s.start % 60) as i8, 0, 0)
@@ -304,7 +323,7 @@ pub(crate) fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fa
                 .map(|m| start.wrapping_add(jiff::SignedDuration::from_mins(i64::from(m)))),
         }
     });
-    Ok(CardData {
+    CardData {
         layout: Layout::parse(&r.layout).unwrap_or(Layout::Poster),
         colour_slot: r.colour_slot,
         station: StationCard {
@@ -335,7 +354,7 @@ pub(crate) fn card_data(state: &ShowsState, r: &Resolved) -> Result<CardData, Fa
         }),
         hosts: r.hosts.clone(),
         guests: r.guests.clone(),
-    })
+    }
 }
 
 /// The renders of one save, drawn off the async threads (the square is 3,000 pixels).
@@ -396,6 +415,23 @@ pub(crate) async fn draw_and_keep(
     Ok(cards)
 }
 
+/// A save's cards: drawn and kept when the station prints an address; otherwise (a loopback
+/// install, 1.2.1) drawn with a stand-in address only to check that the names fit, and nothing
+/// kept, so the save goes through and its cards are drawn at a later save.
+pub(crate) async fn save_cards(
+    state: &ShowsState,
+    level: Level,
+    id: uuid::Uuid,
+    r: &Resolved,
+) -> Result<(), Fail> {
+    if state.printed_address().is_some() {
+        draw_and_keep(state, level, id, r).await?;
+    } else {
+        draw(card_data_or_stand_in(state, r)).await?;
+    }
+    Ok(())
+}
+
 #[derive(Deserialize, utoipa::ToSchema)]
 struct PreviewQuery {
     #[serde(default)]
@@ -408,12 +444,9 @@ fn card_from_editor(state: &ShowsState, mut v: Value) -> Result<CardData, Fail> 
     if let Some(o) = v.as_object_mut()
         && !o.contains_key("station")
     {
-        let address = state.printed_address().ok_or_else(|| {
-            Fail::Status(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "cards are off: set `publishing.public_url`".into(),
-            )
-        })?;
+        let address = state
+            .printed_address()
+            .ok_or_else(|| Fail::Status(StatusCode::SERVICE_UNAVAILABLE, CARDS_OFF.into()))?;
         o.insert(
             "station".into(),
             json!({ "name": state.station_name(), "place": state.publishing.place, "address": address }),
@@ -804,7 +837,7 @@ async fn get_show(
     operation_id = "shows_put_show",
     tag = "shows",
     summary = "Make or change a show",
-    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.",
+    description = "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). A station with no public address (`publishing.public_url` empty) still makes and saves the show, its names checked the same way, and keeps no cards until it has one (1.2.1). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.",
     params(("show" = String, Path, description = "The show's slug")),
     request_body = weavesignal_model::shows::ShowInput,
     responses(
@@ -930,7 +963,10 @@ async fn put_show(
         ))
         .into());
     }
-    let renders = draw(card_data(&state, &provisional)?).await?;
+    // Without a public address (a loopback install) the names are still checked against a
+    // stand-in address, and the show is saved with no cards (1.2.1; 1.2.0 refused it, 503).
+    let printed = state.printed_address();
+    let renders = draw(card_data_or_stand_in(&state, &provisional)).await?;
     // The show, and with `draft_first` series 1 and its first episode, in one transaction: a
     // refusal (a presenter's clash among them) saves nothing.
     let made = ruleplan::put_show_drafting(
@@ -984,15 +1020,17 @@ async fn put_show(
         )
         .await;
     }
-    let cards = keep(&state, &renders).await?;
-    shows::set_cards(pool, Level::Show, show.id, &cards).await?;
+    if printed.is_some() {
+        let cards = keep(&state, &renders).await?;
+        shows::set_cards(pool, Level::Show, show.id, &cards).await?;
+    }
     let show = find_show(&state, &slug).await?;
     let drafted = match made.drafted {
         Some((series, episode)) => {
             let view = series_view(&state, &show, series.clone()).await?;
-            draw_and_keep(&state, Level::Series, series.id, &view.resolved).await?;
+            save_cards(&state, Level::Series, series.id, &view.resolved).await?;
             let r = resolve(&state, &show, &series, &episode).await?;
-            draw_and_keep(&state, Level::Episode, episode.id, &r).await?;
+            save_cards(&state, Level::Episode, episode.id, &r).await?;
             let episode = find_episode(&state, &series, episode.number).await?;
             Some(EpisodeView {
                 episode,
@@ -1579,7 +1617,7 @@ async fn put_series(
         .await;
     }
     let view = series_view(&state, &show, series).await?;
-    draw_and_keep(&state, Level::Series, view.series.series.id, &view.resolved).await?;
+    save_cards(&state, Level::Series, view.series.series.id, &view.resolved).await?;
     let series = find_series(&state, &show, n).await?;
     Ok(Json(series_view(&state, &show, series).await?).into_response())
 }
@@ -1727,7 +1765,7 @@ async fn create_episodes(
     let mut out = Vec::new();
     for e in made.episodes {
         let r = resolve(&state, &show, &series, &e).await?;
-        draw_and_keep(&state, Level::Episode, e.id, &r).await?;
+        save_cards(&state, Level::Episode, e.id, &r).await?;
         let e = find_episode(&state, &series, e.number).await?;
         out.push(EpisodeView {
             episode: e,
@@ -1815,7 +1853,7 @@ async fn patch_episode(
     check_card_words(&patch)?;
     let ep = shows::patch_episode(db(&state)?, state.station.id, &ep, &patch).await?;
     let r = resolve(&state, &show, &series, &ep).await?;
-    draw_and_keep(&state, Level::Episode, ep.id, &r).await?;
+    save_cards(&state, Level::Episode, ep.id, &r).await?;
     episode_answer(&state, &show, &series, e).await
 }
 
@@ -1901,7 +1939,7 @@ async fn air(
     if shows::freeze_episode(db(&state)?, ep.id, &r).await? {
         let ep = find_episode(&state, &series, e).await?;
         let frozen = resolve(&state, &show, &series, &ep).await?;
-        draw_and_keep(&state, Level::Episode, ep.id, &frozen).await?;
+        save_cards(&state, Level::Episode, ep.id, &frozen).await?;
     }
     episode_answer(&state, &show, &series, e).await
 }

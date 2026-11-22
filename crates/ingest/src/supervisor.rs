@@ -78,6 +78,9 @@ const MAX_CONNECTIONS: usize = 32;
 const DOOR_CLOSED_DETAIL: &str = "the slot's door closed";
 /// A test is asked about again this often.
 const RECHECK: Duration = Duration::from_secs(10);
+/// Chunks (at most 16 KiB each) waiting to be written to a decoding worker, about 16 MiB: a worker
+/// this far behind (the rate limit lets in at most 2 Mbit/s) has stopped, and is ended.
+const STDIN_BACKLOG: usize = 1024;
 
 /// Where the supervisor finds the others.
 #[derive(Clone, Debug)]
@@ -322,6 +325,8 @@ pub(crate) struct Conn {
     stop: Arc<Notify>,
     /// Why it was stopped, if from outside: logged with the end.
     stopped_for: Option<&'static str>,
+    /// The words with it, when there are some to log (what the station could not read).
+    stopped_detail: Option<String>,
     /// Asked by the control plane to become a private test (its slot's door closed): for how
     /// long, in ms. `demote` wakes the connection's loop to do it.
     demote_ms: Option<u64>,
@@ -1154,7 +1159,8 @@ async fn bridge_conn(shared: Ingest, stream: TcpStream, peer: SocketAddr) -> Res
         },
     )
     .await;
-    drop(pump);
+    // Whatever the session last told the app (a refusal's words) goes before the socket closes.
+    pump.finish().await;
     Ok(())
 }
 
@@ -1367,6 +1373,7 @@ pub(crate) async fn session(
                 level_db: None,
                 stop: stop.clone(),
                 stopped_for: None,
+                stopped_detail: None,
                 demote_ms: None,
                 demote: demote.clone(),
                 lost: extras.lost.take(),
@@ -1419,17 +1426,20 @@ pub(crate) async fn session(
             "the decoder failed"
         }
     };
-    let stopped_for = {
+    let (stopped_for, detail) = {
         let mut conns = shared.conns.lock().expect("ingest lock");
         match conns.get(&key_id) {
-            Some(c) if c.id == id => conns.remove(&key_id).and_then(|c| c.stopped_for),
-            _ => None,
+            Some(c) if c.id == id => conns
+                .remove(&key_id)
+                .map_or((None, None), |c| (c.stopped_for, c.stopped_detail)),
+            _ => (None, None),
         }
     };
     if let Some(r) = stopped_for {
+        let detail = detail.as_deref().unwrap_or(ended);
         shared
             .control
-            .event(&key_id, "refused", Some(r), ended, way, Some(&addr))
+            .event(&key_id, "refused", Some(r), detail, way, Some(&addr))
             .await;
     }
     shared
@@ -1490,7 +1500,23 @@ async fn run_worker(
             .kill_on_drop(true)
             .spawn()
             .context("cannot start the decoding worker")?;
-        stdin = child.stdin.take();
+        // The worker's input is written by a task of its own: this loop must never wait on the
+        // pipe, because the worker may be waiting for this loop to read its output. A burst (an
+        // Icecast mount's first seconds arrive at once) fills the pipe and the worker's output,
+        // and each side then waits for the other for good. Pipes are 64 KiB, but a machine whose
+        // user holds too many pipes gives new ones 8 KiB, smaller than a chunk: that is how
+        // `just test-pull` found it (1.2.1), with the Icecast pull silent after its first seconds.
+        if let Some(mut w) = child.stdin.take() {
+            let (tx, mut rx) = mpsc::channel::<Bytes>(STDIN_BACKLOG);
+            tokio::spawn(async move {
+                while let Some(chunk) = rx.recv().await {
+                    if w.write_all(&chunk).await.is_err() {
+                        return;
+                    }
+                }
+            });
+            stdin = Some(tx);
+        }
         let mut stdout = child.stdout.take().expect("piped");
         let mut stderr = child.stderr.take().expect("piped");
         let stderr_task = tokio::spawn(async move {
@@ -1554,9 +1580,11 @@ async fn run_worker(
                 if over {
                     break "more than 2 Mbit/s";
                 }
-                let Some(w) = stdin.as_mut() else { continue };
-                if w.write_all(&chunk).await.is_err() {
-                    break "the decoder stopped";
+                let Some(w) = stdin.as_ref() else { continue };
+                match w.try_send(chunk) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => break "the decoder stopped",
+                    Err(mpsc::error::TrySendError::Full(_)) => break "the decoder fell behind",
                 }
             }
             f = frames.recv() => {
@@ -1659,7 +1687,24 @@ async fn run_worker(
     if let Some(line) = complaint.lines().find(|l| l.contains("\"error\"")) {
         tracing::info!(key = %key_id, worker = %line, "the decoding worker's last word");
         if line.contains("\"unsupported\":true") {
-            mark(shared, key_id, |c| c.stopped_for = Some("format"));
+            // What it could not read, in the worker's words (Opus inside MPEG-TS, 1.2.1), for the
+            // key's log and, over the bridge, the host's own screen.
+            let what = serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|v| v["error"].as_str().map(icecast::clean_title))
+                .filter(|w| !w.is_empty());
+            let words = what.as_deref().map_or_else(
+                || "The station cannot read what your software sends.".to_owned(),
+                |w| format!("The station cannot read what your software sends: {w}."),
+            );
+            mark(shared, key_id, |c| {
+                c.stopped_for = Some("format");
+                c.stopped_detail = what.clone();
+            });
+            extras.tell(BridgeState {
+                state: "refused".into(),
+                message: words,
+            });
             return Ok("the station cannot read what the software sends");
         }
     }

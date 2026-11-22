@@ -42,6 +42,7 @@
     banProblem,
     banUntil,
     canSetConsent,
+    consentLock,
     contactProblem,
     findCalls,
     lengthWords,
@@ -126,6 +127,7 @@
   let switchNote = $state('');
   const wordsOn = $derived(status?.words ? status.words.kind !== 'off' : null);
   const settable = $derived(canSetConsent(status));
+  const lock = $derived(consentLock(status));
   const voice = $derived(status ? voiceInForce(status) : null);
   const NOT_HERE = $derived(status?.closed === 'off' ? 'The phone line is off: once it is on, this is changed here.' : `It is not changed here on this station’s version. ${SET_AT_INSTALL}`);
   let setting = $state(false);
@@ -400,8 +402,15 @@
             <span class="sw-state">{wordsOn === null ? 'Off with the line' : wordsOn ? 'On' : 'Off'}</span>
             <button type="button" class="info" bind:this={tipEl} aria-label="Does my station need the consent words?" aria-describedby="ph-words-tip">?</button>
             <Tip id="ph-words-tip" anchor={tipEl} delay={0}>{WORDS_TIP}</Tip>
+            <!-- Why the switch cannot be pressed, in words beside it (1.2.1: the operator read a
+                 fixed switch with only a hint underneath as broken). -->
+            {#if lock}
+              <span class="sw-lock" data-testid="phone-words-locked" data-why={lock.why}
+                ><svg class="g" aria-hidden="true"><use href="#g-lock" /></svg>{lock.word}</span
+              >
+            {/if}
           </div>
-          <p id="ph-switch-why" class="hint">{wordsLine(status)}{settable ? '' : ` ${SET_AT_INSTALL}`}</p>
+          <p id="ph-switch-why" class="hint" class:why={!!lock}>{lock?.why === 'line_off' ? lock.how : `${wordsLine(status)}${lock ? ` ${lock.how}` : ''}`}</p>
           {#if switchNote}<p class="hint note" role="status">{switchNote}</p>{/if}
           {#if status.words && status.words.kind !== 'off'}
             <figure class="said">
@@ -752,6 +761,32 @@
     border: 1px solid var(--hairline);
     border-radius: var(--r-1);
     padding: 0 var(--s-2);
+  }
+  /* The reason a fixed switch cannot be pressed: ink, a lock and the warning colour's edge, so
+     it reads as a statement about the switch and not as one more quiet hint. It wraps under the
+     switch in a narrow column. */
+  .sw-lock {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--fs-13);
+    font-weight: 600;
+    color: var(--ink);
+    line-height: var(--lh-label);
+    border: 1px solid var(--axis);
+    border-left: 3px solid var(--status-warning);
+    border-radius: var(--r-1);
+    background: var(--surface-2);
+    padding: var(--s-1) var(--s-2);
+  }
+  .sw-lock .g {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: var(--ink-2);
+  }
+  .hint.why {
+    color: var(--ink-2);
   }
   .info {
     appearance: none;

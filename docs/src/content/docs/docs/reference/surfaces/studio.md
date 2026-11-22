@@ -111,6 +111,12 @@ The top bar from 1.0.2, at Solo:
 
 That picture was made before Prepare mode: a member of staff signed in as themselves now has **Live** or **Preparing** after their name, and the link shows its tick alone ([`studio.prepare`](#studioprepare)).
 
+## `settings.graphics-card`
+
+**Graphics card**, in Settings after **RTMP out**, for an admin, from 1.2.1 (ADR-0292). Drawn only where the install script found an NVIDIA card on the server: on the Compose bundle or the Quadlets, never on Cloudron.
+It says in plain words whether the card is **Not in use** (with the two steps that put it to use: `GPU=nvidia` in the station's settings file, then `weavesignal.sh` again), or **With the desk** (given to it; *video off* is added when nothing is encoded yet). It says a card is there, not that it has the AV1 encoder the station's video needs: with an older card the desk stays on the CPU.
+It has no control: nothing in the studio app turns a card on, and an update never does ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/#the-hint-in-settings)).
+
 ## `studio.step`
 
 The show's step as four pips and a word, the way to change it, and **Show everything** (ADR-0271).

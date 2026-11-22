@@ -22,7 +22,7 @@ The schedule still hands over at the show's start exactly as before: the grace, 
 ## See them in the studio app
 
 - **The rota** is the Schedule tab's fourth view: press `R` on the tab, or **Rota** beside Coming up on the desk ([Keymap](/docs/reference/keymap/#schedule-tab)). It lists the next twelve hours, with the show on air marked; `D` or `W` goes back to the calendar.
-- **The window** is under the post line of the desk's clock (`desk.clock`): who is next, where they come from, and **READY**, **CONNECTING** or **NOT HERE YET**. When the show under way still waits for a late host and the next show's window has opened, both are said, the late one first.
+- **The window** is under the post line of the desk's clock (`desk.clock`): who is next, where they come from, and **READY**, **CONNECTING** or **NOT HERE YET**. When the show under way still waits for a late host and the next show's window has opened, both are said, the late one first, each by name (from 1.2.1 a presenter who never came to the room is named too, not only a host with a show key).
 - **The heads-up** is a quiet note in the desk's toast slot, and the incoming host's own tile says they are on next until their post. On their monitor link it is a line above the lamp.
 - **The window's length** is in Settings, Own studios, The rules: Off, 5, 10, 15 or 30 minutes.
 

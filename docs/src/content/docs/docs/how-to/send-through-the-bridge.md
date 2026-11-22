@@ -3,7 +3,7 @@ title: "Send through the bridge"
 description: "Send your show from your own software through the studio app: your software sends to the app on your computer, and the app carries it to the station over the web's usual port, so the station needs no port for sources and your network needs nothing but HTTPS."
 type: howto
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 40
 ---
@@ -18,6 +18,21 @@ your network lets nothing through but the web.
 Your source arrives at the desk **standing by** with the way **bridge**, exactly as a push over
 Icecast does: the post, LINK LOST and your monitor link work the same
 ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)).
+
+## What the bridge is
+
+The bridge is a way for a host to broadcast from their own computer, with the software they already use.
+
+- **Your own broadcasting software** (BUTT, Mixxx, OBS, Voicemeeter) runs on your own computer and sends to the **studio app** on the same computer, not to the station.
+- **The studio app carries it to the station** over the ordinary web port, 443: the one every website uses.
+- **So nothing is opened** on your router, and nothing at the station either: no port for sources, no firewall rule, no address to give out.
+- **It is off until you start it.** Nothing leaves your computer until you press **Start the bridge**, and it stops when you press **Stop the bridge** or close the app.
+- **It needs two things:** the station's **public address** (where listeners go) and your **show key**.
+
+Without the bridge, a host's software sends straight to the station, which then has to keep a port open for it ([Ways in](/docs/reference/ways-in/) compares them).
+The bridge is the one to choose when that port is closed, as it is on a Cloudron station unless someone opens it, or when your own network lets nothing out but the web.
+
+In the studio app it is **Settings › Bridge**; a browser has no bridge, only the installed app.
 
 ## What you need
 
@@ -54,7 +69,9 @@ does from push. You talk to listeners, not with co-hosts; a co-host or callers s
 | Format | MP3, AAC, Ogg (Opus or Vorbis) or FLAC |
 
 For SRT (OBS, ffmpeg): `srt://127.0.0.1:9100?passphrase=<local password>&pbkeylen=16`, in
-MPEG-TS, sound only.
+MPEG-TS, sound only, with the audio in AAC or MP3. Opus inside MPEG-TS is refused as soon as it
+starts, and the panel shows the station's words; the bridge then tries again more slowly each
+time (up to every 30 seconds) until the software sends AAC.
 
 The local password is made by the app the first time and kept in your keychain. It only opens
 the app's ports on your own computer, which nothing outside it can reach; press **New local
@@ -65,8 +82,11 @@ password** to change it (with the bridge stopped) and type the new one into your
 1. Press **Start the bridge**. **Now** says *Waiting for your software to connect on this
    computer*.
 2. Connect from your software. **Now** says *Connecting to the station…*, then the desk's
-   answer: *Standing by at the desk*, or *a private test* outside your slot, or why the
-   station refused (a wrong key, not your slot).
+   answer: *Standing by at the desk*, then *On air* once the studio or the schedule puts you on,
+   or *a private test* outside your slot, or why the station refused (a wrong key, not your
+   slot, a format it cannot read). Where your source stands at the desk is read from the
+   station's sources, so the app has to be signed in to that station as staff; otherwise it
+   says *Connected to the desk*. (1.2.0 kept saying *Standing by* while on air.)
 3. Open your monitor link to hear the programme and the desk's talkback.
 
 If the connection to the station drops, the app tries again after 1, 2, 4 … up to 30 seconds,

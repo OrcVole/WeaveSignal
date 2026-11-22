@@ -3,7 +3,7 @@ title: "Packages and install files"
 description: "Every package and install route the repository builds: the desktop packages and their files, the build settings, the updater's key, weavesignal.sh's settings file and the generated Quadlets."
 type: reference
 status: draft
-last_verified: 2026-11-18
+last_verified: 2026-11-21
 sidebar:
   order: 12
 ---
@@ -150,6 +150,8 @@ Not pinned: the base images (`ubuntu:24.04`, `debian:13`, `fedora:44`, `node`, `
 | `STUN_SERVERS` | empty unless set: the STUN servers the station may ask ([STUN servers](#stun-servers)) |
 | `CONGESTION_CONTROL` | `gcc` unless set: how the desk's senders control congestion; `homegrown` or `disabled` ([`desk.toml`](/docs/reference/settings/#desktoml)); refused if it is none of the three |
 | `VIDEO_ENCODER`, `GPU`, and with `GPU=nvidia` `GPU_DEVICE`, `NVENC_SESSIONS` | `auto` unless set; `GPU` unset or `auto` is what the script finds, written as `nvidia` (an NVIDIA CDI spec in `/etc/cdi` or `/var/run/cdi`) or `none`; `GPU=nvidia` with no spec is refused; `nvidia.com/gpu=all` and 12 ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)). With `VIDEO=true` and `GPU=nvidia` the bundle adds `gpu.yaml`, and the Quadlets give the desk's unit `AddDevice=` |
+| `KIT_VBAN` | `false` unless set: `true` lets the station take VBAN from a studio PC on its own network ([Connect a studio PC over VBAN](/docs/how-to/connect-a-studio-pc-over-vban/)); refused if it is neither. 1.2.0 removed the line on every run; from 1.2.1 it is kept |
+| `PUBLIC_ORIGIN` without `--public` | empty unless set: the address a station without `--public` prints on its cards and feeds, such as `http://192.168.1.20:7310` on a private network; kept as written (from 1.2.1). With `--public` it is worked out from the name instead, and `--public off` removes it |
 | With `--public`: `PUBLIC_DOMAIN`, `PUBLIC_TLS`, `ACME_EMAIL`, `NODE_IP`, `TURN_ALLOW_CIDRS`, `PROXY_HTTPS_PORT`, `PROXY_HTTP_PORT`, `TURN_TLS_PORT`, `TURN_UDP_PORT`, `LIVEKIT_TCP_PORT` | the name and what the environment gives; free ports; then, worked out from them on every run and not to be edited, the addresses the services are given (`PUBLIC_ORIGIN`, `ROOM_PUBLIC_URL`, `STREAM_URL`), `FORWARDED_FOR`, `TURN_ENABLED` and the proxy's and LiveKit's derived lines (`LIVEKIT_NODE_IP` is `NODE_IP` if set, else the A record of `PUBLIC_DOMAIN` read on that run, and `LIVEKIT_USE_EXTERNAL_IP` is always `false`: [LiveKit's public address](#livekits-public-address)) ([Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/)) |
 
 Any other line in the file is kept.
@@ -170,6 +172,15 @@ Three parts of a station would otherwise ask one, and each is set not to:
 LiveKit's list reaches any client that is not one of the station's pages (a LiveKit SDK in your own program, for instance) as LiveKit sends it: those programs are yours, and you decide what they ask.
 Before 1.2.0 (up to and including 1.1.1) all three held: the desk asked Google's server for each connection, LiveKit asked Twilio's and Google's at start when `NODE_IP` was empty, and the pages passed on whatever LiveKit sent.
 Where `NODE_IP` was set, LiveKit's own lookup did not run, but the desk and the pages still asked.
+
+`just test-no-stun` checks this from what leaves the station, not from its settings.
+It runs the Compose bundle with the example settings in a network namespace of its own and captures every packet that leaves it.
+A person joins the room, so the desk really makes its WebRTC connections.
+The test fails on any request to a STUN server, on any port, and on any lookup of a name with `stun` in it.
+ICE connectivity checks between the desk and LiveKit are STUN messages too; they carry a user name and are told apart.
+It then names a STUN server of its own in `STUN_SERVERS` and must see the station ask it, so a quiet first run cannot come from a capture that sees nothing.
+It covers the Compose bundle on its own, with LiveKit's example address on loopback, not a public `NODE_IP`.
+The public route, the phone line, Cloudron's package and browsers are not captured; the pages are checked only through what the station tells them (`relay.stun_servers`).
 
 ### Naming a STUN server
 

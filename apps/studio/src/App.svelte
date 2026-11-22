@@ -46,6 +46,7 @@
   import { canPrepare, changesAir, prepareBand } from './lib/prepare.ts';
   import { installUpdateCheck, updateNag } from './lib/update.svelte.ts';
   import { run, tellOff } from './lib/actions.ts';
+  import { addInstead } from './lib/cartEdit.svelte.ts';
   import { look, say, setCartShow, setShowAll, settleBank, studio, takeView } from './lib/studio.svelte.ts';
   import { STEP_WORD, gate, offTag, stationStep, tabShown } from './lib/steps.ts';
   import { chat } from './lib/chat.svelte.ts';
@@ -83,6 +84,11 @@
     return !!el?.closest('[data-cart-slot]') || el === document.body || el === null;
   }
 
+  /** The focus is on a cart's Edit button. */
+  function cartEditFocused(el: Element | null): boolean {
+    return !!el?.closest('[data-cart-edit]');
+  }
+
   const CONTROL = 'button, a[href], input, select, textarea, summary, [role=option], [role=button]';
 
   /** ⏎ releases a held message only from nowhere in particular or from Needs you itself; on a
@@ -117,6 +123,9 @@
     if (studio.settings && !(e.ctrlKey || e.metaKey)) return;
     // The account, session, show-setup and invite dialogs are forms too: their keys are their own.
     if ((e.target as Element | null)?.closest?.('[data-panel="studio.account"], [data-panel="studio.session-ended"], [data-panel="studio.show-setup"], [data-panel="desk.invite"], [data-panel="desk.end-show"]') && !(e.ctrlKey || e.metaKey)) return;
+    // A cart's Edit button is a control of its own (1.2.1): Space and ⏎ press it, and neither
+    // stops the last cart nor fires one. Every other key is the wall's as ever.
+    if (cartEditFocused(document.activeElement) && (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') && !(e.ctrlKey || e.metaKey || e.altKey)) return;
     const ctx = {
       tab: studio.tab,
       inTextField: studio.settings || inTextField(document.activeElement),
@@ -135,6 +144,15 @@
         keys.disarm();
         studio.armed = null;
         tellOff(g.told);
+        return;
+      }
+      // An empty slot's key adds a cart there (keymap section 4) while nothing is on air, and in
+      // a preparing window, whose dialog changes nothing on air; never from a live window on
+      // air, where a stray key must not cover the wall. ⏎ only from a cart's own pad.
+      if (addInstead(out.action, cartFocused(document.activeElement))) {
+        e.preventDefault();
+        keys.disarm();
+        studio.armed = null;
         return;
       }
       // A preparing window's keys change nothing on air (ADR-0276): the key does nothing, not

@@ -3,7 +3,7 @@ title: "Connect a studio PC over VBAN"
 description: "On a station you run on your own network (Compose or the Quadlets, never Cloudron), take a studio PC's sound over VBAN as a show key's source, send the desk's programme back as VBAN to monitors, a transmitter or a local guest, and read the one clock's figures."
 type: howto
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 41
 ---
@@ -36,6 +36,8 @@ For anything beyond one local network, carry VBAN through WireGuard.
 Set `KIT_VBAN=true` in the station's settings (`.env` beside `compose.yaml`) and run
 `weavesignal.sh` again, or restart the bundle. It writes `[kit] vban = true` in the control
 plane's settings. Settings › **Presenter kit** (`settings.kit`) says why VBAN is off until then.
+`weavesignal.sh` 1.2.0 removed the line from `.env` on every run, so on 1.2.0 this step does
+not work; from 1.2.1 the line is kept.
 
 ## 2. Bind the studio PC's stream to a show key
 

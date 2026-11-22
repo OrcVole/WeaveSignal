@@ -353,6 +353,10 @@ pub async fn carry(
     let mut heads = Heads::new(format);
     let mut queue = Queue::new();
     let mut tries = 0u32;
+    // Refusals in a row: a station that admits the source and then refuses what it sends (Opus
+    // inside MPEG-TS, 1.2.1) says standing by first, which resets `tries`; without this the
+    // bridge would try again every second. Reset once a connection lasts a minute.
+    let mut refused_in_a_row = 0u32;
     // The first connection carries the stream from its start; every later one must join it.
     let mut join = false;
     let mut last_title: Option<String> = None;
@@ -361,6 +365,7 @@ pub async fn carry(
             s.uplink = "connecting".into();
             s.retry_in_s = None;
         });
+        let began = Instant::now();
         let end = connect_and_send(
             &target,
             format,
@@ -389,9 +394,18 @@ pub async fn carry(
                 });
                 return;
             }
-            End::Lost(why) | End::Refused(why) => why,
+            End::Lost(why) => {
+                if began.elapsed() >= Duration::from_secs(60) {
+                    refused_in_a_row = 0;
+                }
+                why
+            }
+            End::Refused(why) => {
+                refused_in_a_row = refused_in_a_row.saturating_add(1);
+                why
+            }
         };
-        let wait = backoff(tries, jitter());
+        let wait = backoff(tries.max(refused_in_a_row), jitter());
         tries = tries.saturating_add(1);
         set(&|s| {
             s.uplink = "retrying".into();
@@ -813,6 +827,83 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("the uplink never was {uplink}");
+    }
+
+    /// A station that stands each connection by and then refuses what it sends (Opus inside
+    /// MPEG-TS, 1.2.1): the bridge waits longer after each refusal, not a second each time, and
+    /// shows the station's words.
+    #[tokio::test]
+    async fn a_station_that_refuses_what_is_sent_is_tried_again_ever_more_slowly() {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (s, peer) = l.accept().await.unwrap();
+                let a = weavesignal_ingest::bridge::accept(s, peer).await.unwrap();
+                let p = weavesignal_ingest::bridge::pump(a.ws, Duration::from_secs(5));
+                for (state, message) in [
+                    ("standing_by", ""),
+                    (
+                        "refused",
+                        "The station cannot read what your software sends: Opus inside MPEG-TS.",
+                    ),
+                ] {
+                    p.states
+                        .send(State {
+                            state: state.into(),
+                            message: message.into(),
+                        })
+                        .unwrap();
+                }
+                p.finish().await;
+            }
+        });
+        let status = Arc::new(Mutex::new(Status::default()));
+        let (media_tx, media) = mpsc::channel(64);
+        let (_titles_tx, titles) = mpsc::channel(8);
+        let (stop_tx, stop) = mpsc::channel(1);
+        let target = Target {
+            url: format!("http://{addr}"),
+            password: "abcd2345-thesecret".into(),
+        };
+        let task = tokio::spawn(carry(
+            target,
+            "mpegts",
+            "OBS".into(),
+            media,
+            titles,
+            status.clone(),
+            stop,
+        ));
+        media_tx
+            .send(Bytes::from_static(&[0x47; 188]))
+            .await
+            .unwrap();
+        let mut waits = Vec::new();
+        for _ in 0..2 {
+            until(&status, "retrying").await;
+            let s = status.lock().unwrap().clone();
+            assert!(
+                s.problem
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("Opus inside MPEG-TS"),
+                "{:?}",
+                s.problem
+            );
+            waits.push(s.retry_in_s.unwrap());
+            // The wait over, it connects again (and is refused again).
+            for _ in 0..200 {
+                if status.lock().unwrap().uplink != "retrying" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        // backoff(1) and backoff(2): about 2 s, then about 4 s (each give or take a quarter).
+        assert!(waits[0] >= 1 && waits[1] >= 3, "{waits:?}");
+        drop(stop_tx);
+        let _ = tokio::time::timeout(Duration::from_secs(10), task).await;
     }
 
     #[tokio::test]

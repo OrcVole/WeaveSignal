@@ -168,6 +168,8 @@ It never throws work away: while the episode, series or show in the column has c
 | `Space` | fades the cart started last on air |
 | `⇧Space ⇧Space` | fades everything sounding |
 | arrows, then `⏎` | move between carts without firing, then fire the one reached (`⏎` on any other control is that control's own) |
+| an empty slot's key, or `⏎` on it | **only while nothing is on air, or in a preparing window**: opens **Add a cart** on that slot (from 1.2.1). In a live window while a show is on air, or anyone is on air at the desk, it only says the slot is empty, so a stray key never puts a dialog over the wall; pressing the pad or dropping a sound on it adds at any time. `F1` to `F6` from another tab only say so |
+| `Tab` from a cart's pad, then `Space` or `⏎` | the cart's **Edit** (from 1.2.1); on that button `Space` and `⏎` press it and neither stop nor fire a cart |
 | `Esc` | takes every cued cart out of the headphones |
 
 See [Cart wall](/docs/reference/surfaces/carts/).

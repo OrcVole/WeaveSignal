@@ -9,7 +9,7 @@
 //! The station makes both again at every start, from the settings, so nothing in Redis needs to
 //! survive (design section 5): the trunk and rule this station made carry its name
 //! ([`OWNER_NAME`]) and are deleted first; ones another tool made are left alone. Only the
-//! comparison and the bodies are here; the calls are the hub's.
+//! comparison and the bodies are here; the calls are [`super::sync`]'s.
 
 use serde_json::{Value, json};
 use weavesignal_proto::phone::{LINE_ATTRIBUTE, LINE_PHONE, phone_room_prefix};

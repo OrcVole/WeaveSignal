@@ -108,6 +108,8 @@ pub struct Line {
     keys: Option<BanKeys>,
     state: Mutex<State>,
     context: Mutex<Context>,
+    /// Where the line's trunk and dispatch rule stand in LiveKit ([`super::sync`]).
+    pub trunk: std::sync::Arc<super::sync::TrunkCell>,
 }
 
 impl Line {
@@ -117,6 +119,7 @@ impl Line {
             keys,
             state: Mutex::new(State::default()),
             context: Mutex::new(Context::default()),
+            trunk: std::sync::Arc::new(super::sync::TrunkCell::new()),
         }
     }
 

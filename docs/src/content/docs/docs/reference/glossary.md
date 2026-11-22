@@ -96,6 +96,10 @@ A relay for people whose networks block WebRTC's direct connections; WeaveSignal
 A standard way to send a live stream into a WebRTC server from an encoder such as OBS.
 From 1.2 a host can send their show's sound from OBS over WHIP with their show key ([Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)).
 
+**The bridge.**
+A way for a host to broadcast from their own computer: their own broadcasting software (BUTT, Mixxx, OBS, Voicemeeter) sends to the studio app on the same computer, and the app carries it to the station over the ordinary web port, 443, so nothing is opened on a router or at the station.
+It is off until the host starts it, and needs the station's public address and the show key ([What the bridge is](/docs/how-to/send-through-the-bridge/#what-the-bridge-is)).
+
 ## On air
 
 **ON AIR, OPEN, AUTO, PLAYOUT DOWN.**

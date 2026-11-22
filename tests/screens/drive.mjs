@@ -86,10 +86,19 @@ await sleep(600);
 check('T is today', (await page.locator('.toolbar .range').textContent()) === range);
 
 // Tab to the Saturday Night Kettle block and open it with ⏎.
-const snk = page.locator('.ev', { hasText: 'Saturday Night' }).first();
-await snk.focus();
-await page.keyboard.press('Enter');
-await sleep(800);
+// An aired episode is frozen and read-only, so once this week's Saturday has gone by the first block is
+// the wrong one: step to the next week until the block opened is one that has not aired.
+for (let i = 0; ; i++) {
+  const snk = page.locator('.ev', { hasText: 'Saturday Night' }).first();
+  await snk.focus();
+  await page.keyboard.press('Enter');
+  await sleep(800);
+  if ((await page.locator('.editor .frozen-note').count()) === 0 || i >= 4) break;
+  await page.keyboard.press('Escape');
+  await sleep(400);
+  await page.getByRole('button', { name: 'Next week' }).click();
+  await sleep(600);
+}
 const head = await page.locator('.editor h2').first().textContent();
 check('⏎ on a block opens its episode editor', /Episode \d+/.test(head ?? ''), head ?? '');
 const inherited = await page.locator('.field.inh').count();
@@ -148,7 +157,7 @@ if (await draftBtn.isEnabled()) {
   await draftBtn.click();
   await sleep(4000);
   const after = (await get('/api/v1/shows/saturday-night/series/3')).episodes.length;
-  check('Draft the season drafts the rest from the rule', after === 10 && after > before, `${before} → ${after}`);
+  check('Draft the season drafts the rest from the rule', after > before && after <= 10, `${before} → ${after} (dates already past are not drafted)`);
 } else {
   check('Draft the season has nothing left to draft', before === 10, `${before}`);
 }
@@ -188,7 +197,7 @@ if (logItems.length >= 2) {
 }
 
 // On air now: the episode freezes and its fields read as aired.
-await snk.focus();
+await page.locator('.ev', { hasText: 'Saturday Night' }).first().focus();
 await page.keyboard.press('Enter');
 await sleep(800);
 await page.getByRole('button', { name: 'On air now' }).click();

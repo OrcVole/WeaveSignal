@@ -214,6 +214,29 @@ pub struct WindowView {
     pub from: Origin,
     /// When the incoming host was given their heads-up for this airing (once an airing).
     pub heads_up_ms: Option<i64>,
+    /// The host the show under way still waits for, once the window has moved on to the next
+    /// show (1.2.1): the desk then names both, the late one first. `null` when nobody is late,
+    /// and while the window is still about the show under way (the post's own reading says it).
+    pub late: Option<LateView>,
+}
+
+/// A host who never came (1.2.1): the show under way is theirs, nobody of theirs has taken the
+/// air since it started, and the window is already about the next show.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[schema(as = HandoverLate)]
+pub struct LateView {
+    /// The show under way.
+    pub show: String,
+    pub show_name: String,
+    /// When it started.
+    pub start_ms: i64,
+    /// Who is down for it, by name: the source the post's rule names, else the furthest of its
+    /// hosts, else every name down for it.
+    pub host: String,
+    /// `room` or `push`.
+    pub from: Origin,
+    /// How far they have got: `not_connected`, `connecting` or `ready` (standing by, not on air).
+    pub state: Readiness,
 }
 
 /// The heads-up the control plane is to give now, once it has written it down.
@@ -279,6 +302,77 @@ fn readiness_words(r: Readiness) -> &'static str {
     }
 }
 
+/// Whether an airing has been dealt with since its start: one of its hosts went on air, came
+/// back, came off, or was told Not yet. Nobody is running over into it, and nobody is late.
+fn dealt_with(subjects: &[Subject], airing: &Airing) -> bool {
+    subjects.iter().any(|s| {
+        s.show == airing.show
+            && s.log.iter().any(|l| {
+                l.at_ms >= airing.start * 1000
+                    && matches!(l.event.as_str(), "on_air" | "back" | "off_air" | "not_yet")
+            })
+    })
+}
+
+/// The host the show under way still waits for (1.2.1), or nothing: somebody is down for it,
+/// none of its hosts is on air or has been since it started, and for a show that comes from the
+/// room nobody presents at all (a presenter on air in the room may be its own, signed in another
+/// way, so the desk does not call anyone late while someone holds the air there).
+fn late(f: &PostFacts<'_>, cur: &Airing) -> Option<LateView> {
+    let show = f.shows.iter().find(|s| s.id == cur.show)?;
+    let theirs: Vec<&Subject> = f.subjects.iter().filter(|s| s.show == cur.show).collect();
+    let on_air = theirs
+        .iter()
+        .any(|s| s.at_desk.as_ref().is_some_and(|d| d.on_air));
+    if on_air || dealt_with(f.subjects, cur) {
+        return None;
+    }
+    let down = f.down.iter().find(|d| d.show == cur.show);
+    let from = down.map_or_else(
+        || {
+            if theirs.iter().any(|s| !s.in_room) {
+                Origin::Push
+            } else {
+                Origin::Room
+            }
+        },
+        |d| d.from,
+    );
+    if from == Origin::Room && !f.holders.is_empty() {
+        return None;
+    }
+    // The post's view, while it is still about this airing: its source is the one to name.
+    let post = f.post.filter(|p| {
+        p.show
+            .as_ref()
+            .is_some_and(|s| s.start_ms == cur.start * 1000 && s.slug == show.slug)
+    });
+    let mut furthest = theirs.clone();
+    furthest.sort_by_key(|s| {
+        (
+            std::cmp::Reverse(rank(show_readiness(&[*s], f.steady_ms))),
+            s.id.clone(),
+        )
+    });
+    let host = post
+        .and_then(|p| p.source_name.clone())
+        .or_else(|| furthest.first().map(|s| s.name.clone()))
+        .filter(|n| !n.is_empty())
+        .or_else(|| down.map(|d| d.names.join(", ")).filter(|n| !n.is_empty()))?;
+    let state = match post.and_then(|p| p.state) {
+        Some(state) => readiness(Some(state)),
+        None => show_readiness(&theirs, f.steady_ms),
+    };
+    Some(LateView {
+        show: show.slug.clone(),
+        show_name: show.name.clone(),
+        start_ms: cur.start * 1000,
+        host,
+        from,
+        state,
+    })
+}
+
 /// The handover window for the post's show, and the heads-up due now (see the module's note).
 pub fn for_post(f: &PostFacts<'_>) -> AtPost {
     let none = AtPost {
@@ -297,13 +391,7 @@ pub fn for_post(f: &PostFacts<'_>) -> AtPost {
     // next), or once the airing has been dealt with since its start (its host went on air and
     // came off again: nobody is running over into it).
     if (target.start..target.end).contains(&now_s) {
-        let dealt_with = f.subjects.iter().any(|s| {
-            s.show == target.show
-                && s.log.iter().any(|l| {
-                    l.at_ms >= target.start * 1000
-                        && matches!(l.event.as_str(), "on_air" | "back" | "off_air" | "not_yet")
-                })
-        });
+        let dealt_with = dealt_with(f.subjects, target);
         let next = post::airing_next(f.airings, now_s);
         let next_open = next.is_some_and(|n| now_s >= n.start - f.window_s);
         if dealt_with || next_open {
@@ -313,6 +401,8 @@ pub fn for_post(f: &PostFacts<'_>) -> AtPost {
             target = n;
         }
     }
+    // The show under way, when the window is about a later one: its host may be late (below).
+    let under_way = post::airing_now(f.airings, now_s).filter(|cur| cur.start != target.start);
     let Some(show) = f.shows.iter().find(|s| s.id == target.show) else {
         return none;
     };
@@ -394,6 +484,10 @@ pub fn for_post(f: &PostFacts<'_>) -> AtPost {
         host: host.clone(),
         from,
         heads_up_ms: told,
+        // Only once the next show's window has opened: before that the desk draws no window.
+        late: under_way
+            .filter(|_| w.state != State::Quiet)
+            .and_then(|cur| late(f, cur)),
     };
     // Due once the window has opened and before the post (a hold before the post does not stop
     // it: the host still has to get ready), unless they are on air already or have been told.
@@ -933,6 +1027,11 @@ mod tests {
     ];
 
     fn later(now_ms: i64, subjects: &[Subject], holders: &[Holder]) -> AtPost {
+        over(&LATER, now_ms, subjects, holders)
+    }
+
+    /// The window over `airings` at `now_ms`, from the post's own rule's answer.
+    fn over(airings: &[Airing], now_ms: i64, subjects: &[Subject], holders: &[Holder]) -> AtPost {
         let shows = shows_ab();
         let settings = SourceSettings::default();
         let plan = plan(&PostRuleFacts {
@@ -940,7 +1039,7 @@ mod tests {
             settings: &settings,
             automation: true,
             auto_mode: false,
-            airings: &LATER,
+            airings,
             shows: &shows,
             subjects,
             holders,
@@ -949,7 +1048,7 @@ mod tests {
         for_post(&PostFacts {
             now_ms,
             window_s: 300,
-            airings: &LATER,
+            airings,
             shows: &shows,
             subjects,
             holders,
@@ -986,6 +1085,134 @@ mod tests {
         // Before Steeped's window opens, the pending post stays Kettle Drive's.
         let p = later(2_500_000, &[fiona(None, 2_500_000), heather_off_air()], &[]);
         assert_eq!(p.view.unwrap().show, "kettle");
+    }
+
+    #[test]
+    fn the_window_that_moved_on_still_names_the_host_who_never_came() {
+        // 2800 s: the window is Steeped's, and Fiona, who never connected for Kettle Drive, is
+        // named beside Heather: the show under way, since when, from where, how far she has got.
+        let now = 2_800_000;
+        let p = later(now, &[fiona(None, now), heather_off_air()], &[]);
+        let v = p.view.expect("Steeped's window");
+        assert_eq!(v.host, "Heather");
+        assert_eq!(
+            v.late,
+            Some(LateView {
+                show: "kettle".into(),
+                show_name: "Kettle Drive".into(),
+                start_ms: 2_000_000,
+                host: "Fiona".into(),
+                from: Origin::Push,
+                state: Readiness::NotConnected,
+            })
+        );
+        // A DJ in the room keeping the air does not hide her: her own studio's link says it.
+        let dj = Holder {
+            identity: "dj-eilidh".into(),
+            name: "Eilidh".into(),
+        };
+        let p = later(
+            now,
+            &[fiona(None, now), heather_off_air()],
+            std::slice::from_ref(&dj),
+        );
+        assert_eq!(p.view.unwrap().late.unwrap().host, "Fiona");
+        // Connected two seconds ago, not yet steady: late, and connecting.
+        let p = later(now, &[fiona(Some(2), now), heather_off_air()], &[]);
+        assert_eq!(p.view.unwrap().late.unwrap().state, Readiness::Connecting);
+        // While the window is still Kettle Drive's own, the post says it: nobody is named twice.
+        let p = later(2_500_000, &[fiona(None, 2_500_000), heather_off_air()], &[]);
+        let v = p.view.unwrap();
+        assert_eq!((v.show.as_str(), v.late), ("kettle", None));
+    }
+
+    #[test]
+    fn nobody_is_late_once_the_show_under_way_has_been_dealt_with() {
+        // Fiona went on air at the post and came off at 2400 s; at 2800 s Steeped's window is
+        // open and nobody is late.
+        let now = 2_800_000;
+        let mut f = fiona(Some(600), now);
+        f.log = vec![
+            crate::post::Line {
+                at_ms: 2_400_000,
+                event: "off_air".into(),
+                reason: None,
+                detail: String::new(),
+            },
+            crate::post::Line {
+                at_ms: 2_000_000,
+                event: "on_air".into(),
+                reason: Some("schedule".into()),
+                detail: String::new(),
+            },
+        ];
+        let p = later(now, &[f, heather_off_air()], &[]);
+        let v = p.view.expect("Steeped's window");
+        assert_eq!((v.show.as_str(), v.late), ("steeped", None));
+        // On air now: not late either.
+        let mut f = fiona(Some(600), now);
+        f.at_desk.as_mut().unwrap().on_air = true;
+        let p = later(now, &[f, heather_off_air()], &[]);
+        assert_eq!(p.view.expect("Steeped's window").late, None);
+    }
+
+    /// Steeped (A) under way from 2000 s, from the room with Heather down for it; Kettle Drive
+    /// (B) from 3000 s with Fiona's key.
+    const ROOM_FIRST: [Airing; 2] = [
+        Airing {
+            show: A,
+            start: 2000,
+            end: 3000,
+        },
+        Airing {
+            show: B,
+            start: 3000,
+            end: 4000,
+        },
+    ];
+
+    #[test]
+    fn a_presenter_who_never_came_to_the_room_is_named_by_who_is_down() {
+        // 2800 s: Heather never came to the desk, so the post has no source of hers to name and
+        // went straight to Kettle Drive; the window still says who Steeped waits for.
+        let now = 2_800_000;
+        let fiona_ready = [fiona(Some(60), now)];
+        let p = over(&ROOM_FIRST, now, &fiona_ready, &[]);
+        let v = p.view.expect("Kettle Drive's window");
+        assert_eq!((v.show.as_str(), v.host.as_str()), ("kettle", "Fiona"));
+        assert_eq!(
+            v.late,
+            Some(LateView {
+                show: "steeped".into(),
+                show_name: "Steeped".into(),
+                start_ms: 2_000_000,
+                host: "Heather".into(),
+                from: Origin::Room,
+                state: Readiness::NotConnected,
+            })
+        );
+        // Someone presents from the room: it may be the show's own presenter signed in another
+        // way, so nobody is called late.
+        let dj = Holder {
+            identity: "dj-eilidh".into(),
+            name: "Eilidh".into(),
+        };
+        let p = over(&ROOM_FIRST, now, &fiona_ready, std::slice::from_ref(&dj));
+        assert_eq!(p.view.expect("Kettle Drive's window").late, None);
+        // At the desk as herself and not on air: late, and ready.
+        let both = [fiona(Some(60), now), heather_off_air()];
+        let p = over(&ROOM_FIRST, now, &both, &[]);
+        let late = p.view.expect("Kettle Drive's window").late.expect("late");
+        assert_eq!(
+            (late.host.as_str(), late.state),
+            ("Heather", Readiness::Ready)
+        );
+        // Before Kettle Drive's window opens the desk draws no window, and nobody is named.
+        let p = over(&ROOM_FIRST, 2_500_000, &[fiona(None, 2_500_000)], &[]);
+        assert_eq!(
+            p.view.map(|v| (v.state, v.late)),
+            Some((State::Quiet, None))
+        );
     }
 
     #[test]

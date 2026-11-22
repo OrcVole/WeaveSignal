@@ -24,7 +24,7 @@ PT_RTMP=${PT_RTMP:-24937}
 PEERTUBE=${PEERTUBE:-1}
 MTX_IMAGE=${MTX_IMAGE:-docker.io/bluenviron/mediamtx:1.21.3}
 OME_IMAGE=${OME_IMAGE:-docker.io/airensoft/ovenmediaengine:v0.21.0}
-DESK_IMAGE=${DESK_IMAGE:-${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:m5}}
+DESK_IMAGE=${DESK_IMAGE:-${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:current}}
 prefix=${PREFIX:-${WEAVESIGNAL_TEST_PREFIX:-weavesignal-rtmp-out}}
 
 taken() { ss -H -ln "$1" "sport = :$2" | grep -q .; }

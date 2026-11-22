@@ -33,15 +33,13 @@ export async function fireSlot(slot: number, cue = false): Promise<void> {
   if (preparing()) return nudge();
   const cart = cartAt(studio.catalogue, studio.bank, slot);
   if (!cart) {
-    say(
-      'good',
-      'No cart here yet',
-      `Slot ${cartKey(slot)} of this bank is empty. Picking a cart from the library is not built yet; a cart is uploaded to its slot, or comes with a pack.`,
-    );
+    // Off air an empty slot's key on the Carts tab opens the dialog to add a cart (App.svelte).
+    // Here it is that key on air, F1 to F6 or the desk's glance: nothing is put over the desk.
+    say('good', 'No cart here yet', `Slot ${cartKey(slot)} of this bank is empty. To add a cart, press its pad on the Carts tab or drop a sound on it. Its key adds one only while nothing is on air.`);
     return;
   }
   if (cartNow(cart, studio.view?.carts ?? null, stationNow()).state === 'missing') {
-    say('serious', 'File missing', `“${cart.label}” has no file. Re-link it in the library. The key does nothing.`);
+    say('serious', 'File missing', `“${cart.label}” has no sound: its file is gone from the station. Edit the cart on the Carts tab to put it back. The key does nothing.`);
     return;
   }
   await send(api.carts({ op: cue ? 'cue' : 'toggle', cart: cart.id }));

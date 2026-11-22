@@ -36,6 +36,10 @@
 # one short-lived container (`podman run --rm`, no network); no stack, no station. Do not run it
 # while another job uses the card (a soak's VoiceLab, NVENC elsewhere): it refuses to start while
 # nvidia-smi lists a compute process, unless --force.
+# On a desktop it always refuses without --force: nvidia-smi lists the compositor (kwin_wayland,
+# gnome-shell) and the browser's GPU process as compute processes. Stop the jobs that encode or
+# compute (local models, VoiceLab), check that only the desktop and the browser are left in
+# `nvidia-smi --query-compute-apps=pid,process_name --format=csv`, then run it with --force.
 # Needs Podman (with `podman compose` for the probe), an NVIDIA CDI spec (`sudo nvidia-ctk cdi
 # generate --output=/etc/cdi/nvidia.yaml`; WEAVESIGNAL_CDI_DIRS names where to look), nvidia-smi,
 # and a user who may read the kernel log (journalctl -k). Not in `ci`; tests/gpu/measure-check.sh
@@ -67,7 +71,7 @@ while [ $# -gt 0 ]; do
     --no-compose) compose_probe=false ;;
     --force) force=true ;;
     --out) out=${2:?}; shift ;;
-    -h|--help) sed -n '5,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '5,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "measure.sh: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -104,7 +108,7 @@ done
 [ "$spec_found" = true ] || die "no NVIDIA CDI spec in $cdi_dirs: run 'sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml'"
 busy=$(nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null || true)
 if [ -n "$busy" ] && [ "$force" = false ]; then
-  die "the card is in use (nvidia-smi lists: $(tr '\n' ';' <<<"$busy")); wait for it to finish, or pass --force"
+  die "the card is in use (nvidia-smi lists: $(tr '\n' ';' <<<"$busy")); wait for it to finish, or pass --force. On a desktop the compositor and the browser are always listed: stop every job that encodes or computes on the card, then pass --force"
 fi
 podman image exists "$image" || die "the server image $image is not here: build it ('just desk-image server-image') or pull it, or give --image"
 

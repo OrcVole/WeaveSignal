@@ -134,6 +134,15 @@ export class Sound {
     return `${MEDIA}carts/${base}.${this.kind}`;
   }
 
+  /** A sound the visitor added to the wall (1.2.1): decoded here, in the page, and kept under
+   *  `file` as a cart of the pack is under its own. Its length in milliseconds; throws when the
+   *  browser cannot read it as a sound. */
+  async adopt(file: string, bytes: ArrayBuffer): Promise<number> {
+    const buf = await this.ctx.decodeAudioData(bytes);
+    this.buffers.set(this.cartUrl(file), Promise.resolve(buf));
+    return Math.round(buf.duration * 1000);
+  }
+
   private buffer(url: string): Promise<AudioBuffer> {
     let b = this.buffers.get(url);
     if (!b) {

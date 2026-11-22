@@ -168,6 +168,15 @@ pub struct SetupConfig {
     /// Whether the stream asks for a password as this station was started, for the page to
     /// show; the start script writes it.
     pub stream_auth: Option<bool>,
+    /// A graphics card for the desk's video, as the install script found it (1.2.1, ADR-0292):
+    /// `nvidia` when `weavesignal.sh` saw an NVIDIA card's CDI spec on this server (`GPU_FOUND`),
+    /// `none` when it looked and saw none. Left out where nothing looks (the Cloudron package,
+    /// whose apps are given no card): the studio then offers none.
+    pub gpu_found: Option<String>,
+    /// Whether the desk has been handed the card: the settings' `GPU`, `nvidia` or `none`.
+    pub gpu: Option<String>,
+    /// Whether video is on (`VIDEO`): a card encodes nothing without it.
+    pub video: Option<bool>,
 }
 
 /// Retention (ADRs 0113-0116): where recordings are kept, and how often the sweeper deletes
@@ -879,6 +888,18 @@ impl Config {
                 "`setup.overrides_file` must be an absolute path".into(),
             ));
         }
+        for (key, value) in [
+            ("gpu_found", &self.setup.gpu_found),
+            ("gpu", &self.setup.gpu),
+        ] {
+            if let Some(v) = value
+                && !matches!(v.as_str(), "nvidia" | "none" | "auto")
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "`setup.{key}` is `{v}`; it is `nvidia` or `none`"
+                )));
+            }
+        }
         if self.retention.sweep_every_s < 60 {
             return Err(ConfigError::Invalid(format!(
                 "`retention.sweep_every_s` is {}; the sweeper runs at most once a minute",
@@ -1134,6 +1155,31 @@ name = "Kettle FM"
         assert_eq!(empty, StudioConfig::default());
         let text = studio_from("player_allowance_ms = \" 700 \"\n");
         assert_eq!(text.player_allowance_ms, Some(700));
+        // The install script's finding of a graphics card (1.2.1): as the Compose bundle writes
+        // it, left out (the Cloudron package), and a word that is neither.
+        let gpu =
+            format!("{MINIMAL}\n[setup]\ngpu_found = \"nvidia\"\ngpu = \"none\"\nvideo = true\n");
+        let c = Config::from_toml(&gpu, "t").expect("the bundle's [setup]");
+        assert_eq!(
+            (
+                c.setup.gpu_found.as_deref(),
+                c.setup.gpu.as_deref(),
+                c.setup.video
+            ),
+            (Some("nvidia"), Some("none"), Some(true))
+        );
+        let c = Config::from_toml(MINIMAL, "t").expect("no [setup]");
+        assert_eq!(
+            (c.setup.gpu_found, c.setup.gpu, c.setup.video),
+            (None, None, None)
+        );
+        let bad = format!("{MINIMAL}\n[setup]\ngpu_found = \"amd\"\n");
+        assert!(
+            Config::from_toml(&bad, "t")
+                .unwrap_err()
+                .to_string()
+                .contains("setup.gpu_found")
+        );
         // The mount's hold is not a setting: a station that writes it is refused, loudly.
         let hold = format!("{MINIMAL}\n[studio]\nmount_hold_ms = 10000\n");
         assert!(Config::from_toml(&hold, "t").is_err());

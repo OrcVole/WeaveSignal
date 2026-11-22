@@ -115,6 +115,18 @@ pub async fn load_pack(config: Config, dir: &std::path::Path) -> anyhow::Result<
     Ok(hub.load_pack(dir).await?)
 }
 
+/// LiveKit's SIP API for the phone line's trunk, when LiveKit's secret is set.
+fn sip_api(config: &Config) -> Option<std::sync::Arc<dyn phone::sync::SipApi>> {
+    let secret = config.livekit_secret.clone()?;
+    Some(std::sync::Arc::new(phone::sync::Twirp {
+        api_url: config.room.api_url.clone(),
+        keys: weavesignal_proto::Keys {
+            api_key: config.room.api_key.clone(),
+            api_secret: secret,
+        },
+    }))
+}
+
 /// Run the control plane until SIGINT or SIGTERM.
 pub async fn serve(config: Config) -> anyhow::Result<()> {
     let listener = bind(&config).await?;
@@ -237,7 +249,27 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         )) {
             tracing::warn!(why = ?c, "the phone line is on but closed");
         }
-        let _ = hub.phone.set(std::sync::Arc::new(line));
+        let line = std::sync::Arc::new(line);
+        // The trunk and dispatch rule in LiveKit (1.2.1): without them every call is refused.
+        match sip_api(&config) {
+            Some(api) => {
+                let password = std::env::var(phone::config::TRUNK_PASSWORD_ENV).ok();
+                let wanted = phone::sync::Wanted::from_config(
+                    &config.phone,
+                    &config.room.name,
+                    password.as_deref(),
+                );
+                phone::sync::spawn(api, Some(wanted), Some(line.trunk.clone()));
+            }
+            None => tracing::error!(
+                "the phone line is on but LiveKit's secret is not set: its trunk cannot be made, and no call reaches the line"
+            ),
+        }
+        let _ = hub.phone.set(line);
+    } else if let Some(api) = sip_api(&config) {
+        // The line off: this station's trunk and rule, if an earlier run made them, are deleted
+        // once, quietly (a station without the line has no SIP API to ask).
+        phone::sync::spawn(api, None, None);
     }
     if let Some(pool) = &db {
         let now = i64::try_from(hub::now_ms()).unwrap_or(i64::MAX);
@@ -436,6 +468,7 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
             }
             .to_owned(),
             listed: config.web.listed,
+            gpu: setup::GpuFacts::from_config(&config.setup),
         },
         stun_in_use: config.join.stun_servers.clone(),
         carts: config.carts.clone(),

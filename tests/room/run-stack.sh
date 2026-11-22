@@ -53,7 +53,7 @@ if [ "$TEST" = browsercam ]; then
 fi
 LIQ_IMAGE=${LIQ_IMAGE:-docker.io/savonet/liquidsoap:v2.5.0-rc1}
 LK_IMAGE=${LK_IMAGE:-docker.io/livekit/livekit-server:v1.13.10}
-DESK_IMAGE=${DESK_IMAGE:-${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:m5}}
+DESK_IMAGE=${DESK_IMAGE:-${WEAVESIGNAL_DESK_IMAGE:-localhost/weavesignal-desk-dev:current}}
 API_KEY=m1test
 API_SECRET=m1-room-test-only-secret-not-for-use-0
 SOURCE_PASSWORD=room-test-only

@@ -45,8 +45,23 @@ export const bridgeStop = () => call<BridgeView>('bridge_stop');
 export const bridgeNewPassword = () => call<BridgeView>('bridge_new_password');
 export const bridgeForget = () => call<BridgeView>('bridge_forget');
 
-/** One line on where the bridge stands. */
-export function uplinkWords(s: BridgeStatus): string {
+/** Where the bridged source stands at the desk, from the station's sources (`GET
+ *  /api/v1/sources`), when this app can read them: `null` when it cannot (signed in to another
+ *  station, or not as staff). The bridge's own messages say only how it was admitted, so after
+ *  the post puts it on air they still say standing by (1.2.0, the real-kit tries' finding 5). */
+export type DeskState = 'on_air' | 'standby' | 'link_lost' | null;
+
+/** The bridged key's state among the sources of the station this app is signed in to, or null
+ *  when it is not listed there (another station: a key's id is the station's own, 40 random
+ *  bits, so a match is this station's key; on Cloudron the app talks to the studio's address and
+ *  the bridge to the public one, so the addresses are not compared). */
+export function deskStateOf(sources: readonly { key_id: string; state: string }[], keyId: string): DeskState {
+  const s = sources.find((x) => x.key_id === keyId)?.state;
+  return s === 'on_air' || s === 'standby' || s === 'link_lost' ? s : null;
+}
+
+/** One line on where the bridge stands. `desk` is the source's state at the desk, when known. */
+export function uplinkWords(s: BridgeStatus, desk: DeskState = null): string {
   switch (s.uplink) {
     case 'off':
       return 'Off.';
@@ -55,8 +70,10 @@ export function uplinkWords(s: BridgeStatus): string {
     case 'connecting':
       return 'Connecting to the station…';
     case 'up':
+      if (s.station_state === 'standing_by' && desk === 'on_air') return 'On air.';
+      if (s.station_state === 'standing_by' && desk === 'standby') return 'Standing by at the desk.';
       return s.station_state === 'standing_by'
-        ? 'Standing by at the desk.'
+        ? 'Connected to the desk. The studio puts it on air.'
         : s.station_state === 'test'
           ? 'Connected: a private test, not heard at the desk outside your slot.'
           : 'Connected to the station.';
@@ -216,7 +233,7 @@ export function kitFieldWords(why: string): string {
 // ---- the bridge's screen (17j) ----
 
 /** Where the bridge stands, as a chip of the vocabulary with its own word. */
-export function bridgeChip(v: BridgeView): { chip: Chip; word: string } {
+export function bridgeChip(v: BridgeView, desk: DeskState = null): { chip: Chip; word: string } {
   const s = v.status;
   if (!v.running || s.uplink === 'off') return { chip: CHIP.standby, word: 'Off' };
   if (s.uplink === 'waiting') return { chip: CHIP.waiting, word: 'Waiting for your software' };
@@ -224,7 +241,9 @@ export function bridgeChip(v: BridgeView): { chip: Chip; word: string } {
   if (s.uplink === 'retrying') return { chip: CHIP.linkDegraded, word: 'Trying again' };
   if (s.station_state === 'refused') return { chip: CHIP.linkDegraded, word: 'Refused' };
   if (s.station_state === 'test') return { chip: CHIP.ready, word: 'Private test' };
-  return { chip: CHIP.ready, word: s.station_state === 'standing_by' ? 'Standing by' : 'Connected' };
+  if (s.station_state === 'standing_by' && desk === 'on_air') return { chip: CHIP.onAir, word: 'On air' };
+  if (s.station_state === 'standing_by' && desk === 'standby') return { chip: CHIP.standby, word: 'Standing by' };
+  return { chip: CHIP.ready, word: 'Connected' };
 }
 
 /** *12 KB*, *3.4 MB*: what was dropped while the network fell behind. */

@@ -3,14 +3,14 @@ title: "The phone line"
 description: "The telephone line in 1.2 at a glance: its settings on each install route, its ports, its API routes, what a call goes through before the queue, what the station keeps of a number, and the shipped voices with their licence."
 type: reference
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 31
 ---
 
 From 1.2 listeners can ring the studio from an ordinary phone, through the station's own SIP trunk and LiveKit's SIP service (v1.25.0, Apache-2.0, run beside the room as LiveKit is).
 It runs on Compose and the Quadlets (`phone.yaml`), not yet on Cloudron, and is off until a trunk is set.
-It has been tried against a local SIP client, not yet through a provider's trunk.
+It has been tried against a local SIP client on a running station (1.2.1; in 1.2.0 the station never made its trunk, and every call was refused), not yet through a provider's trunk.
 How to set it up and use it: [Take phone calls](/docs/how-to/take-phone-calls/); whether to play the words and whose contact to give: [Decide whose contact to give callers](/docs/how-to/decide-whose-contact-to-give/).
 
 ## Settings
@@ -27,6 +27,7 @@ The control plane's `[phone]` section; on Compose and the Quadlets each is a `PH
 | `country_code` | `PHONE_COUNTRY_CODE` | empty | the calling code without `+`, so a typed number is found in every form |
 | `lines` | `PHONE_LINES` | 8 | calls at once (4, 8 or 16 in the control plane; 1 to 16 in `weavesignal.sh`) |
 | `sip_port`, `sip_tls_port` | `PHONE_SIP_PORT` | 5060, 0 (off) | SIP from the provider |
+| (LiveKit's SIP service) | `PHONE_SIP_LISTEN` | empty | the address SIP listens on, UDP and TCP: one of the machine's IPv4 addresses, the one the provider reaches; empty, every address (from 1.2.1; 1.2.0 always listened on every address). The media ports listen on every address |
 | `rtp_port` | `PHONE_RTP_PORT`, `PHONE_RTP_LAST` | 7340 to 7355 | the calls' sound, two ports a line, starting on an even port |
 | `consent_words` | `PHONE_CONSENT_WORDS` | `true` | play the words and wait for a key before the queue |
 | `default_voice` | `PHONE_DEFAULT_VOICE` | `alba` | the shipped recording until the station records its own: `alba`, `edinburgh` or `own` |
@@ -38,7 +39,7 @@ The ports, their alternatives and who may reach them: [Ports, the phone line](/d
 
 ## A call, from ringing to the queue
 
-1. The provider sends the call to the station's SIP port; LiveKit's SIP service answers it into a booth room of its own, as a browser caller's.
+1. The provider sends the call to the station's SIP port; LiveKit's SIP service answers it into a booth room of its own, as a browser caller's. It does so only through the trunk and dispatch rule named `weavesignal-phone-line`, which the control plane makes in LiveKit at start from these settings and checks every 30 seconds (`trunk` in `GET /api/v1/phone`); without them every call is refused with a 404.
 2. With the words on, the desk plays them into the caller's return (the station's own recording, else the shipped voice) and holds the caller's voice out of every mix. **Any key** carries on; without one the words play twice, and after 90 seconds the call ends.
 3. The caller waits in `screener.queue` like a caller from the player page, shown as `Phone ···0123` or `Withheld`. Their consent record says they pressed a key, or *not asked* when the words are off.
 4. From there the screener and the desk treat them as any caller; dropping or releasing them ends the call.

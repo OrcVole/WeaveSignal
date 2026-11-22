@@ -19,6 +19,7 @@
   import Zone from './Zone.svelte';
   import Tokens from './Tokens.svelte';
   import Rtmp from './Rtmp.svelte'; // rtmp-out
+  import Gpu from './Gpu.svelte';
   import Updates from './Updates.svelte';
   import IcecastOut from './IcecastOut.svelte';
   import Bridge from './Bridge.svelte';
@@ -461,6 +462,9 @@
       <IcecastOut admin={canManage} />
       <Tokens />
       <Rtmp />
+      <!-- A graphics card for video (1.2.1, ADR-0292): said, and offered, only where the server
+           has one. An admin's; nothing here turns it on. -->
+      {#if canManage && !sandboxed()}<Gpu />{/if}
       <!-- The presenter kit's station half (Phase 17g): an admin's. -->
       {#if canManage && !sandboxed()}<Kit />{/if}
       <!-- Chat pictures (ADR-0259): the chat's own settings, which the sandbox does not simulate. -->

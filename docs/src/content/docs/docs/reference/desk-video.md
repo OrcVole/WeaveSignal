@@ -173,6 +173,6 @@ The room test's figures with every person on camera and video on (`WEAVESIGNAL_R
 | `just desk-check` | local cameras: a camera reaches the HLS with the programme's sound; the slate with nobody on camera; the mixer follows the speaker and F7; picture and sound leave a 2 s delay within a frame of each other; a failed encoder leaves the sound on air and comes back; every rung written; captions; the slate's picture comes, changes and goes; a thumbnail for each camera |
 | `TEST=cameras tests/room/run-stack.sh` | cameras through LiveKit to the HLS and to the room picture a guest sees; what four cameras cost |
 | `WEAVESIGNAL_ROOM_VIDEO=1 TEST=room tests/room/run-stack.sh` | the room test with cameras and video on |
-| `just test-vmaf` | VMAF at each rung (needs the two Xiph clips in `target/clips/`) |
+| `just test-vmaf` | VMAF at each rung (needs Xiph's `FourPeople_1280x720_60.y4m` and `KristenAndSara_1280x720_60.y4m` in `target/clips/`, or in the folder `WEAVESIGNAL_CLIPS` names) |
 
 `WEAVESIGNAL_DESK_GPU=1` hands the test container the GPU (`--device nvidia.com/gpu=all`), and NVENC is used; without it, SVT-AV1.

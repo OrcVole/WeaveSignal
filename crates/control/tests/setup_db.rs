@@ -122,6 +122,11 @@ async fn plane(pool: &sqlx::PgPool, id: StationId, o: Opts) -> Plane {
             turn_tls_port: 15349,
             mail: "off".into(),
             listed: false,
+            gpu: weavesignal_control::setup::GpuFacts {
+                found: true,
+                in_use: false,
+                video: true,
+            },
         },
         carts: CartsConfig {
             worker: Some(env!("CARGO_BIN_EXE_weavesignal-control").into()),
@@ -475,6 +480,11 @@ async fn the_name_and_contact_win_over_the_settings_file_at_once_and_after_a_res
     );
     assert_eq!(v["stream_password"]["available"], false);
     assert_eq!(v["install"]["turn_tls_port"], 15349);
+    // A graphics card the install found and the desk is not using (1.2.1): Settings offers it.
+    assert_eq!(
+        v["install"]["gpu"],
+        json!({ "found": true, "in_use": false, "video": true })
+    );
     let (_, before) = send(&p.app, "GET", "/api/v1/player", None, Value::Null).await;
     assert_eq!(before["station"], "Kettle FM");
     assert!(waits_for_contact(&before), "{before}");

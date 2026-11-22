@@ -60,9 +60,9 @@ A refused field is named in the answer: `{"error": "…", "field": "scopes"}`.
 | `desk:control` | `POST /desk/commands`: on air, mute, cue, talk, dump the profanity delay |
 | `screener:control` | `POST /screener/commands`; `POST /passes/end` |
 | `chat:moderate` | `POST /chat/modes`: slow mode, hold new, links, influx. Through the station's address it reaches the chat service, which passes it on to the control plane (see below). The chat service's own routes are not reachable with a token |
-| `carts:read` | `GET /carts` |
+| `carts:read` | `GET /carts`; `GET /carts/pack` (from 1.2.1) |
 | `carts:fire` | `POST /carts/commands`: toggle, fire, stop, cue, stop last, fade all |
-| `carts:write` | `PUT /carts/banks/{n}`; `PUT` and `DELETE /carts/banks/{bank}/slots/{slot}` |
+| `carts:write` | `PUT /carts/banks/{n}`; `PUT`, `PATCH` (from 1.2.1) and `DELETE /carts/banks/{bank}/slots/{slot}`; `POST /carts/pack` (from 1.2.1) |
 | `schedule:read` | `GET /schedule/clocks`, `/schedule/week`, `/schedule/log`, `/schedule/episodes` |
 | `schedule:write` | `PUT` and `DELETE` of clocks and log items; `PUT /schedule/week`; `POST /schedule/generate` |
 | `playout:read` | `GET /playout`, `/playout/zone`, `/logger`, `/library/tracks` |

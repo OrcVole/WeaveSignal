@@ -64,6 +64,10 @@ export const CARTS: readonly PanelInfo[] = [
   { name: 'carts.bank.4', what: 'Bank 4 (⌃F4).' },
   { name: 'carts.bank.5', what: 'Bank 5 (⌃F5).' },
   { name: 'carts.sounding', what: 'What is sounding now, from any bank, and the keys: Space stops the last, ⇧Space twice fades all.' },
+  { name: 'carts.toast', what: 'The wall’s notice: what the last press did, or why it did not. It takes the strip’s status line, so nothing moves and no pad is covered (1.2.1).' },
+  { name: 'carts.edit', what: 'Add a cart to a slot or change the one it holds: its sound, name, mode, ramp and key; remove it (1.2.1).' },
+  { name: 'carts.bank-edit', what: 'Make a bank or change its name and colour, the station’s or a show’s own; remove a show’s own (1.2.1).' },
+  { name: 'carts.pack', what: 'Load the default pack into a station bank: which of its banks, into which, and what happens to the carts there. Carts a person added or changed stay (1.2.1).' },
 ];
 
 /** The Schedule tab (calendar.md; ADR-0021, ADR-0045). The design's `calendar.frame` is the

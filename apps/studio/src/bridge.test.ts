@@ -25,7 +25,11 @@ const status = (s: Partial<BridgeStatus>): BridgeStatus => ({
 describe('the bridge', () => {
   it('says where it stands', () => {
     expect(uplinkWords(status({ uplink: 'waiting' }))).toMatch(/Waiting for your software/);
-    expect(uplinkWords(status({ uplink: 'up', station_state: 'standing_by' }))).toBe('Standing by at the desk.');
+    // Admitted at the desk: the bridge's own message says no more, so on its own it says Connected
+    // (1.2.0 said Standing by even while on air); the station's sources say where it stands.
+    expect(uplinkWords(status({ uplink: 'up', station_state: 'standing_by' }))).toBe('Connected to the desk. The studio puts it on air.');
+    expect(uplinkWords(status({ uplink: 'up', station_state: 'standing_by' }), 'standby')).toBe('Standing by at the desk.');
+    expect(uplinkWords(status({ uplink: 'up', station_state: 'standing_by' }), 'on_air')).toBe('On air.');
     expect(uplinkWords(status({ uplink: 'up', station_state: 'test' }))).toMatch(/private test/);
     expect(uplinkWords(status({ uplink: 'retrying', retry_in_s: 4, problem: 'the station closed the connection' }))).toBe(
       'Lost the station (the station closed the connection). Trying again in 4 s.',
@@ -64,6 +68,20 @@ describe('the ways at the desk', () => {
   });
 });
 
+describe('where the bridged source stands at the desk (1.2.1)', () => {
+  it('is read from the station’s sources by the key', async () => {
+    const { deskStateOf } = await import('./lib/bridge.ts');
+    const sources = [
+      { key_id: 'zzzz2345', state: 'standby' },
+      { key_id: 'abcd2345', state: 'on_air' },
+    ];
+    expect(deskStateOf(sources, 'abcd2345')).toBe('on_air');
+    expect(deskStateOf(sources, 'zzzz2345')).toBe('standby');
+    expect(deskStateOf(sources, 'nope2345')).toBeNull();
+    expect(deskStateOf([{ key_id: 'abcd2345', state: 'test' }], 'abcd2345')).toBeNull();
+  });
+});
+
 describe('the bridge’s screen (17j)', () => {
   const view = (o: Partial<BridgeStatus>, running = true) => ({ saved: { url: 'https://kettle.example', key_id: 'abcd2345', icecast_port: 8100, srt_port: 9100 }, has_key: true, running, local_password: 'local-pass-1', status: status(o) });
   it('says where it stands as a chip with a word', async () => {
@@ -71,7 +89,11 @@ describe('the bridge’s screen (17j)', () => {
     expect(bridgeChip(view({}, false)).word).toBe('Off');
     expect(bridgeChip(view({ uplink: 'waiting' })).word).toBe('Waiting for your software');
     expect(bridgeChip(view({ uplink: 'connecting' })).word).toBe('Connecting');
-    expect(bridgeChip(view({ uplink: 'up', station_state: 'standing_by' })).word).toBe('Standing by');
+    expect(bridgeChip(view({ uplink: 'up', station_state: 'standing_by' })).word).toBe('Connected');
+    expect(bridgeChip(view({ uplink: 'up', station_state: 'standing_by' }), 'standby').word).toBe('Standing by');
+    expect(bridgeChip(view({ uplink: 'up', station_state: 'standing_by' }), 'on_air')).toMatchObject({ word: 'On air', chip: { cls: 'fill-onair' } });
+    // A private test stays a test whatever the sources say.
+    expect(bridgeChip(view({ uplink: 'up', station_state: 'test' }), 'on_air').word).toBe('Private test');
     expect(bridgeChip(view({ uplink: 'up', station_state: 'test' })).word).toBe('Private test');
     expect(bridgeChip(view({ uplink: 'up', station_state: 'refused' })).word).toBe('Refused');
     expect(bridgeChip(view({ uplink: 'retrying' })).word).toBe('Trying again');
@@ -148,7 +170,13 @@ describe('the bridge’s panel, drawn (17j)', () => {
     expect(draw(VIEWS.off)).not.toContain('Stop the bridge');
     const up = draw(VIEWS.standing);
     expect(up).toContain('Stop the bridge');
-    expect(up).toContain('Standing by at the desk.');
+    expect(up).toContain('Connected to the desk. The studio puts it on air.');
+    // On air at the desk (the station's sources say so): the panel says it, and drops the
+    // admission's own sentence, which is out of date.
+    const onAir = render(Bridge, { props: { initial: VIEWS.standing, initialDesk: 'on_air' } }).body;
+    expect(onAir).toContain('On air.');
+    expect(onAir).not.toContain('Standing by for Steeped');
+    expect(render(Bridge, { props: { initial: VIEWS.standing, initialDesk: 'standby' } }).body).toContain('Standing by at the desk.');
     expect(up).toContain('butt 1.45 · mp3 44.1 kHz stereo · 192 kbit/s');
     expect(draw(VIEWS.retrying)).toContain('Lost the station (the station closed the connection). Trying again in 4 s.');
   });

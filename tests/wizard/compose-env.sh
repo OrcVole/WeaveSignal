@@ -103,6 +103,48 @@ grep -q '^PUBLIC_DOMAIN=' "$env" && fail "loopback: a public name appeared"
 [ "$(value "$env" STATION_NAME)" = "Paddy's Wireless" ] || fail "loopback: the name was changed"
 pass "loopback: the file installs a station for this machine only"
 
+# Settings a person adds by hand survive the next run (1.2.1; 1.2.0 dropped KIT_VBAN and a hand-set
+# PUBLIC_ORIGIN on every run, as each was a known key the script never wrote): VBAN on, and the
+# printed address of a loopback station on a private network. A wrong value is refused.
+printf '%s\n' 'KIT_VBAN=true' 'PUBLIC_ORIGIN=http://192.168.1.20:7310/' >> "$env"
+out=$(PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$env" 2>&1) || fail "KIT_VBAN or PUBLIC_ORIGIN by hand was refused: $out"
+[ "$(value "$env" KIT_VBAN)" = true ] || fail "KIT_VBAN=true was dropped: $(value "$env" KIT_VBAN)"
+[ "$(value "$env" PUBLIC_ORIGIN)" = http://192.168.1.20:7310 ] || fail "a hand-set PUBLIC_ORIGIN was dropped: $(value "$env" PUBLIC_ORIGIN)"
+[ "$(grep -c '^KIT_VBAN=' "$env")" = 1 ] && [ "$(grep -c '^PUBLIC_ORIGIN=' "$env")" = 1 ] || fail "KIT_VBAN or PUBLIC_ORIGIN is there twice"
+again=$(PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$env" 2>&1)
+grep -q 'Settings unchanged' <<<"$again" || fail "KIT_VBAN and PUBLIC_ORIGIN: a second run changed the file: $again"
+for kv in KIT_VBAN=yes 'PUBLIC_ORIGIN=kettle "fm"'; do
+  grep -v "^${kv%%=*}=" "$env" > "$work/bad.env"; printf '%s\n' "$kv" >> "$work/bad.env"
+  out=$(PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$work/bad.env" 2>&1) && fail "$kv was taken"
+  grep -q "${kv%%=*}" <<<"$out" || fail "$kv was refused for another reason: $out"
+done
+# Going public replaces the hand-set address with the route's; going back (--public off) drops
+# the route's rather than keep it as if set by hand.
+cp "$env" "$work/flip.env"; echo NODE_IP=203.0.113.7 >> "$work/flip.env"
+PATH="$work/bin:$PATH" WEAVESIGNAL_UNPRIV_PORT_FILE="$work/unpriv" "$script" --engine podman --no-start --env-file "$work/flip.env" --public station.example >/dev/null 2>&1 || fail "--public on the hand-set station was refused"
+[ "$(value "$work/flip.env" PUBLIC_ORIGIN)" = https://station.example ] && [ "$(grep -c '^PUBLIC_ORIGIN=' "$work/flip.env")" = 1 ] || fail "--public: PUBLIC_ORIGIN is $(value "$work/flip.env" PUBLIC_ORIGIN)"
+PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$work/flip.env" --public off >/dev/null 2>&1 || fail "--public off was refused"
+grep -q '^PUBLIC_ORIGIN=' "$work/flip.env" && fail "--public off kept the route's address: $(value "$work/flip.env" PUBLIC_ORIGIN)"
+[ "$(value "$work/flip.env" KIT_VBAN)" = true ] || fail "--public on and off lost KIT_VBAN"
+# PULL_ALLOW_PRIVATE is written back only when set (a pull may open private addresses): a second run keeps it.
+printf 'PULL_ALLOW_PRIVATE=true\n' >> "$work/flip.env"
+PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$work/flip.env" --public off >/dev/null 2>&1 || fail "a run with PULL_ALLOW_PRIVATE set was refused"
+[ "$(value "$work/flip.env" PULL_ALLOW_PRIVATE)" = true ] || fail "PULL_ALLOW_PRIVATE was dropped on a second run"
+# Every key the script knows is written by it, or is a public-route key this loopback station
+# has no use for (or written only when set, PULL_ALLOW_PRIVATE): a known key the script never writes is dropped on every run.
+known=$(sed -n 's/^  known=" \(.*\) "$/\1/p' "$script")
+[ -n "$known" ] || fail "the script's list of known keys was not found"
+not_here=" PULL_ALLOW_PRIVATE PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND "
+for k in $known; do
+  [[ $not_here == *" $k "* ]] && continue
+  grep -q "^$k=" "$env" || fail "the script knows $k but did not write it on a loopback station: it would be dropped"
+done
+for k in $known; do
+  [ "$k" = PULL_ALLOW_PRIVATE ] && continue   # written only when set: checked above
+  grep -q "^$k=" "$work/compose.env" || fail "the script knows $k but did not write it on a public station: it would be dropped"
+done
+pass "KIT_VBAN and a hand-set PUBLIC_ORIGIN are kept (and checked); --public replaces the address and --public off drops it; every known key is written"
+
 # The bridge's loopback port (Phase 17g): checked and written like the others, and 0 (off) kept.
 [ "$(value "$env" SOURCE_BRIDGE_PORT)" = 7320 ] || fail "the bridge's port was not chosen: $(value "$env" SOURCE_BRIDGE_PORT)"
 sed -i 's/^SOURCE_BRIDGE_PORT=.*/SOURCE_BRIDGE_PORT=0/' "$env"
@@ -133,7 +175,15 @@ grep -q 'Settings unchanged' <<<"$again" || fail "the phone line: a second run c
 sed -i 's/^PHONE_LINES=.*/PHONE_LINES=4/; /^PHONE_RTP_LAST=/d' "$env"
 PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$env" >/dev/null 2>&1 || fail "PHONE_LINES=4 was refused"
 [ "$(value "$env" PHONE_RTP_LAST)" = 7347 ] || fail "4 lines: the RTP range ends at $(value "$env" PHONE_RTP_LAST), not 7347"
+# Where SIP listens (1.2.1): every address unless PHONE_SIP_LISTEN names one; kept, and checked.
+echo PHONE_SIP_LISTEN=192.0.2.5 >> "$env"
+PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$env" >/dev/null 2>&1 || fail "PHONE_SIP_LISTEN was refused"
+[ "$(value "$env" PHONE_SIP_LISTEN)" = 192.0.2.5 ] || fail "PHONE_SIP_LISTEN was not kept"
 bad="$work/bad.env"
+sed 's/^PHONE_SIP_LISTEN=.*/PHONE_SIP_LISTEN=every/' "$env" > "$bad"
+out=$(PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$bad" 2>&1) && fail "PHONE_SIP_LISTEN=every was taken"
+grep -q 'PHONE_SIP_LISTEN' <<<"$out" || fail "a wrong PHONE_SIP_LISTEN was refused for another reason: $out"
+sed -i '/^PHONE_SIP_LISTEN=/d' "$env"
 sed 's/^PHONE_RTP_PORT=.*/PHONE_RTP_PORT=7341/' "$env" > "$bad"
 PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$bad" >/dev/null 2>&1 && fail "an odd PHONE_RTP_PORT was taken"
 sed 's/^PHONE_REDIS_PORT=.*/PHONE_REDIS_PORT=7319/' "$env" > "$bad"
@@ -176,6 +226,38 @@ for kv in GPU=amd VIDEO_ENCODER=vaapi 'GPU_DEVICE=/dev/nvidia0' NVENC_SESSIONS=6
 done
 pass "GPU: a CDI spec found is written as GPU=nvidia and said, none as GPU=none; a second run keeps it; GPU=nvidia without a spec, and a wrong GPU, encoder, device or session count are refused"
 
+# An update never moves a station to the card (1.2.1, ADR-0292). A station installed before 1.2
+# has a settings file with its secrets and no GPU line: with a card on the server it keeps the
+# CPU (GPU=none), the script says the card is there and how to use it, and GPU_FOUND records it
+# for the studio app's Settings. Using the card is the person's own line: GPU=nvidia, or GPU=auto.
+up_env="$work/upgrade.env"
+generate compose "{ isPublic: false, domain: '', video: true }" > "$up_env"
+PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$up_env" >/dev/null 2>&1 || fail "upgrade: the first install was refused"
+[ "$(value "$up_env" GPU_FOUND)" = none ] || fail "no spec, and GPU_FOUND is $(value "$up_env" GPU_FOUND)"
+# The file a 1.1 install has: its secrets, and none of the lines 1.2 added.
+grep -v '^GPU=\|^GPU_FOUND=\|^VIDEO_ENCODER=' "$up_env" > "$work/up.tmp"; cat "$work/up.tmp" > "$up_env"
+[ -n "$(value "$up_env" POSTGRES_PASSWORD)" ] && ! grep -q '^GPU' "$up_env" || fail "upgrade: the stand-in for a 1.1 settings file is not one"
+out=$(WEAVESIGNAL_CDI_DIRS="$work/cdi" PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$up_env" 2>&1) || fail "upgrade: weavesignal.sh refused the file: $out"
+[ "$(value "$up_env" GPU)" = none ] || fail "an update switched a station with a card to GPU=$(value "$up_env" GPU)"
+[ "$(value "$up_env" GPU_FOUND)" = nvidia ] || fail "upgrade: the card found was not recorded: GPU_FOUND=$(value "$up_env" GPU_FOUND)"
+grep -q "an update never switches it" <<<"$out" && grep -q "set GPU=nvidia in $up_env" <<<"$out" || fail "upgrade: the card and the way to use it were not said: $out"
+grep -q '^GPU_DEVICE=\|^NVENC_SESSIONS=' "$up_env" && fail "upgrade: the card's device or sessions were written though it is not used"
+again=$(WEAVESIGNAL_CDI_DIRS="$work/cdi" PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$up_env" 2>&1)
+grep -q 'Settings unchanged' <<<"$again" || fail "upgrade: a second run changed the file: $again"
+grep -q 'never switches' <<<"$again" && fail "upgrade: the offer is said again on every run, though GPU=none is now the station's own line"
+offer_env="$work/offer.env"; cp -p "$up_env" "$offer_env"
+# The card gone (a driver removed): GPU_FOUND follows, and nothing else moves.
+PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$up_env" >/dev/null 2>&1 || fail "upgrade: refused once the spec was gone"
+[ "$(value "$up_env" GPU)" = none ] && [ "$(value "$up_env" GPU_FOUND)" = none ] || fail "the spec gone, and GPU_FOUND is $(value "$up_env" GPU_FOUND)"
+# The person's own act, either way.
+sed -i 's/^GPU=none$/GPU=nvidia/' "$up_env"
+WEAVESIGNAL_CDI_DIRS="$work/cdi" PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$up_env" >/dev/null 2>&1 || fail "upgrade: GPU=nvidia, set by hand, was refused"
+[ "$(value "$up_env" GPU)" = nvidia ] && [ "$(value "$up_env" GPU_DEVICE)" = nvidia.com/gpu=all ] && [ "$(value "$up_env" GPU_FOUND)" = nvidia ] || fail "upgrade: GPU=nvidia, set by hand, was not taken"
+sed -i 's/^GPU=nvidia$/GPU=auto/' "$up_env"
+WEAVESIGNAL_CDI_DIRS="$work/cdi" PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$up_env" >/dev/null 2>&1 || fail "upgrade: GPU=auto, set by hand, was refused"
+[ "$(value "$up_env" GPU)" = nvidia ] || fail "GPU=auto, set by hand on an installed station, did not look: GPU=$(value "$up_env" GPU)"
+pass "GPU on an update: a station installed before keeps GPU=none with a card there, the card is said once and recorded (GPU_FOUND), a second run changes nothing; GPU=nvidia or GPU=auto set by hand is taken"
+
 # The real compose, where there is one: the name reaches control.toml whole.
 compose=''
 if podman compose version >/dev/null 2>&1 && ! podman compose version 2>&1 | grep -q 'podman-compose'; then compose="podman compose"
@@ -202,15 +284,17 @@ log = s["livekit-sip"]["logging"]
 assert log["driver"] == "json-file" and log["options"]["max-size"], log
 assert "port 7321" in c["configs"]["valkey"]["content"], c["configs"]["valkey"]
 assert "rtp_port: 7340-7347" in s["livekit-sip"]["environment"]["SIP_CONFIG_BODY"]
+assert "listen_ip: \"\"" in s["livekit-sip"]["environment"]["SIP_CONFIG_BODY"], s["livekit-sip"]["environment"]["SIP_CONFIG_BODY"]
 control = c["configs"]["control"]["content"]
 assert "default_voice = \"edinburgh\"" in control and "enabled = true" in control, control
 ' "$phone" || fail "the phone overlay does not render as chosen"
   pass "compose config ($compose): the phone overlay renders with the station's chosen ports"
   # The GPU overlay (17e): the desk is handed the card by its CDI name, with labelling off for it,
   # and told the encoder; without the overlay it has no device.
-  for case in "$gpu_env gpu" "$nogpu_env plain"; do
+  for case in "$gpu_env gpu" "$nogpu_env plain" "$offer_env offered"; do
     read -r f kind <<<"$case"
-    files=(-f compose.yaml); [ "$kind" = plain ] || files+=(-f gpu.yaml)
+    # As weavesignal.sh adds it: only with GPU=nvidia in the file (an offered card is not handed over).
+    files=(-f compose.yaml); ! grep -qx 'GPU=nvidia' "$f" || files+=(-f gpu.yaml)
     sed -i 's/^GPU_DEVICE=.*/GPU_DEVICE=nvidia.com\/gpu=0/' "$f"
     rendered=$(cd "$root/deploy/compose" && $compose --env-file "$f" "${files[@]}" config --format json 2>/dev/null) || fail "compose config refused the $kind desk"
     KIND=$kind python3 -I -c '
@@ -219,14 +303,21 @@ c = json.loads(sys.argv[1])
 desk = c["services"]["desk"]
 video = tomllib.loads(c["configs"]["desk"]["content"])["video"]
 assert video["encoder"] == "auto" and video["nvenc_sessions"] == 12, video
-if os.environ["KIND"] == "gpu":
+kind = os.environ["KIND"]
+# What the control plane is told (1.2.1), for Settings in the studio app: the card found, whether
+# the desk has it, and video.
+told = tomllib.loads(c["configs"]["control"]["content"])["setup"]
+want = {"gpu": ("nvidia", "nvidia"), "plain": ("none", "none"), "offered": ("nvidia", "none")}[kind]
+assert (told["gpu_found"], told["gpu"], told["video"]) == (*want, True), told
+if kind == "gpu":
     assert [d["source"] for d in desk["devices"]] == ["nvidia.com/gpu=0"], desk.get("devices")
     assert "label=disable" in desk["security_opt"], desk.get("security_opt")
 else:
     assert not desk.get("devices"), desk["devices"]
+    assert "label=disable" not in (desk.get("security_opt") or []), desk.get("security_opt")
 ' "$rendered" || fail "the $kind desk does not render as chosen"
   done
-  pass "compose config ($compose): gpu.yaml hands the desk the card named by GPU_DEVICE, labelling off; without it, no device; the desk's settings take the encoder"
+  pass "compose config ($compose): gpu.yaml hands the desk the card named by GPU_DEVICE, labelling off; without it, and with a card only offered, no device; the desk's settings take the encoder; the control plane is told the card found and whether it is used"
 else
   echo "skip  no 'podman compose' (docker-compose) or 'docker compose' here: compose config not run"
 fi

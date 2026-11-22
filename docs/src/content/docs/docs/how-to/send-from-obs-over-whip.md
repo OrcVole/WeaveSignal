@@ -3,7 +3,7 @@ title: "Send from OBS over WHIP"
 description: "Let a host send their show's sound from OBS over WHIP with their show key: turn on the station's WHIP port, give the host the WHIP address and the key's secret as OBS's Bearer Token, and their source stands by on the desk like an Icecast or SRT one. Sound only; UDP must reach the station."
 type: howto
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 40
 ---
@@ -83,13 +83,29 @@ In the slot, the source stands by on the desk.
   WHIP here has no TURN and no TCP fallback, so a host whose network blocks UDP sends over
   **Icecast** instead, with the same key.
 - A station reached only over IPv6 cannot take WHIP: its one address is IPv4.
+- **OBS on the station's own machine, against a station installed without `--public`**, stays at
+  *Connecting* and fails after about 37 seconds, and the station ends the session after 10 s with
+  *no sound for 10 s*. Such a station gives OBS one address to send to, `127.0.0.1`, and the
+  connection checks never complete: the station's side waits for them, and the machine itself
+  carries the packets both ways, so OBS's WebRTC library (libdatachannel with libnice) is the
+  likely cause (not proved). It happens only with that loopback address, so it is a limit of
+  trying on one machine, not of a station: a real station gives its public address.
+  To try OBS on the same machine, give the ingest and LiveKit the machine's own network address
+  instead, as the 2026-11-21 tries did, where OBS then connected in about 100 ms: for example
+  `INGEST_BIND=192.168.1.20 LIVEKIT_NODE_IP=192.168.1.20 ./weavesignal.sh` (your address in place
+  of `192.168.1.20`; the next plain run puts them back on loopback; this way of setting them has
+  not itself been tried), then OBS's *Server* is `http://127.0.0.1:<CONTROL_PORT>/whip/<key id>`.
 
 ## What has been tried
 
 The station's endpoint has been tried on one machine with two WHIP clients: one of its own (the
 ingest's `whip_loopback` test: the answer, the sound at the desk, a wrong key, a second
 connection, the end, a host behind a NAT) and GStreamer's `whipclientsink` sending from behind a
-NAT (`just test-whip`: standing by, heard at the desk, its end). **A real OBS has not been tried against it yet.** From OBS's own pages: WHIP output came in OBS
+NAT (`just test-whip`: standing by, heard at the desk, its end). A real OBS 33.0.2 was tried
+against 1.2.0 on one machine on 2026-11-21: it accepted the answer that takes its picture and
+discards it, chose Opus by itself, was heard at the desk and on air, and **Stop Streaming**
+ended the session; across a real NAT or the internet it has not been tried yet. The rest of this
+section is what was written before that try. From OBS's own pages: WHIP output came in OBS
 30.0, and *Settings › Stream* takes *Service* WHIP, *Server* and *Bearer Token*. Not yet seen with
 OBS: that it streams with an answer that takes its picture and discards it (the clients above
 send a picture and are heard), that it sends Opus without a change

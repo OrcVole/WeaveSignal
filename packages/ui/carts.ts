@@ -74,6 +74,10 @@ export interface Catalogue {
   banks: Bank[];
   carts: Cart[];
   loudness_lufs: number;
+  /** The largest file a slot takes, in megabytes; absent from a station older than 1.2.1. */
+  max_upload_mb?: number;
+  /** The longest cart, in seconds; absent from a station older than 1.2.1. */
+  max_seconds?: number;
 }
 
 /** Under this much left, a playing cart says ENDING in amber (design: under 5 s). */

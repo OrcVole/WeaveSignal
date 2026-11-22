@@ -144,6 +144,19 @@ async function refreshCatalogue(version: number): Promise<void> {
   }
 }
 
+/** Fetch the catalogue now: this window has just changed a bank or a cart (1.2.1) and shows
+ *  the change without waiting for the next view. A failed fetch leaves what was there; the
+ *  view's next version asks again. */
+export async function reloadCatalogue(): Promise<void> {
+  const show = studio.cartShow;
+  try {
+    const cat = await catalogue(show);
+    if (studio.cartShow === show) studio.catalogue = cat;
+  } catch {
+    fetching = '';
+  }
+}
+
 /** The show whose own cart banks this window works with changed (a live window's show took the
  *  air, or the window switched between Live and Preparing): fetch its catalogue. The tab this
  *  window shows stays, and nothing sounding is stopped. */

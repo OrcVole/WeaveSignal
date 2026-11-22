@@ -3,7 +3,7 @@ title: "Take phone calls"
 description: "Let listeners ring the studio from an ordinary phone through a SIP trunk: the settings, the consent words and when you need them, recording your own words, number bans, takedowns, and what the line cannot do."
 type: howto
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 11
 ---
@@ -11,7 +11,7 @@ sidebar:
 :::caution[New in 1.2, not yet tried with a real trunk]
 The phone line is off by default, and `weavesignal.sh` refuses `PHONE=true` until a trunk is set.
 It runs on Compose and the Quadlets (`phone.yaml`), not yet on Cloudron.
-The control plane's and the desk's sides are built and tested on their own, and LiveKit's SIP service has answered a test call, but no call has yet come through a provider's trunk to a running station.
+In 1.2.0 the line never answered: the station did not make its trunk in LiveKit, so every call was refused (`404 Does not match Trunks or Dispatch Rules`). 1.2.1 makes it, and a local SIP client's call has gone through a running station from the key to the air; no call has yet come through a provider's trunk.
 :::
 
 A phone caller rings the station's number, hears a few words, presses a key, and then waits in `screener.queue` like a caller from the player page.
@@ -57,6 +57,12 @@ On Compose and the Quadlets they are the `PHONE_*` settings in the settings file
 | `calls_per_number_per_hour` | Calls one number may place in an hour (6). Withheld callers share one count. |
 
 Open the SIP port and the media ports to the provider's addresses, and no wider than you need ([Check the ports](/docs/how-to/check-ports/)).
+
+The station makes its trunk and dispatch rule in LiveKit itself, from these settings, each time it starts, and checks them every 30 seconds (Valkey keeps nothing on disk, so a restart of it loses them).
+You do not make either by hand; one you make yourself under another name is left alone.
+Settings › Phone line and `GET /api/v1/phone` say where they stand (`trunk.state`): `making` until LiveKit has answered, `made` once calls can reach the line, or `failed` with LiveKit's reason.
+With a digest user set and no password in `WEAVESIGNAL_PHONE_TRUNK_PASSWORD`, the trunk is not made and the reason says so.
+Turn the line off and the station deletes both at its next start.
 
 ## The consent words
 
@@ -116,6 +122,7 @@ When any of them changes (the station's name, the Jurisdiction setting, the cont
 A caller still hearing the words is not in `screener.queue` yet, so nobody can take or drop them until they press a key (or, with the words off, until they are through).
 **Drop** hangs up a phone caller, waiting or on air, as it ends a caller's call from the player page, and keeps no place for them.
 A caller who rings again is a new call and goes through the words and to the back of the queue.
+The same holds when a caller hangs up or the call is cut off: their row stays in the queue for 5 minutes marked *call ended*, and from 1.2.1 the screener says plainly that a new call joins at the back, where it used to say the place would come back (nothing matches a new call to the old one). `⇧C` clears the row sooner.
 
 ## Ban a number
 

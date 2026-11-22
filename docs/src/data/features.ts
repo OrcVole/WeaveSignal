@@ -335,7 +335,7 @@ export const groups: Group[] = [
       {
         id: 'desk-gpu',
         name: 'Video on a graphics card',
-        what: 'On Compose and the Quadlets the desk encodes the picture on an NVIDIA card with NVENC when the server has one, found by the install script or named in a setting, and on the CPU with SVT-AV1 otherwise. A Cloudron app has no GPU. Not yet measured on a card with this release.',
+        what: 'On Compose and the Quadlets the desk encodes the picture on an NVIDIA card with NVENC when the server has one, found by the install script on a new install or named in a setting, and on the CPU with SVT-AV1 otherwise. An update never moves a station to the card: Settings says when one is there and not used. A Cloudron app has no GPU. Not yet measured on a card with this release.',
         href: '/docs/how-to/use-a-gpu-for-video/',
         link: 'Use a GPU for video',
       },

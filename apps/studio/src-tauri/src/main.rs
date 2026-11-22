@@ -13,6 +13,7 @@ mod bridge_local;
 mod bridge_up;
 mod calendar;
 mod open;
+mod sound;
 mod station;
 mod stations;
 mod update;
@@ -48,6 +49,9 @@ fn main() {
         // the page can count on.
         // `calendar_read` reads a calendar file at a path the person pasted or dropped (Import a
         // calendar…): an `.ics` of at most 1 MB that begins as a calendar, and no other file.
+        // `sound_read` reads a sound dropped on the cart wall (1.2.1), for the page to send to the
+        // station as a cart: a file that is a sound by its name and its first bytes, no larger
+        // than the station takes, and no other file.
         // `open_link` hands the Solo DJ's own microphone link to the person's browser (ADR-0274):
         // a web address only, never through a shell.
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +79,7 @@ fn main() {
             open::open_link,
             calendar::calendar_save,
             calendar::calendar_read,
+            sound::sound_read,
             bridge::bridge_view,
             bridge::bridge_save,
             bridge::bridge_start,

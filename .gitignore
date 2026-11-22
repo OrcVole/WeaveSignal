@@ -42,3 +42,6 @@ __pycache__/
 /tests/calendar-path/run/
 /tests/monitor/run/
 /tests/cc/run/
+# test-no-stun and test-pull
+/tests/no-stun/run/
+/tests/pull/run/

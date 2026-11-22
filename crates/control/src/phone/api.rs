@@ -123,6 +123,10 @@ pub struct PhoneStatus {
     pub default_voice: super::words::PhoneVoice,
     /// The description of `default_voice`, for the studio beside its choice.
     pub default_voice_help: String,
+    /// Where the line's inbound trunk and dispatch rule stand in LiveKit: a call reaches the
+    /// line only once they are `made` (the station makes them at start and checks them every
+    /// 30 s). Absent with the line off.
+    pub trunk: Option<super::sync::TrunkStatus>,
 }
 
 /// The station's own recording, as `GET /api/v1/phone` shows it.
@@ -219,7 +223,7 @@ pub fn spawn_refresher(state: Arc<AppState>) {
     operation_id = "phone_status",
     tag = "phone",
     summary = "The phone line's state",
-    description = "Whether the line takes calls and why not, the calls at the gate and in the queue, and the words a caller hears first. For staff.",
+    description = "Whether the line takes calls and why not, the calls at the gate and in the queue, the words a caller hears first, and whether the line's trunk and dispatch rule are made in LiveKit (`trunk`). For staff.",
     responses(
         (status = 200, description = "The line.", body = PhoneStatus),
         (status = 401, response = crate::openapi::Unauthorized),
@@ -249,6 +253,7 @@ async fn phone_status(state: &AppState) -> Json<PhoneStatus> {
             consent_words: false,
             default_voice: super::words::PhoneVoice::default(),
             default_voice_help: super::words::DEFAULT_VOICE_HELP.to_owned(),
+            trunk: None,
         });
     };
     let row = refresh(state).await;
@@ -287,6 +292,7 @@ async fn phone_status(state: &AppState) -> Json<PhoneStatus> {
         consent_words: line.consent_words(ctx.settings),
         default_voice: line.default_voice(ctx.settings),
         default_voice_help: super::words::DEFAULT_VOICE_HELP.to_owned(),
+        trunk: Some(line.trunk.get()),
     })
 }
 

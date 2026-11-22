@@ -968,6 +968,104 @@
             ]
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Change a station slot's cart",
+        "description": "Changes the cart in that slot of the station's bank and keeps its sound: its `label`, `detail`, `mode`, `ramp_ms` (`null` takes the ramp away) and `licence`; `bank` and `slot` move it to an empty slot of the station's banks, and the slot is its key on the wall. A field left out stays as it is. The cart keeps its id and its file, so one that is sounding goes on sounding. An empty slot is 404; a move onto a slot that holds a cart is 409, and so nothing is ever replaced by a move. To change the sound, `PUT` a file to the slot.",
+        "operationId": "edit_cart",
+        "parameters": [
+          {
+            "name": "bank",
+            "in": "path",
+            "description": "The bank's number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "slot",
+            "in": "path",
+            "description": "The slot in the bank",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The cart as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "description": "The cart wall failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "carts:write"
+            ]
+          }
+        ]
       }
     },
     "/api/v1/carts/banks/{number}": {
@@ -1134,6 +1232,111 @@
           {
             "api_token": [
               "carts:fire"
+            ]
+          }
+        ]
+      }
+    },
+    "/api/v1/carts/pack": {
+      "get": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "The station's default pack",
+        "description": "The pack the station loaded into its banks at its first start (`carts.demo_pack`): its banks with each sound's slot, name and mode, and `untouched`, the ids of the station's carts that are still a default pack's cart as it was loaded (the same name, slot and mode, nothing added), which a load with `replace` may replace or remove. `available` is false, with `problem`, on a station that has no pack.",
+        "operationId": "pack_view",
+        "responses": {
+          "200": {
+            "description": "The pack.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "carts:read"
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Load the default pack into station banks",
+        "description": "Loads banks of the station's default pack into station banks: each of `loads` names one of the pack's banks and the station bank it goes `into` (made, under the pack's name, if it has not been). A station bank that holds carts is refused (409, saying what would happen) unless `replace` is true. With `replace`, only default carts nobody changed are replaced, and those the pack has no sound for are removed; a cart a person added, renamed, moved or changed stays, and the pack's sound for its slot is left out. Answers 202 at once with the plan: the sounds then go through the media worker one by one, counted in the studio view's `carts.importing`. A second load while one runs is 409. As the slots' own routes: any member of staff, or a token with `carts:write`.",
+        "operationId": "load_pack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackLoad"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The load has started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackStarted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "carts:write"
             ]
           }
         ]
@@ -3081,7 +3284,7 @@
           "phone"
         ],
         "summary": "The phone line's state",
-        "description": "Whether the line takes calls and why not, the calls at the gate and in the queue, and the words a caller hears first. For staff.",
+        "description": "Whether the line takes calls and why not, the calls at the gate and in the queue, the words a caller hears first, and whether the line's trunk and dispatch rule are made in LiveKit (`trunk`). For staff.",
         "operationId": "phone_status",
         "responses": {
           "200": {
@@ -7166,7 +7369,7 @@
           "shows"
         ],
         "summary": "Make or change a show",
-        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.",
+        "description": "Its cards are drawn first, and a name that cannot fit, or holds characters the card fonts cannot draw, refuses the save (422, with the field named). A station with no public address (`publishing.public_url` empty) still makes and saves the show, its names checked the same way, and keeps no cards until it has one (1.2.1). The presenter's fields (`presenter`, `contact`, `links`, `commercial_music`, `presenter_account`; ADR-0214, ADR-0219) are kept as stored when the body leaves them out, so a client that does not know them never wipes a DJ's details; send an empty value to clear one. A member of staff who is not an admin may name only their own account as `presenter_account` (403 otherwise); an API token may not set it at all. Changing `presenter` or `contact` takes an admin or the show's own presenter (ADR-0241; 403 otherwise); sending them unchanged is fine. `step` (`solo`, `guests`, `callers` or `full`, ADR-0271) is kept as stored when the body leaves it out, and a new show without it starts at `solo`; changing a stored show's step takes an admin, a producer or the show's presenter (403 otherwise; an API token may not), is logged, and takes effect at once if the show is on air. `rule` (release 1.0.4, ADR-0278) is when the show airs: a value sets it, `null` clears it, and left out leaves it to `slot` (an older studio's weekly slot) as the *When it airs: the rule* reference page tabulates; the drafted episodes are not moved by this (use `PUT …/rule` for that). `draft_first: true` makes series 1 if the show has none and drafts its first episode in the same transaction (the date under way, else the next); the reply adds `drafted`, and a refusal saves nothing. A presenter (or a screener) is refused a first episode over another show's time (409, `field` `rule`, the other show named, `clashes`); an admin, a producer, the station key and a token go on and the reply carries `warnings`. Every show carries `rule`, `rule_words` and `next_on`, and `slot` while the rule is exactly a weekly slot.",
         "operationId": "shows_put_show",
         "parameters": [
           {
@@ -7607,6 +7810,105 @@
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "description": "The cart wall failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "carts"
+        ],
+        "summary": "Change a show's slot's cart",
+        "description": "As `PATCH /api/v1/carts/banks/{bank}/slots/{slot}`, in the show's own bank; a move stays within the show's own banks. Who may: as for the show's banks.",
+        "operationId": "edit_show_cart",
+        "parameters": [
+          {
+            "name": "show",
+            "in": "path",
+            "description": "The show's slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bank",
+            "in": "path",
+            "description": "The bank's number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "slot",
+            "in": "path",
+            "description": "The slot in the bank",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The cart as it is now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
           },
           "500": {
             "description": "The cart wall failed.",
@@ -12435,6 +12737,71 @@
         ],
         "description": "What the studio app asks of the wall (`POST /api/v1/carts/commands`)."
       },
+      "CartEdit": {
+        "type": "object",
+        "description": "A change to a cart that keeps its sound (`PATCH` on its slot): any of its words, its mode,\nits ramp, and its place. A field left out stays as it is.",
+        "properties": {
+          "bank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Move it to this bank of the same owner's (1 to 5); left out, it stays in its bank.",
+            "minimum": 0
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The second line; empty for none."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cart's name on the wall: 1 to 120 characters."
+          },
+          "licence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "At most 80 characters."
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CartMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ramp_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Milliseconds to the first vocal, at most the cart's length; `null` takes the ramp away.",
+            "minimum": 0
+          },
+          "slot": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Move it to this slot (1 to 24), which is its key on the wall; the slot must be empty.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "CartMode": {
         "type": "string",
         "description": "How a cart plays (report 08's three modes).",
@@ -12517,7 +12884,9 @@
           "version",
           "banks",
           "carts",
-          "loudness_lufs"
+          "loudness_lufs",
+          "max_upload_mb",
+          "max_seconds"
         ],
         "properties": {
           "banks": {
@@ -12537,6 +12906,17 @@
             "type": "number",
             "format": "double",
             "description": "The loudness every cart is brought to, in LUFS."
+          },
+          "max_seconds": {
+            "type": "number",
+            "format": "double",
+            "description": "The longest cart, in seconds (`carts.max_seconds`)."
+          },
+          "max_upload_mb": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The largest file a slot takes, in megabytes (`carts.max_upload_mb`).",
+            "minimum": 0
           },
           "show": {
             "type": [
@@ -15180,6 +15560,67 @@
           }
         }
       },
+      "GpuFacts": {
+        "type": "object",
+        "description": "A graphics card the desk could encode the station's video on (NVENC), as the install knows it\n(1.2.1, ADR-0292): that a card is there, not its model, so not whether it has the AV1\nencoder the station's video needs (the desk falls back to the CPU where it has not). The studio's Settings offers a card that is there and not in use; nothing\nturns one on but the settings file's `GPU=nvidia`, set by a person, and an update never does.",
+        "required": [
+          "found",
+          "in_use",
+          "video"
+        ],
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "Whether the install script found an NVIDIA card on this server that the desk could be\nhanded (its CDI spec, looked for by `weavesignal.sh` on every run). Always false on the\nCloudron package, whose apps are given no card."
+          },
+          "in_use": {
+            "type": "boolean",
+            "description": "Whether the desk has been handed the card (`GPU=nvidia`): the setting, not a reading of\nthe desk. With video on it then encodes on the card what the card takes, and the rest on\nthe CPU; the desk's log says which."
+          },
+          "video": {
+            "type": "boolean",
+            "description": "Whether video is on (`VIDEO=true`): a card encodes nothing without it."
+          }
+        }
+      },
+      "HandoverLate": {
+        "type": "object",
+        "description": "A host who never came (1.2.1): the show under way is theirs, nobody of theirs has taken the\nair since it started, and the window is already about the next show.",
+        "required": [
+          "show",
+          "show_name",
+          "start_ms",
+          "host",
+          "from",
+          "state"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/HostOrigin",
+            "description": "`room` or `push`."
+          },
+          "host": {
+            "type": "string",
+            "description": "Who is down for it, by name: the source the post's rule names, else the furthest of its\nhosts, else every name down for it."
+          },
+          "show": {
+            "type": "string",
+            "description": "The show under way."
+          },
+          "show_name": {
+            "type": "string"
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it started."
+          },
+          "state": {
+            "$ref": "#/components/schemas/HandoverReadiness",
+            "description": "How far they have got: `not_connected`, `connecting` or `ready` (standing by, not on air)."
+          }
+        }
+      },
       "HandoverReadiness": {
         "type": "string",
         "description": "How ready the incoming host is.",
@@ -15239,6 +15680,17 @@
           "host": {
             "type": "string",
             "description": "Who is down for it, by name: the source the post's rule names, else every name down."
+          },
+          "late": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HandoverLate",
+                "description": "The host the show under way still waits for, once the window has moved on to the next\nshow (1.2.1): the desk then names both, the late one first. `null` when nobody is late,\nand while the window is still about the show under way (the post's own reading says it)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "opens_ms": {
             "type": "integer",
@@ -16097,9 +16549,14 @@
           "media_port",
           "turn_tls_port",
           "mail",
-          "listed"
+          "listed",
+          "gpu"
         ],
         "properties": {
+          "gpu": {
+            "$ref": "#/components/schemas/GpuFacts",
+            "description": "A graphics card for the desk's video (1.2.1)."
+          },
           "listed": {
             "type": "boolean",
             "description": "Whether search engines may list the public pages."
@@ -17860,6 +18317,224 @@
         },
         "additionalProperties": false
       },
+      "PackBankView": {
+        "type": "object",
+        "description": "One of the pack's banks.",
+        "required": [
+          "number",
+          "name",
+          "carts"
+        ],
+        "properties": {
+          "carts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackCartView"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its number in the pack.",
+            "minimum": 0
+          }
+        }
+      },
+      "PackCartView": {
+        "type": "object",
+        "description": "One of the pack's sounds, as the wall's dialog lists it.",
+        "required": [
+          "slot",
+          "label",
+          "mode"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CartMode"
+          },
+          "slot": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PackInto": {
+        "type": "object",
+        "description": "One of the pack's banks to load, and the station's bank it goes into.",
+        "required": [
+          "bank",
+          "into"
+        ],
+        "properties": {
+          "bank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The pack's bank, by its number in the pack.",
+            "minimum": 0
+          },
+          "into": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The station's bank it is loaded into (1 to 5).",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "PackLoad": {
+        "type": "object",
+        "description": "`POST /api/v1/carts/pack`: which of the pack's banks to load, and where.",
+        "required": [
+          "loads"
+        ],
+        "properties": {
+          "loads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackInto"
+            },
+            "description": "At least one; no station bank twice."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Go on where a bank holds carts: replace the default carts nobody changed, keep every\nother cart. Left out or false, a bank that holds carts is refused (409) with what would\nhappen to it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PackPlan": {
+        "type": "object",
+        "description": "What loading one of the pack's banks into a station bank does.",
+        "required": [
+          "bank",
+          "name",
+          "into",
+          "made",
+          "load",
+          "replace",
+          "remove",
+          "keep",
+          "left_out"
+        ],
+        "properties": {
+          "bank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The pack's bank, and its name.",
+            "minimum": 0
+          },
+          "into": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The station's bank it goes into, and whether that bank has been made.",
+            "minimum": 0
+          },
+          "keep": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Carts that are a person's own and stay, by slot."
+          },
+          "left_out": {
+            "type": "integer",
+            "description": "The pack's sounds left out because a cart that stays is in their slot.",
+            "minimum": 0
+          },
+          "load": {
+            "type": "integer",
+            "description": "The pack's sounds that are loaded.",
+            "minimum": 0
+          },
+          "made": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "remove": {
+            "type": "integer",
+            "description": "Default carts nobody changed that go because the pack has no sound for their slot.",
+            "minimum": 0
+          },
+          "replace": {
+            "type": "integer",
+            "description": "Of those, how many take the place of a default cart nobody changed.",
+            "minimum": 0
+          }
+        }
+      },
+      "PackStarted": {
+        "type": "object",
+        "description": "`202` from `POST /api/v1/carts/pack`: what is being done. The studio's view counts the\nsounds as they go through the media worker (`carts.importing`).",
+        "required": [
+          "plans",
+          "loading"
+        ],
+        "properties": {
+          "loading": {
+            "type": "integer",
+            "description": "The sounds to load, over every bank asked for.",
+            "minimum": 0
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackPlan"
+            }
+          }
+        }
+      },
+      "PackView": {
+        "type": "object",
+        "description": "`GET /api/v1/carts/pack`: the station's default pack, and which of the station's carts are\nstill a default pack's as they were loaded.",
+        "required": [
+          "available",
+          "loading",
+          "banks",
+          "untouched"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "The station has a pack to load (`carts.demo_pack`) and it reads."
+          },
+          "banks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackBankView"
+            }
+          },
+          "loading": {
+            "type": "boolean",
+            "description": "A pack is loading now: another load is refused until it ends."
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why not, when it is not."
+          },
+          "untouched": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The station's carts that a load with `replace` may replace or remove, by id: default\ncarts nobody changed. Every other cart stays."
+          }
+        }
+      },
       "PassInfo": {
         "type": "object",
         "required": [
@@ -18197,6 +18872,17 @@
               {
                 "$ref": "#/components/schemas/RecordingView",
                 "description": "The station's own recording, if it has one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trunk": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TrunkStatus",
+                "description": "Where the line's inbound trunk and dispatch rule stand in LiveKit: a call reaches the\nline only once they are `made` (the station makes them at start and checks them every\n30 s). Absent with the line off."
               },
               {
                 "type": "null"
@@ -23420,6 +24106,35 @@
           }
         }
       },
+      "TrunkStatus": {
+        "type": "object",
+        "description": "Where the trunk stands, as `GET /api/v1/phone` shows it.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "checked_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it was last made or found as made (ms since the epoch).",
+            "minimum": 0
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why, when it is `failed`."
+          },
+          "state": {
+            "type": "string",
+            "description": "`making` (not made yet: LiveKit not reached, or the first try under way), `made` (the\nstation's trunk and dispatch rule are in LiveKit, so calls reach the line) or `failed`\n(tried and refused; `message` says why, and it is tried again)."
+          }
+        }
+      },
       "VbanIn": {
         "type": "object",
         "description": "A VBAN stream the station takes: a sender's address and stream name, bound to a show key.",
@@ -24142,7 +24857,7 @@
       "api_token": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load and empty cart slots.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still.\n- `sources:read`: Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key."
+        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load, change and empty cart slots; load the default pack.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still.\n- `sources:read`: Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key."
       },
       "ingest": {
         "type": "http",

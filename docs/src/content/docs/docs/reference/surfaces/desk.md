@@ -63,7 +63,9 @@ When the next show has a host to bring on (ADR-0280), the line under the clock i
 
 From 1.2, under the schedule's line, the next show's **handover window** (Phase 17c): who is next, where they come from (the room or their own studio), and **READY**, **CONNECTING** or **NOT HERE YET**; past the start with the host on air still there, that they are running over, or who holds the handover.
 It opens `window_s` before each show's start (five minutes by default; Off, 5, 10, 15 or 30 minutes in Settings › Own studios › The rules) and changes nothing on air: the post, the grace and a hold work as above.
-When the show under way still waits for a late host and the next show's window has opened, both are said, the late one first.
+When the show under way still waits for a late host and the next show's window has opened, both are said, the late one first: *Late*, their name, how far they have got, their show and since when, and where they come from, then *Next*.
+From 1.2.1 the station names the late host itself (`post.window.late`), so a presenter who never came to the room is named too, by the show's presenter; 1.2.0 named only a host with a show key, and showed the next host alone otherwise.
+Nobody is called late once one of the show's hosts has been on air since it started, nor, for a show that comes from the room, while someone presents from the room.
 When the window opens the incoming host gets one **heads-up** an airing, a quiet note in [`desk.toast`](#desktoast)'s slot (`handover.heads_up`), and their own tile says they are on next until their post.
 **Rota** beside Coming up opens the Schedule tab's rota of the next twelve hours.
 States and the API: [Follow the rota and the handover window](/docs/how-to/follow-the-rota/).

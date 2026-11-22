@@ -207,6 +207,11 @@ describe('a key’s status', () => {
     expect(refusalWords({ ...at, reason: 'in_use' }, NOW, ZONE)).toContain('another connection was using the key');
     expect(refusalWords({ ...at, reason: 'new_reason' }, NOW, ZONE)).toBe('refused today 13:41: new_reason');
     expect(keyStatus(key({ last_refusal: { ...at, reason: 'format' } }), undefined, NOW, ZONE).refusal).toContain('could not read what the software sent');
+    // The station names what it could not read (1.2.1); its older generic sentence adds nothing.
+    expect(refusalWords({ ...at, way: 'srt', reason: 'format', detail: 'Opus inside MPEG-TS, which the station does not decode: set the software’s audio encoder to AAC' }, NOW, ZONE)).toBe(
+      'refused today 13:41: the station could not read what the software sent: Opus inside MPEG-TS, which the station does not decode: set the software’s audio encoder to AAC',
+    );
+    expect(refusalWords({ ...at, reason: 'format', detail: 'the station cannot read what the software sends' }, NOW, ZONE)).toBe('refused today 13:41: the station could not read what the software sent');
   });
 
   it('says who turned a key away and until when, and that a key ends on disconnect', () => {

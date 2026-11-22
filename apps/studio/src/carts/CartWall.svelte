@@ -8,6 +8,12 @@
   // `carts.wall`, `carts.bank.1`–`carts.bank.5`, `carts.sounding` (ADR-0070); the app's own
   // frame is `studio.frame`, so the design's `carts.frame` is not drawn twice.
   //
+  // Adding and changing carts (1.2.1): an empty slot is the invitation to add (its pad, its key,
+  // or a sound dropped on it); a cart that is not sounding has a quiet Edit button in its corner,
+  // one tab stop after its pad. Both open `carts.edit`; the strip's Edit bank… opens
+  // `carts.bank-edit`. A preparing window fires nothing and still adds and edits: that is when a
+  // DJ fills their show's bank. A cart that is sounding is not offered for change.
+  //
   // A cart wall per show (1.0.2): the window works with the station's banks and its show's own
   // (`studio.cartShow`). Tab N is the show's bank N where the show has made one, the station's
   // otherwise, and each tab says whose it is: "show" or "station" (packages/ui/carts.ts).
@@ -15,12 +21,18 @@
   import StateChip from '../../../../packages/ui/StateChip.svelte';
   import { cartKey } from '../../../../packages/ui/keymap.ts';
   import { MODE, bankAt, bankOwner, cartAt, cartNow, cartsAt, stationBankUnder, tabOf, type Bank, type Cart, type CartNow } from '../../../../packages/ui/carts.ts';
-  import { studio, stationNow } from '../lib/studio.svelte.ts';
+  import { reloadCatalogue, say, studio, stationNow } from '../lib/studio.svelte.ts';
   import { run } from '../lib/actions.ts';
   import { dur, firstName, signed } from '../lib/format.ts';
   import { preparing } from '../lib/prepare.svelte.ts';
-  import { setup } from '../lib/wizard.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
+  import { NOT_YOURS, limitsOf } from '../lib/cartEdit.ts';
+  import { askBank, askSlot, cartEditor, cartShowName, emptyAria, keyAdds, mayChangeShow, mayChangeTab } from '../lib/cartEdit.svelte.ts';
+  import { listenForDrops } from '../lib/cartDrop.ts';
+  import CartEditor from './CartEditor.svelte';
+  import BankEditor from './BankEditor.svelte';
+  import PackLoader from './PackLoader.svelte';
+  import { sandboxed } from '../lib/api.ts';
 
   /** The duck depth the desk's mixer uses (crates/mixer, `DUCK_DB`). */
   const DUCK_DB = 12;
@@ -37,12 +49,18 @@
   const now = $derived(stationNow());
   const bank = $derived(bankAt(cat, studio.bank));
   /** The name of the show whose own banks this window works with, for the strip's words. */
-  const showName = $derived.by(() => {
-    const slug = studio.cartShow;
-    if (!slug) return null;
-    if (v?.step?.show?.slug === slug) return v.step.show.name;
-    return setup.shows.find((s) => s.slug === slug)?.name ?? slug;
-  });
+  const showName = $derived(cartShowName());
+  /** What the last press did, or why it did not: until it lapses or Esc puts it away. */
+  const note = $derived(studio.note && studio.note.until > studio.now ? studio.note : null);
+  /** This window may add to and change the bank on the tab it shows, as far as it can tell. */
+  const canEdit = $derived(!!cat && mayChangeTab(studio.bank));
+  const notYours = $derived(NOT_YOURS(showName ?? 'the show'));
+  /** An empty slot's key adds a cart now: never while on air (the pad's press and a drop do). */
+  const keyAdd = $derived(keyAdds());
+  /** A sound is being dragged over the window, and the pad it is over (a browser's drag; the
+   *  packaged app is told only where it lands). */
+  let dragging = $state(false);
+  let dropSlot = $state<number | null>(null);
 
   /** Whose a tab's bank is, in words, for its tooltip. */
   function whose(b: Bank | null, n: number): string {
@@ -105,6 +123,67 @@
     return a;
   }
 
+  /** A file is dragged over a slot: it is the one the drop would land on. */
+  function overPad(e: DragEvent, slot: number) {
+    if ([...(e.dataTransfer?.types ?? [])].includes('Files')) dropSlot = slot;
+  }
+  function leftPad(e: DragEvent, slot: number) {
+    const to = e.relatedTarget;
+    if (dropSlot === slot && !(to instanceof Node && (e.currentTarget as Element).contains(to))) dropSlot = null;
+  }
+
+  /** A pad's press: fire or fade its cart; an empty slot's adds one (keymap section 4). */
+  function press(slot: number, cart: Cart | null) {
+    // The pad's own press always adds, on air too: it is meant. Only the key waits for off air.
+    if (!cart && studio.catalogue) return askSlot(slot);
+    void run({ type: 'cart-key', slot });
+  }
+
+  // A sound dropped on a pad opens the dialog on that slot with the file in hand; nothing is
+  // added, replaced or fired by the drop itself. While a dialog is open the drop is the dialog's.
+  $effect(() =>
+    listenForDrops(
+      (e) => {
+        if (cartEditor.slot || cartEditor.bank || cartEditor.pack !== null || document.querySelector('dialog[open]')) {
+          dragging = false;
+          dropSlot = null;
+          return;
+        }
+        if (e.kind !== 'drop') {
+          dragging = e.kind === 'over';
+          if (!dragging) dropSlot = null;
+          return;
+        }
+        dragging = false;
+        dropSlot = null;
+        const slot = Number(e.at?.closest('.cell')?.querySelector<HTMLElement>('[data-cart-slot]')?.dataset.cartSlot ?? 0);
+        if (e.problem) return say('warning', 'Not added', e.problem);
+        if (!e.file) return;
+        if (!studio.catalogue) return;
+        if (!slot) return say('good', 'Drop it on a pad', 'Drop a sound on the pad whose key it should have.');
+        if (!mayChangeTab(studio.bank)) return say('good', 'Not yours to change', NOT_YOURS(cartShowName() ?? 'the show'));
+        const there = cartAt(studio.catalogue, studio.bank, slot);
+        if (there && cartNow(there, studio.view?.carts ?? null, stationNow()).sounding) {
+          return say('good', 'It is sounding', `“${there.label}” is playing. Stop it first, then drop the sound again to replace it.`);
+        }
+        askSlot(slot, e.file);
+        if (e.more) say('good', 'One sound at a time', `Only “${e.file.name}” was taken; ${e.more === 1 ? 'the other file was' : `the other ${e.more} files were`} left.`);
+      },
+      () => limitsOf(studio.catalogue).maxMb,
+    ),
+  );
+
+  // A pack that was loading has finished: the wall is read again, and says so.
+  let wasImporting = false;
+  $effect(() => {
+    const importing = !!cv?.importing;
+    if (wasImporting && !importing) {
+      void reloadCatalogue();
+      say('good', 'Carts loaded', 'The pack’s sounds are on their keys.');
+    }
+    wasImporting = importing;
+  });
+
   function fadeAll() {
     if (fadeArmed) void run({ type: 'fade-all' });
     else void run({ type: 'arm', what: 'fade-all' });
@@ -136,93 +215,151 @@
           >
         {/each}
       </div>
-      <div class="right">
-        {#if cv && !cv.desk}
-          <StateChip chip={CHIP.fault} title={cv.desk_error ?? ''} />
-          <span class="small">Carts cannot sound until the desk answers.</span>
-        {:else if cv?.importing}
-          <span class="state hollow hollow-standby"
-            ><svg aria-hidden="true"><use href="#g-standby" /></svg>Loading carts</span
+      {#if cat}
+        {#if bank && canEdit}
+          <button type="button" class="btn quiet sm bankedit" aria-haspopup="dialog" title="Change this bank’s name or colour" onclick={() => askBank(studio.bank, bank.show ?? null)}
+            ><svg aria-hidden="true"><use href="#g-edit" /></svg>Edit bank…</button
           >
-          <span class="small num">{cv.importing[0]} of {cv.importing[1]}, through the media worker</span>
-        {:else if cv}
-          <span class="small">Every cart plays at <b class="num">{cat ? `${signed(cat.loudness_lufs)} LUFS` : '…'}</b> · mixed in the desk, heard in every return</span>
+        {:else if !bank}
+          <button type="button" class="btn sm bankedit" aria-haspopup="dialog" onclick={() => askBank(studio.bank, mayChangeShow() ? studio.cartShow : null)}
+            ><svg aria-hidden="true"><use href="#g-add" /></svg>Make bank {studio.bank}…</button
+          >
+        {/if}
+        <!-- The sounds the station shipped with, loaded again into a bank of the station's
+             (1.2.1). Not in the sandbox, whose banks are the pack already. -->
+        {#if !sandboxed()}
+          <button type="button" class="btn quiet sm bankedit" aria-haspopup="dialog" title="Load the sounds WeaveSignal ships into a station bank; your own carts stay" onclick={() => (cartEditor.pack = studio.bank)}
+            ><svg aria-hidden="true"><use href="#g-drop" /></svg>Default pack…</button
+          >
+        {/if}
+      {/if}
+      <div class="right">
+        {#if dragging}
+          <span class="state hollow hollow-accent sm"><svg class="g-accent" aria-hidden="true"><use href="#g-drop" /></svg>Drop on a pad</span>
+          <span class="small">The sound goes on that pad’s key. Nothing changes until you save.</span>
+        {:else}
+          <!-- FAULT is never put away by anything else the strip has to say. -->
+          {#if cv && !cv.desk}<StateChip chip={CHIP.fault} title={cv.desk_error ?? ''} />{/if}
+          {#if cv?.importing}
+            <span class="state hollow hollow-standby"
+              ><svg aria-hidden="true"><use href="#g-standby" /></svg>Loading carts</span
+            >
+            <span class="small num" data-testid="carts-importing">{cv.importing[0]} of {cv.importing[1]}, through the media worker</span>
+          {:else if note}
+            <!-- The wall's notice (1.2.1): what the last press did, or why it did not. It takes the
+                 strip's own status line and its room, so nothing moves and no pad is covered. -->
+            <div class="note {note.tone}" data-panel="carts.toast" role="status" aria-live="polite" title="{note.title}. {note.message}">
+              <svg aria-hidden="true"><use href="#{note.tone === 'good' ? 'g-good' : 'g-fault'}" /></svg>
+              <span class="words"><b data-panel-title>{note.title}.</b> {note.message}</span>
+            </div>
+          {:else if cv && !cv.desk}
+            <span class="small">Carts cannot sound until the desk answers.</span>
+          {:else if cv}
+            <span class="small">Every cart plays at <b class="num">{cat ? `${signed(cat.loudness_lufs)} LUFS` : '…'}</b> · mixed in the desk, heard in every return</span>
+          {/if}
         {/if}
       </div>
     </div>
 
-    <div class="wall" role="group" aria-label="{bank?.name ?? `Bank ${studio.bank}`}, 24 carts" style="--cart-colour:{bankColour}">
+    <div class="wall" class:dragging role="group" aria-label="{bank?.name ?? `Bank ${studio.bank}`}, 24 carts" style="--cart-colour:{bankColour}">
       {#each slots as { slot, key, cart, now: n } (slot)}
-        <button
-          type="button"
-          class="pad {n.state}"
-          class:bed={cart?.mode === 'bed'}
-          data-cart-slot={slot}
-          aria-label={aria(key, cart, n)}
-          aria-disabled={n.state === 'missing' || undefined}
-          disabled={prep}
-          title={prep ? OFF_WHY : undefined}
-          onfocus={() => (studio.cartFocus = slot)}
-          onclick={() => run({ type: 'cart-key', slot })}
-        >
-          {#if !cart}
-            <span class="top"><kbd>{key}</kbd><span class="mode">empty</span></span>
-            <span class="label">No cart here yet. Upload one to fill this slot.</span>
-            <span class="foot"></span>
-          {:else}
-            <span class="top"
-              ><kbd>{key}</kbd>
-              {#if n.state === 'missing'}
-                <span class="state {CHIP.fault.cls}"
-                  ><svg class="g-critical" aria-hidden="true"><use href="#g-fault" /></svg>File missing</span
-                >
-              {:else if n.state === 'cued'}
-                <StateChip chip={CHIP.cue} focusable={false} hoverable={false} />
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="cell" class:over={dropSlot === slot} ondragover={(e) => overPad(e, slot)} ondragleave={(e) => leftPad(e, slot)}>
+          <button
+            type="button"
+            class="pad {n.state}"
+            class:bed={cart?.mode === 'bed'}
+            class:add={!cart && canEdit}
+            data-cart-slot={slot}
+            aria-label={cart ? aria(key, cart, n) : emptyAria(slot, canEdit)}
+            aria-haspopup={!cart && canEdit ? 'dialog' : undefined}
+            aria-disabled={n.state === 'missing' || undefined}
+            disabled={prep && (!!cart || !canEdit)}
+            title={prep && (cart || !canEdit) ? OFF_WHY : !cart && cat && !canEdit ? notYours : undefined}
+            onfocus={() => (studio.cartFocus = slot)}
+            onclick={() => press(slot, cart)}
+          >
+            {#if !cart}
+              <span class="top"><kbd>{key}</kbd><span class="mode">empty</span></span>
+              {#if canEdit}
+                <span class="label"><svg class="plus" aria-hidden="true"><use href="#g-add" /></svg>Add a cart</span>
+                <span class="foot"><span class="fix">{#if keyAdd}Press <b>{key}</b>, or drop a sound here.{:else}Press this pad, or drop a sound here.{/if}</span></span>
               {:else}
-                <span class="mode"><svg aria-hidden="true"><use href="#{MODE[cart.mode].glyph}" /></svg>{MODE[cart.mode].word}</span>
+                <span class="label">No cart here yet.</span>
+                <span class="foot"></span>
               {/if}
-            </span>
-            <span class="label">{cart.label}{#if cart.detail}<small>{cart.detail}</small>{/if}</span>
-            <span class="foot">
-              <span class="left">
+            {:else}
+              <span class="top"
+                ><kbd>{key}</kbd>
                 {#if n.state === 'missing'}
-                  <span class="fix">Re-link it in the library. The key does nothing.</span>
+                  <span class="state {CHIP.fault.cls}"
+                    ><svg class="g-critical" aria-hidden="true"><use href="#g-fault" /></svg>File missing</span
+                  >
                 {:else if n.state === 'cued'}
-                  <b class="num">{cart.mode === 'bed' ? dur(now - (n.sounding?.started_ms ?? now)) : left(n.leftMs)}</b>
-                  <span class="word">in your headphones</span>
-                {:else if n.sounding}
-                  {#if cart.mode === 'bed'}
-                    <b class="num">{dur(now - n.sounding.started_ms)}</b>
-                    <span class="word">{n.state === 'stopping' ? 'fading' : 'loop · playing'}</span>
-                    {#if cv?.ducked && n.state !== 'stopping'}
-                      <span class="duck"><svg aria-hidden="true"><use href="#g-mic" /></svg>ducked −{DUCK_DB} dB · {duckWhy}</span>
-                    {/if}
-                  {:else}
-                    <b class="num">{left(n.leftMs)}</b>
-                    <span class="word">{n.state === 'stopping' ? 'fading' : n.state === 'ending' ? 'ending' : 'playing'}</span>
-                  {/if}
+                  <StateChip chip={CHIP.cue} focusable={false} hoverable={false} />
                 {:else}
-                  <span class="num">{dur(cart.duration_ms + 999)}</span>
-                  {#if cart.ramp_ms}<span class="ramp">ramp {Math.round(cart.ramp_ms / 1000)} s to the vocal</span>{/if}
+                  <span class="mode"><svg aria-hidden="true"><use href="#{MODE[cart.mode].glyph}" /></svg>{MODE[cart.mode].word}</span>
                 {/if}
               </span>
-              {#if n.sounding}
-                <svg class="ring" viewBox="0 0 28 28" aria-hidden="true"
-                  ><circle class="bg" cx="14" cy="14" r={RING_R} /><circle
-                    class="fg"
-                    cx="14"
-                    cy="14"
-                    r={RING_R}
-                    stroke-dasharray={RING_C.toFixed(1)}
-                    stroke-dashoffset={(RING_C * (1 - n.progress)).toFixed(1)}
-                  />{#if cart.mode === 'bed'}<text x="14" y="14.5">∞</text>{/if}</svg
-                >
-              {/if}
-            </span>
+              <span class="label">{cart.label}{#if cart.detail}<small>{cart.detail}</small>{/if}</span>
+              <span class="foot">
+                <span class="left">
+                  {#if n.state === 'missing'}
+                    <span class="fix">{canEdit ? 'Its sound is gone. Edit this cart to put it back.' : 'Its sound is gone.'} The key does nothing.</span>
+                  {:else if n.state === 'cued'}
+                    <b class="num">{cart.mode === 'bed' ? dur(now - (n.sounding?.started_ms ?? now)) : left(n.leftMs)}</b>
+                    <span class="word">in your headphones</span>
+                  {:else if n.sounding}
+                    {#if cart.mode === 'bed'}
+                      <b class="num">{dur(now - n.sounding.started_ms)}</b>
+                      <span class="word">{n.state === 'stopping' ? 'fading' : 'loop · playing'}</span>
+                      {#if cv?.ducked && n.state !== 'stopping'}
+                        <span class="duck"><svg aria-hidden="true"><use href="#g-mic" /></svg>ducked −{DUCK_DB} dB · {duckWhy}</span>
+                      {/if}
+                    {:else}
+                      <b class="num">{left(n.leftMs)}</b>
+                      <span class="word">{n.state === 'stopping' ? 'fading' : n.state === 'ending' ? 'ending' : 'playing'}</span>
+                    {/if}
+                  {:else}
+                    <span class="num">{dur(cart.duration_ms + 999)}</span>
+                    {#if cart.ramp_ms}<span class="ramp">ramp {Math.round(cart.ramp_ms / 1000)} s to the vocal</span>{/if}
+                  {/if}
+                </span>
+                {#if n.sounding}
+                  <svg class="ring" viewBox="0 0 28 28" aria-hidden="true"
+                    ><circle class="bg" cx="14" cy="14" r={RING_R} /><circle
+                      class="fg"
+                      cx="14"
+                      cy="14"
+                      r={RING_R}
+                      stroke-dasharray={RING_C.toFixed(1)}
+                      stroke-dashoffset={(RING_C * (1 - n.progress)).toFixed(1)}
+                    />{#if cart.mode === 'bed'}<text x="14" y="14.5">∞</text>{/if}</svg
+                  >
+                {/if}
+              </span>
+            {/if}
+          </button>
+          {#if cart && canEdit && !n.sounding}
+            <!-- One tab stop after its pad, and only for the pad the focus is on: the wall stays
+                 24 stops long. Space and ⏎ press it and stop or fire nothing (App.svelte). -->
+            <button
+              type="button"
+              class="padedit"
+              data-cart-edit={slot}
+              aria-haspopup="dialog"
+              aria-label="Edit {key}, {cart.label}"
+              title="Edit this cart: its name, sound, mode or key"
+              tabindex={studio.cartFocus === slot ? 0 : -1}
+              onclick={() => askSlot(slot)}><svg aria-hidden="true"><use href="#g-edit" /></svg></button
+            >
           {/if}
-        </button>
+        </div>
       {/each}
     </div>
+    <CartEditor />
+    <BankEditor />
+    <PackLoader />
   </section>
 
   <footer class="now" data-panel="carts.sounding">

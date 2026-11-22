@@ -307,6 +307,70 @@ pub async fn put_cart(
     Ok(old.flatten().filter(|f| Some(f) != cart.file.as_ref()))
 }
 
+/// What became of a cart's edit ([`update_cart`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CartUpdate {
+    Updated,
+    /// The cart is no longer in one of the owner's banks.
+    Gone,
+    /// The owner has not made the bank it would move to.
+    NoBank,
+    /// Another cart is in the slot it would move to.
+    Taken,
+}
+
+/// Change a cart where it is, or move it to an empty slot of the same owner's banks: its
+/// words, mode and ramp, and its place (`cart.bank`, `cart.slot`). The cart keeps its id and
+/// its file, so what is sounding and the play log still name it. `cart.show` is not read; the
+/// owner is `show`.
+pub async fn update_cart(
+    pool: &sqlx::PgPool,
+    station: StationId,
+    show: Option<Uuid>,
+    cart: &Cart,
+) -> Result<CartUpdate, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let Some(bank) = bank_id(&mut tx, station, show, cart.bank).await? else {
+        return Ok(CartUpdate::NoBank);
+    };
+    let taken: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM cart WHERE bank_id = $1 AND slot = $2 AND id <> $3")
+            .bind(bank)
+            .bind(i16::from(cart.slot))
+            .bind(cart.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if taken.is_some() {
+        return Ok(CartUpdate::Taken);
+    }
+    // Only a cart of this owner's: its present bank is one of theirs.
+    let done = sqlx::query(
+        "UPDATE cart c SET bank_id = $1, bank = $2, slot = $3, label = $4, detail = $5, mode = $6,
+                           ramp_ms = $7, licence = $8
+         FROM cart_bank b
+         WHERE c.id = $9 AND c.station_id = $10 AND b.id = c.bank_id
+           AND b.show_id IS NOT DISTINCT FROM $11",
+    )
+    .bind(bank)
+    .bind(i16::from(cart.bank))
+    .bind(i16::from(cart.slot))
+    .bind(&cart.label)
+    .bind(&cart.detail)
+    .bind(cart.mode.as_str())
+    .bind(cart.ramp_ms.map(|v| i32::try_from(v).unwrap_or(i32::MAX)))
+    .bind(&cart.licence)
+    .bind(cart.id)
+    .bind(station.as_uuid())
+    .bind(show)
+    .execute(&mut *tx)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Ok(CartUpdate::Gone);
+    }
+    tx.commit().await?;
+    Ok(CartUpdate::Updated)
+}
+
 /// Empty a slot of an owner's bank; returns the cart that was there and its file.
 pub async fn delete_cart(
     pool: &sqlx::PgPool,

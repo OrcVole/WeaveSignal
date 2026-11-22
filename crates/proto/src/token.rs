@@ -126,6 +126,34 @@ fn now_s() -> u64 {
 impl Keys {
     /// Sign any claims.
     pub fn sign(&self, claims: &TokenClaims) -> String {
+        self.sign_json(claims)
+    }
+
+    /// A token for LiveKit's SIP API (`livekit.SIP/…`: the phone line's inbound trunk and
+    /// dispatch rule), valid for `ttl_s`: the `sip.admin` grant only, no room and no video
+    /// grant. Its claims are not [`TokenClaims`], which never carries a SIP grant.
+    pub fn sip_admin(&self, ttl_s: u64) -> String {
+        #[derive(Serialize)]
+        struct Sip {
+            admin: bool,
+        }
+        #[derive(Serialize)]
+        struct SipClaims<'a> {
+            iss: &'a str,
+            nbf: u64,
+            exp: u64,
+            sip: Sip,
+        }
+        let now = now_s();
+        self.sign_json(&SipClaims {
+            iss: &self.api_key,
+            nbf: now.saturating_sub(10),
+            exp: now + ttl_s,
+            sip: Sip { admin: true },
+        })
+    }
+
+    fn sign_json<T: Serialize>(&self, claims: &T) -> String {
         let header = B64.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
         let body = B64.encode(serde_json::to_vec(claims).expect("claims serialise"));
         let signing_input = format!("{header}.{body}");
@@ -305,6 +333,26 @@ mod tests {
             api_key: "m1test".into(),
             api_secret: "test-only-secret-test-only-secret-0".into(),
         }
+    }
+
+    #[test]
+    fn a_sip_admin_token_carries_the_sip_grant_and_no_room() {
+        let k = keys();
+        let t = k.sip_admin(60);
+        let body = B64.decode(t.split('.').nth(1).unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["sip"]["admin"], true);
+        assert_eq!(v["iss"], "m1test");
+        assert!(v.get("video").is_none() && v.get("sub").is_none());
+        assert!(v["exp"].as_u64().unwrap() > v["nbf"].as_u64().unwrap());
+        // Signed as every other token is: the same header and secret.
+        let (input, _) = t.rsplit_once('.').unwrap();
+        let mut mac = HmacSha256::new_from_slice(k.api_secret.as_bytes()).unwrap();
+        mac.update(input.as_bytes());
+        assert_eq!(
+            t.rsplit_once('.').unwrap().1,
+            B64.encode(mac.finalize().into_bytes())
+        );
     }
 
     #[test]

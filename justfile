@@ -10,8 +10,10 @@ root := justfile_directory()
 # /proc/self/oom_score_adj: Permission denied), so PostgreSQL's healthcheck never passes. Every
 # recipe gets the session's own value when it is above 0 (never lower); set the variable to override.
 export WEAVESIGNAL_OOM_SCORE_ADJ := env("WEAVESIGNAL_OOM_SCORE_ADJ", `v=$(cat /proc/self/oom_score_adj 2>/dev/null || echo 0); case $v in ''|*[!0-9]*) echo 0 ;; *) echo $v ;; esac`)
-# The desk's build image; settable, so a worktree that changes it does not retag another's.
-desk_image := env("WEAVESIGNAL_DESK_IMAGE", "localhost/weavesignal-desk-dev:m5")
+# The desk's build image; settable, so a worktree that changes it does not retag another's. `just
+# desk-image` builds it under this tag; the old default `:m5` (2026-11-01) predated RTMP out and the
+# AV1 camera fixes and ran silently where it still existed, so a missing `:current` fails instead.
+desk_image := env("WEAVESIGNAL_DESK_IMAGE", "localhost/weavesignal-desk-dev:current")
 liquidsoap_image := "docker.io/savonet/liquidsoap:v2.5.0-rc1"
 livekit_image := "docker.io/livekit/livekit-server:v1.13.10"
 # Test containers' names and the throwaway database's port: settable, so two worktrees can run
@@ -34,6 +36,9 @@ desktop_windows_image := env("WEAVESIGNAL_DESKTOP_WINDOWS_IMAGE", "localhost/wea
 # to SVT-AV1 on the CPU, and the GPU tests skip.
 desk_gpu := if env("WEAVESIGNAL_DESK_GPU", "") == "1" { "--device nvidia.com/gpu=all " } else { "" }
 in_desk := "podman run --rm --network host " + desk_gpu + "--security-opt label=disable -v " + root + ":/work -v " + env("HOME") + "/.cargo/registry:/root/.cargo/registry -w /work -e CARGO_TARGET_DIR=/work/target/container " + desk_image
+# Xiph's clips for test-vmaf, mounted read-only at /clips.
+clips := env("WEAVESIGNAL_CLIPS", root + "/target/clips")
+in_desk_with_clips := "podman run --rm --network host " + desk_gpu + "--security-opt label=disable -v " + root + ":/work -v " + clips + ":/clips:ro -v " + env("HOME") + "/.cargo/registry:/root/.cargo/registry -w /work -e CARGO_TARGET_DIR=/work/target/container " + desk_image
 
 default:
     @just --list
@@ -116,10 +121,13 @@ test-quiet:
 test-dump:
     TEST=dump {{root}}/tests/room/run-stack.sh
 
-# The picture's quality at each rung: the desk's encoders and CMAF writer, decoded to raw frames,
-# scored with VMAF (needs Xiph's clips in target/clips; WEAVESIGNAL_DESK_GPU=1 adds NVENC)
+# Xiph's FourPeople_1280x720_60.y4m and KristenAndSara_1280x720_60.y4m (media.xiph.org/video/derf/y4m/)
+# in WEAVESIGNAL_CLIPS, target/clips by default (a folder outside target/ survives its clearing);
+# WEAVESIGNAL_DESK_GPU=1 adds NVENC.
+# The picture's quality at each rung: the desk's encoders and CMAF writer, decoded to raw frames, scored with VMAF
 test-vmaf:
-    {{in_desk}} env WEAVESIGNAL_CLIPS=/work/target/clips cargo test --release -p weavesignal-desk --test vmaf -- --ignored --nocapture
+    test -s "{{clips}}/FourPeople_1280x720_60.y4m" && test -s "{{clips}}/KristenAndSara_1280x720_60.y4m" || { echo "Xiph's two clips are not in {{clips}}: set WEAVESIGNAL_CLIPS"; exit 1; }
+    {{in_desk_with_clips}} env WEAVESIGNAL_CLIPS=/clips cargo test --release -p weavesignal-desk --test vmaf -- --ignored --nocapture
 
 # The desk's CPU with 4, 8 and 13 people, a release build (a measurement, not in `ci`)
 test-load:
@@ -246,6 +254,16 @@ test-edges: edge-image
 test-screens:
     {{root}}/tests/screens/run-screens.sh
 
+# The Screener tab's layout against the stand-in station (no stack): at 1,440 by 900 up to 3,840 by
+# 2,160 and at 100, 120 and 150 % text, every panel is whole inside the window, none is squeezed
+# under its floor or covers another, and nothing is cut at a panel's or the status bar's side. In
+# WebKitGTK 4.1, the app's own engine (python3 with GTK 3 and WebKit2 4.1), and in Chromium
+# (Playwright: set PLAYWRIGHT_CORE); an engine not on this machine is left out and said.
+# Screenshots into target/shots-screener-layout. Not in `ci`.
+test-screener-layout:
+    cd {{root}}/apps/studio && pnpm install --frozen-lockfile && pnpm build
+    node {{root}}/tests/screens/screener-layout.mjs
+
 # The monitor link's page (ADR-0280) in a real browser against a stand-in station: each lamp
 # state, the counts on the station's clock and in their last seconds, Start listening off where
 # nothing can play, every press and what it sends, an ended key and a wrong secret; screenshots in Dark, Light and Night at 1440×900 and 390×844 into
@@ -286,7 +304,7 @@ openapi-check:
     diff -u {{root}}/docs/src/content/docs/docs/reference/api.md {{root}}/target/openapi-check/api.md || { echo "docs/src/content/docs/docs/reference/api.md is out of date: run 'just openapi' and commit it"; exit 1; }
     @echo "the API description is current"
 
-# Validate the Compose bundle (with its two local edges, edges.yaml, the public route, the phone line, phone.yaml, and a GPU for the desk, gpu.yaml) against the example settings, its secrets filled with throwaways
+# Validate the Compose bundle (with its two local edges, edges.yaml, the public route, the phone line, phone.yaml, and a GPU for the desk, gpu.yaml, handed over or only found, 1.2.1) against the example settings, its secrets filled with throwaways; one server image for every service, and PULL_ALLOW_PRIVATE passed to the control plane
 compose-check:
     cd {{root}}/deploy/compose && LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --quiet
     cd {{root}}/deploy/compose && LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f edges.yaml config --quiet
@@ -294,8 +312,13 @@ compose-check:
     cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml -f edges.yaml config --quiet
     cd {{root}}/deploy/compose && PHONE=true PHONE_REDIS_PASSWORD=check-only LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f phone.yaml config --quiet
     cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example PHONE=true PHONE_REDIS_PASSWORD=check-only LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml -f phone.yaml config --quiet
+    cd {{root}}/deploy/compose && KIT_VBAN=true PUBLIC_ORIGIN=http://192.0.2.10:7310 LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --format json | python3 -I -c 'import json,sys,tomllib; c=tomllib.loads(json.load(sys.stdin)["configs"]["control"]["content"]); assert c["kit"]["vban"] is True and c["publishing"]["public_url"] == "http://192.0.2.10:7310", (c["kit"], c["publishing"]); print("compose-check: KIT_VBAN and PUBLIC_ORIGIN reach the control plane")'
     cd {{root}}/deploy/compose && VIDEO=true GPU=nvidia LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f gpu.yaml config --quiet
     cd {{root}}/deploy/compose && PUBLIC_DOMAIN=station.example VIDEO=true GPU=nvidia GPU_DEVICE=nvidia.com/gpu=0 LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml -f public.yaml -f gpu.yaml config --format json | python3 -I -c 'import json,sys; d=json.load(sys.stdin)["services"]["desk"]; assert [x["source"] for x in d["devices"]] == ["nvidia.com/gpu=0"] and "label=disable" in d["security_opt"], d; print("compose-check: gpu.yaml hands the desk nvidia.com/gpu=0")'
+    cd {{root}}/deploy/compose && VIDEO=true GPU=none GPU_FOUND=nvidia LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example -f compose.yaml config --format json | python3 -I -c 'import json,sys,tomllib; c=json.load(sys.stdin); s=tomllib.loads(c["configs"]["control"]["content"])["setup"]; assert (s["gpu_found"], s["gpu"], s["video"]) == ("nvidia", "none", True), s; assert not c["services"]["desk"].get("devices"), c["services"]["desk"]; print("compose-check: a card found and not asked for is told to the control plane and not handed to the desk")'
+    # Every service that runs the server image falls back to the same one (the ingest's said 1.0.4 until 1.2.1)
+    test "$(grep -o 'SERVER_IMAGE:-[^}]*' {{root}}/deploy/compose/compose.yaml | sort -u | wc -l)" = 1 || { grep -n 'SERVER_IMAGE:-' {{root}}/deploy/compose/compose.yaml; echo 'compose-check: the services fall back to different server images'; exit 1; }
+    cd {{root}}/deploy/compose && PULL_ALLOW_PRIVATE=true LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --format json | python3 -I -c 'import json,sys; e=json.load(sys.stdin)["services"]["control"]["environment"]; assert e.get("WEAVESIGNAL_PULL_ALLOW_PRIVATE") == "true", e.get("WEAVESIGNAL_PULL_ALLOW_PRIVATE"); print("compose-check: PULL_ALLOW_PRIVATE reaches the control plane")'
 
 # The server image the Compose bundle runs (the desk, the control plane and the chat)
 server-image:
@@ -312,6 +335,26 @@ server-image-arm64:
 # The image is rebuilt first, so the bundle never runs a stale one.
 test-bundle: server-image
     {{root}}/tests/ports/bundle.sh
+
+# The phone acceptance run's words check alone, no station: the words as a caller heard them match,
+# a ringback, silence and another voice do not (needs mojo and ffmpeg)
+phone-words-check:
+    {{root}}/tests/phone/acceptance/words-check.sh
+
+# The phone line end to end on a real Compose station (1.2.1): the station makes its own SIP trunk
+# and dispatch rule, baresip rings it from the key to the air, and both survive restarts
+test-phone: server-image
+    WEAVESIGNAL_SERVER_IMAGE={{server_image}} {{root}}/tests/phone/acceptance/stack.sh
+
+# No outside STUN by default (ADR-0290), proved from what leaves the station (tests/no-stun/README.md).
+# About 150 s. In `ci`: the promise is for every station, and the test reuses the image test-bundle builds.
+test-no-stun: server-image
+    WEAVESIGNAL_SERVER_IMAGE={{server_image}} {{root}}/tests/no-stun/run.sh
+
+# Pulled sources (1.2) from a local Icecast and an SRT listener, end to end (tests/pull/README.md).
+# Passed on 2026-11-21 after the caller announces MSS 1500. Not in `ci`; the 1.2.1 gate queue runs it.
+test-pull: server-image relay-image
+    WEAVESIGNAL_SERVER_IMAGE={{server_image}} RELAY_IMAGE={{relay_image}} {{root}}/tests/pull/run.sh
 
 # weavesignal.sh end to end on its own project and ports (29xxx): a taken port refused with its
 # alternative, install, a second run that changes nothing, uninstall keeping the data, purge
@@ -439,10 +482,10 @@ test-db:
 # Every gate, in order, on this machine (there is no hosted CI): host crates, licences, the
 # desk in its image, the Liquidsoap scripts, the migrations, the documentation, the stack
 # tests (room, playout restart, carts, edges), the studio app, the public pages, the Compose bundle with its port scan, the installer and the Quadlets.
-# Needs Podman, cargo-deny, pnpm 10, WebKitGTK 4.1, ffmpeg, and the images (`just desk-image server-image`).
+# Needs Podman, cargo-deny, pnpm 10, WebKitGTK 4.1, ffmpeg, tcpdump, jq, and the images (`just desk-image server-image`).
 # The desk image first, under this worktree's tag (ADR-0243): a gate that ran a stale image
 # (the default :m5, older than RTMP out) failed desk-check, or passed what it should not.
-ci: desk-image check openapi-check licences reuse-check desk-check liq-check test-db docs-build studio-check feed-test web-check wizard-check compose-check boot-check public-check tools-check quadlet-check test-room test-contain test-churn test-empty test-quiet test-dump test-sources-probe test-playout test-feed test-onair test-icecast-out test-carts test-edges test-relay-tls test-bundle test-install
+ci: desk-image check openapi-check licences reuse-check desk-check liq-check test-db docs-build studio-check feed-test web-check wizard-check compose-check boot-check public-check tools-check quadlet-check test-room test-contain test-churn test-empty test-quiet test-dump test-sources-probe test-playout test-feed test-onair test-icecast-out test-carts test-edges test-relay-tls test-bundle test-no-stun test-install
 
 # --- rtmp-out (ADR-0230) -------------------------------------------------------------------
 

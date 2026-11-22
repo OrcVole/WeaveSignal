@@ -46,6 +46,9 @@ export class Station12 extends HostStation {
     this.kitCloudron = false;
     this.kit = { preset: 'custom', bind: null, port: 6980, allow_public: false, vban_in: [], vban_out: [] };
     this.clock = { rate: 48_000, sources: [], vban_dropped: {}, vban_out: [] };
+    /** A graphics card as the install knows it (1.2.1): `{ found, in_use, video }`. Null is a
+     *  station older than 1.2.1, which says nothing of one. */
+    this.gpu = null;
   }
 
   /** A caller in the queue. `phone`: `{ tail }` for a number, `{ withheld: true }` for none. */
@@ -234,7 +237,7 @@ export class Station12 extends HostStation {
         this.stationName = body.name ? { ...this.stationName, value: body.name, source: 'page' } : { ...this.stationName, value: this.stationName.settings_value, source: 'settings' };
         this.contact = body.contact ? { ...this.contact, value: body.contact, source: 'page' } : { ...this.contact, value: this.contact.settings_value, source: 'settings' };
       }
-      return [200, { status: 'done', done_by: 'page', missing: [], completed_at_ms: 1, name: this.stationName, contact: this.contact, stream_password: { available: false, enabled: null, asked: null, restart_needed: false }, install: {}, branding: {}, updated_by: null, updated_at_ms: null }];
+      return [200, { status: 'done', done_by: 'page', missing: [], completed_at_ms: 1, name: this.stationName, contact: this.contact, stream_password: { available: false, enabled: null, asked: null, restart_needed: false }, install: this.gpu ? { gpu: { ...this.gpu } } : {}, branding: {}, updated_by: null, updated_at_ms: null }];
     }
 
     // ---- the presenter kit (an admin's; the clock is any staff's) ----

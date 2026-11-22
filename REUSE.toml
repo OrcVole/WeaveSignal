@@ -166,7 +166,7 @@ SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
 [[annotations]]
-path = ["assets/carts-demo/applause-1.opus", "assets/carts-demo/ding-3.opus"]
+path = ["assets/carts-demo/applause-1.opus"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Amada44"
 SPDX-License-Identifier = "CC0-1.0"
@@ -178,190 +178,262 @@ SPDX-FileCopyrightText = "thore"
 SPDX-License-Identifier = "LicenseRef-Public-Domain"
 
 [[annotations]]
-path = ["assets/carts-demo/cheer-1.opus", "assets/carts-demo/cheer-2.opus", "assets/carts-demo/cheer-3.opus"]
+path = ["assets/carts-demo/cheer-1.opus", "assets/carts-demo/boo-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "starlite"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
+SPDX-FileCopyrightText = "mglennsound"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/cheer-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "jessepash"
+SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = ["assets/carts-demo/laugh-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "lonemonk (via Freesound, sound 72842)"
-SPDX-License-Identifier = "CC-BY-3.0"
+SPDX-FileCopyrightText = "HowardV"
+SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = ["assets/carts-demo/laugh-2.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "lonemonk (via Freesound, sound 72843)"
-SPDX-License-Identifier = "CC-BY-3.0"
+SPDX-FileCopyrightText = "aarrnnoo"
+SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
-path = ["assets/carts-demo/laugh-3.opus"]
+path = ["assets/carts-demo/aww-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "lonemonk (via Freesound, sound 72844)"
-SPDX-License-Identifier = "CC-BY-3.0"
+SPDX-FileCopyrightText = "tim.kahn"
+SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
-path = ["assets/carts-demo/laugh-4.opus"]
+path = ["assets/carts-demo/ooh-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "JohnsonBrandEditing"
+SPDX-FileCopyrightText = "noah0189"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["assets/carts-demo/rimshot-1.opus", "assets/carts-demo/rimshot-2.opus", "assets/carts-demo/rimshot-3.opus", "assets/carts-demo/drumroll-2.opus", "assets/carts-demo/news-sting-1.opus", "assets/carts-demo/news-sting-2.opus"]
+path = ["assets/carts-demo/rimshot-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Kevin MacLeod (incompetech.com)"
-SPDX-License-Identifier = "CC-BY-3.0"
-
-[[annotations]]
-path = ["assets/carts-demo/boing-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "cfork"
+SPDX-FileCopyrightText = "xtrgamr"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = ["assets/carts-demo/sad-trombone-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Joe Lamb"
-SPDX-License-Identifier = "CC-BY-3.0"
+SPDX-FileCopyrightText = "kirbydx"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/boing-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "magnuswaker"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/slide-whistle-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "v0idation"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/crickets-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "ItsTheGoodstuff"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/record-scratch-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "LiftPizzas"
+SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = ["assets/carts-demo/ding-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Rafael Tavares Juliani"
+SPDX-FileCopyrightText = "Beetlemuse"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["assets/carts-demo/ding-2.opus", "assets/carts-demo/buzzer-2.opus", "assets/carts-demo/jingle-1.opus", "assets/carts-demo/jingle-2.opus", "assets/carts-demo/jingle-3.opus", "assets/carts-demo/jingle-4.opus", "assets/carts-demo/jingle-5.opus"]
+path = ["assets/carts-demo/bell-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Kenney Vleugels (Kenney.nl)"
+SPDX-FileCopyrightText = "AlaskaRobotics"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = ["assets/carts-demo/buzzer-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "David Pride"
+SPDX-FileCopyrightText = "Breviceps"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["assets/carts-demo/bleep-1.opus"]
+path = ["assets/carts-demo/buzzer-2.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Denelson83 (English Wikipedia)"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
-
-[[annotations]]
-path = ["assets/carts-demo/foghorn-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Elwood P. Dowd"
+SPDX-FileCopyrightText = "-Andreas"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["assets/carts-demo/foghorn-2.opus", "assets/carts-demo/foghorn-3.opus"]
+path = ["assets/carts-demo/bleep-1.opus", "assets/carts-demo/pips-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Tvabutzku1234"
+SPDX-FileCopyrightText = "2026 The WeaveSignal contributors"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["assets/carts-demo/airhorn-1.opus", "assets/carts-demo/airhorn-2.opus"]
+path = ["assets/carts-demo/tick-1.opus", "assets/carts-demo/cuckoo-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "HarveyHenkelmann"
-SPDX-License-Identifier = "CC0-1.0"
-
-[[annotations]]
-path = ["assets/carts-demo/phone-ring-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Work With Sounds / Technical Museum of Slovenia"
-SPDX-License-Identifier = "CC-BY-4.0"
-
-[[annotations]]
-path = ["assets/carts-demo/phone-ring-2.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "zero-project"
+SPDX-FileCopyrightText = "InspectorJ"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = ["assets/carts-demo/drumroll-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Iwan Sounds and DIY"
+SPDX-FileCopyrightText = "Scheffler"
 SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/drumroll-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "bigjoedrummer"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/tada-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "TwinOak"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/phone-ring-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "dangale"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/phone-hangup-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "magedu"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/cash-register-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "kiddpark"
+SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = ["assets/carts-demo/whoosh-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "pyranostudios"
+SPDX-FileCopyrightText = "Benboncan"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/whoosh-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "DJT4NN3R"
 SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/riser-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "syntheffects"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/reverse-cymbal-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Alastair_Pursloe"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/impact-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "zazz.sound.design"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/rewind-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "j_soundeffects"
+SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = ["assets/carts-demo/gong-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "stephan"
-SPDX-License-Identifier = "CC0-1.0"
-
-[[annotations]]
-path = ["assets/carts-demo/gong-2.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "PDSounds (pdsounds.org)"
-SPDX-License-Identifier = "CC0-1.0"
-
-[[annotations]]
-path = ["assets/carts-demo/fanfare-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "United States Air Force Heritage of America Band (US federal government work)"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
-
-[[annotations]]
-path = ["assets/carts-demo/fanfare-2.opus", "assets/carts-demo/bed-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Kevin MacLeod (incompetech.com)"
+SPDX-FileCopyrightText = "pjcohen"
 SPDX-License-Identifier = "CC-BY-4.0"
-
-[[annotations]]
-path = ["assets/carts-demo/bagpipe-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Tomanic"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
-
-[[annotations]]
-path = ["assets/carts-demo/bagpipe-2.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "United States Air Force Reserve Pipe Band (US federal government work)"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
 
 [[annotations]]
 path = ["assets/carts-demo/thunder-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "RHumphries"
+SPDX-FileCopyrightText = "-CASK-"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/airhorn-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "neilyhype"
 SPDX-License-Identifier = "CC-BY-3.0"
 
 [[annotations]]
-path = ["assets/carts-demo/rain-1.opus"]
+path = ["assets/carts-demo/foghorn-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "ezwa"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
-
-[[annotations]]
-path = ["assets/carts-demo/tick-1.opus"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "Marble Toast"
+SPDX-FileCopyrightText = "Danjocross"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["assets/carts-demo/tick-2.opus"]
+path = ["assets/carts-demo/jingle-1.opus", "assets/carts-demo/sting-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "natalie"
+SPDX-FileCopyrightText = "xkeril"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/jingle-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Tuben"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/news-sting-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "code_box"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/news-sting-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "mansardian"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/fanfare-1.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Sheyvan"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/carts-demo/bagpipe-1.opus", "assets/carts-demo/bagpipe-2.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "United States Air Force"
 SPDX-License-Identifier = "LicenseRef-Public-Domain"
 
 [[annotations]]
-path = ["assets/carts-demo/pips-1.opus"]
+path = ["assets/carts-demo/bed-1.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "AlexJ (English Wikipedia)"
-SPDX-License-Identifier = "LicenseRef-Public-Domain"
+SPDX-FileCopyrightText = "JapanYoshiTheGamer"
+SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
 path = ["assets/carts-demo/bed-2.opus"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "Antti Luode"
-SPDX-License-Identifier = "CC-BY-3.0"
+SPDX-FileCopyrightText = "holizna"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["assets/carts-demo/bed-3.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "copyc4t"
+SPDX-License-Identifier = "CC-BY-4.0"
 
 # Show cards (M8, ADR-0053): the bundled faces, unmodified from the Noto Project's releases
 # (Noto Sans 2.015, Noto Sans Arabic 2.013, Noto Sans Mono 2.014); recorded in NOTICES.md.
@@ -438,3 +510,10 @@ path = ["spike/harness/web/livekit-client.umd.js"]
 precedence = "override"
 SPDX-FileCopyrightText = "LiveKit, Inc."
 SPDX-License-Identifier = "Apache-2.0"
+
+# A 5.1 Ogg Opus kept as a test fixture (the 1.2.0 demo pack's drum roll, from Wikimedia Commons "Drum Roll Intro.ogg").
+[[annotations]]
+path = ["crates/media/tests/fixtures/five-one-drumroll.opus"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Iwan Sounds and DIY"
+SPDX-License-Identifier = "CC0-1.0"

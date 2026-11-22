@@ -3,7 +3,7 @@
 // The telephone line (1.2, PLAN 17f): where it stands, a phone caller's card, bans, the
 // station's contact, and a recording made in the window.
 import { describe, expect, it } from 'vitest';
-import { BAN_LENGTHS, DEFAULT_VOICES, WORDS_TIP, banProblem, banUntil, callerName, canSetConsent, contactProblem, deskName, isPhonePerson, lengthWords, lineWords, phoneLine, previewPath, voiceInForce, wordsLine, type PhoneStatus } from './lib/phone.ts';
+import { BAN_LENGTHS, DEFAULT_VOICES, WORDS_TIP, banProblem, banUntil, callerName, canSetConsent, consentLock, contactProblem, deskName, isPhonePerson, lengthWords, lineWords, phoneLine, previewPath, voiceInForce, wordsLine, type PhoneStatus } from './lib/phone.ts';
 import { canRecord, encodeWav } from './lib/wav.ts';
 import { deskCallers } from './lib/steps.ts';
 import type { Caller, View } from './lib/api.ts';
@@ -41,6 +41,18 @@ describe('where the phone line stands', () => {
     expect(lineWords(status({ open: false })).line).toBe('The line is on, and call-in is closed just now.');
   });
 
+  it('is closed until the station’s trunk is made in LiveKit (1.2.1), and says LiveKit’s reason', () => {
+    expect(lineWords(status({ trunk: { state: 'made', message: null, checked_ms: 1 } })).state).toBe('open');
+    const making = lineWords(status({ trunk: { state: 'making', message: null, checked_ms: null } }));
+    expect(making).toMatchObject({ state: 'closed', word: 'Starting' });
+    expect(making.line).toMatch(/still making its trunk/);
+    const failed = lineWords(status({ trunk: { state: 'failed', message: 'CreateSIPDispatchRule: LiveKit answered 409 conflicting rule', checked_ms: null } }));
+    expect(failed).toMatchObject({ state: 'closed', word: 'Closed' });
+    expect(failed.fix).toMatch(/^CreateSIPDispatchRule: LiveKit answered 409 conflicting rule\. It is tried again/);
+    // A 1.2.0 station says nothing of a trunk: the line reads as before.
+    expect(lineWords(status()).state).toBe('open');
+  });
+
   it('says which words a caller hears', () => {
     expect(wordsLine(status())).toBe('The short recording that comes with WeaveSignal.');
     expect(wordsLine(status({ words: { kind: 'station', version: 's', text: 'x' } }))).toBe('The station’s own recording.');
@@ -66,6 +78,18 @@ describe('which recording a caller hears', () => {
     expect(canSetConsent(status({ consent_words: true, default_voice: 'alba' }))).toBe(true);
     expect(canSetConsent(status({ consent_words: true, default_voice: 'alba', closed: 'off' }))).toBe(false);
     expect(canSetConsent(null)).toBe(false);
+  });
+  it('says beside the switch why it cannot be pressed, and nothing when it can', () => {
+    expect(consentLock(status({ consent_words: true, default_voice: 'alba' }))).toBeNull();
+    expect(consentLock(null)).toBeNull();
+    // The line off: the station refuses the change (409), so the screen names the line.
+    const off = consentLock(status({ consent_words: false, default_voice: 'alba', open: false, closed: 'off', words: null }));
+    expect(off).toMatchObject({ why: 'line_off', word: 'Turn the phone line on to change this' });
+    expect(off?.how).toMatch(/Turn the phone line on first/);
+    // A station older than the route: it shows the setting, and says where it is set.
+    const old = consentLock(status());
+    expect(old).toMatchObject({ why: 'version' });
+    expect(old?.how).toMatch(/PHONE_CONSENT_WORDS/);
   });
 });
 

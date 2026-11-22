@@ -76,8 +76,8 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.2.0 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.2.0
+podman build -t registry.station.example/weavesignal-cloudron:1.2.1 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.2.1
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.
@@ -143,7 +143,7 @@ What it costs, on the package's own memory gate with video on (`deploy/cloudron/
 | The desk's CPU, share of one core | not measured in the gate | 22 to 26 % (three cameras, one 480p rung) |
 
 - **The app has 2 GiB of memory** from package 1.0.1, up from 1.5 GiB, because the gate's rule (peak ÷ 0.7) asks for 1.7 GiB with video on; the figures above leave about 40 % of it free. An app installed earlier keeps the limit it was given: raise it in Cloudron's dashboard before turning video on.
-- **Encoding is on the CPU**, with SVT-AV1 at one rung (480p at 20 fps, 600 kbit/s): a Cloudron app is given no GPU, so NVENC is not available (ADR-0228), and `VIDEO_ENCODER` stays `svt`. A station that wants a card runs the Compose bundle or the Quadlets on a server with one ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)). The desk's share above is easy pictures; real cameras cost more, and each extra rung is another encoder ([Rungs](/docs/reference/desk-video/#rungs)).
+- **Encoding is on the CPU**, with SVT-AV1 at one rung (480p at 20 fps, 600 kbit/s): a Cloudron app is given no GPU, so NVENC is not available (ADR-0228), and `VIDEO_ENCODER` stays `svt`. A station that wants a card runs the Compose bundle or the Quadlets on a server with one ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)). The studio app's Settings shows no *Graphics card* panel on Cloudron: the package tells the station it has none. The desk's share above is easy pictures; real cameras cost more, and each extra rung is another encoder ([Rungs](/docs/reference/desk-video/#rungs)).
 - **A server for video is a server of its own.** The desk is a hidden room participant that encodes in real time; on a shared Cloudron that is already busy, the listener stream is the first to suffer ([Before you start](#before-you-start)).
 - Not checked on a Cloudron itself: that a browser plays the HLS through Cloudron's proxy, and how many viewers the container serves. Send viewers through edges or a CDN ([Run edges](/docs/how-to/run-edges/)) rather than this container once there are more than a handful.
 

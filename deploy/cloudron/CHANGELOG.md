@@ -2,6 +2,14 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.2.1]
+
+- **The phone line answers**: the station makes its own SIP trunk and dispatch rule and checks them every 30 seconds (1.2.0 refused every call).
+- **A show can be made on a station with no public address**; the bridge panel says *On air* while a source is; Opus inside MPEG-TS is refused by name within a second.
+- **An SRT or Icecast pull no longer freezes under a burst of sound**, and an SRT pull from a libsrt listener is heard.
+- **Fifty new default carts**, **Add and Edit a cart**, a **Default pack** action; the Screener's columns keep the Room on screen at larger text sizes; a phone caller who has left is no longer promised their place back; the consent switch says why it cannot be pressed; Bridge is explained in plain words.
+- Settings offers a graphics card hint (steps, no switch on upgrade); a Cloudron app still has no GPU.
+
 [1.2.0]
 
 - **A show can pull a stream**: a partner's Icecast mount, any HTTP or HTTPS audio, an HLS playlist or an SRT listener, opened before the show's time and standing by like a host's own studio. Migration 0042.

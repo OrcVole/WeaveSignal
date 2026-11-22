@@ -6,7 +6,8 @@
 // against what the studio sent, and captures them: the handover window on the desk's clock with
 // the heads-up and the seat notice, the rota, the rules' window; the pull source and the WHIP
 // details; the phone line in the screener and in Settings; the bridge and the presenter kit; and
-// the desk's Picture and Callers at 1,440 by 900. Like shoot.mjs it needs no stack and no port
+// the desk's Picture and Callers at 1,440 by 900; and, from 1.2.1, the graphics card in Settings
+// (`gpu`). Like shoot.mjs it needs no stack and no port
 // but its own loopback one, and so proves the studio half alone.
 //
 //   cd apps/studio && pnpm build
@@ -589,6 +590,13 @@ if (want('phone')) {
       check('with no trunk the panel says the line is off, and what a trunk is', /^Off$/i.test(await words(p.locator('.ph .state'))) && (await words(p.locator('[data-testid="phone-line"]'))).endsWith('The phone line is off until a trunk is set.') && (await words(p.locator('[data-testid="phone-fix"]'))).startsWith('A trunk is the phone provider’s connection'), await words(p.locator('.ph')));
       const sw = p.locator('[data-testid="phone-words-switch"]');
       check('the words’ switch shows the setting and is not this screen’s to change', (await sw.getAttribute('role')) === 'switch' && (await sw.getAttribute('aria-disabled')) === 'true' && (await words(p.locator('.sw-state'))) === 'Off with the line');
+      // 1.2.1: the reason is in words beside the switch, not only in the hint under it.
+      const lock = p.locator('[data-testid="phone-words-locked"]');
+      check('and says beside it, in words, why: the phone line is off', (await lock.count()) === 1 && (await words(lock)) === 'Turn the phone line on to change this' && (await lock.getAttribute('data-why')) === 'line_off' && /Turn the phone line on first/.test(await words(p.locator('#ph-switch-why'))), (await lock.count()) ? await words(lock) : 'no reason beside the switch');
+      {
+        const [a, b, box] = await Promise.all([sw.boundingBox(), lock.boundingBox(), p.boundingBox()]);
+        check('the reason is on the switch’s own row or the line under it, inside the panel', !!a && !!b && !!box && b.y < a.y + a.height * 3 && b.x >= box.x && b.x + b.width <= box.x + box.width + 0.5, JSON.stringify([a, b]));
+      }
       await sw.click({ force: true });
       check('pressing it says where the setting is, by name', (await words(p.locator('.part').first())).includes('Its name is PHONE_CONSENT_WORDS.'));
       const tip = page.locator('#ph-words-tip');
@@ -912,6 +920,60 @@ if (want('compact')) {
     const { ctx, page } = await open(new Station12({ step: 'full' }), { schedule: true });
     const b = page.getByRole('button', { name: 'Studios', exact: true });
     check('Studios is drawn off, and its reason names no build', (await b.getAttribute('aria-disabled')) === 'true' && (await b.getAttribute('title')) === 'Not in this version: a show has no studio of its own yet');
+    await ctx.close();
+  }
+}
+
+// ---- 7. Settings › Graphics card (1.2.1, ADR-0292): a card the server has is said and offered ----
+if (want('gpu')) {
+  const gpuPanel = (page) => page.locator('[data-panel="settings.graphics-card"]');
+  const admin = (gpu, o = {}) => {
+    const st = new Station12({ role: 'admin', ...o });
+    st.join('duncan', 'Duncan Boyd', 'presenter');
+    st.gpu = gpu;
+    return st;
+  };
+  for (const [what, st] of [
+    ['a station older than 1.2.1', admin(null)],
+    ['a server with no card, as the Cloudron package always says', admin({ found: false, in_use: false, video: true })],
+    ['a producer, whose setup view is not theirs to read', admin({ found: true, in_use: false, video: true }, { role: 'producer' })],
+  ]) {
+    const { ctx, page } = await open(st, { settings: true });
+    await sleep(600);
+    check(`${what}: Settings says nothing of a graphics card`, (await gpuPanel(page).count()) === 0);
+    await ctx.close();
+  }
+  for (const theme of THEMES) {
+    const { ctx, page } = await open(admin({ found: true, in_use: false, video: true }), { settings: true, theme });
+    const p = gpuPanel(page);
+    await p.waitFor();
+    await p.scrollIntoViewIfNeeded();
+    if (theme === 'dark') {
+      check('a card that is there and not used is said in plain words, with NVENC named and no promise that this card has the encoder', (await words(p.locator('h2'))) === 'Graphics card' && (await words(p.locator('[data-testid="gpu-tag"]'))) === 'Not in use' && (await words(p.locator('[data-testid="gpu-what"]'))).startsWith('This server has an NVIDIA graphics card, and the station is not using it. Video is encoded on the processor (SVT-AV1).') && (await words(p.locator('[data-testid="gpu-what"]'))).includes('A card with an AV1 encoder'), await words(p));
+      const steps = p.locator('[data-testid="gpu-offer"] li');
+      check('it is offered as two steps on the server: GPU=nvidia, then the script', (await steps.count()) === 2 && (await words(steps.nth(0).locator('code'))) === 'GPU=nvidia' && (await words(steps.nth(1))).startsWith('Run weavesignal.sh again'), await words(p.locator('[data-testid="gpu-offer"]')));
+      check('and it says an update never moves the station to the card', (await words(p.locator('[data-testid="gpu-after"]'))).includes('an update never moves the station to the card'));
+      check('nothing in the panel is a control: it changes nothing here', (await p.locator('button, input, select, a[href]').count()) === 0);
+      await fits(p, 'the graphics card, offered');
+      await noSideScroll(page, 'the graphics card, offered');
+    }
+    await shotOf(page, p, `G-${theme}-gpu-offered`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open(admin({ found: true, in_use: false, video: false }), { settings: true });
+    const p = gpuPanel(page);
+    await p.waitFor();
+    check('with video off the offer names both settings', (await words(p.locator('[data-testid="gpu-offer"] li').first().locator('code'))) === 'VIDEO=true and GPU=nvidia' && (await words(p.locator('[data-testid="gpu-what"]'))).includes('Video is off.'));
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await open(admin({ found: true, in_use: true, video: true }), { settings: true });
+    const p = gpuPanel(page);
+    await p.waitFor();
+    await p.scrollIntoViewIfNeeded();
+    check('a card the desk has is said, with the way back and no offer', (await words(p.locator('[data-testid="gpu-tag"]'))) === 'With the desk' && (await words(p.locator('[data-testid="gpu-what"]'))).startsWith('The desk has been given this server’s NVIDIA graphics card.') && (await p.locator('[data-testid="gpu-offer"]').count()) === 0 && (await words(p.locator('[data-testid="gpu-after"]'))).includes('GPU=none'), await words(p));
+    await shotOf(page, p, 'G-dark-gpu-in-use');
     await ctx.close();
   }
 }

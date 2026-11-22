@@ -14,6 +14,11 @@ The caller lane works the real desk through the control plane ([Screen callers](
 Each heading below is a panel's name, as it is on screen (ADR-0070).
 Hover over a panel's header, or focus it with the keyboard, to see its name.
 
+**The layout.** Three columns: `screener.queue` over `screener.screening`, then `screener.needs` over `screener.studio`, then `screener.room`. In a studio 2,200 px wide or more the queue and the caller's card stand side by side, four columns.
+From 1.2.1 every column has a floor it is never squeezed under (20, 22 and 26 rem), the first two a width they do not grow past (25 and 31 rem), and the Room takes the rest; a larger text size divides the window's width, so it narrows the first two columns before it takes anything from the Room. The queue scrolls before the caller's card loses its actions, and the status bar drops detail (how far behind listeners are, which the Room's head also says) and shortens the show's name before it would cut *Talk to* at its right end.
+Only under about 1,140 px of studio width (a 1,440 px window at 150 % text) do the columns stack and the tab scroll.
+Until 1.2.1 the first two columns were fixed and the layout stacked under 1,360 px into panels crushed to strips, so at 120 % text in a 1,440 px window the Room was cut off. `just test-screener-layout` measures every panel at each window and text size in WebKitGTK, the app's own engine, and in Chromium.
+
 ![The screener: callers waiting in the queue, with the selected caller's line, note and keys below.](../../../../../assets/screens/reference-screener-queue.png)
 
 ## `screener.status`

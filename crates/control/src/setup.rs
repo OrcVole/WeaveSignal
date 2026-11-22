@@ -241,6 +241,39 @@ pub struct InstallFacts {
     pub mail: String,
     /// Whether search engines may list the public pages.
     pub listed: bool,
+    /// A graphics card for the desk's video (1.2.1).
+    pub gpu: GpuFacts,
+}
+
+/// A graphics card the desk could encode the station's video on (NVENC), as the install knows it
+/// (1.2.1, ADR-0292): that a card is there, not its model, so not whether it has the AV1
+/// encoder the station's video needs (the desk falls back to the CPU where it has not). The studio's Settings offers a card that is there and not in use; nothing
+/// turns one on but the settings file's `GPU=nvidia`, set by a person, and an update never does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct GpuFacts {
+    /// Whether the install script found an NVIDIA card on this server that the desk could be
+    /// handed (its CDI spec, looked for by `weavesignal.sh` on every run). Always false on the
+    /// Cloudron package, whose apps are given no card.
+    pub found: bool,
+    /// Whether the desk has been handed the card (`GPU=nvidia`): the setting, not a reading of
+    /// the desk. With video on it then encodes on the card what the card takes, and the rest on
+    /// the CPU; the desk's log says which.
+    pub in_use: bool,
+    /// Whether video is on (`VIDEO=true`): a card encodes nothing without it.
+    pub video: bool,
+}
+
+impl GpuFacts {
+    /// From the `[setup]` settings the install script writes.
+    pub fn from_config(c: &crate::config::SetupConfig) -> Self {
+        let found = c.gpu_found.as_deref() == Some("nvidia");
+        Self {
+            found,
+            // A card handed over that the script did not find is not there to use.
+            in_use: found && c.gpu.as_deref() == Some("nvidia"),
+            video: c.video.unwrap_or(false),
+        }
+    }
 }
 
 /// The setup routes' state: its own, like the shows' and steering's.
@@ -1439,6 +1472,49 @@ pub struct Api;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_graphics_card_is_offered_only_where_the_install_found_one() {
+        use crate::config::SetupConfig;
+        let with = |found: Option<&str>, gpu: Option<&str>, video: Option<bool>| {
+            GpuFacts::from_config(&SetupConfig {
+                gpu_found: found.map(str::to_owned),
+                gpu: gpu.map(str::to_owned),
+                video,
+                ..SetupConfig::default()
+            })
+        };
+        // The Cloudron package says nothing: no card, nothing to offer.
+        assert_eq!(with(None, None, None), GpuFacts::default());
+        // Found and not handed over (an install from before 1.2, after its update): offered.
+        assert_eq!(
+            with(Some("nvidia"), Some("none"), Some(true)),
+            GpuFacts {
+                found: true,
+                in_use: false,
+                video: true
+            }
+        );
+        // Handed over; and with video off it still encodes nothing.
+        assert!(with(Some("nvidia"), Some("nvidia"), Some(true)).in_use);
+        assert_eq!(
+            with(Some("nvidia"), Some("nvidia"), Some(false)),
+            GpuFacts {
+                found: true,
+                in_use: true,
+                video: false
+            }
+        );
+        // None found: a GPU=nvidia left in the settings is not a card in use.
+        assert_eq!(
+            with(Some("none"), Some("nvidia"), Some(true)),
+            GpuFacts {
+                found: false,
+                in_use: false,
+                video: true
+            }
+        );
+    }
 
     #[test]
     fn the_page_wins_over_the_settings_file_and_hands_back() {

@@ -3,7 +3,7 @@ title: "Publish a station from the Compose bundle"
 description: "Put the Compose bundle on the internet with one command: a reverse proxy with a certificate for your domain, TURN over TLS, and the ports to open."
 type: howto
 status: draft
-last_verified: 2026-11-10
+last_verified: 2026-11-21
 sidebar:
   order: 34
 ---
@@ -74,7 +74,7 @@ Never published: LiveKit's server API (`/twirp`), the listener process's `/statu
 The control plane checks its own bearer tokens, so there is no login in front of it; the studio app connects to `https://station.example` with the admin token or a staff sign-in (ADR-0139).
 The proxy gives each service the connection's own address in `X-Forwarded-For` and never a client's. Behind any proxy, the control plane and the chat count the header's last entry, the one the station's own proxy added, so a client cannot choose its address by sending the header itself.
 Plain HTTP on port 80 serves the stream mount and redirects everything else to HTTPS, so a station on other ports keeps its port in the redirect.
-Show cards and podcast feeds are on once the station is public: the bundle gives the control plane the public address as `publishing.public_url`, and keeps the cards and episode files in the `show-cards` and `episodes-media` volumes (`/cards/`, `/media/episodes/`); a loopback station has them off.
+Show cards and podcast feeds are on once the station is public: the bundle gives the control plane the public address as `publishing.public_url`, and keeps the cards and episode files in the `show-cards` and `episodes-media` volumes (`/cards/`, `/media/episodes/`); a loopback station has them off. It still makes shows, series and episodes (from 1.2.1; 1.2.0 refused New show with *cards are off*): their names are checked against the card fonts, and their cards are drawn at the first save after the station has an address. A station on a private network can print one without going public: set `PUBLIC_ORIGIN=http://192.168.1.20:7310` (its own address) in the settings file and run `weavesignal.sh` again.
 HTTPS answers carry `Strict-Transport-Security` for a year (not for the name's subdomains), so a browser that has visited once comes back over HTTPS only; players that cannot do TLS keep the plain-HTTP mount.
 
 ## Settings

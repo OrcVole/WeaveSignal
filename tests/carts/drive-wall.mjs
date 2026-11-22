@@ -168,7 +168,7 @@ const note = await page.textContent('.cartwall').catch(() => '');
 check('its key does nothing', !sounding(v, ding.id));
 await shots('wall-missing');
 const padText = await page.$eval(`[data-cart-slot="${ding.slot}"]`, (e) => e.textContent);
-check('the slot says FILE MISSING and the fix', /File missing/i.test(padText) && padText.includes('Re-link'), padText.slice(0, 80));
+check('the slot says FILE MISSING and the fix', /File missing/i.test(padText) && padText.includes('Edit this cart to put it back'), padText.slice(0, 80));
 renameSync(join(MEDIA, `${ding.file}.aside`), join(MEDIA, ding.file));
 r = await until((v) => !v.carts.missing.includes(ding.id), 8000);
 check('the file back, the cart is back', r.ms !== null);

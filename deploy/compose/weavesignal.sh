@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -220,7 +220,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -309,9 +309,15 @@ esac
 # --- Video's encoder, and a GPU for the desk (17e, issue #8, ADR-0289) ------------------------
 # VIDEO_ENCODER: auto (NVENC when the desk has a card, else SVT-AV1 on the CPU), nvenc or svt.
 # GPU: nvidia hands the card to the desk by its CDI name (gpu.yaml, GPU_DEVICE), none keeps it on
-# the CPU, and auto (or unset) looks for an NVIDIA CDI spec now and writes what it found, so the
-# next run changes nothing; set GPU=auto again to look again. The spec is what `nvidia-ctk cdi
-# generate` writes; WEAVESIGNAL_CDI_DIRS names where to look (the tests point it at their own).
+# the CPU, and auto looks for an NVIDIA CDI spec now and writes what it found, so the next run
+# changes nothing; set GPU=auto again to look again. The spec is what `nvidia-ctk cdi generate`
+# writes; WEAVESIGNAL_CDI_DIRS names where to look (the tests point it at their own).
+#
+# With no GPU line at all, a new install looks (auto). A station that was installed before
+# (its settings file already holds the database's password, which this script made on an
+# earlier run) is never switched to the card by an update (ADR-0292): it keeps the CPU, GPU=none
+# is written, and the card found is only said, here and in the studio app's Settings (GPU_FOUND,
+# which the control plane reports). Setting GPU=nvidia or GPU=auto is the person's own act.
 unquote() { local v=$1; v=${v#[\"\']}; printf '%s' "${v%[\"\']}"; }
 video=$(unquote "$(keep VIDEO false)")
 video_encoder=$(unquote "$(keep VIDEO_ENCODER auto)"); video_encoder=${video_encoder,,}
@@ -329,11 +335,22 @@ cdi_nvidia() { # the first CDI spec that declares NVIDIA GPUs, or nothing
   done
   return 1
 }
-gpu=$(unquote "$(keep GPU auto)"); gpu=${gpu,,}
+gpu=$(unquote "$(keep GPU "")"); gpu=${gpu,,}
+# Whether this server has a card the desk could use, whatever GPU says: Settings offers it.
+gpu_found=none; cdi_found=$(cdi_nvidia) && gpu_found=nvidia
+if [ -z "$gpu" ]; then
+  if [ -z "${have[POSTGRES_PASSWORD]:-}" ]; then
+    gpu=auto
+  else
+    gpu=none
+    [ "$gpu_found" != nvidia ] \
+      || say "GPU: this server has an NVIDIA card (its CDI spec is at $cdi_found). This station was installed before WeaveSignal could use one, and an update never switches it: video stays on the CPU (GPU=none). To encode video on the card, set GPU=nvidia in $env_file and run this script again."
+  fi
+fi
 case $gpu in
   auto)
-    if cdi_spec=$(cdi_nvidia); then
-      gpu=nvidia; say "GPU: an NVIDIA card's CDI spec is at $cdi_spec, so GPU=nvidia (the desk encodes video on it with VIDEO=true; GPU=none turns it off)"
+    if [ "$gpu_found" = nvidia ]; then
+      gpu=nvidia; say "GPU: an NVIDIA card's CDI spec is at $cdi_found, so GPU=nvidia (the desk encodes video on it with VIDEO=true; GPU=none turns it off)"
     else
       gpu=none
     fi ;;
@@ -351,6 +368,11 @@ nvenc_sessions=$(unquote "$(keep NVENC_SESSIONS 12)")
 [ "$video_encoder" != nvenc ] || [ "$gpu" = nvidia ] \
   || say "VIDEO_ENCODER=nvenc with GPU=none: the desk has no card, so it encodes on the CPU with SVT-AV1 and says so in its log"
 
+# --- VBAN (the presenter kit, 1.2): off unless KIT_VBAN=true -------------------------------
+# It lands unquoted in the control plane's TOML, so it is true or false and nothing else.
+kit_vban=$(unquote "$(keep KIT_VBAN false)"); kit_vban=${kit_vban,,}
+case $kit_vban in true|false) ;; *) die "KIT_VBAN in $env_file is '$kit_vban'; it must be true or false" ;; esac
+
 # --- The public route (opt-in): a name for the station, and what follows from it -------------
 case $public_arg in
   '') ;;                                  # keep what the settings file says
@@ -358,6 +380,16 @@ case $public_arg in
   *) public_domain=$public_arg ;;
 esac
 public_tls=''; acme_email=''; node_ip=''; turn_cidrs=''
+# A loopback station's printed address (cards and feeds, `publishing.public_url`): kept when set
+# by hand, as a station on a private network may be reached at http://192.168.1.20:7310. One the
+# public route derived (the file named a domain when this run began) goes with the route.
+hand_origin=''
+if [ -z "$public_domain" ] && [ -z "${have[PUBLIC_DOMAIN]:-}" ]; then
+  hand_origin=$(unquote "$(keep PUBLIC_ORIGIN "")"); hand_origin=${hand_origin%/}
+  origin_form='^https?://[A-Za-z0-9.:-]+(/[A-Za-z0-9._~/-]*)?$'
+  [[ -z $hand_origin || $hand_origin =~ $origin_form ]] \
+    || die "PUBLIC_ORIGIN in $env_file is '$hand_origin'; it is an address such as http://192.168.1.20:7310 (a scheme, a host and a port, no quotes or spaces)"
+fi
 if [ -n "$public_domain" ]; then
   [[ $public_domain =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] \
     || die "--public needs a lower-case domain name such as station.example (no scheme, port or path), not '$public_domain'"
@@ -492,6 +524,14 @@ if [ -n "$public_domain" ]; then
   done
   [ "${port[TURN_TLS_PORT]}" != "${port[PROXY_HTTPS_PORT]}" ] || die "TURN_TLS_PORT and PROXY_HTTPS_PORT are both ${port[TURN_TLS_PORT]}: TURN over TLS needs a port of its own (the proxy does not share 443 with it)"
 fi
+# On a loopback station they are not used (LiveKit is reached on this machine only), so they are
+# left out of the settings: said, not dropped in silence.
+if [ -z "$public_domain" ]; then
+  for key in TURN_UDP_PORT LIVEKIT_TCP_PORT; do
+    v=$(keep "$key" 0)
+    [ "$v" = 0 ] || say "$key=$v is for a public station (--public): a loopback one does not use it, so it is left out of the settings"
+  done
+fi
 # Hosts in their own studios (ADR-0280): off (0) unless the station sets a port. A set
 # port is checked like any public one, as the ingest takes every address on a public station.
 for spec in "SOURCE_ICECAST_PORT tcp 8005 18005 28005" "SOURCE_SRT_PORT udp 9710 19710 29710" "SOURCE_WHIP_PORT udp 9712 19712 29712"; do
@@ -515,7 +555,7 @@ phone=$(keep PHONE false)
 case $phone in true|false) ;; *) die "PHONE is true or false, not '$phone'" ;; esac
 phone_lines=$(keep PHONE_LINES 8)
 # Written back with the line on, so a trunk given in the environment on the first run is kept.
-phone_settings="PHONE_NUMBERS PHONE_ALLOWED_ADDRESSES PHONE_AUTH_USERNAME PHONE_PUBLIC_IP PHONE_COUNTRY_CODE PHONE_CONSENT_WORDS PHONE_DEFAULT_VOICE"
+phone_settings="PHONE_NUMBERS PHONE_ALLOWED_ADDRESSES PHONE_AUTH_USERNAME PHONE_PUBLIC_IP PHONE_COUNTRY_CODE PHONE_CONSENT_WORDS PHONE_DEFAULT_VOICE PHONE_SIP_LISTEN"
 [[ $phone_lines =~ ^[0-9]+$ ]] && [ "$phone_lines" -ge 1 ] && [ "$phone_lines" -le 16 ] \
   || die "PHONE_LINES is 1 to 16 (calls at once), not '$phone_lines'"
 phone_free() { # first protocols scope: the range of `count` ports from `first` is free on each
@@ -551,6 +591,12 @@ if [ "$phone" = true ]; then
     || die "PHONE=true needs a trunk first: PHONE_NUMBERS, PHONE_PUBLIC_IP, and PHONE_ALLOWED_ADDRESSES or PHONE_AUTH_USERNAME (see .env.example and Take phone calls)"
   case $(keep PHONE_DEFAULT_VOICE alba) in alba|edinburgh|own) ;;
     *) die "PHONE_DEFAULT_VOICE is alba, edinburgh or own, not '$(keep PHONE_DEFAULT_VOICE alba)'" ;; esac
+  # Where LiveKit's SIP service listens: every address unless PHONE_SIP_LISTEN names one of this
+  # machine's (the one the provider reaches). It must face the provider, so it is never loopback
+  # by default; a station on loopback only cannot take a provider's calls at all.
+  phone_sip_listen=$(unquote "$(keep PHONE_SIP_LISTEN "")")
+  [[ -z $phone_sip_listen || $phone_sip_listen =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] \
+    || die "PHONE_SIP_LISTEN is one of this machine's IPv4 addresses (the one the provider reaches), or empty for every address, not '$phone_sip_listen'"
   phone_pick PHONE_SIP_PORT "udp tcp" any 1 5060 15060 25060
   phone_pick PHONE_RTP_PORT udp any $((2 * phone_lines)) 7340 17340 27340
   [ $((port[PHONE_RTP_PORT] % 2)) = 0 ] || die "PHONE_RTP_PORT=${port[PHONE_RTP_PORT]} is odd; LiveKit's SIP service takes even ports, so the range starts on one"
@@ -709,6 +755,10 @@ trap 'rm -f "$tmp"' EXIT
     say "# NVENC sessions the desk may open (0 to 64); a consumer card allows a few for the whole machine."
     say "NVENC_SESSIONS=$nvenc_sessions"
   fi
+  say "# Whether this script found an NVIDIA card's CDI spec on this server (nvidia or none), looked"
+  say "# for on every run. Not a setting: the studio app's Settings reads it to offer the card while"
+  say "# GPU=none. An update never sets GPU=nvidia by itself; that line is yours to change."
+  say "GPU_FOUND=$gpu_found"
   say ""
   say "# Ports (ADR-0075): any free port may be used instead."
   for spec in "${port_specs[@]}"; do read -r key _ <<< "$spec"; say "$key=${port[$key]}"; done
@@ -718,6 +768,15 @@ trap 'rm -f "$tmp"' EXIT
   say "SOURCE_ICECAST_PORT=${port[SOURCE_ICECAST_PORT]}"
   say "SOURCE_SRT_PORT=${port[SOURCE_SRT_PORT]}"
   say "SOURCE_WHIP_PORT=${port[SOURCE_WHIP_PORT]}"
+  say "# VBAN from a studio PC on this network (the presenter kit, 1.2): true lets the station take it"
+  say "# (Settings, Presenter kit). It has no password and no encryption: only on a local network."
+  say "KIT_VBAN=$kit_vban"
+  # Written back only when set, so a second run keeps it (the same rule as KIT_VBAN, which is always written).
+  pull_private=$(keep PULL_ALLOW_PRIVATE "")
+  if [ -n "$pull_private" ]; then
+    say "# Pulled sources (1.2): true lets a pull open an address inside the station's own network."
+    say "PULL_ALLOW_PRIVATE=$pull_private"
+  fi
   say "# The telephone line (17f): true runs phone.yaml (Valkey and LiveKit's SIP service); set the trunk"
   say "# first (PHONE_NUMBERS and the rest: see .env.example and Take phone calls), or it is refused."
   say "PHONE=$phone"
@@ -730,6 +789,10 @@ trap 'rm -f "$tmp"' EXIT
     say "# The trunk and the words (from this file, else the environment on the first run)."
     for key in $phone_settings; do v=$(keep "$key" ""); [ -z "$v" ] || say "$key=$v"; done
   fi
+  if [ -n "$hand_origin" ]; then
+    say "# The address cards and feeds print on this loopback station (set by hand; --public sets its own)."
+    say "PUBLIC_ORIGIN=$hand_origin"
+  fi
   if [ -n "$public_domain" ]; then
     say "# TURN over UDP and ICE over TCP: 0 is off (TURN over TLS reaches the same guests)."
     say "TURN_UDP_PORT=${port[TURN_UDP_PORT]}"
@@ -739,7 +802,7 @@ trap 'rm -f "$tmp"' EXIT
     printf '%s\n' "$derived"
   fi
   # Anything else the file held is kept as it was.
-  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU "
+  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU GPU_FOUND PULL_ALLOW_PRIVATE "
   known+="PHONE "
   [ "$gpu" != nvidia ] || known+="GPU_DEVICE NVENC_SESSIONS "
   [ "$phone" = false ] || known+="PHONE_LINES PHONE_SIP_PORT PHONE_RTP_PORT PHONE_RTP_LAST PHONE_REDIS_PORT PHONE_REDIS_PASSWORD $phone_settings "
@@ -756,6 +819,12 @@ fi
 trap - EXIT
 
 [ "$start" = true ] || { say "Not started (--no-start)."; exit 0; }
+
+# The phone line faces the provider, so it is the exception to loopback: said in the summary.
+phone_note=''
+if [ "$phone" = true ]; then
+  phone_note="The phone line: SIP on UDP and TCP ${port[PHONE_SIP_PORT]} listens on ${phone_sip_listen:-every address} (PHONE_SIP_LISTEN names one), and its media on UDP ${port[PHONE_RTP_PORT]}-${port[PHONE_RTP_LAST]} on every address; open both to the provider's addresses only."
+fi
 
 # --- Start at boot, on Podman (ADR-0138) ----------------------------------------------------
 # Lingering lets this user's services run (and start at boot) with no login session;
@@ -858,7 +927,8 @@ Set the station up: open $origin/setup/ and sign in with the same key. The page 
 station's name, the takedown contact that opens call-in, the jurisdiction and the station's look.
 
 Open to the internet: TCP ${port[PROXY_HTTP_PORT]} and ${port[PROXY_HTTPS_PORT]} (the proxy), UDP ${port[LIVEKIT_MEDIA_PORT]} (media) and TCP ${port[TURN_TLS_PORT]} (TURN over TLS);
-TURN over UDP $turn_udp, ICE over TCP $ice_tcp; hosts' own studios $hosts. Nothing else is published. Call-in stays closed until
+TURN over UDP $turn_udp, ICE over TCP $ice_tcp; hosts' own studios $hosts.${phone_note:+
+$phone_note} Nothing else is published. Call-in stays closed until
 CONSENT_CONTACT is set in $env_file (ADR-0124).
 The station is unlisted by default (SEARCH_LISTING=false, DIRECTORY_LISTING=false); turn them on in
 $env_file when it should be found.
@@ -880,8 +950,9 @@ CONTROL_ADMIN_TOKEN in $env_file (mode 600). It is not shown here.
 Set the station up: open http://127.0.0.1:${port[CONTROL_PORT]}/setup/ and sign in with the same key.
 The page takes the station's name, the takedown contact that opens call-in, the jurisdiction
 and the station's look.
-Every listener is on loopback: nobody off this machine can join or listen. To publish the
-station, run this again with --public and the name that reaches this machine.
+Every listener but LiveKit's media port is on loopback: nobody off this machine can join or
+listen. To publish the station, run this again with --public and the name that reaches this machine.${phone_note:+
+$phone_note}
 EOF
 fi
 if [ "$engine" = podman ]; then

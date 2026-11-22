@@ -3,7 +3,7 @@ title: "Ports"
 description: "Every port a station listens on: its setting, default, suggested alternatives, who can reach it, and the Cloudron package's defaults."
 type: reference
 status: draft
-last_verified: 2026-11-20
+last_verified: 2026-11-21
 sidebar:
   order: 6
 ---
@@ -55,7 +55,7 @@ Their defaults are chosen clear of every port above (the control plane's tests c
 
 | Setting | Protocol | Default | Suggested alternatives | Reached from | What listens |
 |---|---|---|---|---|---|
-| `phone.sip_port` (`PHONE_SIP_PORT`) | UDP and TCP | 5060 | 15060, 25060 | the provider's addresses only | LiveKit's SIP service: the provider's calls |
+| `phone.sip_port` (`PHONE_SIP_PORT`) | UDP and TCP | 5060 | 15060, 25060 | the provider's addresses only | LiveKit's SIP service: the provider's calls. It listens on every address unless `PHONE_SIP_LISTEN` names one of the machine's; open it in the firewall to the provider only |
 | `phone.sip_tls_port` | TCP | 0 (off) | 5061 | the provider's addresses only | SIP over TLS, when a provider offers it |
 | `phone.rtp_port` (`PHONE_RTP_PORT`, to `PHONE_RTP_LAST`) | UDP | 7340–7355 | from 17340, from 27340 | the provider's addresses only | the calls' sound: two ports for each line (`phone.lines`, 8 by default), starting on an even port |
 | `PHONE_REDIS_PORT` | TCP | 7321 | 17321, 27321 | loopback | Valkey, which LiveKit and its SIP service share while the line is on, with a password and nothing on disk |

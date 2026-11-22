@@ -401,3 +401,61 @@ async fn the_bridge_and_vban_reach_the_desk_and_strangers_do_not() {
         })
     }));
 }
+
+/// Opus inside MPEG-TS over the bridge (1.2.1): refused as soon as the stream's map is read, with
+/// words that say what the station cannot read, sent to the app before the socket closes and
+/// kept in the key's log. 1.2.0 stood it by in silence for over five minutes.
+#[tokio::test(flavor = "multi_thread")]
+async fn opus_inside_ts_is_refused_at_once_with_its_reason() {
+    let w = world().await;
+    let mut ws = bridge_client(w.bridge, "abcd2345-thesecret").await;
+    ws.send(Message::text(r#"{"format":"mpegts","name":"OBS 33.0.2"}"#))
+        .await
+        .unwrap();
+    assert_eq!(next_state(&mut ws).await.state, "standing_by");
+    let ts = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/tone-48k-opus-video.ts"
+    ))
+    .unwrap();
+    let started = std::time::Instant::now();
+    for piece in ts.chunks(1316) {
+        if ws.send(Message::binary(piece.to_vec())).await.is_err() {
+            break;
+        }
+    }
+    let s = next_state(&mut ws).await;
+    assert_eq!(s.state, "refused", "{}", s.message);
+    assert!(
+        s.message
+            .starts_with("The station cannot read what your software sends: Opus inside MPEG-TS"),
+        "{}",
+        s.message
+    );
+    assert!(s.message.contains("AAC"), "{}", s.message);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "refused at once, not after {:?}",
+        started.elapsed()
+    );
+    // The key's log has the refusal with the same words.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let found = w.seen.lock().unwrap().events.iter().any(|e| {
+            e["event"] == "refused"
+                && e["reason"] == "format"
+                && e["detail"]
+                    .as_str()
+                    .is_some_and(|d| d.starts_with("Opus inside MPEG-TS"))
+        });
+        if found {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no refusal logged: {:?}",
+            w.seen.lock().unwrap().events
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}

@@ -160,6 +160,18 @@ impl Drop for Pump {
     }
 }
 
+impl Pump {
+    /// End the connection after the states already queued are sent (at most a second): a
+    /// refusal's words reach the app before the socket closes.
+    pub async fn finish(mut self) {
+        // The session's own senders are gone by now; this one is the last.
+        let (closed, _) = mpsc::unbounded_channel();
+        drop(std::mem::replace(&mut self.states, closed));
+        let task = std::mem::replace(&mut self.task, tokio::spawn(async {}));
+        let _ = tokio::time::timeout(Duration::from_secs(1), task).await;
+    }
+}
+
 /// Split an admitted bridge into its parts. The media ends when the app closes, sends nothing
 /// for `silent`, or the states' sender is dropped (the station ended the source).
 pub fn pump(ws: WebSocketStream<TcpStream>, silent: Duration) -> Pump {

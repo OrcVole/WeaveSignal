@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists; **1.2.0** on 2026-11-20 adds the list under [In 1.2.0](#in-120). It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists; **1.2.0** on 2026-11-20 adds the list under [In 1.2.0](#in-120); **1.2.1** on 2026-11-22 mends what the first real-kit tries found (its list is in the changelog). It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -76,7 +76,7 @@ Released in 1.0.2 (2026-11-12), ADR-0272:
 | **Beginner steps** | a show runs at Solo, Guests, Callers or Full, each adding one kind of person; the studio shows only that step's parts and the station switches the rest off while the show is on air; the step is at the top of the studio, with **Show everything** for a look at the rest; new shows start at Solo and existing ones stay Full; built for 1.0.2 (ADR-0271, ADR-0274; [Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)) |
 | **The chat to read, on the desk** | the desk's Chat panel shows the room's last messages at every step, and says when held messages or reports wait for a moderator; built for 1.0.2 |
 | **Prepare mode** | a studio window is Live or Preparing; a preparing window sees the live desk but cannot change what is on air (ADR-0276; [Get your show ready while someone else is on air](/docs/how-to/prepare-your-show/)) |
-| **A cart wall per show** | a show's own banks beside the station's shared ones; a preparing window edits its own show's banks without touching the live show's (ADR-0276); made and filled through the API for now |
+| **A cart wall per show** | a show's own banks beside the station's shared ones; a preparing window edits its own show's banks without touching the live show's (ADR-0276); made and filled from the wall itself from 1.2.1 ([Add your own cart](/docs/how-to/add-your-own-cart/)), or through the API |
 | **RTMP presets** | YouTube, Owncast and X beside Rumble, Odysee and PeerTube (Gab is not offered: its live streaming is not open yet), each with its profile; tried live against Owncast, YouTube and X, with Compatible ([Send your show to video platforms](/docs/how-to/send-to-video-platforms/)) |
 | **Simple guides** | eleven short guides for people at [/guides/](/guides/) |
 

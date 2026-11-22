@@ -3,7 +3,7 @@ title: "Set up a host in their own studio"
 description: "Let a presenter send their show from their own software, over Icecast or SRT, with a key for their show: set them up in Settings › Own studios, send them the details shown once, and put their source on air from the desk. The station hands over at the show's post by the schedule, and the host has a monitor link."
 type: howto
 status: draft
-last_verified: 2026-11-16
+last_verified: 2026-11-21
 sidebar:
   order: 38
 ---
@@ -45,6 +45,9 @@ internet as every Icecast password does, so prefer SRT on a network the host doe
 
 The station reads MP3, AAC, Opus, Vorbis and FLAC over Icecast, and AAC or MPEG audio inside
 MPEG-TS over SRT. A picture sent over SRT is ignored for now; the sound is used.
+Opus inside MPEG-TS (OBS's encoder left on Opus, or FFmpeg's `-c:a libopus -f mpegts`) is not
+read: from 1.2.1 the station refuses it as soon as the stream starts and says so in the key's
+last refusal (1.2.0 stood it by in silence for minutes). Set the software's audio encoder to AAC.
 
 ## 2. Set up the host
 

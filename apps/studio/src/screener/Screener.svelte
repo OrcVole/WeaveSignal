@@ -123,6 +123,17 @@
         acts: [{ label: 'Turn it off', keys: ['G', 'G'], go: () => run({ type: 'influx' }) }, tellPresenter],
       };
     }
+    if (dropped?.phone) {
+      // A phone call that ends is over: nothing matches a new call to the old place (1.2.1), so
+      // the words promise none. The row stays the 5 minutes any dropped caller's does.
+      return {
+        tone: 'warning',
+        glyph: 'g-link-degraded',
+        title: `${Who(dropped)}'s call ended at ${hms(dropped.dropped_ms!)}`,
+        msg: `A phone call cannot be picked up again. If they ring back it is a new call: they hear the words and join at the back of the queue. This row clears itself in 5 min. ${presenter} has not been told.`,
+        acts: [{ label: 'Clear the row', keys: ['⇧', 'C'], air: true, go: () => run({ type: 'release-place' }) }, tellPresenter],
+      };
+    }
     if (dropped) {
       const n = who(dropped);
       return {
@@ -160,26 +171,33 @@
   const chatToast = $derived(chat.toast && chat.toast.until > studio.now && !(dropped && !studio.note && !v?.chat.influx) ? chat.toast : null);
 
   const lampChip: Chip = $derived(LAMP[lamp].chip);
+  /** The status bar's show and presenter, whole in its tooltip where the bar shortens it. */
+  const showLine = $derived(`${v?.show.title || 'No show set'}${v?.seats.presenter ? ` · ${v.seats.presenter_name || v.seats.presenter}` : ''}`);
   const influxArmed = $derived(studio.armed?.what === 'influx');
   const dropArmed = $derived(studio.armed?.what === 'drop');
+  /** A phone call that ended keeps no place: a new call from the same number is not matched to
+   *  the old one, so the row says the call ended, never that a place is held (1.2.1). */
+  const PHONE_GONE = 'The call ended. If they ring again it is a new call, at the back of the queue.';
   const waitWord = (c: (typeof callers)[number]) =>
-    c.dropped_ms !== null ? 'place held' : c.on_air ? 'on air' : c.cue ? 'cued' : c.state;
+    c.dropped_ms !== null ? (c.phone ? 'call ended' : 'place held') : c.on_air ? 'on air' : c.cue ? 'cued' : c.state;
 </script>
 
 <div class="screener">
   <div class="statusbar" data-panel="screener.status" role="status" aria-label="Station and show" inert={!!chat.sor}>
     <StateChip chip={lampChip} sm />
-    <span class="item show" data-panel-title>{v?.show.title || 'No show set'}{v?.seats.presenter ? ` · ${v.seats.presenter_name || v.seats.presenter}` : ''}</span>
+    <span class="item show" data-panel-title title={showLine}>{showLine}</span>
     {#if v?.desk_taking_callers ?? true}
       <span class="item"><svg class="g g-good" aria-hidden="true"><use href="#g-good" /></svg>Desk <b>taking callers</b></span>
     {:else}
       <span class="item"><svg class="g g-warning" aria-hidden="true"><use href="#g-desk-busy" /></svg>Desk <b>not taking callers</b></span>
     {/if}
-    <span class="item">Listeners <b class="num">—</b></span>
+    <span class="item listeners">Listeners <b class="num">—</b></span>
     <span class="sep"></span>
-    <span class="item"
+    <!-- The two clocks: the tail (how far behind) is left out in a narrower studio, where the
+         Room's head says it, so the Talk button after it is never cut off (1.2.1). -->
+    <span class="item clocks" title="Studio {hms(now)} · listeners hear {hms(now - LISTENER_DELAY_MS)}, {behind}"
       ><svg class="g g-accent" aria-hidden="true"><use href="#g-delay" /></svg><span
-        >Studio <b class="num">{hms(now)}</b> · listeners hear <b class="num">{hms(now - LISTENER_DELAY_MS)}</b>, {behind}</span
+        >Studio <b class="num">{hms(now)}</b> · listeners hear <b class="num">{hms(now - LISTENER_DELAY_MS)}</b><span class="tail">, {behind}</span></span
       ></span
     >
     {#if v?.seats.screener}<span class="item" data-wide><b>{v.seats.screener_name || v.seats.screener}</b> · screener</span>{/if}
@@ -226,7 +244,7 @@
                     ><span class="name">{callerName(c)}</span>
                     <span class="where"
                       >{c.banned_before ? `${c.phone ? 'the number' : 'the account'} banned ${c.banned_before.date}` : c.phone ? (c.name ? phoneLine(c) : 'on the phone line') : c.identity}{c.dropped_ms !== null
-                        ? ` · dropped ${hms(c.dropped_ms)}`
+                        ? ` · ${c.phone ? 'ended' : 'dropped'} ${hms(c.dropped_ms)}`
                         : ''}</span
                     ></span
                   >
@@ -242,7 +260,7 @@
                     {/if}
                     <span class="topic"
                       >{c.banned_before ? `${c.banned_before.reason}, ${c.banned_before.date}.` : ''}
-                      {c.dropped_ms !== null ? (c.phone?.withheld ? 'A withheld number’s place cannot be kept: if they ring again they join at the back.' : 'Comes back here, not at the back, within 5 min.') : c.line || c.topic}</span
+                      {c.dropped_ms !== null ? (c.phone ? PHONE_GONE : 'Comes back here, not at the back, within 5 min.') : c.line || c.topic}</span
                     >
                   </span>
                 </li>

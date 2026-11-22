@@ -14,6 +14,8 @@
 # Ports sit in 26xxx by default, clear of the station defaults and the other stack tests.
 #
 #   tests/screens/run-screens.sh
+#   CARTS_PACK=$PWD/assets/carts-demo tests/screens/run-screens.sh   # the default cart pack as the
+#                                     # station's banks, for tests/carts/drive-pack.mjs
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -39,6 +41,9 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 cleanup
 
+# A cart pack as the station's banks, when one is named (CARTS_PACK).
+pack_line=""
+[ -n "${CARTS_PACK:-}" ] && pack_line="demo_pack = \"$CARTS_PACK\""
 cat > "$run/control.toml" <<TOML
 [station]
 id = "6f1c1f43-7d0e-4d3e-9b39-6c8f3f8d2a10"
@@ -51,6 +56,7 @@ library_dir = "$run/library"
 [carts]
 media_dir = "$run/carts"
 worker = "$root/target/release/weavesignal-control"
+$pack_line
 [video]
 still_file = "$run/carts/stills/slate.png"
 [retention]

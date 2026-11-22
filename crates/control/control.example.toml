@@ -151,6 +151,14 @@ listed = false
 [setup]
 # overrides_file = "/app/data/setup.env"
 # stream_auth = false
+# A graphics card for the desk's video, as the install script found it (1.2.1): the studio's
+# Settings says when this server has an NVIDIA card the desk is not using, and how to use it.
+# `gpu_found` is weavesignal.sh's GPU_FOUND (nvidia, or none), `gpu` the settings' GPU (nvidia
+# when the desk is handed the card) and `video` the settings' VIDEO. Nothing here turns a card
+# on: that is GPU=nvidia in the settings file, set by a person. Left out, no card is offered.
+# gpu_found = "none"
+# gpu = "none"
+# video = false
 
 # Show cards and podcast feeds (M8). Every card prints the station's address (ADR-0056), and
 # the feeds, the card images and the episode files are reached under it: /feeds/<show>.xml,

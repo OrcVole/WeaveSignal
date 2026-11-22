@@ -31,12 +31,45 @@ pub fn unsupported(stream_type: u8) -> Option<&'static str> {
     }
 }
 
+/// A refused stream named more closely from its descriptors in the map: a registration
+/// descriptor (tag 0x05) says `Opus` (as FFmpeg and OBS write Opus in MPEG-TS), `AC-3` or `EAC3`;
+/// DVB's AC-3 (0x6A) and E-AC-3 (0x7A) descriptors say the same.
+fn named(stream_type: u8, descriptors: &[u8]) -> Option<&'static str> {
+    let mut i = 0;
+    while i + 2 <= descriptors.len() {
+        let (tag, len) = (descriptors[i], usize::from(descriptors[i + 1]));
+        let body = descriptors.get(i + 2..i + 2 + len).unwrap_or_default();
+        match (tag, body.get(..4)) {
+            (0x05, Some(b"Opus")) => return Some("Opus"),
+            (0x05, Some(b"AC-3")) | (0x6A, _) => return Some("AC-3"),
+            (0x05, Some(b"EAC3")) | (0x7A, _) => return Some("E-AC-3"),
+            _ => {}
+        }
+        i += 2 + len;
+    }
+    unsupported(stream_type)
+}
+
+/// The refusal's words for a stream the map names and the station does not decode.
+fn refusal(what: &str) -> String {
+    if what == "Opus" {
+        "Opus inside MPEG-TS, which the station does not decode: set the software's audio encoder to AAC, or send Opus over Icecast".into()
+    } else {
+        format!(
+            "{what} inside MPEG-TS, which the station does not decode: set the software's audio encoder to AAC"
+        )
+    }
+}
+
 pub struct TsAudio<R> {
     inner: R,
     pmt_pid: Option<u16>,
     audio: Option<(u16, Audio)>,
-    /// A stream type seen in the map that the station does not take.
-    refused: Option<u8>,
+    /// A stream seen in the map that the station does not take, named.
+    refused: Option<&'static str>,
+    /// A whole map was read and named no sound the station takes: refused at once, not after
+    /// [`MAP_WITHIN`] (1.2.1; Opus in TS stood by in silence for five minutes in 1.2.0).
+    map_without_sound: bool,
     /// Elementary-stream bytes not yet read out.
     pending: Vec<u8>,
     taken: usize,
@@ -50,6 +83,7 @@ impl<R: Read> TsAudio<R> {
             pmt_pid: None,
             audio: None,
             refused: None,
+            map_without_sound: false,
             pending: Vec::new(),
             taken: 0,
             read_in: 0,
@@ -59,18 +93,23 @@ impl<R: Read> TsAudio<R> {
     /// Read until the map names an audio stream; which kind it is.
     pub fn audio(&mut self) -> io::Result<Audio> {
         while self.audio.is_none() {
+            if self.map_without_sound {
+                let what = self.refused.map_or_else(
+                    || "an MPEG-TS stream whose map names no sound: send the software's audio with its picture".to_owned(),
+                    refusal,
+                );
+                return Err(io::Error::new(io::ErrorKind::InvalidData, what));
+            }
             if self.read_in > MAP_WITHIN {
                 let what = self
                     .refused
-                    .and_then(unsupported)
-                    .map_or("no sound the station reads".to_owned(), str::to_owned);
+                    .map_or("no sound the station reads".to_owned(), refusal);
                 return Err(io::Error::new(io::ErrorKind::InvalidData, what));
             }
             if !self.packet()? {
                 let what = self
                     .refused
-                    .and_then(unsupported)
-                    .unwrap_or("no sound the station reads");
+                    .map_or("no sound the station reads".to_owned(), refusal);
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("{what} (the stream ended before its map named one)"),
@@ -157,14 +196,16 @@ impl<R: Read> TsAudio<R> {
             let stream_type = s[i];
             let pid = (u16::from(s[i + 1] & 0x1F) << 8) | u16::from(s[i + 2]);
             let es_info = usize::from(u16::from_be_bytes([s[i + 3] & 0x0F, s[i + 4]]));
+            let descriptors = s.get(i + 5..(i + 5 + es_info).min(len)).unwrap_or_default();
             let kind = match stream_type {
                 0x0F => Some(Audio::Aac),
                 0x03 | 0x04 => Some(Audio::Mpeg),
-                t if unsupported(t).is_some() => {
-                    self.refused.get_or_insert(t);
+                t => {
+                    if let Some(what) = named(t, descriptors) {
+                        self.refused.get_or_insert(what);
+                    }
                     None
                 }
-                _ => None,
             };
             if let Some(k) = kind {
                 self.audio = Some((pid, k));
@@ -172,6 +213,8 @@ impl<R: Read> TsAudio<R> {
             }
             i += 5 + es_info;
         }
+        // The whole map read (`section` gives only a complete one) and no sound it takes.
+        self.map_without_sound = true;
     }
 
     fn pes(&mut self, payload: &[u8], start: bool) {
@@ -261,6 +304,33 @@ mod tests {
         // Start 1,000 bytes in: not on a packet's start.
         let mut a = TsAudio::new(&ts[1_000..]);
         assert_eq!(a.audio().unwrap(), Audio::Aac);
+    }
+
+    /// Counts what is read through it.
+    struct Counted<'a>(&'a [u8], usize);
+    impl Read for Counted<'_> {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            let n = self.0.read(out)?;
+            self.1 += n;
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn opus_inside_ts_is_refused_at_its_first_map_in_words() {
+        // 1.2.0 read 4 MiB first: over five minutes at 128 kbit/s, standing by in silence.
+        let ts = fixture("tone-48k-opus-video.ts");
+        let mut c = Counted(&ts[..], 0);
+        let e = TsAudio::new(&mut c).audio().unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+        let words = e.to_string();
+        assert!(words.starts_with("Opus inside MPEG-TS"), "{words}");
+        assert!(words.contains("AAC"), "says what to send instead: {words}");
+        assert!(
+            c.1 <= 8 * 1024,
+            "refused within the first few packets, not {} bytes",
+            c.1
+        );
     }
 
     #[test]
