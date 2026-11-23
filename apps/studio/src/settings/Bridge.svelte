@@ -141,7 +141,10 @@
       <b>The bridge lets a host broadcast from their own computer:</b> your own broadcasting software (BUTT, Mixxx, OBS, Voicemeeter) sends to this app, and this app carries it to the station over the ordinary web port (443), so nothing is opened on your router or at the station.
     </p>
     <p class="help">
-      It is off until you start it, and needs the station’s public address and your show key (below). Your software mixes your voice and your music together.
+      “Your software” means the program a host broadcasts with, such as OBS, BUTT or Mixxx. The bridge is off until you start it, and needs the station’s public address and your show key (below). Your software mixes your voice and your music together.
+    </p>
+    <p class="help" data-testid="bridge-if-none">
+      <b>If you do not use a program like that, nothing here needs doing:</b> leave the bridge off. The desk, the room and the guest links work without it.
     </p>
 
     {#if error}<p class="err" role="alert">{error}</p>{/if}

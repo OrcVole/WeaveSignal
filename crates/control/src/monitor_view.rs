@@ -1391,6 +1391,7 @@ mod tests {
             holders: vec!["Finlay Grant".into()],
             link_lost: None,
             window: None,
+            opening: None,
         });
         f.sources.push(row(&f.keys[1], &f.shows[1], "standby"));
         f.people.push(person(
@@ -1552,6 +1553,7 @@ mod tests {
             holders: vec![],
             link_lost: None,
             window: None,
+            opening: None,
         };
         w.f.post = Some(p.clone());
         let v = build(&w.f, None);

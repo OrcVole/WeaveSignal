@@ -9,6 +9,17 @@ last_verified: 2026-11-04
 WeaveSignal is open-source software for a self-hosted internet radio station with the live studio built in: a room for presenters, guests and screened callers, the desk that mixes them, playout between shows, streams for listeners, a chat, show cards and podcast feeds, in one installation on your own server.
 [The website](/) says what it is in a page; these pages say how it works.
 
+## New here? Get sound going first
+
+The studio app makes no sound by itself: you hear the station, and speak into it, from a browser on the same computer.
+Take these in order:
+
+1. **Hear it**: [Get your first sound out in ten minutes](/docs/tutorials/first-sound/), from a silent studio app to your voice on air.
+2. **Speak into it**: [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/), the audio devices, in the browser and in Windows.
+3. **Play a file**: [Play a sound file while you test](/docs/how-to/play-a-sound-file/), an MP3 uploaded to a key of the cart wall.
+4. **Schedule a show**: [Schedule the week](/docs/how-to/schedule-the-week/) for your shows, and [Put a sound file in the schedule](/docs/how-to/put-a-file-in-the-schedule/) for music that plays by itself between them.
+5. **No sound?** [What silence means, and what to do](/guides/no-sound/).
+
 The pages are of four kinds (ADR-0072): a **tutorial** teaches by doing, a **how-to guide** gets one job done, **reference** describes what is there, and **explanation** says why.
 Studio words are explained in the [glossary](/docs/reference/glossary/).
 What 1.0.0 does and leaves out is [What release one does, and what it leaves out](/docs/reference/release-one-status/).
@@ -16,7 +27,7 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 ## Start here
 
 - [The simple guides](/guides/): short, plain guides for presenters, guests and whoever looks after the station; start there if you are not technical.
-- [Run a first show](/docs/tutorials/first-show/): the studio app against the real desk on your own machine, with a room of synthetic people from Kettle FM, the sample station.
+- [Run a first show](/docs/tutorials/first-show/): for contributors, the studio app against the real desk in a test stack built from the repository, with a room of synthetic people from Kettle FM, the sample station.
 - [How the parts fit together](/docs/explanation/architecture/): the processes, what each does, and why the people talking and the people listening run on two different clocks.
 
 ## Presenters
@@ -44,6 +55,7 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 ## Self-hosting
 
 - [Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/): the Compose bundle in one command.
+- [Listen on a phone or another computer](/docs/how-to/listen-on-another-device/): `--lan` opens the player and the stream to your home network, for listening only.
 - [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/): a reverse proxy with a certificate, TURN over TLS, and the ports to open.
 - [Install on Cloudron](/docs/how-to/install-on-cloudron/): the 1.0.0 package from its published image.
 - [Run a station as Podman Quadlets](/docs/how-to/run-with-quadlets/): systemd units generated from the bundle.

@@ -653,6 +653,17 @@ async fn the_week_has_the_studios_where_each_host_comes_from_and_the_rehearsals(
         (json!("studio"), json!("own"))
     );
 
+    // An undrafted date names where its host comes from as an episode does (1.3.1).
+    for d in w["dates"].as_array().unwrap() {
+        let slug = d["show"].as_str().unwrap();
+        let expected = if slug == "the-morning-kettle" {
+            "own"
+        } else {
+            "room"
+        };
+        assert_eq!(d["from"], expected, "{slug}: {d}");
+    }
+
     // The rota says the same for the same airings.
     let (code, rota) = send(&p.app, "GET", "/api/v1/rota", Some(ADMIN), Value::Null).await;
     assert_eq!(code, StatusCode::OK, "{rota}");

@@ -23,6 +23,20 @@ export function closedLine(whyNot: string | null, chatOpen: boolean): string {
   return why === LINES_CLOSED && chatOpen ? `${why} ${CHAT_STILL}` : why;
 }
 
+/** What the player says under Talk to the studio on a page the browser does not count as a
+ *  secure context (plain HTTP on an address of your own network, as `weavesignal.sh --lan`
+ *  serves): the browser gives a page the microphone only over HTTPS or on localhost, so a call
+ *  cannot start there and the player says so instead of letting the microphone check fail. */
+export const NEEDS_HTTPS =
+  "Calling in needs a secure page, and this address is not one: your browser only gives a page the microphone over HTTPS. Open the station's public address to speak; here you can listen.";
+
+/** Whether the page cannot have a microphone for want of a secure context. `undefined` (a
+ *  browser or a test that does not say) counts as secure, so only a page the browser itself
+ *  calls insecure loses its call button. */
+export function talkNeedsHttps(secure: boolean | undefined): boolean {
+  return secure === false;
+}
+
 /** A call-in form sent after the lines closed: the page it was filled in on opened earlier. */
 export const CLOSED_WHILE_FILLING = 'The lines closed while you were filling this in. This show is not taking calls.';
 

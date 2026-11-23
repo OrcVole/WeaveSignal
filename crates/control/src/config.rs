@@ -645,8 +645,9 @@ impl StudioConfig {
     pub fn listener_path(&self) -> crate::studio::ListenerPath {
         use crate::studio::ListenerPath;
         let Some(player_allowance_ms) = self.player_allowance_ms else {
-            // 13000 is the parts' defaults, so a station that never set it is shown in parts;
-            // any other old figure cannot be split and stays whole.
+            // 13000 is the old default, so a station that never set it is shown in parts (and
+            // takes the parts' defaults, 1.3.1's 3 s player allowance among them); any other old
+            // figure cannot be split and stays whole.
             return if self.listener_delay_ms == StudioConfig::default().listener_delay_ms {
                 ListenerPath::default_parts()
             } else {
@@ -1184,14 +1185,15 @@ name = "Kettle FM"
     #[test]
     fn the_listener_delay_is_the_old_figure_the_parts_or_both() {
         use crate::studio::ListenerPath::{Parts, Whole};
-        // Nothing set: the old default, 13 s, which the parts' defaults equal.
+        // Nothing set: the parts' defaults, 12 s of mount, 3 s of player and the buffer's 0.5 s
+        // (the old 13 s default had 0.5 s for the player, until 1.3.1).
         let none = studio_from("");
         assert_eq!(
             none.listener_path(),
             crate::studio::ListenerPath::default_parts()
         );
-        assert_eq!(none.listener_path().rest_ms(false), 13_000);
-        assert_eq!(none.listener_path().rest_ms(true), 12_500);
+        assert_eq!(none.listener_path().rest_ms(false), 15_500);
+        assert_eq!(none.listener_path().rest_ms(true), 15_000);
         // The old default written out is the same station.
         assert_eq!(
             studio_from("listener_delay_ms = 13000\n").listener_path(),

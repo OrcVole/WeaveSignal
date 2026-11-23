@@ -979,6 +979,42 @@ async fn the_move_writes_the_opening_ends_the_session_and_sends_each_page_its_li
     let (code, body) = token(&w, &gregor).await;
     assert_eq!(code, StatusCode::CONFLICT);
     assert!(body["error"].as_str().unwrap().contains("live studio"));
+    // The page of someone who was in it is told it takes them there; one opened after the move
+    // by someone who was not is told it goes nowhere (1.3.1).
+    let (code, info) = send(&w.app, "GET", "/api/v1/pass", &gregor, Value::Null).await;
+    assert_eq!(code, StatusCode::OK, "{info}");
+    assert!(
+        info["not_now"]
+            .as_str()
+            .unwrap()
+            .contains("takes you there")
+    );
+    let morag = keys()
+        .pass_with(
+            weavesignal_proto::PassKind::Invite,
+            Role::Guest,
+            "morag",
+            "Morag Fraser",
+            600,
+            weavesignal_proto::PassScope::rehearsal(&session.to_string()),
+        )
+        .unwrap()
+        .0;
+    let (code, info) = send(&w.app, "GET", "/api/v1/pass", &morag, Value::Null).await;
+    assert_eq!(code, StatusCode::OK, "{info}");
+    let said = info["not_now"].as_str().unwrap();
+    assert!(!said.contains("takes you there"), "{said}");
+    assert!(said.contains("link to the live studio"), "{said}");
+    // The studio's view knows who was moved and the opening state, for any window (1.3.1).
+    let moved_standing = crate::post::moved_standing(&w.state, now);
+    assert_eq!(moved_standing.len(), 3);
+    assert_eq!(moved_standing["gregor"], start + 120_000);
+    let opening = crate::post::opening_for(&w.state, "steeped", now).unwrap();
+    assert_eq!(opening.on, on);
+    assert_eq!(opening.mute, ["gregor"]);
+    assert_eq!(opening.host.as_deref(), Some(host.as_str()));
+    assert_eq!(opening.standby_until_ms, start + 120_000);
+    assert!(crate::post::opening_for(&w.state, "the-morning-kettle", now).is_none());
     // Nothing was sent to the live desk by the move itself.
     assert!(
         sent(&w.live)
@@ -1018,6 +1054,12 @@ async fn the_move_writes_the_opening_ends_the_session_and_sends_each_page_its_li
     assert_eq!((c.id.as_str(), c.role), ("gregor", Role::Guest));
     assert_eq!(c.show.as_deref(), Some("steeped"));
     assert_eq!(c.standby_until_ms, Some((start + 120_000) as u64));
+    // After a reload the live pass still names the show it was made for, whatever is on air.
+    assert_eq!(c.show_name.as_deref(), Some("Steeped"));
+    let (code, info) = send(&w.app, "GET", "/api/v1/pass", live, Value::Null).await;
+    assert_eq!(code, StatusCode::OK, "{info}");
+    assert_eq!(info["show"], "Steeped");
+    assert_eq!(info["studio"], "live");
     // The live pass buys a token for the studio room, standing by until a press.
     let (code, t) = token(&w, live).await;
     assert_eq!(code, StatusCode::CREATED, "{t}");
@@ -1215,4 +1257,210 @@ async fn a_second_move_for_the_same_show_replaces_the_first_opening() {
     assert_ne!(moves[0].id, first);
     // The first's people are no longer offered its move.
     assert!(r.move_of(first, "gregor", now).is_none());
+}
+
+// --- 1.3.1: strips given by the station ----------------------------------------------------------
+
+fn desk_person(id: &str) -> Value {
+    json!({"identity": id, "name": "", "role": "guest", "on_air": false, "mute": false,
+        "talk": false, "present": true, "linked": true})
+}
+
+async fn slots_in_view(w: &World) -> Vec<(String, u64)> {
+    let r = w.state.hub.rehearsal.get().unwrap().clone();
+    r.poll_once(Default::default()).await;
+    let (code, view) = send(&w.app, "GET", "/api/v1/rehearsal", ADMIN, Value::Null).await;
+    assert_eq!(code, StatusCode::OK, "{view}");
+    view["people"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["identity"].as_str().unwrap().to_owned(),
+                p["slot"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_station_gives_each_person_a_strip_and_keeps_it_while_they_are_listed() {
+    let w = world();
+    open_steeped(&w).await;
+    w.rehearsal.lock().unwrap().people = vec![
+        desk_person("eilidh"),
+        desk_person("gregor"),
+        desk_person("kirsty"),
+    ];
+    assert_eq!(
+        slots_in_view(&w).await,
+        [
+            ("eilidh".into(), 1),
+            ("gregor".into(), 2),
+            ("kirsty".into(), 3)
+        ]
+    );
+    // Gregor leaves and Morag arrives first in the desk's list: the others keep their strips,
+    // and she takes the lowest free one.
+    w.rehearsal.lock().unwrap().people = vec![
+        desk_person("morag"),
+        desk_person("eilidh"),
+        desk_person("kirsty"),
+    ];
+    assert_eq!(
+        slots_in_view(&w).await,
+        [
+            ("morag".into(), 2),
+            ("eilidh".into(), 1),
+            ("kirsty".into(), 3)
+        ]
+    );
+    // Someone who goes and comes back is placed afresh, in the lowest free strip.
+    w.rehearsal.lock().unwrap().people = vec![desk_person("kirsty")];
+    assert_eq!(slots_in_view(&w).await, [("kirsty".into(), 3)]);
+    w.rehearsal.lock().unwrap().people = vec![desk_person("kirsty"), desk_person("eilidh")];
+    assert_eq!(
+        slots_in_view(&w).await,
+        [("kirsty".into(), 3), ("eilidh".into(), 1)]
+    );
+}
+
+// --- 1.3.1: whether the asker may run the session ----------------------------------------------------
+
+#[tokio::test]
+async fn the_view_says_whether_the_asker_may_run_the_open_session() {
+    let w = world();
+    let staff = &w.state.staff;
+    let presenter = staff.signed_in_as_for_test(Staff::Presenter, w.presenter);
+    let other = staff.signed_in_for_test(Staff::Presenter);
+    let producer = staff.signed_in_for_test(Staff::Producer);
+    let may = |code_view: (StatusCode, Value)| {
+        assert_eq!(code_view.0, StatusCode::OK, "{}", code_view.1);
+        code_view.1["may_run"].as_bool().unwrap()
+    };
+    let get = |bearer: String| {
+        let app = w.app.clone();
+        async move { send(&app, "GET", "/api/v1/rehearsal", &bearer, Value::Null).await }
+    };
+    // Nothing open: nobody has anything to run.
+    for who in [ADMIN, presenter.as_str(), producer.as_str()] {
+        assert!(!may(get(who.to_owned()).await), "{who}");
+    }
+    let (code, view) = post(
+        &w.app,
+        "/api/v1/rehearsal/open",
+        &presenter,
+        json!({"show": "steeped"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{view}");
+    assert_eq!(
+        view["may_run"], true,
+        "the answer to Open is the opener's own"
+    );
+    // The show's presenter, a producer and the station key; not another show's presenter.
+    assert!(may(get(presenter.clone()).await));
+    assert!(may(get(producer.clone()).await));
+    assert!(may(get(ADMIN.to_owned()).await));
+    assert!(!may(get(other.clone()).await));
+    // The commands' and the end's answers carry the asker's own as well.
+    let (code, view) = post(
+        &w.app,
+        "/api/v1/rehearsal/commands",
+        &presenter,
+        json!({"op": "mute", "identity": "eilidh", "on": true}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{view}");
+    assert_eq!(view["may_run"], true);
+    let (code, view) = post(&w.app, "/api/v1/rehearsal/end", &presenter, Value::Null).await;
+    assert_eq!(code, StatusCode::OK, "{view}");
+    assert_eq!(view["may_run"], false, "nothing is open any more");
+}
+
+// --- 1.3.1: taking one person out -------------------------------------------------------------------
+
+#[tokio::test]
+async fn one_person_can_be_taken_out_and_their_link_is_ended_for_the_session() {
+    let w = world();
+    let staff = &w.state.staff;
+    let presenter = staff.signed_in_as_for_test(Staff::Presenter, w.presenter);
+    let other = staff.signed_in_for_test(Staff::Presenter);
+    let remove = |who: &str, id: &str| {
+        let app = w.app.clone();
+        let (who, id) = (who.to_owned(), id.to_owned());
+        async move {
+            post(
+                &app,
+                "/api/v1/rehearsal/remove",
+                &who,
+                json!({"identity": id}),
+            )
+            .await
+        }
+    };
+    // No session, nothing to take anyone out of.
+    let (code, _) = remove(ADMIN, "gregor").await;
+    assert_eq!(code, StatusCode::CONFLICT);
+    open_steeped(&w).await;
+    let (_, gregor) = invite(
+        &w,
+        ADMIN,
+        json!({"role": "guest", "name": "Gregor Stewart", "studio": "rehearsal", "show": "steeped"}),
+    )
+    .await;
+    let (_, kirsty) = invite(
+        &w,
+        ADMIN,
+        json!({"role": "guest", "name": "Kirsty Wilson", "studio": "rehearsal", "show": "steeped"}),
+    )
+    .await;
+    let (gid, kid) = (
+        gregor["identity"].as_str().unwrap().to_owned(),
+        kirsty["identity"].as_str().unwrap().to_owned(),
+    );
+    let (gpass, kpass) = (
+        gregor["pass"].as_str().unwrap().to_owned(),
+        kirsty["pass"].as_str().unwrap().to_owned(),
+    );
+    assert_eq!(token(&w, &gpass).await.0, StatusCode::CREATED);
+    w.rehearsal.lock().unwrap().people = vec![desk_person(&gid), desk_person(&kid)];
+    w.state
+        .hub
+        .rehearsal
+        .get()
+        .unwrap()
+        .poll_once(Default::default())
+        .await;
+
+    // Only whoever may run the session; the rehearsal desk is not a person; strangers are 404.
+    let (code, _) = remove(&other, &gid).await;
+    assert_eq!(code, StatusCode::FORBIDDEN);
+    let (code, _) = remove(ADMIN, "desk-rehearsal").await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
+    let (code, _) = remove(ADMIN, "nobody").await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+
+    // Gregor's link is ended; Kirsty's is not; the session carries on.
+    let (code, view) = remove(&presenter, &gid).await;
+    assert_eq!(code, StatusCode::OK, "{view}");
+    assert!(view["session"].is_object());
+    assert_eq!(view["may_run"], true);
+    let (code, body) = token(&w, &gpass).await;
+    assert_eq!(code, StatusCode::GONE, "{body}");
+    let (_, info) = send(&w.app, "GET", "/api/v1/pass", &gpass, Value::Null).await;
+    assert_eq!(info["ended"], true);
+    assert_eq!(token(&w, &kpass).await.0, StatusCode::CREATED);
+    // A fresh invitation is a new person, and works.
+    let (_, again) = invite(
+        &w,
+        ADMIN,
+        json!({"role": "guest", "name": "Gregor Stewart", "studio": "rehearsal", "show": "steeped"}),
+    )
+    .await;
+    assert_eq!(
+        token(&w, again["pass"].as_str().unwrap()).await.0,
+        StatusCode::CREATED
+    );
 }

@@ -270,7 +270,7 @@
         {:else if setup.completed_at_ms}
           <p class="muted">Setup was finished on {when(setup.completed_at_ms)}. Change anything here whenever you need to.</p>
         {:else}
-          <p class="muted">Its settings file gave it a name and a takedown contact. Add the look, check the rest, then finish.</p>
+          <p class="muted">It has a name and a takedown contact. Add the look, check the rest, then finish.</p>
         {/if}
         <div class="answers">
           <label class="btn" for="answers">Open an answers file</label>

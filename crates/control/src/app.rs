@@ -3948,8 +3948,8 @@ mod tests {
                 v["listener_delay"]["ms"].as_u64(),
                 v["listener_delay"]["measured"].as_bool()
             ),
-            (Some(21_000), Some(false)),
-            "the 13 s setting plus the desk's 8 s profanity delay, labelled as a setting (ADR-0103, ADR-0165)"
+            (Some(23_500), Some(false)),
+            "the 15.5 s setting plus the desk's 8 s profanity delay, labelled as a setting (ADR-0103, ADR-0165)"
         );
         assert_eq!(
             (
@@ -3957,7 +3957,7 @@ mod tests {
                 v["listener_delay"]["read_ms"].as_u64(),
                 v["listener_delay"]["set_ms"].as_u64(),
             ),
-            (Some("estimate"), Some(8_000), Some(13_000)),
+            (Some("estimate"), Some(8_000), Some(15_500)),
             "the figure says what is read (the desk's delay) and what is set (issue 17)"
         );
         assert_eq!(v["audience"]["scope"], "origin");
@@ -4019,7 +4019,7 @@ mod tests {
         assert_eq!(v["desk"]["delay"]["rebuilding"], true);
         assert_eq!(v["desk"]["delay"]["dumps"], 1);
         assert_eq!(
-            v["listener_delay"]["ms"], 13_000,
+            v["listener_delay"]["ms"], 15_500,
             "a dump leaves the profanity delay empty, so only the setting remains"
         );
         assert!(v["desk"]["delay"]["dumped_at_ms"].is_u64());

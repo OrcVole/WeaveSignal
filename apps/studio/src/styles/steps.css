@@ -20,6 +20,9 @@
 /* while everything is shown: one row under the frame, on the ground the sandbox's guide bar uses, with the way back */
 .allbar { display: flex; align-items: center; gap: var(--s-3); min-height: 2rem; padding: var(--s-1) var(--s-3); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--axis)); font-size: var(--fs-13); color: var(--ink); white-space: nowrap; overflow: hidden; }
 .allbar .btn { min-height: 1.5rem; font-size: var(--fs-13); padding: 0 var(--s-2); flex: none; }
+.allbar.packbar { white-space: normal; }   /* studio.pack.notice: the sentence wraps at a larger text size instead of being cut */
+.allbar.packbar .say { overflow: visible; text-overflow: clip; flex: 1 1 auto; }
+.allbar.packbar > .quiet { margin-left: auto; }
 .allbar .say { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* a part that Show everything reveals but the step keeps switched off: the dashed pill of base.css's .proposal, never a state chip */
 .offtag { display: inline-flex; align-items: center; font-size: var(--fs-12); color: var(--ink-2); border: 1px dashed var(--axis); border-radius: var(--r-pill); padding: 0 var(--s-2); line-height: 1.5; white-space: nowrap; text-transform: none; letter-spacing: 0; font-weight: 400; flex: none; }
@@ -69,6 +72,11 @@ dialog.stepmenu::backdrop { background: var(--scrim); }
 /* desk.next (ADR-0280; hosts-in-their-own-studios.md section 4.2): the next show's source in the
    guest's seat at Solo, as the design page draws it: read from the left, top down, dashed as
    every empty seat is. Its lines are the tile's own (the chip, the meter, a keyed button). */
+/* the same note where a Not on air row is drawn: one quiet line in its head (the row's `.own`, desk-b.css) and Open Staff before Invite someone… */
+.desk .waiting .wh .keybtn { order: 2; flex: none; min-height: 1.5rem; padding: 0 var(--s-2); font-size: var(--fs-12); text-transform: none; letter-spacing: 0; font-weight: 600; }
+.desk .tiles .empty .keynote { display: flex; gap: var(--s-2); align-items: center; justify-content: center; flex-wrap: wrap; }   /* desk.station-key, inside the empty stage */
+.desk .tiles .empty .keynote .hint { color: var(--ink-2); font-size: var(--fs-13); max-width: 36rem; }
+.desk .tiles .empty.seat.keynote { flex-direction: column; }
 .desk .tiles .empty.seat.next { text-align: left; justify-items: start; align-content: start; gap: var(--s-2); padding: var(--s-4); border-style: dashed; min-width: 0; }
 .desk .tiles .empty.seat.next > b { font-size: var(--fs-16); overflow-wrap: anywhere; }
 .desk .tiles .empty.seat.next .row { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; max-width: none; }

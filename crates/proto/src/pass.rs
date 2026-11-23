@@ -71,6 +71,10 @@ pub struct PassClaims {
     /// The show a live pass was made for by a move from the rehearsal studio (its slug).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show: Option<String>,
+    /// The name of that show, as it was when the pass was made (1.3.1), for a page that reloads
+    /// while a different show is on air. Passes made before 1.3.1 carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_name: Option<String>,
     /// For a moved person: until when (ms since the Unix epoch) the live desk keeps them
     /// standing by; their room token carries it as `weavesignal.standby_until`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +88,7 @@ pub struct PassScope {
     pub studio: Studio,
     pub session: Option<String>,
     pub show: Option<String>,
+    pub show_name: Option<String>,
     pub standby_until_ms: Option<u64>,
 }
 
@@ -98,10 +103,11 @@ impl PassScope {
     }
 
     /// A live pass made by a move from the rehearsal studio: standing by until a moment.
-    pub fn moved(show: &str, standby_until_ms: u64) -> Self {
+    pub fn moved(show: &str, show_name: &str, standby_until_ms: u64) -> Self {
         Self {
             studio: Studio::Live,
             show: Some(show.to_owned()),
+            show_name: Some(show_name.to_owned()),
             standby_until_ms: Some(standby_until_ms),
             ..Self::default()
         }
@@ -163,6 +169,7 @@ impl Keys {
             studio: scope.studio,
             session: scope.session,
             show: scope.show,
+            show_name: scope.show_name,
             standby_until_ms: scope.standby_until_ms,
         };
         let body = B64.encode(serde_json::to_vec(&claims).expect("claims serialise"));
@@ -283,6 +290,7 @@ mod tests {
         let c = k.verify_pass(&old).unwrap();
         assert_eq!(c.studio, Studio::Live);
         assert_eq!((c.session, c.show, c.standby_until_ms), (None, None, None));
+        assert_eq!(c.show_name, None);
         assert_eq!(c.role, Role::Guest);
     }
 
@@ -335,12 +343,13 @@ mod tests {
                 "eilidh",
                 "Eilidh Fraser-MacLeod",
                 3600,
-                PassScope::moved("steeped", 1_800_000_000_000),
+                PassScope::moved("steeped", "Steeped", 1_800_000_000_000),
             )
             .unwrap();
         let back = k.verify_pass(&p).unwrap();
         assert_eq!(back.studio, Studio::Live);
         assert_eq!(back.show.as_deref(), Some("steeped"));
+        assert_eq!(back.show_name.as_deref(), Some("Steeped"));
         assert_eq!(back.standby_until_ms, Some(1_800_000_000_000));
         assert_eq!(back.session, None);
     }

@@ -47,8 +47,8 @@ use serde_json::json;
 use uuid::Uuid;
 use weavesignal_model::handover_window::{self as hw, Down, Origin};
 use weavesignal_model::post::{
-    self as rule, Act, AtDesk, Cause, Facts, Hold, Holder, Line, Plan, PostView, Ready, ShowFact,
-    Subject,
+    self as rule, Act, AtDesk, Cause, Facts, Hold, Holder, Line, Plan, PostOpening, PostView,
+    Ready, ShowFact, Subject,
 };
 use weavesignal_model::shows::{self, Show};
 use weavesignal_model::sources::{self as model, Airing, LogEntry, ShowKey};
@@ -697,11 +697,56 @@ async fn act(
     Ok(())
 }
 
+/// The opening state a move from the rehearsal studio left for the show `slug`, while it waits
+/// to be applied (1.3.1).
+pub(crate) fn opening_for(state: &AppState, slug: &str, now: i64) -> Option<PostOpening> {
+    state
+        .hub
+        .rehearsal
+        .get()?
+        .waiting_moves(now)
+        .into_iter()
+        .find(|s| s.show_slug == slug)
+        .and_then(|s| s.opening)
+        .map(|o| PostOpening {
+            on: o.on,
+            mute: o.mute,
+            host: o.host,
+            standby_until_ms: o.standby_until_ms,
+        })
+}
+
+/// Who was moved from the rehearsal studio and still waits for the opening state, with the time
+/// they stand by until (1.3.1): what `/studio` marks "from rehearsal" on their source.
+pub(crate) fn moved_standing(
+    state: &AppState,
+    now: i64,
+) -> std::collections::BTreeMap<String, i64> {
+    let mut moved = std::collections::BTreeMap::new();
+    if let Some(r) = state.hub.rehearsal.get() {
+        for s in r.waiting_moves(now) {
+            let Some(o) = s.opening.as_ref() else {
+                continue;
+            };
+            for id in &s.moved {
+                let until = moved.entry(id.clone()).or_insert(o.standby_until_ms);
+                *until = (*until).max(o.standby_until_ms);
+            }
+        }
+    }
+    moved
+}
+
 /// One look: gather, decide, do, and show. Called every second, and by tests.
 pub async fn tick(state: &AppState) -> anyhow::Result<Plan> {
     let now = now_ms() as i64;
     let Some(g) = gather(state, now).await? else {
-        state.hub.with_studio_if(|s| s.set_post(None));
+        let moved = moved_standing(state, now);
+        state.hub.with_studio_if(|s| {
+            let a = s.set_moved_standing(moved);
+            let b = s.set_post(None);
+            a || b
+        });
         return Ok(Plan {
             acts: Vec::new(),
             post: None,
@@ -737,7 +782,19 @@ pub async fn tick(state: &AppState) -> anyhow::Result<Plan> {
     if let Some(v) = view.as_mut() {
         v.window = window;
     }
-    state.hub.with_studio_if(|s| s.set_post(view));
+    // The opening state moved from the rehearsal studio for the post's show (1.3.1).
+    if let Some(v) = view.as_mut() {
+        v.opening = v
+            .show
+            .as_ref()
+            .and_then(|x| opening_for(state, &x.slug, now));
+    }
+    let moved = moved_standing(state, now);
+    state.hub.with_studio_if(|s| {
+        let a = s.set_moved_standing(moved);
+        let b = s.set_post(view);
+        a || b
+    });
     // An opening from rehearsal whose show's host has just gone on air, by any route.
     crate::rehearsal::apply_openings(state, weavesignal_model::rehearsal::Moment::Look, None).await;
     Ok(plan)

@@ -12,6 +12,17 @@ These guides are short and plain.
 Each one does one job, in a few steps.
 When you want every detail, each guide links to the full page.
 
+## New here? Get sound going first
+
+The studio app makes no sound by itself: you hear the station, and speak into it, from a browser on the same computer.
+Take these in order:
+
+1. [Hear it, and speak into it](/docs/tutorials/first-sound/): your first sound out in ten minutes.
+2. [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/): the audio devices, in the browser and in Windows.
+3. [Play a sound file](/docs/how-to/play-a-sound-file/): an MP3 on a key, to test with.
+4. [Schedule the week](/docs/how-to/schedule-the-week/) for your shows, and [put a sound file in the schedule](/docs/how-to/put-a-file-in-the-schedule/) for music between them.
+5. [No sound?](/guides/no-sound/): what silence means, and what to do.
+
 ## I present a show
 
 - [Your first show](/guides/your-first-show/): sign in, go on air, end the show.
@@ -32,5 +43,5 @@ When you want every detail, each guide links to the full page.
 ## Everyone
 
 - [What WeaveSignal is](/guides/what-it-is/), in one page.
-- [When something goes wrong](/guides/when-something-goes-wrong/).
+- [When something goes wrong](/guides/when-something-goes-wrong/), and [No sound?](/guides/no-sound/).
 - [Words you will meet](/guides/words/): cue, playout, the delay and the rest, in plain words.

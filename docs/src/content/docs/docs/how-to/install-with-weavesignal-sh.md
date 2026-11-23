@@ -9,7 +9,8 @@ sidebar:
 ---
 
 > **Loopback only, unless you ask.** `weavesignal.sh` installs the Compose bundle, which keeps every listener on loopback.
-> `--public station.example` also puts a reverse proxy with a certificate in front of it and turns on TURN over TLS: [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/).
+> `--lan` lets a phone or another computer on your home network **listen**: [Listen on a phone or another computer](/docs/how-to/listen-on-another-device/).
+> `--public station.example` also puts a reverse proxy with a certificate in front of it and turns on TURN over TLS, so people can listen, call and speak: [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/).
 
 > **New to this?** The [install wizard](/docs/install-wizard/) asks the questions on this page and the next and gives you the settings file and the commands (from 1.0.1).
 
@@ -21,17 +22,19 @@ Running it again changes nothing that is already set.
 
 - **Podman 5 with `docker-compose` as its compose provider**, or **Docker Engine with the Compose plugin**.
   On Fedora, `dnf install docker-compose`; on Ubuntu, `apt install docker-compose-v2`.
+  On **Bazzite** and other image-based Fedora systems (Silverblue, Kinoite), `dnf` does not install programs and Podman comes without a compose provider: `podman compose version` says *looking up compose provider failed*. Install it with Homebrew, which Bazzite carries (other image-based systems: only if you have installed Homebrew), and which needs no `sudo`: `brew install docker-compose` (8 seconds, 31 MB, checked on Bazzite 45). Homebrew puts `docker-compose` on your `PATH`, and `podman compose` finds it there.
   The script never uses `sudo`.
 - **Not `podman-compose`.** It ignores the settings file the bundle gives each service (the top-level `configs`), so the station would start without them.
   The script refuses it, says why, and names the fix: install `docker-compose`, which `podman compose` then prefers, or point Podman at it with `PODMAN_COMPOSE_PROVIDER=/path/to/docker-compose`, or use Docker.
-- On Podman, `docker-compose` reaches Podman through your user's API socket. If `podman compose` cannot connect, turn the socket on with `systemctl --user enable --now podman.socket`.
+  When Podman has no compose provider at all, the script says so before it pulls anything and gives the line for each system, the Bazzite one first (`brew install docker-compose`).
+- On Podman, `docker-compose` reaches Podman through your user's API socket. From 1.3.1 the script looks at it before it pulls the images and, if it is not running, turns it on for you as your user's own service (`systemctl --user enable --now podman.socket`, no `sudo`), and says so; if that fails, it prints the command to run. Before 1.3.1 the install stopped after the pull with *failed to connect to the docker API at unix:///run/user/…/podman/podman.sock*, and the same command put it right.
 - `ss` (iproute2), `curl` and `bash`, which most Linux systems have.
-- The repository, checked out where it will stay: the script and the bundle are in `deploy/compose/`, and the bundle mounts playout's scripts (`playout/`) and the default loop (`assets/default-loop/`) from it.
+- The repository, checked out where it will stay: the script and the bundle are in `deploy/compose/`, and the bundle mounts playout's scripts (`playout/`) and the default loop (`assets/default-loop/`) from it. Get it with `git clone https://forgejo.weavesignal.top/WeaveSignal/weavesignal.git` (60 MB, about 7 seconds), then `cd weavesignal`; the clone is at the latest release, and `git checkout v1.3.0` names one.
 - **A server that is not overloaded.** Live audio needs CPU on time: on a busy shared server the listener stream runs dry ([Memory and CPU](/docs/reference/resources/#what-this-means-for-a-host)).
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -62,6 +65,8 @@ The script:
 4. Writes `deploy/compose/.env` with mode 600. The secrets are written there and nowhere else, and are never printed.
 5. Starts the bundle, waits up to 90 s for the control plane and its database, and prints the addresses.
 
+On a first run with Podman it pulls the images first (about 2.5 GB in four images, a minute on a fast line) and `podman compose` prints a line saying it runs an external compose provider, `docker-compose`: that is normal. A first install on a clean Bazzite machine, with `docker-compose` and the Podman socket already in place, took 99 seconds from `git clone` to the control plane answering, images pulled.
+
 It ends like this:
 
 ```text
@@ -73,10 +78,16 @@ WeaveSignal is running (project 'weavesignal', podman).
   Live room       ws://127.0.0.1:7880  (media on UDP 7882)
 
 Sign in: the studio uses the control plane's address above with the admin token, which is
-CONTROL_ADMIN_TOKEN in deploy/compose/.env (mode 600). It is not shown here.
+CONTROL_ADMIN_TOKEN in /home/demo/weavesignal/deploy/compose/.env (mode 600). It is not shown here.
+Set the station up: open http://127.0.0.1:7310/setup/ and sign in with the same key.
+The page takes the station's name, the takedown contact that opens call-in, the jurisdiction
+and the station's look.
 Every listener but LiveKit's media port is on loopback: nobody off this machine can join or
-listen. To publish the station, run this again with --public and the name that reaches this machine.
+listen. To let a phone or another computer on your own network listen, run this again with --lan;
+to publish the station, run it with --public and the name that reaches this machine.
 ```
+
+The station key is not printed; to see it, run `grep CONTROL_ADMIN_TOKEN deploy/compose/.env` in the repository and copy what follows the `=`.
 
 With the phone line on, it adds a line saying where its SIP and media ports listen: they face
 the phone provider, so they are not on loopback (`PHONE_SIP_LISTEN` narrows SIP to one address).

@@ -70,6 +70,9 @@ export interface Source extends DeskPerson {
    *  Absent for a person in the room, and from a station older than 1.1. */
   source?: DeskSource | null;
   caller: { line: string; note: string; name_on_air: string; sent: boolean; taken: boolean } | null;
+  /** Moved from the rehearsal studio and not on air yet (1.3.1): until when they stand by, in ms
+   *  since the Unix epoch. Null or absent otherwise, and from a station older than 1.3.1. */
+  standby_until_ms?: number | null;
 }
 
 export interface Caller {
@@ -248,6 +251,18 @@ export interface PostView {
   link_lost?: LinkLost | null;
   /** The handover window before this post (1.2; handover-window.md). */
   window?: HandoverWindow | null;
+  /** The opening state a move from the rehearsal studio left for this show while it waits to be
+   *  applied (1.3.1); null or absent otherwise. */
+  opening?: PostOpening | null;
+}
+
+/** Who goes on air and who is muted when the show's host is put on air, after a move. */
+export interface PostOpening {
+  on: string[];
+  mute: string[];
+  host: string | null;
+  /** Until when the moved people stand by, in ms since the Unix epoch. */
+  standby_until_ms: number;
 }
 
 /** What the handover window is doing (1.2). */
@@ -1381,6 +1396,8 @@ export interface ScheduleDate {
   minutes: number;
   moved_from: string | null;
   clock: 'forward' | 'back' | null;
+  /** Where its host comes from (1.3.1), as an episode's `from` says; absent from an older station. */
+  from?: 'room' | 'own';
 }
 
 /** What a saved rule did: the rule as stored, and the drafted episodes that moved. */
@@ -1559,6 +1576,7 @@ export function asScheduleDates(raw: unknown): ScheduleDate[] | null {
         minutes: num(d.minutes) ?? (end !== null ? Math.max(1, Math.round((end - start) / 60)) : 60),
         moved_from: str(d.moved_from),
         clock: d.clock === 'forward' || d.clock === 'back' ? d.clock : null,
+        ...(d.from === 'room' || d.from === 'own' ? { from: d.from } : {}),
       } satisfies ScheduleDate,
     ];
   });
@@ -1882,6 +1900,8 @@ export interface RehearsalPerson {
   present: boolean;
   linked: boolean;
   lufs: number | null;
+  /** The person's strip, from 1, given by the station (1.3.1); absent from an older station. */
+  slot?: number;
 }
 
 /** A cart sounding at the rehearsal desk. */
@@ -1913,6 +1933,8 @@ export interface RehearsalView {
   /** The handover window of the session's show, when it is the window the live studio is
    *  showing ("On air at 14:05: move by then"); null or absent otherwise. */
   window?: HandoverWindow | null;
+  /** Whether the person asking may run the open session (1.3.1); absent from an older station. */
+  may_run?: boolean;
 }
 
 /** A switch or a cart at the rehearsal desk (`POST /api/v1/rehearsal/commands`). `on_air` is the
@@ -1934,6 +1956,10 @@ export const openRehearsal = (show: string) => call<RehearsalView>('POST', '/api
 export const rehearsalCommand = (c: RehearsalCommand) => call<RehearsalView>('POST', '/api/v1/rehearsal/commands', c);
 /** End the rehearsal: everyone out of the rehearsal room, its links retired; the view after. */
 export const endRehearsal = () => call<RehearsalView>('POST', '/api/v1/rehearsal/end', {});
+/** Take one person out of the rehearsal (1.3.1): out of its room, and their link ended for this
+ *  session; the others carry on. 404 when they are not in it, 403 without rights over the show. */
+export const removeFromRehearsal = (identity: string) =>
+  call<RehearsalView>('POST', '/api/v1/rehearsal/remove', { identity });
 // The rehearsal desk's screens (1.3.0, step R13): the move, and an invitation to the rehearsal.
 
 /** Which studio a link leads to (schema `Studio`). */

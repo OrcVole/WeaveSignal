@@ -11,6 +11,14 @@
 #                                   also publish the station: a reverse proxy with a certificate for
 #                                   that name, and LiveKit's TURN over TLS (below); --public off
 #                                   goes back to loopback only
+#   ./weavesignal.sh --lan [ADDRESS]
+#                                   let a phone or another computer on your own network LISTEN
+#                                   (not speak): a small web server on that one address of this
+#                                   machine, in plain HTTP, passes through the player and the
+#                                   stream only (lan.yaml); ADDRESS is this machine's own address
+#                                   on the network, found for you when it is left out; --lan off
+#                                   goes back to loopback only. It never runs sudo: it prints the
+#                                   firewall command for you to run
 #   ./weavesignal.sh --renew-turn     restart LiveKit so TURN over TLS reads a renewed certificate
 #   ./weavesignal.sh --status         show the station's containers
 #   ./weavesignal.sh --uninstall      stop and remove the containers; keep the data and settings
@@ -18,7 +26,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -28,7 +36,12 @@
 # may rely on them). Docker needs nothing: its daemon starts with the machine.
 # Secrets are made here, from the kernel's random source, and written only to the settings file
 # (mode 600); they are never printed. Running it again keeps every secret and port already chosen.
-# Without --public every listener is on loopback, so nobody off this machine can join or listen.
+# Without --public or --lan every listener is on loopback, so nobody off this machine can join or listen.
+# With --lan (1.3.1) listening is open on one address of this machine, on LAN_PORT (7300 unless
+# taken): the player and the stream, read only, in plain HTTP. The studio, its sign-in, call-in,
+# the chat and the live room stay on loopback. A browser gives a microphone only over HTTPS or on
+# localhost, so nobody can speak through a plain-HTTP address: that takes --public. --lan and
+# --public do not go together (the public route already serves everything).
 # With it (ADR-0022) public.yaml adds Caddy, which gets and renews the certificate for the name
 # and serves the station on 443 (80 redirects), and LiveKit gains TURN over TLS (5349) with that
 # certificate. The name must already reach this machine, and ports 80 and 443 (TCP), LiveKit's
@@ -66,10 +79,11 @@ yes=false
 start=true
 boot_start=true
 public_arg=''      # --public's value; "off" turns the public route off
+lan_arg=''         # --lan's value: "auto" (find the address), an IPv4 address, or "off"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'weavesignal.sh: %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '5,50p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,63p' "$0" | sed 's/^# \{0,1\}//'; }
 a_record() { # name: its first IPv4 address, not a loopback or link-local one (a hosts-file entry)
   local ip _
   while read -r ip _; do
@@ -78,6 +92,26 @@ a_record() { # name: its first IPv4 address, not a loopback or link-local one (a
   return 1
 }
 
+# --- This machine's own network addresses (--lan) ---------------------------------------------
+# WEAVESIGNAL_SYS_NET points at a directory laid out as /sys/class/net (the tests use their own).
+sys_net=${WEAVESIGNAL_SYS_NET:-/sys/class/net}
+is_private_v4() { # 10/8, 172.16/12, 192.168/16 and 100.64/10 (carrier-grade NAT; a Tailscale address)
+  [[ $1 =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.) ]]
+}
+local_v4s() { # "interface address" for each IPv4 address this machine holds, loopback and link-local left out
+  command -v ip >/dev/null 2>&1 || return 0
+  ip -4 -o addr show scope global 2>/dev/null | awk '{ split($4, a, "/"); print $2, a[1] }'
+}
+lan_candidates() { # the addresses that are on a real network card (not a VPN, a bridge for virtual machines or a container's network)
+  local dev ip
+  while read -r dev ip; do
+    is_private_v4 "$ip" || continue
+    # A real card has a "device" entry in sysfs; a wire-guard or tunnel interface, a libvirt or
+    # container bridge and a veth do not. A bonded or bridged server NIC has none either, so
+    # those by their usual names count (br-<hash> is a container network, br0 and bond0 are not).
+    if [ -e "$sys_net/$dev/device" ] || [[ $dev =~ ^(bond|team)[0-9]*$|^br[0-9]+$ ]]; then echo "$dev $ip"; fi
+  done < <(local_v4s)
+}
 while [ $# -gt 0 ]; do
   case $1 in
     --uninstall) action=uninstall ;;
@@ -86,6 +120,9 @@ while [ $# -gt 0 ]; do
     --status) action=status ;;
     --renew-turn) action=renew-turn ;;
     --public) public_arg=${2:?--public needs a domain name (or off)}; shift ;;
+    --lan)
+      # The address is optional: the next word is it only when it looks like an address (or off).
+      if [ $# -ge 2 ] && [[ $2 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ || $2 == off ]]; then lan_arg=$2; shift; else lan_arg=auto; fi ;;
     --no-start) start=false ;;
     --no-boot-start) boot_start=false ;;
     --project) project=${2:?--project needs a name}; shift ;;
@@ -113,15 +150,26 @@ podman_compose_provider() {
   v=$(podman compose version 2>&1) || true
   grep -Eq '^podman-compose version|provider "[^"]*podman-compose"' <<<"$v"
 }
+# Where each system gets a compose provider that Podman accepts; the Bazzite line first, as it is
+# the one a newcomer on an image-based system cannot guess (dnf does not install anything there).
+compose_provider_help="Install docker-compose, which 'podman compose' then uses as its provider:
+  Bazzite and other image-based Fedora systems:  brew install docker-compose   (Homebrew is part of Bazzite)
+  Fedora Workstation:                            sudo dnf install docker-compose
+  Ubuntu:                                        sudo apt install docker-compose-v2
+or give Podman the provider's path with PODMAN_COMPOSE_PROVIDER=/path/to/docker-compose, or use Docker."
 no_podman_compose="Podman's compose provider here is podman-compose, which ignores the settings
-files this bundle gives each service. Install docker-compose (Fedora: 'dnf install docker-compose';
-Ubuntu: 'apt install docker-compose-v2'), which 'podman compose' then prefers, or
-point Podman at it with PODMAN_COMPOSE_PROVIDER=/path/to/docker-compose; or use Docker."
+files this bundle gives each service.
+$compose_provider_help"
 if [ -z "$engine" ]; then
   if command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1 && ! podman_compose_provider; then engine=podman
   elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then engine=docker
   elif command -v podman >/dev/null 2>&1 && podman_compose_provider; then die "$no_podman_compose"
   else
+    if command -v podman >/dev/null 2>&1; then
+      die "Podman is installed, but 'podman compose' found no compose provider here (it said: $(podman compose version 2>&1 | head -1)).
+$compose_provider_help
+Then run this again."
+    fi
     die "neither Podman with 'podman compose' nor Docker with 'docker compose' was found.
 Install Podman 5 with docker-compose as its compose provider, or Docker Engine with the Compose
 plugin, then run this again."
@@ -131,7 +179,11 @@ case $engine in
   podman|docker) command -v "$engine" >/dev/null 2>&1 || die "$engine is not installed" ;;
   *) die "--engine is podman or docker" ;;
 esac
-"$engine" compose version >/dev/null 2>&1 || die "'$engine compose' does not work here"
+if ! "$engine" compose version >/dev/null 2>&1; then
+  if [ "$engine" = podman ]; then die "'podman compose' found no compose provider here.
+$compose_provider_help"; fi
+  die "'$engine compose' does not work here"
+fi
 [ "$engine" = docker ] || ! podman_compose_provider || die "$no_podman_compose"
 # Compose gives every container an oom_score_adj (compose.yaml: WEAVESIGNAL_OOM_SCORE_ADJ, 0 when
 # unset). A user session that runs above 0 cannot exec into such a container on Podman ("crun:
@@ -150,6 +202,12 @@ fi
 # --status and --uninstall see the proxy too. Install sets $public_domain from --public first.
 public_domain=''
 [ -f "$env_file" ] && public_domain=$(sed -n 's/^PUBLIC_DOMAIN=//p' "$env_file" | head -1)
+# The listen-only route for a home network (1.3.1) is the overlay lan.yaml, used whenever the
+# settings file names a LAN_ADDRESS (and there is no public domain: the two do not go together),
+# so --status and --uninstall see its web server too. Install sets $lan_address from --lan first.
+lan_address=''
+[ -f "$env_file" ] && lan_address=$(sed -n 's/^LAN_ADDRESS=//p' "$env_file" | head -1)
+[ -z "$public_domain" ] || lan_address=''
 # The telephone line (17f) is the overlay phone.yaml, used whenever the settings file says
 # PHONE=true; install decides it below.
 phone_on=false
@@ -164,6 +222,7 @@ gpu_on=false
 [ -f "$env_file" ] && grep -qx 'GPU=nvidia' "$env_file" && grep -qx 'VIDEO=true' "$env_file" && gpu_on=true
 compose() {
   local files=(-f compose.yaml); [ -z "$public_domain" ] || files+=(-f public.yaml)
+  [ -z "$lan_address" ] || files+=(-f lan.yaml)
   [ "$phone_on" = false ] || files+=(-f phone.yaml)
   [ "$rehearsal_on" = false ] || files+=(-f rehearsal.yaml)
   [ "$gpu_on" = false ] || files+=(-f gpu.yaml)
@@ -230,7 +289,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -413,6 +472,51 @@ if [ -n "$public_domain" ]; then
   [[ -z $turn_cidrs || $turn_cidrs =~ ^[0-9a-fA-F:./,\ ]+$ ]] || die "TURN_ALLOW_CIDRS is a comma-separated list of addresses such as 10.0.0.0/8, 192.168.0.0/16"
 fi
 
+# --- The listen-only route for a home network (--lan, 1.3.1) ---------------------------------
+# One address of this machine, one port, plain HTTP: the player and the stream, read only
+# (lan.yaml). The address is given (--lan 192.168.1.20), kept from the settings file, or found:
+# the one private IPv4 address on a real network card. When there is more than one (a laptop on
+# wi-fi and a cable), or none, it stops and asks rather than guess. A VPN, a container network
+# and a virtual-machine bridge are never taken.
+lan_kept=${have[LAN_ADDRESS]:-}
+case $lan_arg in
+  off) lan_address='' ;;
+  '') lan_address=$lan_kept ;;
+  auto) lan_address='' ;;
+  *) lan_address=$lan_arg ;;
+esac
+if [ -n "$public_domain" ]; then
+  [ -z "$lan_arg" ] || [ "$lan_arg" = off ] \
+    || die "--lan does not go with the public route: $public_domain already serves the whole station (the player and the stream included). Run '--public off' first if you want the home-network route instead."
+  [ -z "$lan_kept" ] || say "LAN_ADDRESS=$lan_kept is not used while the station is public: the public route serves the player and the stream."
+  lan_address=''
+fi
+if [ -n "$lan_address" ] || [ "$lan_arg" = auto ]; then
+  command -v ip >/dev/null 2>&1 || die "--lan needs the 'ip' command (iproute2) to read this machine's addresses"
+  if [ "$lan_arg" = auto ]; then
+    mapfile -t lan_found < <(lan_candidates)
+    case ${#lan_found[@]} in
+      0) die "--lan found no address to use: no network card of this machine holds a private IPv4 address (10.x.x.x, 172.16-31.x.x or 192.168.x.x). Connect to your network, or give the address yourself: --lan 192.168.1.20" ;;
+      1) read -r lan_dev lan_address <<< "${lan_found[0]}"
+         say "LAN address: $lan_address (the network card $lan_dev). Give another with --lan ADDRESS." ;;
+      *) { printf '%s\n' "--lan found more than one address on real network cards:"
+           for f in "${lan_found[@]}"; do read -r d a <<< "$f"; printf '  %s  (%s)\n' "$a" "$d"; done
+           printf '%s\n' "Say which one your phone's network reaches: --lan ADDRESS"; } >&2
+         exit 1 ;;
+    esac
+  fi
+  oct='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+  [[ $lan_address =~ ^$oct\.$oct\.$oct\.$oct$ ]] || die "the LAN address '$lan_address' is not an IPv4 address such as 192.168.1.20"
+  is_private_v4 "$lan_address" \
+    || die "the LAN address $lan_address is not a private one (10.x.x.x, 172.16-31.x.x, 192.168.x.x or Tailscale's 100.64-127.x.x). Plain HTTP on a public address would let the whole internet in with nothing to protect a listener: use --public with a name instead."
+  if ! local_v4s | awk -v a="$lan_address" '$2 == a { found = 1 } END { exit !found }'; then
+    if [ "$lan_arg" = '' ]; then
+      die "LAN_ADDRESS=$lan_address in $env_file is not an address of this machine any more (a router can hand out a new one). Run this again with --lan to look again, or --lan off to leave the home-network route."
+    fi
+    die "$lan_address is not an address of this machine (its addresses: $(local_v4s | awk '{ printf "%s%s", sep, $2; sep = ", " }'))"
+  fi
+fi
+
 # --- Ports (ADR-0075): each free, or the next suggested alternative ------------------------
 # key protocol default alternatives..., as the control plane's own check suggests them
 # (crates/control/src/ports.rs; docs: reference/ports)
@@ -442,10 +546,15 @@ if [ -n "$public_domain" ]; then
     "TURN_TLS_PORT tcp 5349 15349"
   )
 fi
+# The home-network route's one port (--lan): its web server binds one address only, but any other
+# listener on the port is a clash worth stopping for.
+if [ -n "$lan_address" ]; then
+  port_specs+=("LAN_PORT tcp 7300 17300 27300")
+fi
 # The bundle binds every port to loopback except LiveKit's media port, which takes every
 # address (and, on a public station, the proxy's and TURN's). A loopback port clashes with a listener on loopback or on every address; one bound to
 # another interface's address does not stop it.
-public_keys=" LIVEKIT_MEDIA_PORT PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_WHIP_PORT "
+public_keys=" LAN_PORT LIVEKIT_MEDIA_PORT PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_WHIP_PORT "
 in_use() { # protocol port [any]: true when a listener would stop the bundle binding it
   local flag=-Hltn; [ "$1" = udp ] && flag=-Hlun
   local addrs
@@ -678,6 +787,13 @@ LIVEKIT_NODE_IP=$lk_node
 INGEST_BIND=0.0.0.0"
 fi
 
+# The home-network route's derived setting: the player's audio source is the stream on the same
+# address and port (the loopback default would make a phone listen to itself). PUBLIC_ORIGIN is
+# left alone on purpose: it also turns on show cards, feeds and absolute invitation links, none
+# of which this listen-only address serves.
+lan_derived=''
+[ -z "$lan_address" ] || lan_derived="STREAM_URL=http://$lan_address:${port[LAN_PORT]}/programme.opus"
+
 # --- The settings file: written whole, atomically, mode 600 --------------------------------
 mkdir -p "$(dirname "$env_file")"
 tmp=$(mktemp "$env_file.XXXXXX")
@@ -806,6 +922,13 @@ trap 'rm -f "$tmp"' EXIT
     say "# The trunk and the words (from this file, else the environment on the first run)."
     for key in $phone_settings; do v=$(keep "$key" ""); [ -z "$v" ] || say "$key=$v"; done
   fi
+  if [ -n "$lan_address" ]; then
+    say "# The listen-only route for a home network (weavesignal.sh --lan): plain HTTP on this address and"
+    say "# LAN_PORT (above), the player and the stream only. --lan off turns it off."
+    say "LAN_ADDRESS=$lan_address"
+    say "# Derived from the settings above on every run; change those, not this."
+    printf '%s\n' "$lan_derived"
+  fi
   if [ -n "$hand_origin" ]; then
     say "# The address cards and feeds print on this loopback station (set by hand; --public sets its own)."
     say "PUBLIC_ORIGIN=$hand_origin"
@@ -820,7 +943,7 @@ trap 'rm -f "$tmp"' EXIT
   fi
   # Anything else the file held is kept as it was.
   known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU GPU_FOUND PULL_ALLOW_PRIVATE "
-  known+="PHONE REHEARSAL "
+  known+="PHONE REHEARSAL LAN_ADDRESS LAN_PORT "
   [ "$gpu" != nvidia ] || known+="GPU_DEVICE NVENC_SESSIONS "
   [ "$phone" = false ] || known+="PHONE_LINES PHONE_SIP_PORT PHONE_RTP_PORT PHONE_RTP_LAST PHONE_REDIS_PORT PHONE_REDIS_PASSWORD $phone_settings "
   extra=''
@@ -878,6 +1001,27 @@ boot_start_podman() {
   say "  --no-boot-start skips both; --uninstall leaves them as they are."
 }
 
+# --- Podman's socket (G9, 1.3.1) -------------------------------------------------------------
+# docker-compose, Podman's compose provider, talks to Podman through its API socket, which a
+# user's own podman.socket serves: not running, Compose ends with "failed to connect to the
+# docker API at unix:///run/user/.../podman/podman.sock", after the images (about 2.5 GB) have
+# been pulled. So it is looked at first. Turning it on is a user service (no sudo); a failure
+# says the command. An answer this cannot read is "carry on": Compose will say what it finds.
+podman_socket() {
+  local exists
+  exists=$(podman info --format '{{.Host.RemoteSocket.Exists}}' 2>/dev/null | head -1 || true)
+  [ "$exists" = false ] || return 0
+  say "Podman's API socket is not running, and 'podman compose' needs it."
+  if ! command -v systemctl >/dev/null 2>&1; then
+    say "  could not turn it on: systemctl was not found; start 'podman system service' for your user, then run this again"
+  elif systemctl --user enable --now podman.socket >/dev/null 2>&1; then
+    say "  turned it on (systemctl --user enable --now podman.socket): it is your user's service, started with your login and at boot once lingering is on"
+  else
+    die "could not turn on Podman's API socket. Run 'systemctl --user enable --now podman.socket' yourself (no sudo: it is your user's service), then run this again."
+  fi
+}
+[ "$engine" != podman ] || podman_socket
+
 # --- Start -----------------------------------------------------------------------------------
 if ! "$engine" image inspect "$image" >/dev/null 2>&1; then
   case $image in
@@ -906,6 +1050,20 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 [ -n "$health" ] || { compose logs --tail 20 control >&2 || true; die "the control plane did not come up within 90 s (logs above)"; }
+
+# The home-network route, as this machine sees it (the machine's own firewall is not asked, and a
+# second device is not in reach): the player page, the stream's mount and a refusal of the studio.
+lan_note=''
+if [ -n "$lan_address" ]; then
+  lan_origin="http://$lan_address:${port[LAN_PORT]}"
+  lan_ok=false
+  for _ in $(seq 1 30); do
+    curl -fs "$lan_origin/api/v1/player" 2>/dev/null | grep -q '"stream_url"' && { lan_ok=true; break; }
+    sleep 1
+  done
+  if [ "$lan_ok" = true ]; then lan_note="the player answers on this machine at $lan_origin/"
+  else lan_note="WARNING: $lan_origin did not answer on this machine; see '$engine compose -p $project logs lan'"; fi
+fi
 
 if [ -n "$public_domain" ]; then
   # Through the proxy on this machine (the name may not reach it from inside, and a local CA is
@@ -953,6 +1111,15 @@ TURN over TLS reads the certificate when LiveKit starts. Caddy renews it about t
 expires; run '$0 --renew-turn' between shows within those thirty days (it drops the room).
 EOF
 else
+  if [ -n "$lan_address" ]; then
+    loop_words="Every listener but LiveKit's media port is on loopback, except the listen-only address below:
+nobody off this machine can join or speak. To publish the station, run this again with --public
+and the name that reaches this machine."
+  else
+    loop_words="Every listener but LiveKit's media port is on loopback: nobody off this machine can join or
+listen. To let a phone or another computer on your own network listen, run this again with --lan;
+to publish the station, run it with --public and the name that reaches this machine."
+  fi
   cat <<EOF
 
 WeaveSignal is running (project '$project', $engine).
@@ -967,10 +1134,33 @@ CONTROL_ADMIN_TOKEN in $env_file (mode 600). It is not shown here.
 Set the station up: open http://127.0.0.1:${port[CONTROL_PORT]}/setup/ and sign in with the same key.
 The page takes the station's name, the takedown contact that opens call-in, the jurisdiction
 and the station's look.
-Every listener but LiveKit's media port is on loopback: nobody off this machine can join or
-listen. To publish the station, run this again with --public and the name that reaches this machine.${phone_note:+
+$loop_words${phone_note:+
 $phone_note}
 EOF
+  if [ -n "$lan_address" ]; then
+    fp=${port[LAN_PORT]}
+    cat <<EOF
+
+Listening on your network (--lan): $lan_note.
+
+  Player          $lan_origin/
+  Stream          $lan_origin/programme.opus   (for a media player; the player page uses it)
+
+This address is for listening only, in plain HTTP. What it passes: the player page and the
+stream. What it does not: the studio and its sign-in, call-in, the chat and the live room stay
+on this machine. A browser gives a microphone only over HTTPS or on localhost, so nobody can
+speak through this address; to let people speak, publish the station with --public.
+Give this machine a fixed address in your router, or the link above stops working when the
+router hands it a new one (run this with --lan again afterwards to follow it).
+
+If a phone on the same network cannot open the link, this machine's firewall is likely closing
+TCP $fp. This script never runs sudo; run what fits your system yourself:
+  firewalld (Fedora, Bazzite):  sudo firewall-cmd --add-port=$fp/tcp
+                                sudo firewall-cmd --runtime-to-permanent
+  ufw (Ubuntu):                 sudo ufw allow $fp/tcp
+Open that one port and nothing else. '--lan off' goes back to this machine only.
+EOF
+  fi
 fi
 if [ "$engine" = podman ]; then
   echo

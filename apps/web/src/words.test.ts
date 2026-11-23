@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, type MeState, type Phase, type Role } from './lib/api.ts';
 import { banner, mmss, showLine } from './lib/words.ts';
-import { CLOSED_WHILE_FILLING, LINES_CLOSED, closedLine, closedUnderForm, releasedWords } from './lib/lines.ts';
+import { CLOSED_WHILE_FILLING, LINES_CLOSED, NEEDS_HTTPS, talkNeedsHttps, closedLine, closedUnderForm, releasedWords } from './lib/lines.ts';
 
 function me(over: Partial<MeState> = {}): MeState {
   return {
@@ -168,5 +168,17 @@ describe('invitations', () => {
   it('are the noun on every join page', () => {
     expect(banner('guest', me({ role: 'guest', phase: 'ended' }), 'ended', 0, null).detail).toBe('Open your invitation link again to rejoin while it lasts.');
     expect(banner('guest', me({ role: 'guest' }), 'lost', 0, null).detail).toBe('Check your connection, then open your invitation link again.');
+  });
+});
+
+describe('Talk to the studio on a page that is not a secure context (1.3.1)', () => {
+  it('is left out only when the browser says the page is not secure', () => {
+    expect(talkNeedsHttps(false)).toBe(true);
+    expect(talkNeedsHttps(true)).toBe(false);
+    expect(talkNeedsHttps(undefined)).toBe(false);
+  });
+  it('says why in words that name HTTPS and the way out', () => {
+    expect(NEEDS_HTTPS).toContain('HTTPS');
+    expect(NEEDS_HTTPS).toContain('public address');
   });
 });

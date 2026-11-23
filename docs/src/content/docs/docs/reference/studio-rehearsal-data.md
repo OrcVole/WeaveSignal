@@ -28,6 +28,7 @@ The desk's own command is still called `on_air`.
 | `POST /api/v1/rehearsal/open` `{show}` | whoever may change the show's step | 201 and the view; 200 when it was open for that show already. |
 | `POST /api/v1/rehearsal/commands` | as Open, for the session's show | One switch or cart (below); answers with the view. |
 | `POST /api/v1/rehearsal/end` | as Open | Everyone out of the rehearsal room; their links are retired. |
+| `POST /api/v1/rehearsal/remove` `{identity}` | as Open | One person out of the rehearsal room (1.3.1), and their link ended for this session; the session carries on. 404 when they are not in the rehearsal studio, 422 for the rehearsal desk's own identity. Answers with the view. |
 | `POST /api/v1/rehearsal/move` | as Open | Moves everyone to the live studio on their links, and closes the session ([The move](#the-move)). |
 
 *Whoever may change the show's step* means the show's presenter, a producer, an admin or the station key.
@@ -47,10 +48,18 @@ Open is also refused with 403 to someone without rights over the show, and with 
 | `enabled` | The station has a rehearsal studio (the installation's `REHEARSAL` setting). Off, the rest is empty. |
 | `desk` | `linked`, and `error` when the rehearsal desk is not answering. |
 | `session` | The open session or null: `id`, `show` (its slug), `show_name`, `opened_by` ("Eilidh") and `opened_at_ms`. |
-| `people` | Each person at the rehearsal desk: `identity`, `name`, `role`, `on` (in the mix), `mute`, `cue`, `talk`, `talk_to`, `present`, `linked` and `lufs`. |
+| `people` | Each person at the rehearsal desk: `identity`, `name`, `role`, `on` (in the mix), `mute`, `cue`, `talk`, `talk_to`, `present`, `linked`, `lufs` and `slot` (the strip, from 1: the station gives each person the lowest free number as they arrive and keeps it while the desk lists them, so every window draws the same person in the same strip). |
 | `window` | The handover window of the session's show, when it has one, as the live desk's post line reads it, so the rehearsal says *On air at 14:05: move by then*. |
 | `carts_sounding` | Each cart sounding at the rehearsal desk, with its `label`, `mode`, `cue`, `elapsed_ms`, `remaining_ms`, `loop` and `stopping`. |
 | `max_people` | The most people the room takes (`rehearsal.max_people`, 6). |
+| `may_run` | Whether the person asking may run the open session (1.3.1): whoever may change its show's step. False with no session open. It is the asker's own, in every answer and event, so a window need not guess from the show's rights or wait for a 403. |
+
+### Taking one person out (1.3.1)
+
+`POST /api/v1/rehearsal/remove` with `{identity}` takes one person out of the rehearsal room and ends their rehearsal link for this session: it buys no token again and its page says it ended.
+The session, and everyone else in it, carry on.
+They can be invited again with a new invitation, which is a new person to the station.
+The control plane keeps the ended links in memory, so they come back if it restarts while the session is open; the session ends by itself after thirty minutes with nobody in it.
 
 ### Commands
 
@@ -91,6 +100,7 @@ The rules for a booking:
 | `studios` | The Studios view's columns in order: `{id: "studio", name: "Studio"}`, then `{id: "rehearsal", name: "Rehearsal"}` when the station has a rehearsal studio. |
 | each episode's `studio` | Always `studio`. Every show on air is in the Studio column, wherever its host is, because shows on air share one programme. The clash rule must never be keyed on the column. |
 | each episode's `from` | Where the host comes from: `room` (at the desk) or `own` (their own studio, with a show key that has not ended). It is worked out as the rota works it out, from the show keys standing now. The rota's `push` is `own` here. |
+| each of `dates` `from` | The same, for a date no episode fills yet (1.3.1): where its show's host comes from, so the Own studio mark is there before the episode is drafted. |
 | `rehearsals` | Every booking in the range, then every session (past or open), each in start order. Empty without a rehearsal studio. |
 
 Each rehearsal block has the same shape, from the week or from the bookings' routes:
@@ -167,6 +177,13 @@ These are pure functions:
 `studioOf(e)` and `fromOf(e)` read an episode's column and its host's origin, with an older station's defaults.
 The Studios view's blocks, the column's clash rule and the booking editor belong to the Schedule tab (`schedule/model.ts`, `lib/schedule.svelte.ts`, `schedule/RehearsalBooking.svelte`).
 
+### The live studio's view and a move (1.3.1)
+
+`GET /api/v1/studio` and its events carry what a move left, so any window shows it, not only the one that pressed Move:
+
+- Each of `sources[]` has `standby_until_ms`: for someone moved from the rehearsal studio who is not on air yet, until when they stand by (ms since the Unix epoch). It is null for everyone else, once they are on air, and once the time has passed.
+- `post.opening` (and `post.opening` in `GET /api/v1/sources`) is the opening state waiting to be applied for the post's show: `on`, `mute`, `host` and `standby_until_ms`. It is null when no move waits for that show.
+
 ### The studio app and the move
 
 The move is the call `moveRehearsal()`, which the desk's move dialog sends, and the handover window's `rehearsing` flag is typed in `api.ts`.
@@ -198,7 +215,8 @@ The opening is applied when the show's host is put on air at the live desk, by w
 - `POST /api/v1/invites` takes `studio` (`live`, the default, or `rehearsal`) and `show` (needed with `rehearsal`, refused without).
   A rehearsal invitation needs the session open for that show (409 otherwise) and the right to run its rehearsal (403).
   The invitation's `studio` says where the link leads.
-- `GET /api/v1/pass` says the link's `studio`, and for a rehearsal link the rehearsed show; `not_now` says why it cannot join yet.
+- `GET /api/v1/pass` says the link's `studio`, and for a rehearsal link the rehearsed show; `not_now` says why it cannot join yet. After a move, `not_now` of a rehearsal link says "This page takes you there" only to someone who was in the rehearsal when it moved; for anyone else it says the link goes nowhere and to ask for a live-studio link (1.3.1). A live pass made by a move carries the show's name, so `show` is the show they stand by for, not the one on air (1.3.1).
 - `POST /api/v1/pass/token` for a rehearsal pass answers 409 while its session is not open, and 409 over `max_people`.
 - `GET /api/v1/pass/events` sends the person a `move` (their new pass and link, the show and its airing) once the session has moved, and again to a page that reconnects until the airing ends.
+- Each `me` event also carries `standing_by` (1.3.1): at the live desk, off air, and not on air since they arrived. It is false for someone taken off air, for a caller and in the rehearsal studio. The control plane keeps who has been on air in memory, so after its restart someone taken off air earlier reads as standing by until they are on air again.
 - Every invitation to the live studio arrives standing by ([Roles](/docs/reference/roles/)).

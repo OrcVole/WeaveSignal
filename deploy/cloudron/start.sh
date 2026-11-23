@@ -135,7 +135,7 @@ setting VIDEO_ENCODER svt "Video's AV1 encoder (with VIDEO=true): svt, SVT-AV1 o
 # --- 1.1: the show, the rundown and steering (issue 5) ---
 # Empty is the control plane's own default; station.toml, when it exists, replaces a whole section.
 setting STUDIO_SHOW "" "The show the desk heads, as plain text. Empty: the desk says No show set."
-setting STUDIO_PLAYER_ALLOWANCE_MS "" "What a listener's own player is taken to add, in ms: a whole number, added to the listener mount's fixed 12 s hold in the estimate the desk shows (ADR-0289). Empty: 500."
+setting STUDIO_PLAYER_ALLOWANCE_MS "" "What a listener's own player is taken to add, in ms: a whole number, added to the listener mount's fixed 12 s hold in the estimate the desk shows (ADR-0289). Empty: 3000."
 setting STUDIO_LISTENER_DELAY_MS "" "The older way to set the mount's 12 s and the allowance as one figure, in ms, with the listener process's buffer's 0.5 s inside it (ADR-0103). Used only while the line above is empty. Empty: 13000."
 setting STUDIO_RUNDOWN "" "What is coming up on the desk: TOML inline tables, comma-separated, in single quotes, e.g. '{ at = \"10:00\", title = \"News\", detail = \"hard post\", hard_post = true, key = \"F2\" }, { at = \"10:06\", title = \"Weather\" }'. Empty: none."
 setting STUDIO_BANNED "" "Callers banned before: TOML inline tables as above, e.g. '{ identity = \"tavish\", date = \"2026-09-12\", reason = \"Abuse on air\" }'. Empty: none."

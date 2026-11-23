@@ -114,6 +114,13 @@ export function cartNow(cart: Cart | null, view: CartsView | null, now: number):
   return { state: 'idle', leftMs: null, progress: 0, sounding: null };
 }
 
+/** The carts that listeners can hear right now: sounding, not cued into the presenter's
+ *  headphones, and not past their own end (a view lags a moment behind a cart that ended). A bed
+ *  that has no end counts until it is stopped. Empty when the view does not say. */
+export function cartsOnAir(view: Pick<CartsView, 'sounding'> | null | undefined, now: number): Sounding[] {
+  return (view?.sounding ?? []).filter((s) => !s.cue && (s.ends_ms === null || s.ends_ms > now));
+}
+
 /** The mode's word and glyph (report 08's three modes). */
 export const MODE: Record<CartMode, { word: string; glyph: string }> = {
   one_shot: { word: 'one-shot', glyph: 'g-once' },

@@ -4253,7 +4253,7 @@
           "rehearsal"
         ],
         "summary": "The rehearsal studio",
-        "description": "Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.",
+        "description": "Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. `may_run` says whether the asker may run the open session. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.",
         "operationId": "rehearsal_view",
         "responses": {
           "200": {
@@ -4765,6 +4765,64 @@
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/remove": {
+      "post": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "Take one person out of the rehearsal",
+        "description": "Takes one person out of the rehearsal room and ends their rehearsal link for this session: it buys no token for it again, and their page says it ended. The session carries on with everyone else, and they can be invited again. Whoever may run the session's show (403 otherwise); 409 with no session open; 404 when they are not in the rehearsal studio; 422 for the rehearsal desk's own identity. Answers with the rehearsal view.",
+        "operationId": "rehearsal_remove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The rehearsal view after the removal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
           },
           "503": {
             "$ref": "#/components/responses/Unavailable"
@@ -6248,7 +6306,7 @@
           "schedule"
         ],
         "summary": "Episodes in a range",
-        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281). From release 1.3.0 also the Studios view's columns (`studios`: Studio, and Rehearsal when the station has a rehearsal studio), each episode's `studio` and `from` (`room` or `own`, as the rota says), and `rehearsals`: the rehearsal studio's bookings and its sessions in the range (empty without a rehearsal studio). The public calendar file never lists rehearsals.",
+        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281). From release 1.3.0 also the Studios view's columns (`studios`: Studio, and Rehearsal when the station has a rehearsal studio), each episode's `studio` and `from` (`room` or `own`, as the rota says), and `rehearsals`: the rehearsal studio's bookings and its sessions in the range (empty without a rehearsal studio). The public calendar file never lists rehearsals. From release 1.3.1 each of `dates` also has `from` (`room` or `own`), as an episode's does.",
         "operationId": "shows_episodes_between",
         "parameters": [
           {
@@ -18912,7 +18970,8 @@
           "start_ms",
           "end_ms",
           "minutes",
-          "short"
+          "short",
+          "from"
         ],
         "properties": {
           "clock": {
@@ -18933,6 +18992,10 @@
           "end_ms": {
             "type": "integer",
             "format": "int64"
+          },
+          "from": {
+            "$ref": "#/components/schemas/HostFrom",
+            "description": "Where its host comes from (1.3.1), as an episode's `from` says: `room`, or `own` (their\nown studio, with a show key that has not ended)."
           },
           "minutes": {
             "type": "integer",
@@ -20067,6 +20130,43 @@
           "bed"
         ]
       },
+      "PostOpening": {
+        "type": "object",
+        "description": "The opening state a move from the rehearsal studio left for the post's show (1.3.1): who goes\non air and who is muted when its host is put on air, while it still waits to be applied.",
+        "required": [
+          "on",
+          "mute",
+          "standby_until_ms"
+        ],
+        "properties": {
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show's host among the people moved, whose going on air applies it."
+          },
+          "mute": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who is muted when it is applied, before anyone is put on (sorted, identities)."
+          },
+          "on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who goes on air when it is applied (sorted, identities)."
+          },
+          "standby_until_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Until when the moved people stand by, in ms since the Unix epoch."
+          }
+        }
+      },
       "PostShow": {
         "type": "object",
         "description": "The next handover: the show whose post it is, its source and the clocks of the rule.",
@@ -20149,6 +20249,17 @@
             ],
             "format": "int64",
             "description": "When the schedule puts it on air, from automation: at the post, or the late count's end."
+          },
+          "opening": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PostOpening",
+                "description": "The opening state moved from the rehearsal studio for this show, while it waits to be\napplied (1.3.1). [`plan`] leaves it empty; the control plane fills it from the moves."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "show": {
             "oneOf": [
@@ -21455,7 +21566,8 @@
           "cue",
           "talk",
           "present",
-          "linked"
+          "linked",
+          "slot"
         ],
         "properties": {
           "cue": {
@@ -21489,6 +21601,12 @@
           },
           "role": {
             "$ref": "#/components/schemas/Role"
+          },
+          "slot": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The person's strip, from 1 (1.3.1): the station gives each person at the rehearsal desk\nthe lowest free number as they arrive and keeps it while the desk lists them, so every\nwindow draws the same person in the same strip.",
+            "minimum": 0
           },
           "talk": {
             "type": "boolean"
@@ -21557,7 +21675,8 @@
           "desk",
           "people",
           "carts_sounding",
-          "max_people"
+          "max_people",
+          "may_run"
         ],
         "properties": {
           "carts_sounding": {
@@ -21580,6 +21699,10 @@
             "format": "int32",
             "description": "The most people the rehearsal room takes at once (`rehearsal.max_people`).",
             "minimum": 0
+          },
+          "may_run": {
+            "type": "boolean",
+            "description": "Whether the person asking may run the open session (1.3.1): whoever may change its\nshow's step. False with no session open. It is the asker's own, filled in for each\nrequest and each event."
           },
           "people": {
             "type": "array",
@@ -21645,6 +21768,20 @@
           },
           "reason": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemoveRequest": {
+        "type": "object",
+        "description": "The person to take out of the rehearsal.",
+        "required": [
+          "identity"
+        ],
+        "properties": {
+          "identity": {
+            "type": "string",
+            "description": "Their identity, as the rehearsal view's `people` give it."
           }
         },
         "additionalProperties": false
@@ -24046,6 +24183,14 @@
               "slot": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "standby_until_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "For someone moved from the rehearsal studio (1.3.1): until when they stand by for the\nshow's opening state, in ms since the Unix epoch, while they are not on air and the\nopening still waits to be applied. `None` for everyone else."
               }
             }
           }

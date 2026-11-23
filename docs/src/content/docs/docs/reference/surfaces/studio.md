@@ -117,6 +117,23 @@ That picture was made before Prepare mode: a member of staff signed in as themse
 It says in plain words whether the card is **Not in use** (with the two steps that put it to use: `GPU=nvidia` in the station's settings file, then `weavesignal.sh` again), or **With the desk** (given to it; *video off* is added when nothing is encoded yet). It says a card is there, not that it has the AV1 encoder the station's video needs: with an older card the desk stays on the CPU.
 It has no control: nothing in the studio app turns a card on, and an update never does ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/#the-hint-in-settings)).
 
+## `settings.player`
+
+**Settings** → **The player**, from 1.3.1, for everyone who can open Settings, whatever their role.
+It says that sound plays in your browser and not in this app, the player's address, and **Open the player** and **Copy link**, as the Desk's [Listeners panel](/docs/reference/surfaces/desk/#deskaudience) has them.
+Where the station gives no public address (`publishing.public_url`) the address is the one this window uses, and the panel says that people elsewhere need the station's public address.
+Not drawn in the sandbox.
+
+## `studio.pack.notice`
+
+A band under the top bar, from 1.3.1, on the Desk and Carts tabs, for an admin, a producer or the station key: *50 new sounds are available: Load them with Default pack… on the Carts tab; every cart of your own stays.*
+A station loads the sounds WeaveSignal ships once, when it first starts, so one installed before a later release never gets that release's sounds unless someone loads them ([Add your own cart](/docs/how-to/add-your-own-cart/#load-the-default-pack-again)).
+The number is the pack's sounds a load would add: one counts unless a default cart of the same name is already on the station's carts, or its key holds a cart of your own.
+**Default pack…** takes you to the Carts tab with that dialog open, and the band goes.
+**Not now** hides it until WeaveSignal ships a different pack.
+The studio app keeps that on this computer for each station, not on the station: another computer, or another person on this one, is told once more.
+It is asked once after sign-in, and is silent where the station cannot say (a station older than 1.2.1).
+
 ## `studio.step`
 
 The show's step as four pips and a word, the way to change it, and **Show everything** (ADR-0271).

@@ -12,6 +12,16 @@ export function socketUrl(loc: { protocol: string; host: string }): string {
   return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/api/v1/chat/socket`;
 }
 
+/** The chat is not at this address (1.3.1): its first request answered 404 and its socket never
+ *  opened. On a Compose station the player is served by the control plane, which has no chat
+ *  routes (the chat is its own service, reached only through the public route), so the panel would
+ *  say for ever that the chat is "not available just now". A 404 after the socket has opened is a
+ *  chat that went away for a moment, not one that was never here. Every other failure (a refused
+ *  connection, a 502 or 503 from a proxy whose chat is restarting) is the chat trying again. */
+export function chatAbsent(status: number | undefined, everOpen: boolean): boolean {
+  return status === 404 && !everOpen;
+}
+
 /** The wait before the n-th reconnect (0-based): 1, 2, 4, 8 s, then 15 s at most. */
 export function chatBackoff(attempt: number): number {
   return Math.min(15_000, 1000 * 2 ** Math.max(0, attempt));

@@ -1472,7 +1472,7 @@ Needs: staff: any staff session, or the station key; or an API token with `sched
 
 Needs: staff: any staff session, or the station key; or an API token with `schedule:read`.
 
-Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281). From release 1.3.0 also the Studios view's columns (`studios`: Studio, and Rehearsal when the station has a rehearsal studio), each episode's `studio` and `from` (`room` or `own`, as the rota says), and `rehearsals`: the rehearsal studio's bookings and its sessions in the range (empty without a rehearsal studio). The public calendar file never lists rehearsals.
+Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281). From release 1.3.0 also the Studios view's columns (`studios`: Studio, and Rehearsal when the station has a rehearsal studio), each episode's `studio` and `from` (`room` or `own`, as the rota says), and `rehearsals`: the rehearsal studio's bookings and its sessions in the range (empty without a rehearsal studio). The public calendar file never lists rehearsals. From release 1.3.1 each of `dates` also has `from` (`room` or `own`), as an episode's does.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -3748,7 +3748,7 @@ The rehearsal studio (1.3.0): a second desk with no way to the air, for one show
 
 Needs: staff: any staff session, or the station key.
 
-Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.
+Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. `may_run` says whether the asker may run the open session. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -3925,6 +3925,26 @@ Request body: [OpenRequest](#schema-openrequest).
 | 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
 | 404 | There is no such thing. | [Problem](#schema-problem) |
 | 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/rehearsal/remove
+
+**Take one person out of the rehearsal**
+
+Needs: staff: any staff session, or the station key.
+
+Takes one person out of the rehearsal room and ends their rehearsal link for this session: it buys no token for it again, and their page says it ended. The session carries on with everyone else, and they can be invited again. Whoever may run the session's show (403 otherwise); 409 with no session open; 404 when they are not in the rehearsal studio; 422 for the rehearsal desk's own identity. Answers with the rehearsal view.
+
+Request body: [RemoveRequest](#schema-removerequest).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rehearsal view after the removal. | [RehearsalView](#schema-rehearsalview) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: rtmp
@@ -6294,6 +6314,7 @@ A date to draft, for the week's dotted blocks.
 | `clock` | [ClockChange](#schema-clockchange), or null | no |  |
 | `colour_slot` | integer (int32) | yes |  |
 | `end_ms` | integer (int64) | yes |  |
+| `from` | [HostFrom](#schema-hostfrom) | yes | Where its host comes from (1.3.1), as an episode's `from` says: `room`, or `own` (their own studio, with a show key that has not ended). |
 | `minutes` | integer (int32) | yes |  |
 | `moved_from` | string, or null | no |  |
 | `name` | string | yes |  |
@@ -6659,6 +6680,17 @@ Which of the desk's cart players a cart sounds in.
 
 one of `shot`, `bed`
 
+### Schema: PostOpening
+
+The opening state a move from the rehearsal studio left for the post's show (1.3.1): who goes on air and who is muted when its host is put on air, while it still waits to be applied.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `host` | string, or null | no | The show's host among the people moved, whose going on air applies it. |
+| `mute` | array of string | yes | Who is muted when it is applied, before anyone is put on (sorted, identities). |
+| `on` | array of string | yes | Who goes on air when it is applied (sorted, identities). |
+| `standby_until_ms` | integer (int64) | yes | Until when the moved people stand by, in ms since the Unix epoch. |
+
 ### Schema: PostShow
 
 The next handover: the show whose post it is, its source and the clocks of the rule.
@@ -6682,6 +6714,7 @@ What `/studio` and `GET /sources` say of the post (design section 10).
 | `late_ends_ms` | integer (int64), or null | no | When the late count ends and the source goes on air. |
 | `link_lost` | [LinkLostView](#schema-linklostview), or null | no |  |
 | `on_air_at_ms` | integer (int64), or null | no | When the schedule puts it on air, from automation: at the post, or the late count's end. |
+| `opening` | [PostOpening](#schema-postopening), or null | no |  |
 | `show` | [PostShow](#schema-postshow), or null | no |  |
 | `source` | string, or null | no | Its source: the key's id (or, for a presenter in the room, their identity). |
 | `source_name` | string, or null | no | Its source's name. |
@@ -7118,6 +7151,7 @@ One person at the rehearsal desk.
 | `on` | boolean | yes | In the rehearsal's mix (the others hear them). The word is `on`, never `on_air`: nothing here is on air (ADR-0062). |
 | `present` | boolean | yes |  |
 | `role` | [Role](#schema-role) | yes |  |
+| `slot` | integer (int32) | yes | The person's strip, from 1 (1.3.1): the station gives each person at the rehearsal desk the lowest free number as they arrive and keeps it while the desk lists them, so every window draws the same person in the same strip. |
 | `talk` | boolean | yes |  |
 | `talk_to` | string, or null | no |  |
 
@@ -7146,6 +7180,7 @@ The rehearsal studio as the studio app shows it (`GET /api/v1/rehearsal`).
 | `desk` | [RehearsalDesk](#schema-rehearsaldesk) | yes | The rehearsal desk's link. |
 | `enabled` | boolean | yes | Whether this station has a rehearsal studio (`REHEARSAL` in the installation's settings). Off, everything else is empty. |
 | `max_people` | integer (int32) | yes | The most people the rehearsal room takes at once (`rehearsal.max_people`). |
+| `may_run` | boolean | yes | Whether the person asking may run the open session (1.3.1): whoever may change its show's step. False with no session open. It is the asker's own, filled in for each request and each event. |
 | `people` | array of [RehearsalPerson](#schema-rehearsalperson) | yes | The people at the rehearsal desk. `on` is in the rehearsal's mix, never on air. |
 | `session` | [SessionView](#schema-sessionview), or null | no |  |
 | `window` | [HandoverWindow](#schema-handoverwindow), or null | no |  |
@@ -7163,6 +7198,14 @@ The rehearsal studio as the studio app shows it (`GET /api/v1/rehearsal`).
 |---|---|---|---|
 | `by` | string | yes |  |
 | `reason` | string | yes |  |
+
+### Schema: RemoveRequest
+
+The person to take out of the rehearsal.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `identity` | string | yes | Their identity, as the rehearsal view's `people` give it. |
 
 ### Schema: Renew
 
@@ -7904,6 +7947,7 @@ One cart sounding, as the control plane keeps it.
 | `talk_to` | string, or null | no |  |
 | `caller` | [CallerNote](#schema-callernote), or null | no |  |
 | `slot` | integer | yes |  |
+| `standby_until_ms` | integer (int64), or null | no | For someone moved from the rehearsal studio (1.3.1): until when they stand by for the show's opening state, in ms since the Unix epoch, while they are not on air and the opening still waits to be applied. `None` for everyone else. |
 
 ### Schema: SourceClock
 

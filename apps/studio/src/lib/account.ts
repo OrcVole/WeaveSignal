@@ -140,3 +140,9 @@ function secureRandom(): number {
   globalThis.crypto.getRandomValues(a);
   return a[0] / 2 ** 32;
 }
+
+/** The role the Add someone dialog starts on: Admin for the very first account, because a
+ *  station with no staff has only the key to run it, and the page's own words are "Add the first
+ *  admin"; Producer for everyone after, the sensible default (1.3.1, G11). `count` is null until
+ *  the list has been read, which is never "no one yet". */
+export const defaultRole = (count: number | null): StaffRole => (count === 0 ? 'admin' : 'producer');

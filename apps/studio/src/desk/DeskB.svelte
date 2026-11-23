@@ -72,11 +72,15 @@
   import { zoom } from '../lib/zoom.svelte.ts';
   import { openRota, sched } from '../lib/schedule.svelte.ts';
   import { setup } from '../lib/wizard.svelte.ts';
-  import { bankAt, bankOwner, cartAt, cartNow } from '../../../../packages/ui/carts.ts';
+  import { bankAt, bankOwner, cartAt, cartNow, cartsOnAir } from '../../../../packages/ui/carts.ts';
   import { audienceWords, cdnWarning } from '../lib/audience.ts';
   import { HANDOVER_KEY, handoverButton, handoverStep } from '../lib/handover.ts';
   import Invite from './Invite.svelte';
+  import PlayerLink from '../lib/PlayerLink.svelte';
+  import { PLAYER, firstMinute } from '../lib/player.ts';
+  import { playerUsed } from '../lib/playerUsed.svelte.ts';
   import { OWN_LINK, airHost, ownLinkBeside } from '../lib/invite.ts';
+  import { KEY_NOTE, keyNoteShown, openStaff } from '../lib/keyNote.ts';
   import { preparing } from '../lib/prepare.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
   import { edges } from '../schedule/rule/edges.ts';
@@ -121,6 +125,9 @@
   const auto = $derived(mode === 'auto');
   /** Whether listeners hear the room: playout is connected and automation does not hold the air. */
   const heard = $derived(up && listenersHear(playout.connected, mode));
+  /** A cart is sounding and listeners hear it (1.3.1): with nobody on air the loop is cut for its
+   *  whole length, so the panel must not go on saying the loop is on the stream. */
+  const cartOnAir = $derived(!prep && heard && cartsOnAir(v?.carts, now).length > 0);
   const sources = $derived(v?.sources ?? []);
   // At Solo nothing moves: every tile stays on the stage and the Not on air row is not drawn.
   /** A host's own studio whose link is lost: its place is kept, and its tile stays on the stage. */
@@ -145,6 +152,12 @@
   const ownBeside = $derived(host ? ownLinkBeside(host, v?.mode) : null);
   /** The stage's headline offer: an empty studio waiting for its presenter. */
   const ownHead = $derived(ownLink && !host);
+  /** A window on the station key is offered no microphone link (the key is no account); where the
+   *  button would be, the desk says what to do instead (1.3.1, K2). */
+  const keyNote = $derived(!prep && !!v?.desk.reachable && keyNoteShown(account.me, needsOwnLink(sources, lk, !!v?.step?.may_change, true)));
+  /** Where a Not on air row is drawn and someone is already here, the note is one line in that
+   *  row's head, as the DJ's own link is (design review F2); elsewhere it keeps its place. */
+  const keyHead = $derived(keyNote && shown('waiting', lk) && (onStage.length > 0 || offStage.length > 0));
   /** The callers waiting on the desk, at the Callers step. */
   const queue = $derived(deskCallers(v));
   const openCount = $derived(sources.filter(isOpen).length);
@@ -634,7 +647,12 @@
             >
           {/if}
         </div>
-        {#if v?.default_fallback}
+        {#if v?.default_fallback && cartOnAir}
+          <div class="plamp" data-testid="cart-on-air">
+            <StateChip chip={CHIP.onAir} />
+            <span class="small">a cart is playing</span>
+          </div>
+        {:else if v?.default_fallback}
           <div class="plamp" data-testid="default-loop">
             <StateChip chip={CHIP.defaultLoop} />
             <span class="small">on the stream</span>
@@ -762,6 +780,13 @@
             <Invite own />
           </div>
         {/if}
+        {#if keyNote && !keyHead && (onStage.length || offStage.length)}
+          <!-- At Solo, which has no Not on air row, and someone is already here: the note is a quiet seat of its own. -->
+          <div class="empty seat own keynote" data-panel="desk.station-key" data-testid="station-key-note">
+            <span data-panel-title>{KEY_NOTE.text}</span>
+            <button type="button" class="btn sm" onclick={() => void openStaff()}>{KEY_NOTE.action}</button>
+          </div>
+        {/if}
         {#each onStage as s (s.identity)}
           <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} kept={kept?.identity === s.identity ? kept : null} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} {othersOnAir} moved={movedNote(s)} />
         {:else}
@@ -777,9 +802,16 @@
                 <span>{offStage.length === 1 ? (offStage[0].role === 'source' ? `${offStage[0].name} is standing by from their own studio` : `${offStage[0].name} has joined and waits`) : `${offStage.length} people have joined and wait`} under <b>Not on air</b>, below. Press their number, 1 to 5, to put them on air.</span>
               {:else}
                 <b>Nobody is in the room yet</b>
-                <span>People appear here when they join: send a guest an invitation, or join yourself with your own microphone link. Then press their number, 1 to 5, to put them on air.</span>
+                <span>People appear here when they join: send a guest an invitation{keyNote ? '' : ', or join yourself with your own microphone link'}. Then press their number, 1 to 5, to put them on air.</span>
                 {#if !off('invite')}<Invite />{/if}
-                {#if account.me?.kind === 'station'}<span class="hint">This window is signed in with the station key, which has no microphone of its own: to join yourself, sign out (your name, top right) and sign in as yourself.</span>{/if}
+                {#if keyNote}
+                  <!-- The station key has no microphone (K2), and a first minute that suggests the Carts and the player (G12). -->
+                  <div class="keynote" data-panel="desk.station-key" data-testid="station-key-note">
+                    <span class="hint" data-panel-title>{KEY_NOTE.text}</span>
+                    <button type="button" class="btn sm" onclick={() => void openStaff()}>{KEY_NOTE.action}</button>
+                  </div>
+                  <span class="hint" data-testid="first-minute">{firstMinute(behind)}</span>
+                {/if}
               {/if}
             </div>
           {/if}
@@ -846,8 +878,12 @@
 
       {#if shown('waiting', lk)}
         <div class="waiting" data-panel="desk.waiting">
-          <div class="wh" class:has-own={!!ownBeside}>
-            <span data-panel-title>Not on air</span>{#if ownBeside}
+          <div class="wh" class:has-own={!!ownBeside || keyHead}>
+            <span data-panel-title>Not on air</span>{#if keyHead}
+              <!-- The station key has no microphone (K2): one quiet line in place of the row's legend, then Open Staff. -->
+              <span class="own" data-panel="desk.station-key" data-testid="station-key-note">{KEY_NOTE.head}</span>
+              <button type="button" class="btn sm quiet keybtn" onclick={() => void openStaff()}>{KEY_NOTE.action}</button>
+            {:else if ownBeside}
               <!-- A host in their own studio has the air: joining is offered here, quietly, beside
                    Invite someone…, and the row's own note steps aside for it. -->
               <span class="own" id="own-beside" data-testid="own-link">{ownBeside}</span>
@@ -896,6 +932,16 @@
             <StateChip chip={CHIP.playoutDown} />
           {/if}
         </div>
+        <!-- The app makes no sound (1.3.1, K1 and K3): the player is a page in the browser. The sentence
+             is drawn until this computer has opened or copied the player once, then the buttons stand
+             alone (it is in Open the player's tooltip, and in Settings): the column's height is the
+             picture's and the fault toast's (design review F1). -->
+        {#if !sandboxed()}
+          <div class="listen">
+            {#if !playerUsed()}<span class="small" data-testid="player-sound">{PLAYER.sound}</span>{/if}
+            <PlayerLink id="desk-player" />
+          </div>
+        {/if}
       </section>
 
       {#if deskCallersShown(lk)}

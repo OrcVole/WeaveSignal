@@ -384,6 +384,13 @@ boot-check:
 public-check:
     {{root}}/tests/install/public-check.sh
 
+# The listen-only route for a home network (lan.yaml, weavesignal.sh --lan; 1.3.1) and the installer's
+# provider and socket checks: the script with the engines and this machine's network cards stubbed,
+# the rendered bundle, then the Caddyfile run for real on 127.0.0.2 against stand-in backends.
+# Needs Podman and the Caddy image; WEAVESIGNAL_LAN_TEST_PORT sets the port base.
+lan-check:
+    {{root}}/tests/install/lan-check.sh
+
 # The pinned tools the Tauri bundler downloads (deploy/desktop/tools.lock): checked, kept, and a
 # wrong checksum refused, with curl stubbed (no network)
 tools-check:
@@ -496,7 +503,7 @@ test-db:
 # Needs Podman, cargo-deny, pnpm 10, WebKitGTK 4.1, ffmpeg, tcpdump, jq, and the images (`just desk-image server-image`).
 # The desk image first, under this worktree's tag (ADR-0243): a gate that ran a stale image
 # (the default :m5, older than RTMP out) failed desk-check, or passed what it should not.
-ci: desk-image check openapi-check licences reuse-check desk-check liq-check test-db docs-build studio-check feed-test web-check wizard-check compose-check boot-check public-check tools-check quadlet-check test-room test-rehearsal test-contain test-churn test-empty test-quiet test-dump test-sources-probe test-playout test-feed test-onair test-icecast-out test-carts test-edges test-relay-tls test-bundle test-no-stun test-install
+ci: desk-image check openapi-check licences reuse-check desk-check liq-check test-db docs-build studio-check feed-test web-check wizard-check compose-check boot-check public-check lan-check tools-check quadlet-check test-room test-rehearsal test-contain test-churn test-empty test-quiet test-dump test-sources-probe test-playout test-feed test-onair test-icecast-out test-carts test-edges test-relay-tls test-bundle test-no-stun test-install
 
 # --- rtmp-out (ADR-0230) -------------------------------------------------------------------
 

@@ -370,6 +370,7 @@ export class HostStation extends Station {
       holders: holders.map((p) => p.name),
       link_lost: null,
       window: this.windowView({ cur, next, post, shown, holders, live }),
+      opening: null,
     };
     if (ready) {
       const since = ready.conn.since + this.rules.steady_s * 1000;

@@ -6,6 +6,7 @@
 
 - [Home](/): what it is, the demo station, the status of 1.0.0, the eight strongest features, who uses what, the two latencies, a short comparison, how to run it, eight questions
 - [Features](/features/): what 1.0.0 does for a station, in eight groups with the page that explains each, and what is planned and not in 1.0.0
+- [Videos](/videos/): two tutorials for a newcomer (your first station on Linux, the studio app on Windows, both release 1.3.0, with captions, transcripts and written steps), the demo show and five moments from it
 - [Compare](/compare/): WeaveSignal against the stack of tools a station combines today, by job, with sources and the date read
 - [Questions](/faq/): cost, hardware, players and relays, macOS, packaging, chat, AzuraCast, readiness, telephones, hosting, help, versioning
 - [Run your own station](/run/): the one-line script, Cloudron and Quadlets, and the studio app's downloads
@@ -18,12 +19,17 @@
 
 - [Overview](/docs/): the pages by reader
 - [Glossary](/docs/reference/glossary/): the studio words in plain language
+- [Get your first sound out in ten minutes](/docs/tutorials/first-sound/): the studio app makes no sound; hear the station in a browser, fire a cart, speak through the microphone link
+- [No sound?](/guides/no-sound/): silence from the app, the player, the headphones, the microphone or a cart, and what to do
 - [Run a first show](/docs/tutorials/first-show/): the studio app against the real desk on one machine, with synthetic people
 - [How the parts fit together](/docs/explanation/architecture/): the processes, and why two latencies
 
 ## How-to guides: presenters
 
 - [Get ready to present](/docs/how-to/get-ready/): joining, headphones, the microphone's browser settings
+- [Choose your microphone and speakers (audio devices)](/docs/how-to/choose-your-microphone-and-speakers/): no device list in WeaveSignal; the browser's and Windows' choices, and what to do with no device or no sound
+- [Play a sound file while you test](/docs/how-to/play-a-sound-file/): an MP3 uploaded as a cart, where it is heard, why it may be silent
+- [Put a sound file in the schedule](/docs/how-to/put-a-file-in-the-schedule/): no upload in the app yet; the fallback folder, and the library with an hour clock through the API
 - [Present from the keyboard](/docs/how-to/present-from-the-keyboard/): on air, cue, mute, held talk
 - [Take a caller to air](/docs/how-to/take-a-caller/): accept with Cue, decline with Esc, drop with Ctrl+D twice
 - [Start on the count-in, and take turns](/docs/how-to/count-in/): talkback from the producer or screener; the delay with remote guests
@@ -42,6 +48,7 @@
 ## How-to guides: self-hosting
 
 - [Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/): the Compose bundle in one command; secrets made locally, free ports, uninstall keeps the data
+- [Listen on a phone or another computer](/docs/how-to/listen-on-another-device/): `--lan` opens the player and the stream to the home network, listen only; the firewall command; why nobody can speak
 - [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/): a reverse proxy with a certificate, TURN over TLS, the ports to open
 - [Install on Cloudron](/docs/how-to/install-on-cloudron/): the 1.0.0 package from its published image; TURN over TLS on 15349; 1.5 GiB
 - [Run a station as Podman Quadlets](/docs/how-to/run-with-quadlets/): units generated from the Compose bundle, secrets as Podman secrets

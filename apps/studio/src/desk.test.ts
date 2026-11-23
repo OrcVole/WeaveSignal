@@ -6,7 +6,7 @@
 import { render } from 'svelte/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CARTS, DESK_B, SCREENER, panel } from '../../../packages/ui/panels.ts';
-import type { Cart, Catalogue } from '../../../packages/ui/carts.ts';
+import type { Cart, Catalogue, Sounding } from '../../../packages/ui/carts.ts';
 import DeskB from './desk/DeskB.svelte';
 import CartWall from './carts/CartWall.svelte';
 import Screener from './screener/Screener.svelte';
@@ -338,6 +338,38 @@ describe('the default loop notice (ADR-0130)', () => {
     expect(body).toContain('data-testid="default-loop"');
     expect(body).toContain('Default loop');
     expect(body).toContain('no fallback files of its own');
+  });
+});
+
+describe('a cart sounding while the default loop is the fallback (1.3.1)', () => {
+  const sound = (over: Partial<Sounding>): Sounding => ({
+    cart: 'c1', pool: 'shot', player: 0, mode: 'one_shot', cue: false, play: 1, started_ms: 0, ends_ms: null, stopping: false, seq: 1, ...over,
+  });
+  const withCarts = (sounding: Sounding[], extra: Partial<View> = {}): View => {
+    const v = { ...view(true), default_fallback: true, ...extra };
+    v.carts = { ...v.carts, sounding };
+    return v;
+  };
+  it('says a cart is playing, not Default loop, while a cart listeners hear sounds', () => {
+    studio.view = withCarts([sound({ ends_ms: Date.UTC(2026, 9, 25, 13, 58, 0) })]);
+    const { body } = render(DeskB);
+    expect(body).toContain('data-testid="cart-on-air"');
+    expect(body).toContain('a cart is playing');
+    expect(body).not.toContain('data-testid="default-loop"');
+    expect(body).not.toContain('no fallback files of its own');
+  });
+  it('goes back to Default loop for a cue (headphones only), a cart that has ended, nothing sounding and automation holding the air', () => {
+    for (const v of [
+      withCarts([sound({ cue: true })]),
+      withCarts([sound({ ends_ms: Date.UTC(2026, 9, 25, 13, 57, 0) })]),
+      withCarts([]),
+      withCarts([sound({})], { mode: 'auto' }),
+    ]) {
+      studio.view = v;
+      const { body } = render(DeskB);
+      expect(body).toContain('data-testid="default-loop"');
+      expect(body).not.toContain('a cart is playing');
+    }
   });
 });
 

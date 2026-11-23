@@ -32,11 +32,13 @@ Its **station key** (`WEAVESIGNAL_CONTROL_ADMIN_TOKEN`, made at install) makes t
 The station key stays the station's own credential with an admin's powers, so a station is never locked out of its staff list.
 Keep it where the deployment keeps its secrets, and use it only for this and for emergencies.
 
-In the studio app, choose **Use the station key instead** on the sign-in screen, then add yourself under **Settings → Staff** as an `admin`.
+In the studio app, choose **Use the station key instead** on the sign-in screen, then add yourself under **Settings → Staff**.
+The **Role** box starts on **Admin** for the very first account, as this page and the empty list say, and on **Producer** for every account after (1.3.1).
+While you are signed in with the key, the Desk says *The station key has no microphone* and how to speak, with **Open Staff**, because the key is nobody's account and cannot join with a microphone. On an empty Desk it is a line in the middle of the stage; once someone has joined it is one quiet line in the head of the **Not on air** row (a quiet seat at Solo, which has no such row).
 
 ![The sign-in screen after choosing Use the station key instead: the station's address and its key.](../../../../assets/screens/how-to-add-staff-station-key.png)
 
-Sign out, and sign in again as yourself.
+Sign out, and sign in again as yourself: choose the name at the top right of the window (it says *Station key · admin* now), then **Sign out**. The sign-in screen keeps the station's address and asks for your username and password.
 
 Without the app, with `curl`:
 

@@ -47,6 +47,10 @@
       </li>
     </ol>
     <a class="btn primary wide" href="/setup/">Open the setup page</a>
+    <p class="small">
+      Once it is set up, a phone or another computer on your home network can listen too:
+      <a href="{guide}/listen-on-another-device/" rel="noopener noreferrer">Listen on a phone or another computer</a>.
+    </p>
   </main>
 </div>
 

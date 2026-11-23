@@ -14,6 +14,8 @@ sidebar:
 It adds a reverse proxy, **Caddy**, which gets and renews the certificate for your domain by itself, and turns on LiveKit's TURN over TLS for guests whose networks block UDP (ADR-0059, ADR-0080).
 The bundle is otherwise the one in [Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/).
 
+Only want a phone or another computer at home to **listen**? [`--lan`](/docs/how-to/listen-on-another-device/) does that with no domain, no certificate and no ports opened to the internet; nobody can speak through it.
+
 ## Before you start
 
 - **A domain name that reaches this machine**: an A record for, say, `station.example`. The script reads that record to tell LiveKit its public address, so give it one that points at this machine's public address, and no proxy that hides it; otherwise set `NODE_IP`.

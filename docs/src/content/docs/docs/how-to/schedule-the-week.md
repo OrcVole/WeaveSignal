@@ -178,6 +178,8 @@ A field that does not fit, or that holds characters the card fonts cannot draw (
 
 ## Read the generated hours
 
+The tracks come from the station's music library, which has no screen in the studio app yet: [Put a sound file in the schedule](/docs/how-to/put-a-file-in-the-schedule/) says how to upload one.
+
 Select an automation block: the log for those hours, each track with the rule it breaks, if any, in the scheduler's words.
 **Another track…** picks a replacement from the library, and **Use it** puts it in.
 If the control plane refuses it, the reason is shown: the station's own separations can be accepted with **Accept the break**, a break of the US statutory licence never.

@@ -2,6 +2,92 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.3.1 (2026-11-23)
+
+- **A page that reloads knows whether it is standing by.** A person's own state
+  (`GET /api/v1/pass/events`) carries `standing_by`: at the live desk, off air, and not on air
+  since they arrived. A guest taken off air no longer reads as standing by after a reload.
+- **A moved pass remembers its show's name.** After a reload, `GET /api/v1/pass` for a pass made
+  by a move from the rehearsal studio names the show it was made for (the pass carries
+  `show_name`), not whichever show is on air. Passes made before 1.3.1 still name the show on air.
+- **A rehearsal link opened after the move says so.** Someone who was not in the rehearsal when
+  it moved to the live studio is no longer told "This page takes you there"; their link says it
+  goes nowhere and to ask for a live-studio link.
+- **The live studio's view carries a move.** `GET /api/v1/studio` (and its events) gives each
+  source `standby_until_ms` for someone moved from the rehearsal studio who is not on air yet, and
+  the post `opening` (`on`, `mute`, `host`, `standby_until_ms`) while a move's opening state waits
+  for the show, so every window shows "From rehearsal", not only the one that pressed Move.
+- **The station gives the rehearsal desk's strips.** Each person in `GET /api/v1/rehearsal` has a
+  `slot` (from 1), the lowest free number when they arrive, kept while the desk lists them, so
+  every window draws the same person in the same strip.
+- **The rehearsal view says whether you may run it.** `GET /api/v1/rehearsal`, its events and the
+  answers of open, commands and end carry `may_run`: whether the person asking may run the open
+  session, so a window does not have to guess or wait for a refusal.
+- **Take one person out of a rehearsal.** `POST /api/v1/rehearsal/remove` takes one person out of
+  the rehearsal room and ends their rehearsal link for that session; the rehearsal carries on
+  for everyone else.
+- **An undrafted date says where its host comes from.** Each of `dates` in
+  `GET /api/v1/schedule/episodes` has `from` (`room` or `own`) like an episode, so the Own studio
+  mark shows before the episode is drafted.
+- **A station that cannot read what a bridge sends is left alone for about 30 seconds.** When a
+  station admits a host's software through the studio app's bridge and then refuses what it
+  sends (a format it cannot read), the bridge now waits about 30 seconds before trying again
+  from the first refusal, not 2, 4, 8 … seconds. A refusal at the door (a wrong key, a slot not
+  open yet) still starts at a second or two.
+
+- **`weavesignal.sh --lan`: listen on a phone or another computer at home.** The Compose installer
+  can open the player and the stream to one address of your own network (`--lan`, or `--lan 192.168.1.20`;
+  without an address it takes the one private address on a real network card and stops to ask when
+  there are two): one small web server (`lan.yaml`, Caddy) on that address and one port (`LAN_PORT`,
+  7300), in plain HTTP, read only. It passes the player, what the player reads, and the stream's mounts;
+  the studio and its sign-in, setup, call-in, the chat and the live room stay on loopback, and
+  everything else answers 404 (405 for a write). It derives the player's audio source (`STREAM_URL`)
+  from that address and leaves `PUBLIC_ORIGIN` alone. It never runs `sudo`: it prints the firewalld and
+  ufw commands for the one port, and says that a browser gives a microphone only over HTTPS, so nobody can
+  speak through it (that takes `--public`). `--lan off` goes back to loopback; `--lan` and `--public`
+  do not go together. New how-to: *Listen on a phone or another computer*.
+- **The installer checks Podman before it pulls.** With Podman, `weavesignal.sh` looks at the compose
+  provider and the API socket first. A missing `podman.socket` is turned on as your user's own service
+  (no `sudo`) or, when that fails, the command is printed; no compose provider prints the fix for each
+  system, Bazzite's `brew install docker-compose` first. Before, the install pulled 2.5 GB and then
+  ended with Compose's own error.
+- **The player leaves the chat out where there is none.** On a Compose station the player is served by
+  the control plane, which has no chat routes (the chat is reached through the public route), so its
+  chat panel said for ever that the chat was not available. A 404 on the chat's first request, with its
+  socket never opened, now leaves the panel out.
+- **The desk's Playout panel says *a cart is playing* while a cart sounds.** With nobody on air the
+  default loop is cut for the cart's whole length, but the panel kept saying *Default loop*. While a
+  cart that listeners hear sounds (not a cue in the headphones, not one that has ended, not under
+  automation), its chip reads ON AIR (listeners can hear this) with *a cart is playing* beside it
+  instead.
+- **The delay estimate counts a player's 3 s.** A cart pressed on a Compose station was in the stream
+  23 to 24 s later while the desk said about 21 s. `studio.player_allowance_ms` now defaults to 3000
+  (it was 500), so the desk says about 24 s (23.5 s) by default. It also moves what the now-playing line
+  and the chat's *sync to my stream* wait for, by the same 2.5 s. Stations that set the allowance keep
+  their figure; so do those that set only `listener_delay_ms` to another value than 13000, but
+  13000 itself is read as the default and follows.
+
+- **Open the player from the studio app.** The app makes no sound; the player is a web page. The
+  Desk's Listeners panel and a new **Settings → The player** panel have **Open the player** (the
+  system's browser) and **Copy link**, and the panel says *Sound plays in your browser, not in this
+  app.* The address is the station's public address, or, where the station has none, the address the
+  window already uses, and Settings says which. On the Desk the two buttons are one row, with no rule
+  above them, and the sentence is drawn only until this computer has opened or copied the player once
+  (kept for each station; it stays in the button's tooltip and in Settings), so the Picture panel keeps
+  its height and the Playout toast its explanation at 1,440 by 900. A good answer clears after six seconds.
+- **The station key is told how to speak.** Where **Join with my microphone…** would be, a window on
+  the station key says *The station key has no microphone. To speak, add yourself in Staff, then sign
+  in as yourself.*, with **Open Staff**; on an empty Desk a line suggests the player, then a pad on the
+  Carts tab, for a first minute. Once someone is in the room the note stops taking a tile's seat: where
+  the desk has a Not on air row it is one quiet line in that row's head, as the DJ's own link is; at
+  Solo, which has no such row, it keeps a seat.
+- **Small rough edges.** The first staff account's role starts on Admin (the page said so; it started
+  on Producer); the sign-in's address error goes as soon as the address is fixed; the setup page no
+  longer says the settings file named a station that was just named on the page.
+- **New sounds are available.** An admin or a producer is told once, in a band on the Desk and Carts
+  tabs, that the default pack has sounds the station lacks, with **Default pack…** and **Not now**
+  (kept on this computer for each station until the pack changes).
+
 ## 1.3.0 (2026-11-23)
 
 - **A rehearsal studio.** A second desk, the same program in a mode that has no way to the air

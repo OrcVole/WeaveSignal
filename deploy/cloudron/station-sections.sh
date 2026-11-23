@@ -9,7 +9,7 @@
 #
 # The settings (every one optional):
 #   STUDIO_SHOW                the show the desk heads: plain text (quotes and backslashes are escaped)
-#   STUDIO_PLAYER_ALLOWANCE_MS what a listener's player adds, in ms (default 500)
+#   STUDIO_PLAYER_ALLOWANCE_MS what a listener's player adds, in ms (default 3000)
 #   STUDIO_LISTENER_DELAY_MS   the mount's fixed 12 s and the allowance as one figure, in ms
 #                              (default 13000); the allowance wins when it is set
 #   STUDIO_RUNDOWN, STUDIO_BANNED, STEERING_EDGES

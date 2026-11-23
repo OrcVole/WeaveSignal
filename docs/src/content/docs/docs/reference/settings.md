@@ -64,8 +64,8 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | `[studio]` | `show` | empty | the show on air, as the desk and the screener head it; the schedule does not set it ([Set the show](/docs/how-to/set-the-show/)) |
 | | `rundown` | none | "coming up" rows; the schedule does not fill them (ADR-0102) |
 | | `banned` | none | callers banned before; the chat's moderation log does not fill it (ADR-0102) |
-| | `player_allowance_ms` | `500` | what a listener's player is taken to add to how far behind the studio listeners hear, on top of the listener mount's own hold of the stream, which is fixed at 12 s and not a setting. The profanity delay and the listener process's buffer are read live and added (ADR-0103, ADR-0272, ADR-0289) |
-| | `listener_delay_ms` | `13000` | the older way to say the mount's 12 s and the allowance as one figure, with the buffer's 0.5 s inside it (so 13000 is 12000 and 500 and the buffer). A station that sets only this keeps its figure, exactly as before; it is ignored, with a warning in the log, while `player_allowance_ms` is set and this one was changed |
+| | `player_allowance_ms` | `3000` | what a listener's player is taken to add to how far behind the studio listeners hear (500 before 1.3.1: a cart measured 23 to 24 s at the stream against the desk's 21), on top of the listener mount's own hold of the stream, which is fixed at 12 s and not a setting. The profanity delay and the listener process's buffer are read live and added (ADR-0103, ADR-0272, ADR-0289) |
+| | `listener_delay_ms` | `13000` | the older way to say the mount's 12 s and the allowance as one figure, with the buffer's 0.5 s inside it (so 13000 was 12000 and 500 and the buffer). A station that sets only this keeps its figure, exactly as before, except 13000 itself, which is read as the default and so is now 12000, 3000 and the buffer; it is ignored, with a warning in the log, while `player_allowance_ms` is set and this one was changed |
 | `[publishing]` | `public_url` | empty | `https://` and the station's public host, where its public pages are served; every show card prints it without the scheme (ADR-0056), the feeds, card images and episode files are reached under it, and an invitation's link points at its `/join/` page; empty, cards and feeds are off (shows, series and episodes are still made and saved, from 1.2.1; their cards are drawn at the first save once it is set) |
 | | `place` | empty | where the station is, printed on the cards and written as `podcast:location` |
 | | `zone` | `Europe/London` | the station's time zone as first offered: a new station starts with it and an admin confirms or changes it in Settings (ADR-0189); the zone in force is in the database |
@@ -106,7 +106,7 @@ From 1.1 the Compose bundle and the Cloudron package write `[studio]` and `[stee
 | Setting | Key it sets | When empty or unset |
 |---|---|---|
 | `STUDIO_SHOW` | `studio.show` | none set |
-| `STUDIO_PLAYER_ALLOWANCE_MS` | `studio.player_allowance_ms` | `500` |
+| `STUDIO_PLAYER_ALLOWANCE_MS` | `studio.player_allowance_ms` | `3000` |
 | `STUDIO_LISTENER_DELAY_MS` | `studio.listener_delay_ms`, used only while the two lines above are empty | `13000` |
 | `STUDIO_RUNDOWN`, `STUDIO_BANNED` | `studio.rundown`, `studio.banned` | none |
 | `STEERING_TTL_S`, `STEERING_CHECK_EVERY_S`, `STEERING_CHECK_TIMEOUT_MS`, `STEERING_DOWN_AFTER` | `steering.ttl_s`, `check_every_s`, `check_timeout_ms`, `down_after` | `300`, `5`, `2000`, `2` |

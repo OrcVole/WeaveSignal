@@ -6,6 +6,7 @@ import ReportDialog from './lib/chat/ReportDialog.svelte';
 import { mentions, type Msg, type RoomRules, type Statement } from '../../../packages/ui/chat.ts';
 import {
   charCount,
+  chatAbsent,
   chatBackoff,
   closedWords,
   checkName,
@@ -76,6 +77,11 @@ describe('the socket', () => {
   });
   it('backs off 1, 2, 4, 8 s, then 15 s at most', () => {
     expect([0, 1, 2, 3, 4, 9].map(chatBackoff)).toEqual([1000, 2000, 4000, 8000, 15_000, 15_000]);
+  });
+  it('is absent only when the first request says 404 and the socket never opened (a Compose station’s player has no chat routes)', () => {
+    expect(chatAbsent(404, false)).toBe(true);
+    expect(chatAbsent(404, true)).toBe(false);
+    for (const status of [undefined, 0, 200, 500, 502, 503, 504]) expect(chatAbsent(status, false), String(status)).toBe(false);
   });
   it('remembers the last public offset, and only public events move it', () => {
     const p = { epoch: 'e1', offset: 4 };

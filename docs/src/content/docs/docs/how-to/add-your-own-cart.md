@@ -9,7 +9,7 @@ sidebar:
 ---
 
 A cart is a sound on a key: a jingle, a sting, applause, a bed to talk over.
-From 1.2.1 you add and change carts on the **Carts** tab (`⌃3`) of the studio app itself.
+From 1.2.1 you add and change carts on the **Carts** tab (`⌃3`) of the studio app itself: upload an MP3 or another sound file to a slot, and its key plays it ([Play a sound file while you test](/docs/how-to/play-a-sound-file/) is the short road).
 Before that a cart came with the demo banks or through the station's API.
 
 Nothing here needs the show to stop.
@@ -106,6 +106,7 @@ That matters on a station tab: a station bank is the wall of the show on air as 
 A new station loads the sounds WeaveSignal ships into its banks once, at its first start.
 A station that already has banks never gets a later release's sounds by itself, and a bank you emptied stays empty.
 **Default pack…**, beside the tabs, loads them when you ask.
+From 1.3.1 an admin or a producer is told once: a band under the top bar says *50 new sounds are available* (the number is the sounds a load would add) and has **Default pack…**, which opens this dialog, and **Not now** ([`studio.pack.notice`](/docs/reference/surfaces/studio/#studiopacknotice)).
 
 1. Go to the tab of the bank you mean and press **Default pack…**.
 2. Choose **which of the pack's banks** to load, or all of them, each into the station's bank of its own number.

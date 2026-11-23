@@ -17,7 +17,7 @@
   import Composer from './Composer.svelte';
   import Message from './Message.svelte';
   import PictureView from './PictureView.svelte';
-  import { closedWords, due, mentionName, newBelow, noticeLocation, pictureNoticeLocation, parsePrefs, postingBlocked, readOnlyNow, shownMessages, waitingBehindPause, type Announce, type Prefs } from './model.ts';
+  import { chatAbsent, closedWords, due, mentionName, newBelow, noticeLocation, pictureNoticeLocation, parsePrefs, postingBlocked, readOnlyNow, shownMessages, waitingBehindPause, type Announce, type Prefs } from './model.ts';
   import NoticeForm from './NoticeForm.svelte';
   import ReportDialog from './ReportDialog.svelte';
   import SignIn from './SignIn.svelte';
@@ -47,6 +47,8 @@
   const client = new ChatClient(api.loadSession());
   let info = $state<ChatInfo | null>(null);
   let infoProblem = $state(false);
+  /** The chat is not served at this address (1.3.1): the panel is left out, and nothing retries. */
+  let absent = $state(false);
   let prefs = $state<Prefs>(parsePrefs(api.loadPrefs()));
   let now = $state(Date.now());
   let paused = $state<Set<number> | null>(null);
@@ -70,7 +72,12 @@
     try {
       info = await api.info();
       infoProblem = false;
-    } catch {
+    } catch (e) {
+      if (chatAbsent(e instanceof api.ApiError ? e.status : undefined, client.everOpen)) {
+        absent = true;
+        client.stop();
+        return;
+      }
       infoProblem = true;
       infoTimer = setTimeout(loadInfo, 30_000);
     }
@@ -128,7 +135,7 @@
     return now >= from && now < f.at + client.listenerDelayMs + ON_AIR_MS ? f.m : null;
   });
   $effect(() => onfeatured?.(onAir));
-  $effect(() => onopen?.(client.link === 'open' && !readOnly));
+  $effect(() => onopen?.(!absent && client.link === 'open' && !readOnly));
 
   // Announce mentions of the reader as they enter the log (never while paused: they have not).
   const known = new Set<number>();
@@ -232,6 +239,7 @@
   }
 </script>
 
+{#if !absent}
 <section class="chat" aria-labelledby="chat-h" data-link={client.link}>
   <div class="chat-top">
     <h2 id="chat-h">Chat</h2>
@@ -351,6 +359,7 @@
     </div>
   </details>
 </section>
+{/if}
 
 <ReportDialog {info} session={client.session} target={reportTarget} opensOn={reportWhat} onclose={() => (reportTarget = null)} />
 <PictureView a={viewing} onclose={() => (viewing = null)} />

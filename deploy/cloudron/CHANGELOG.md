@@ -2,6 +2,17 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.3.1]
+
+- **Listen on a phone or another computer at home**: the Compose installer's `--lan` mode opens only the player and the stream to one address of your own network. (A Cloudron app is already reachable; this is for Compose.)
+- **The studio app can open the player** (Open the player, Copy link) and says in its first minute that the app makes no sound. **The desk's estimate of the listeners' delay now counts a player's 3 s allowance** (a cart was heard 23 to 24 s after the press against an estimate of about 21 s).
+- **The Playout panel says *Cart on the air*** while a cart sounds with nobody live; the Listeners block gives its room back; a station-key sign-in is told where to speak from; the first staff account starts as Admin; a one-time notice says the default pack has new sounds.
+- **The player leaves the chat out** where the station has no chat at this address, and says calling needs HTTPS on a page that is not a secure context.
+- **A rehearsal**: each person has a strip kept by the station, a person can be taken out alone (`POST /api/v1/rehearsal/remove`), a link opened after the move says it goes nowhere, a moved pass names its show, and a page that reloads knows whether it is standing by.
+- **The bridge waits about 30 seconds** before trying again at a station that refuses what it sends.
+- **The installer checks Podman first** (compose provider and API socket) and says what to do on Bazzite.
+- No new setting and no new migration.
+
 [1.3.0]
 
 - **A rehearsal studio**: a second desk that has no way to the air mixes a room of its own for one show at a time. A presenter, producer or admin opens it, invites guests with rehearsal invitations and rehearses with the desk's keys and the show's carts; nothing said there reaches listeners, recordings, webhooks or the chat. **One press moves the people to the live studio** on the links they already have, standing by.

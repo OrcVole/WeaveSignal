@@ -88,11 +88,29 @@ impl Target {
     }
 }
 
+/// How long the bridge leaves a station that admitted its source and then refused what it sends
+/// (the format is not readable): about this long, give or take a quarter, however few refusals
+/// there have been. The format does not change in a minute; the person fixes the host's software.
+const UNREADABLE_WAIT_S: f64 = 30.0;
+
 /// The wait before try `n` (from 0): 1, 2, 4 … 30 s, give or take a quarter.
 pub fn backoff(n: u32, jitter: f64) -> Duration {
     let base = 1u64 << n.min(5);
     let s = base.min(MAX_BACKOFF_S) as f64;
     Duration::from_secs_f64(s * (0.75 + 0.5 * jitter.clamp(0.0, 1.0)))
+}
+
+/// The wait after a failed try: [`backoff`] for `n`, and at least about [`UNREADABLE_WAIT_S`]
+/// when the station refused what the source sends.
+fn wait_after(n: u32, unreadable: bool, jitter: f64) -> Duration {
+    let wait = backoff(n, jitter);
+    if unreadable {
+        wait.max(Duration::from_secs_f64(
+            UNREADABLE_WAIT_S * (0.75 + 0.5 * jitter.clamp(0.0, 1.0)),
+        ))
+    } else {
+        wait
+    }
 }
 
 fn jitter() -> f64 {
@@ -330,6 +348,9 @@ enum End {
     /// The station refused: try again later (a key that is wrong stays wrong; the slot's
     /// door may open).
     Refused(String),
+    /// The station admitted the source and then refused what it sends (a format it cannot
+    /// read): remembered for about [`UNREADABLE_WAIT_S`].
+    Unreadable(String),
     /// Stopped from the screen.
     Stopped,
 }
@@ -382,6 +403,7 @@ pub async fn carry(
         )
         .await;
         join = true;
+        let mut unreadable = false;
         let why = match end {
             End::LocalGone | End::Stopped => {
                 set(&|s| {
@@ -404,8 +426,13 @@ pub async fn carry(
                 refused_in_a_row = refused_in_a_row.saturating_add(1);
                 why
             }
+            End::Unreadable(why) => {
+                refused_in_a_row = refused_in_a_row.saturating_add(1);
+                unreadable = true;
+                why
+            }
         };
-        let wait = backoff(tries.max(refused_in_a_row), jitter());
+        let wait = wait_after(tries.max(refused_in_a_row), unreadable, jitter());
         tries = tries.saturating_add(1);
         set(&|s| {
             s.uplink = "retrying".into();
@@ -519,6 +546,8 @@ async fn connect_and_send(
         let _ = wtx.send(Message::Text(Utf8Bytes::from(text))).await;
     }
     let mut rate_tick = tokio::time::interval(Duration::from_secs(1));
+    // The station has said something but "refused": it admitted the source.
+    let mut admitted = false;
     let end = loop {
         // Hand the writer what it can take.
         while let Ok(permit) = wtx.try_reserve() {
@@ -577,13 +606,18 @@ async fn connect_and_send(
                             let refused = st.state == "refused";
                             if !refused {
                                 *tries = 0;
+                                admitted = true;
                             }
                             set(&|s| {
                                 s.station_state = Some(st.state.clone());
                                 s.station_message = Some(st.message.clone());
                             });
                             if refused {
-                                break End::Refused(st.message);
+                                break if admitted {
+                                    End::Unreadable(st.message)
+                                } else {
+                                    End::Refused(st.message)
+                                };
                             }
                         }
                     }
@@ -710,6 +744,19 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_of_what_is_sent_waits_about_thirty_seconds_from_the_first() {
+        for j in [0.0, 0.5, 1.0] {
+            // At the door, the first refusals wait a second or two.
+            assert!(wait_after(1, false, j).as_secs_f64() <= 2.5, "{j}");
+            // After being admitted, never less than 22 s, never more than a quarter over 30 s.
+            for n in 0..8 {
+                let w = wait_after(n, true, j).as_secs_f64();
+                assert!((22.5..=37.5).contains(&w), "n {n} jitter {j}: {w}");
+            }
+        }
+    }
+
+    #[test]
     fn the_wait_doubles_to_thirty_seconds() {
         let s: Vec<u64> = (0..8).map(|n| backoff(n, 0.5).as_secs()).collect();
         assert_eq!(s, vec![1, 2, 4, 8, 16, 30, 30, 30]);
@@ -830,10 +877,10 @@ mod tests {
     }
 
     /// A station that stands each connection by and then refuses what it sends (Opus inside
-    /// MPEG-TS, 1.2.1): the bridge waits longer after each refusal, not a second each time, and
-    /// shows the station's words.
+    /// MPEG-TS, 1.2.1): the bridge leaves it alone for about 30 s from the first refusal (1.3.1),
+    /// not a second or two, and shows the station's words.
     #[tokio::test]
-    async fn a_station_that_refuses_what_is_sent_is_tried_again_ever_more_slowly() {
+    async fn a_station_that_refuses_what_is_sent_is_left_alone_for_about_thirty_seconds() {
         let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
         tokio::spawn(async move {
@@ -880,7 +927,7 @@ mod tests {
             .await
             .unwrap();
         let mut waits = Vec::new();
-        for _ in 0..2 {
+        for _ in 0..1 {
             until(&status, "retrying").await;
             let s = status.lock().unwrap().clone();
             assert!(
@@ -892,16 +939,10 @@ mod tests {
                 s.problem
             );
             waits.push(s.retry_in_s.unwrap());
-            // The wait over, it connects again (and is refused again).
-            for _ in 0..200 {
-                if status.lock().unwrap().uplink != "retrying" {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
         }
-        // backoff(1) and backoff(2): about 2 s, then about 4 s (each give or take a quarter).
-        assert!(waits[0] >= 1 && waits[1] >= 3, "{waits:?}");
+        // Admitted and then refused what it sends: about 30 s each time (give or take a quarter),
+        // not the 2 s and 4 s a refusal at the door waits.
+        assert!(waits.iter().all(|w| (22..=38).contains(w)), "{waits:?}");
         drop(stop_tx);
         let _ = tokio::time::timeout(Duration::from_secs(10), task).await;
     }

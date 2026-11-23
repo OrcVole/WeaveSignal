@@ -90,7 +90,7 @@ function view(now: number, sources: Source[], post: PostView | null | undefined,
 
 const steeped = (started: boolean) => ({ slug: 'steeped', name: 'Steeped', start_ms: at(14, 0), started });
 const kettle = (started: boolean) => ({ slug: 'kettle-drive', name: 'Kettle Drive', start_ms: at(16, 0), started });
-const post = (over: Partial<PostView>): PostView => ({ show: null, source: null, source_name: null, state: null, standing_since_ms: null, on_air_at_ms: null, grace_ends_ms: null, held_by: null, late_ends_ms: null, holders: [], link_lost: null, window: null, ...over });
+const post = (over: Partial<PostView>): PostView => ({ show: null, source: null, source_name: null, state: null, standing_since_ms: null, on_air_at_ms: null, grace_ends_ms: null, held_by: null, late_ends_ms: null, holders: [], link_lost: null, window: null, opening: null, ...over });
 
 // ---- the design's four moments ----
 

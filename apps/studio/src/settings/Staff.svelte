@@ -9,7 +9,7 @@
   // `settings.staff` (ADR-0070).
   import { onMount, untrack } from 'svelte';
   import { changeStaff, createStaff, listStaff, setStaffEmail, setStaffPassword, type Me, type StaffAccount, type StaffRole } from '../lib/api.ts';
-  import { ROLES, emailProblem, nameProblem, passwordProblem, placeError, roleLine, roleWord, selfLockout, suggestPassword, usernameProblem } from '../lib/account.ts';
+  import { ROLES, defaultRole, emailProblem, nameProblem, passwordProblem, placeError, roleLine, roleWord, selfLockout, suggestPassword, usernameProblem } from '../lib/account.ts';
 
   let { me, initial = null }: { me: Me | null; initial?: StaffAccount[] | null } = $props();
 
@@ -176,11 +176,13 @@
 
   let addEl = $state<HTMLDialogElement | null>(null);
   let draft = $state({ name: '', username: '', role: 'producer' as StaffRole, password: '' });
+  /** Admin for the first account, Producer after (G11). */
+  const startRole = () => defaultRole(loaded ? accounts.length : null);
   let addErrors = $state<{ name?: string; username?: string; role?: string; password?: string; form?: string }>({});
   let adding = $state(false);
 
   function askAdd() {
-    draft = { name: '', username: '', role: 'producer', password: '' };
+    draft = { name: '', username: '', role: startRole(), password: '' };
     addErrors = {};
     addEl?.showModal();
     queueMicrotask(() => document.getElementById('ad-name')?.focus());

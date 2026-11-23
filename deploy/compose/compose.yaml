@@ -94,7 +94,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
@@ -145,7 +145,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
@@ -196,7 +196,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
@@ -233,7 +233,7 @@ services:
   # SOURCE_WHIP_PORT, its offers passed on by the control plane to INGEST_WHIP_PORT on loopback,
   # and its one ICE candidate LiveKit's address (LIVEKIT_NODE_IP, which weavesignal.sh sets).
   ingest:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-ingest", "run"]

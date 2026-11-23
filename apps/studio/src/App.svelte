@@ -16,7 +16,7 @@
   // while preparing, a band under the frame on the tabs that drive the air (Desk, Screener,
   // Carts). A preparing window's keys change nothing on air; the band answers instead.
   import { setupState, stationZone } from './lib/schedule.ts';
-  import { dialogLets, escTaken } from './lib/dialogKeys.ts';
+  import { dialogLets, escTaken, settingsEscape } from './lib/dialogKeys.ts';
   import { onMount } from 'svelte';
   import Glyphs from './lib/Glyphs.svelte';
   import Mark from './lib/Mark.svelte';
@@ -50,7 +50,9 @@
   import { canPrepare, changesAir, prepareBand } from './lib/prepare.ts';
   import { installUpdateCheck, updateNag } from './lib/update.svelte.ts';
   import { run, tellOff } from './lib/actions.ts';
-  import { addInstead } from './lib/cartEdit.svelte.ts';
+  import { addInstead, cartEditor } from './lib/cartEdit.svelte.ts';
+  import { checkPackNotice, dismissPackNotice, packNotice } from './lib/packNotice.svelte.ts';
+  import { PACK_NOTICE } from './lib/packNotice.ts';
   import { look, say, setCartShow, setShowAll, settleBank, studio, takeView } from './lib/studio.svelte.ts';
   import { STEP_WORD, gate, offTag, stationStep, tabShown } from './lib/steps.ts';
   import { chat } from './lib/chat.svelte.ts';
@@ -121,6 +123,17 @@
     if (escTaken(e)) return;
     // A modal dialog owns the keyboard: only ⌃T reaches the desk while one is open (U1).
     if (document.querySelector('dialog[open]') && !dialogLets(input(e))) return;
+    // Esc on Settings leaves it for the tab it came from (a field gives up its focus first,
+    // keymap rule 3); the rest of the page's keys are its own, below.
+    if (studio.settings) {
+      const esc = settingsEscape(e, inTextField(document.activeElement));
+      if (esc) {
+        e.preventDefault();
+        if (esc === 'leave-field') (document.activeElement as HTMLElement | null)?.blur();
+        else studio.settings = false;
+        return;
+      }
+    }
     // Settings is a form: only the global chords (⌃) reach the keymap, and as from a text field,
     // so no bare letter, Space or F-key acts on the desk, and Esc stays the dialog's and the
     // drop-down's own.
@@ -240,10 +253,24 @@
   const atRehearsal = $derived(studio.tab === 'desk' && studio.deskStudio === 'rehearsal' && !studio.settings);
   const prepBand = $derived(preparing() && !studio.settings && studio.tab !== 'schedule' && !atRehearsal ? prepareBand(onAir()) : null);
 
+  /** New sounds are available (1.3.1): asked once after sign-in, for an admin or a producer, and
+   *  drawn on the Desk and Carts tabs, where Default pack… is one press away, until dismissed. */
+  const packBand = $derived(packNotice.shown && !studio.settings && !atRehearsal && (studio.tab === 'desk' || studio.tab === 'carts'));
+  $effect(() => {
+    if (account.loaded && account.me && studio.view) void checkPackNotice();
+  });
+  /** Default pack…: the notice is answered by going there, so it does not come back for this pack. */
+  async function openPack() {
+    dismissPackNotice();
+    studio.settings = false;
+    await run({ type: 'tab', tab: 'carts' });
+    cartEditor.pack = studio.bank;
+  }
+
   /** A key or a button met a control the window has switched off: the band answers for a moment. */
   const nudged = $derived(studio.now - prepare.nudgedAt < 1200);
   /** One row for the frame, two for the sandbox's guide, one for each band, then the surface. */
-  const rows = $derived(`${'auto '.repeat(1 + (sandboxed() ? 2 : 0) + (studio.showAll ? 1 : 0) + (prepBand ? 1 : 0))}minmax(0, 1fr)`);
+  const rows = $derived(`${'auto '.repeat(1 + (sandboxed() ? 2 : 0) + (studio.showAll ? 1 : 0) + (prepBand ? 1 : 0) + (packBand ? 1 : 0))}minmax(0, 1fr)`);
 
   /** The frame's version: the app's own, and the station's beside it when they differ. */
   const ver = $derived(versionLabel(APP_VERSION, studio.stationVersion));
@@ -390,7 +417,7 @@
         type="button"
         class="tab settings-tab"
         aria-current={studio.settings ? 'page' : undefined}
-        onclick={() => (studio.settings = true)}>Settings</button
+        onclick={() => (studio.settings = !studio.settings)}>Settings</button
       >
     </nav>
     <!-- The spare room says the app's version, and gives it up before anything wraps: the
@@ -467,6 +494,15 @@
         {prepBand.rest}{#if prepare.problem && !prepare.menu}
           <span class="err">{prepare.problem}</span>{/if}</span
       >
+    </div>
+  {/if}
+
+  {#if packBand}
+    <!-- New sounds are available (1.3.1): the station's default pack has sounds this station lacks. -->
+    <div class="allbar packbar" data-panel="studio.pack.notice">
+      <button type="button" class="btn" aria-haspopup="dialog" onclick={() => void openPack()}>{PACK_NOTICE.action}</button>
+      <span class="say" role="status"><b data-panel-title>{PACK_NOTICE.lead(packNotice.count)}</b> {PACK_NOTICE.rest}</span>
+      <button type="button" class="btn quiet" title={PACK_NOTICE.dismissWhy} onclick={dismissPackNotice}>{PACK_NOTICE.dismiss}</button>
     </div>
   {/if}
 

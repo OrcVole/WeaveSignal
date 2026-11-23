@@ -108,6 +108,9 @@ export interface MeState {
   released?: Released | null;
   /** The presenter answers the phones themselves (the Callers step has no screener): name them, not a producer. */
   presenter_answers?: boolean;
+  /** At the live desk, off air, and not on air since they arrived (1.3.1): every invitation
+   *  arrives so. False for someone taken off air. Absent from a station older than 1.3.1. */
+  standing_by?: boolean;
   /** Where this link leads (1.3). In the rehearsal studio `on_air` means in the rehearsal's mix,
    *  and `open` and `show_on_air` are never true. Absent from an older station: `live`. */
   studio?: Studio;

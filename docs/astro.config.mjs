@@ -85,6 +85,7 @@ export default defineConfig({
           items: [
             { label: 'Home', link: '/' },
             { label: 'Features', link: '/features/' },
+            { label: 'Videos', link: '/videos/' },
             { label: 'Compare', link: '/compare/' },
             { label: 'Questions', link: '/faq/' },
             { label: 'Run your own station', link: '/run/' },

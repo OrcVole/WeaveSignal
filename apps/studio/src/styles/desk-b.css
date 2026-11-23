@@ -302,6 +302,7 @@
   .audience .split b { color: var(--ink-2); font-weight: 500; }
   .audience .cdn-warning { display: flex; gap: var(--s-2); align-items: flex-start; font-size: var(--fs-12); color: var(--ink); line-height: var(--lh-label); background: var(--surface-2); border-radius: var(--r-1); padding: var(--s-2); border-left: 3px solid var(--status-warning); }
   .audience .cdn-warning svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+  .audience .listen { display: grid; gap: var(--s-2); }   /* no hairline: the buttons are one row under the chip (design review F1) */
   .audience .st { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
   .video .pic { height: 4rem; background: var(--plane); border: 1px solid var(--hairline); border-radius: var(--r-2); position: relative; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; }
   .video .pic .cam { background: var(--surface-3); border-radius: var(--r-1); display: grid; align-content: end; padding: var(--s-1); font-size: var(--fs-12); color: var(--ink-2); font-weight: 600; }

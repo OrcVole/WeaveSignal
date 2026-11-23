@@ -112,3 +112,10 @@ export function checkAddress(raw: string): { ok: true; base: string } | { ok: fa
   if (u.protocol === 'http:' && !isNearby(u.hostname)) return { ok: false, message: PLAIN_HTTP_REFUSED };
   return { ok: true, base };
 }
+
+/** What the address field's error is after the text changes: gone once the text is a station
+ *  address, the same sentence while it is not (it is only recomputed at Connect), and nothing
+ *  when there was no error to begin with (1.3.1, G11). */
+export function urlErrorAfter(error: string | undefined, text: string): string | undefined {
+  return error && checkAddress(text).ok ? undefined : error;
+}

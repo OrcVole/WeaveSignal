@@ -262,6 +262,13 @@ pub struct MeState {
     /// The presenter answers the phones themselves: the show runs at Callers, which has no
     /// screener (ADR-0271), so the page names the presenter where it would say "the producer".
     pub presenter_answers: bool,
+    /// At the live desk and not on air, and not taken off: they arrived standing by (every
+    /// invitation does, 1.3) and have not been on air since. Someone taken off air is `off_air`
+    /// with this false, so a page that reloads in either state says the right sentence. Always
+    /// false in the rehearsal studio and for a caller. The control plane remembers who has been
+    /// on air in memory, so after its restart a person taken off air before it reads standing by
+    /// until they are on air again.
+    pub standing_by: bool,
     /// Where this link leads (1.3): `live`, or `rehearsal` for a link to the rehearsal studio,
     /// whose desk reaches no air (`phase` `on_air` there is in the rehearsal's mix, and
     /// `show_on_air` and `open` are always false).
@@ -374,6 +381,7 @@ pub fn me_state(
         desk_reachable: view.desk.reachable,
         released: None,
         presenter_answers: view.step.step == crate::steps::Step::Callers,
+        standing_by: false,
         studio: weavesignal_proto::Studio::Live,
         move_to: None,
     }
@@ -777,6 +785,35 @@ mod tests {
         w.p("finlay").mute = true;
         let me = w.me("finlay", Role::Dj);
         assert_eq!((me.phase, me.muted), (Phase::OnAir, true));
+    }
+
+    #[test]
+    fn standing_by_is_off_air_since_arriving_not_off_air_after_being_on() {
+        let joins = crate::public::Joins::default();
+        let mut people = room();
+        let mut kirsty = person("kirsty", "Kirsty Wilson", Role::Guest);
+        kirsty.on_air = false; // 1.3: every guest arrives standing by
+        people.push(kirsty.clone());
+        let mut w = World::new(people, true);
+        let by = |j: &crate::public::Joins, w: &World, id: &str, role| {
+            j.standing_by(id, role, Some(&w.desk))
+        };
+        // Arrived and never on air: standing by. The presenter is on air, a caller waits.
+        assert!(by(&joins, &w, "kirsty", Role::Guest));
+        assert!(!by(&joins, &w, "rory", Role::Presenter));
+        assert!(!by(&joins, &w, "caller-iona", Role::Caller));
+        // Put on air, then taken off: off air, and not standing by (a reload says so too).
+        w.p("kirsty").on_air = true;
+        assert!(!by(&joins, &w, "kirsty", Role::Guest));
+        w.p("kirsty").on_air = false;
+        assert!(!by(&joins, &w, "kirsty", Role::Guest));
+        // Out of the room and back: standing by again.
+        w.desk.people.retain(|p| p.identity != "kirsty");
+        assert!(!by(&joins, &w, "kirsty", Role::Guest));
+        w.desk.people.push(kirsty);
+        assert!(by(&joins, &w, "kirsty", Role::Guest));
+        // No answer from the desk: nobody is standing by, and nothing is forgotten.
+        assert!(!joins.standing_by("kirsty", Role::Guest, None));
     }
 
     #[test]

@@ -20,7 +20,7 @@
   import { afterSignIn, hereName, hereRow, loadStations, requestLeave, stations } from './stations.svelte.ts';
   import { badges, hostOf, stationName, whoWords } from './stations.ts';
   import { cleanCode, codeProblem, emailProblem, placeError } from './account.ts';
-  import { checkAddress, isTailscaleHttp, TAILSCALE_NOTE } from './address.ts';
+  import { checkAddress, isTailscaleHttp, TAILSCALE_NOTE, urlErrorAfter } from './address.ts';
 
   let {
     initialUrl = '',
@@ -94,6 +94,12 @@
       return null;
     }
     return r.base;
+  }
+
+  /** The address was mistyped and has been fixed: its error goes at once, not at the next press
+   *  of Connect (1.3.1, G11). A text that is still wrong keeps its sentence until then. */
+  function urlTyped(text: string) {
+    if (errors.url) errors = { ...errors, url: urlErrorAfter(errors.url, text) };
   }
 
   function focusFirst() {
@@ -264,6 +270,7 @@
             id="si-url"
             type="url"
             bind:value={url}
+            oninput={(e) => urlTyped(e.currentTarget.value)}
             bind:this={urlEl}
             autocomplete="url"
             spellcheck="false"
@@ -300,6 +307,7 @@
               id="si-url"
               type="url"
               bind:value={url}
+              oninput={(e) => urlTyped(e.currentTarget.value)}
               bind:this={urlEl}
               autocomplete="url"
               spellcheck="false"
@@ -375,6 +383,7 @@
             id="si-url"
             type="url"
             bind:value={url}
+            oninput={(e) => urlTyped(e.currentTarget.value)}
             bind:this={urlEl}
             autocomplete="url"
             spellcheck="false"

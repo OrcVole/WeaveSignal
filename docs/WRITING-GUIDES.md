@@ -49,4 +49,5 @@ human readers.
 | Configure the station and the studio app | whoever looks after the station |
 | Reach the back end | whoever looks after the station |
 | When something goes wrong | everyone |
+| No sound? | everyone, first a person who has just installed the studio app |
 | Words you will meet | everyone |

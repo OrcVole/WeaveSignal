@@ -13,6 +13,7 @@
   import { readScoped, writeScoped } from '../lib/scoped.ts';
   import { untrack } from 'svelte';
   import Staff from './Staff.svelte';
+  import Player from './Player.svelte';
   import Hosts from './Hosts.svelte';
   import { mayManageHosts } from '../lib/hosts.ts';
   import MyShow from './MyShow.svelte';
@@ -454,6 +455,8 @@
 
     <!-- The studio app's own updates: for whoever runs this window, whatever their role. -->
     <Updates />
+    <!-- Where the station's player is (1.3.1): the app makes no sound, the browser does. -->
+    <Player />
     <!-- The bridge (Phase 17g): this computer's, for a host sending from their own software. -->
     {#if !sandboxed()}<Bridge />{/if}
 

@@ -1,0 +1,175 @@
+---
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+// Every video on the site as a grid of thumbnails (src/data/videos.ts): the two tutorials first,
+// then the demo show and its moments. A video is listed only when its files are in public/media at
+// build time (the media is uploaded to the site separately, as the demo's is), and each extra link
+// only when its file is there too, so nothing points at a file that is missing. A video plays only
+// when its thumbnail is pressed; without scripts the page gives a plain video element in its place.
+import { existsSync, statSync } from 'node:fs';
+import Site from '../layouts/Site.astro';
+import { videos, groups, clock } from '../data/videos';
+
+// The build and the dev server both run in docs/ (import.meta.url points into dist/ at build time).
+const pub = `${process.cwd()}/public`;
+const has = (p?: string): p is string => !!p && existsSync(pub + p) && statSync(pub + p).size > 0;
+// "15 MB" for a file; nothing when it is not there.
+const mb = (p?: string) => (has(p) ? `${Math.max(1, Math.round(statSync(pub + p).size / 1048576))} MB` : '');
+const listed = videos.filter((v) => has(v.webm) && has(v.poster));
+const count = listed.length;
+const inGroup = (kinds: string[]) => listed.filter((v) => kinds.includes(v.kind));
+---
+
+<Site
+  title="Videos — WeaveSignal"
+  description="Videos about WeaveSignal: two tutorials that take you from nothing to a station playing a sound, on Linux and on Windows, and the demo show with its moments. With captions and transcripts."
+  path="/videos/"
+>
+  <div class="wrap page-title">
+    <h1 class="with-mark"><img src="/favicon.svg" width="40" height="40" alt="" />Videos</h1>
+    <p class="lead">
+      Watch a station being set up, or a show going out. Every video has captions, and the tutorials have transcripts. Nothing plays until you press play.
+    </p>
+  </div>
+
+  {count === 0 && (
+    <section class="section">
+      <div class="wrap">
+        <p class="lead">The videos are added to the site when it is published; none are in this build.</p>
+      </div>
+    </section>
+  )}
+
+  {groups.map((g) => {
+    const items = inGroup(g.kinds);
+    if (!items.length) return null;
+    return (
+      <section class="section" id={g.id} aria-labelledby={`${g.id}-h`}>
+        <div class="wrap">
+          <h2 id={`${g.id}-h`}>{g.title}</h2>
+          <p class="lead">{g.lead}</p>
+          {g.id === 'start' && (
+            <p class="vnote" role="note">
+              <strong>These two show release 1.3.0.</strong> Later releases may look a little different: each video names its version in the corner, so check yours against it. Other RPM-based Linux systems and other recent Windows versions may work too; we tested on Bazzite and Windows 11 with Edge.
+            </p>
+          )}
+          {g.id === 'see' && (
+            <p class="vnote" role="note">
+              Filmed on a made-up station, Kettle FM, through WeaveSignal's own desk, playout and listener stream. The station, its shows and its people are sample data, and every voice is designed, not cloned from anyone.
+            </p>
+          )}
+          <div class="vgrid" data-size={g.id === 'start' ? 'large' : 'small'}>
+            {items.map((v) => (
+              <article class="vcard" id={v.slug} data-kind={v.kind} data-wide={v.kind === 'demo' ? 'yes' : undefined}
+                data-webm={v.webm} data-mp4={has(v.mp4) ? v.mp4 : undefined} data-captions={has(v.captions) ? v.captions : undefined} data-poster={v.poster}>
+                <div class="vthumb">
+                  <img src={v.poster} width={v.size[0]} height={v.size[1]} alt={v.alt} loading="lazy" decoding="async" />
+                  <button class="vplay" type="button" hidden aria-label={`Play: ${v.title}, ${v.duration}`}>
+                    <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false"><path d="M8 5.5v13l11-6.5z" fill="currentColor" /></svg>
+                    <span class="vdur" aria-hidden="true">{v.duration}</span>
+                  </button>
+                </div>
+                <noscript>
+                  <video controls preload="none" poster={v.poster} playsinline width={v.size[0]} height={v.size[1]}>
+                    <source src={v.webm} type="video/webm" />
+                    {has(v.mp4) && <source src={v.mp4} type="video/mp4" />}
+                    {has(v.captions) && <track kind="captions" src={v.captions} srclang="en" label="English" default />}
+                  </video>
+                </noscript>
+                <div class="vbody">
+                  <h3>{v.title}</h3>
+                  <p class="vmeta">{v.duration}{v.madeOn ? ` · made on release ${v.madeOn}` : ''}</p>
+                  <p>{v.description}</p>
+                  {v.chapters && (
+                    <details class="vchapters">
+                      <summary>Chapters ({v.chapters.length})</summary>
+                      <ul>
+                        {v.chapters.map((c) => (
+                          <li>
+                            <a href={`${v.webm}#t=${c.start}`} data-t={c.start}><span class="vts">{clock(c.start)}</span> {c.title}</a>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  <p class="vlinks">
+                    {has(v.transcript) && <a href={v.transcript}>Transcript</a>}
+                    {has(v.howto) && <a href={v.howto}>Written steps</a>}
+                    <span>Download: <a href={v.webm} download>WebM{mb(v.webm) && ` (${mb(v.webm)})`}</a>{has(v.mp4) && <> · <a href={v.mp4} download>MP4{mb(v.mp4) && ` (${mb(v.mp4)})`}</a></>}</span>
+                  </p>
+                  {v.credits && (
+                    <p class="vcredit">
+                      {v.credits}{has(v.creditsPage) && <> <a href={v.creditsPage}>All credits</a>.</>}
+                    </p>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  })}
+
+  <noscript><style>.vthumb { display: none; }</style></noscript>
+
+  <script is:inline>
+    // Press a thumbnail (or a chapter) and the video takes its place and plays; the chapter links
+    // are plain links to the file at that time, so they work without this.
+    (function () {
+      function load(card) {
+        var v = card.querySelector('.vthumb video');
+        if (v) return v;
+        var d = card.dataset;
+        v = document.createElement('video');
+        v.controls = true;
+        v.playsInline = true;
+        v.preload = 'metadata';
+        v.poster = d.poster;
+        v.setAttribute('aria-label', card.querySelector('h3').textContent);
+        var add = function (src, type) {
+          var s = document.createElement('source');
+          s.src = src; s.type = type; v.appendChild(s);
+        };
+        add(d.webm, 'video/webm');
+        if (d.mp4) add(d.mp4, 'video/mp4');
+        if (d.captions) {
+          var t = document.createElement('track');
+          t.kind = 'captions'; t.src = d.captions; t.srclang = 'en'; t.label = 'English'; t.default = true;
+          v.appendChild(t);
+        }
+        var thumb = card.querySelector('.vthumb');
+        thumb.replaceChildren(v);
+        thumb.dataset.playing = 'yes';
+        return v;
+      }
+      function play(v, at) {
+        var go = function () {
+          if (at != null) v.currentTime = at;
+          var p = v.play();
+          if (p && p.catch) p.catch(function () {});
+        };
+        if (v.readyState > 0 || at == null) go();
+        else v.addEventListener('loadedmetadata', go, { once: true });
+      }
+      document.querySelectorAll('.vcard').forEach(function (card) {
+        var btn = card.querySelector('.vplay');
+        btn.hidden = false;
+        btn.addEventListener('click', function () {
+          var v = load(card);
+          play(v, null);
+          v.focus();
+        });
+        card.querySelectorAll('[data-t]').forEach(function (a) {
+          a.addEventListener('click', function (e) {
+            e.preventDefault();
+            var v = load(card);
+            play(v, Number(a.dataset.t));
+            card.querySelector('.vthumb').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            v.focus({ preventScroll: true });
+          });
+        });
+      });
+    })();
+  </script>
+</Site>

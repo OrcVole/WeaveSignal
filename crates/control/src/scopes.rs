@@ -339,6 +339,7 @@ pub const NEVER: &[&str] = &[
     "/api/v1/rehearsal/open",
     "/api/v1/rehearsal/commands",
     "/api/v1/rehearsal/end",
+    "/api/v1/rehearsal/remove",
     "/api/v1/rehearsal/move",
     "/api/v1/rehearsal/bookings/{id}",
     // WHIP from a host's OBS (17d): the show key's secret is the bearer, and a token never holds

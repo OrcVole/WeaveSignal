@@ -759,6 +759,9 @@ pub(crate) struct OpenDateOut {
     pub clock: Option<ClockChange>,
     /// The rule in short, for a tooltip.
     pub short: String,
+    /// Where its host comes from (1.3.1), as an episode's `from` says: `room`, or `own` (their
+    /// own studio, with a show key that has not ended).
+    pub from: crate::shows::HostFrom,
 }
 
 /// Every unfilled, unskipped date of every show's current series that ends after `from_ms` and
@@ -776,10 +779,22 @@ pub(crate) async fn open_dates(
     let to = Timestamp::from_millisecond(to_ms)
         .map_err(|_| Fail::Status(StatusCode::UNPROCESSABLE_ENTITY, "no such time".into()))?;
     let mut out = Vec::new();
-    for s in planner::scheduled(db(state)?, state.station.id).await? {
+    let scheduled = planner::scheduled(db(state)?, state.station.id).await?;
+    // Who is down for each show, as the rota works it out (`post::down_of` over the show keys
+    // standing now), so a date's `from` and an episode's never disagree.
+    let keys =
+        weavesignal_model::sources::live_keys(db(state)?, state.station.id, now.as_millisecond())
+            .await?;
+    let all_shows: Vec<_> = scheduled.iter().map(|s| s.show.clone()).collect();
+    let down = crate::post::down_of(&all_shows, &keys);
+    for s in scheduled {
         if s.rule.is_none() {
             continue;
         }
+        let host_from = down
+            .iter()
+            .find(|d| d.show == s.show.id)
+            .map_or(crate::shows::HostFrom::Room, |d| d.from.into());
         let short = s.short(&zone, today);
         for d in s.open_dates(&zone, from, to, now) {
             out.push(OpenDateOut {
@@ -795,6 +810,7 @@ pub(crate) async fn open_dates(
                 moved_from: d.occ.moved_from,
                 clock: d.occ.clock,
                 short: short.clone(),
+                from: host_from,
             });
         }
     }

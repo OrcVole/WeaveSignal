@@ -24,7 +24,7 @@
 // The `Err` of these helpers is the response to send, built once per refused request.
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -43,7 +43,7 @@ use weavesignal_proto::{PassClaims, PassKind, PassScope, Role, Studio, UNTIL_PUT
 use crate::app::{AppState, TokenRequest, problem};
 use crate::hub::now_ms;
 use crate::join::{
-    Limiter, MeState, NAME_MAX, TOPIC_MAX, clean_line, consent_version,
+    Limiter, MeState, NAME_MAX, Phase, TOPIC_MAX, clean_line, consent_version,
     consent_words_with_presenter, me_state, mint_identity,
 };
 use crate::studio::{CallIn, Consent, ConsentBy};
@@ -60,11 +60,66 @@ pub struct Joins {
     ended: Mutex<BTreeMap<String, u64>>,
     /// Waiting callers a step let go (ADR-0271), and why, for their page.
     released: Mutex<BTreeMap<String, (u64, crate::steps::ReleaseCause)>>,
+    /// People seen on air at the live desk since they arrived there (1.3.1): a person who is at
+    /// the desk, off air and not in this set is standing by. Dropped when the desk no longer
+    /// lists them.
+    aired: Mutex<BTreeSet<String>>,
+    /// People a session's runner took out of its rehearsal (1.3.1), by session and identity:
+    /// their link buys no token for that session again. Kept in memory for as long as the
+    /// control plane runs; the session ends after thirty minutes with nobody in it.
+    removed: Mutex<BTreeSet<(String, String)>>,
     /// Call-in's challenges: the key and the answers already used (ADR-0006).
     challenges: crate::challenge::Challenges,
 }
 
 impl Joins {
+    /// Whether `identity` is standing by at the live desk: listed there, not on air, never on
+    /// air since they arrived, and not a caller (a caller waits in the queue). Each look also
+    /// notes who is on air now and forgets everyone the desk no longer lists. With no desk
+    /// answer nothing is changed and nobody is standing by.
+    pub fn standing_by(
+        &self,
+        identity: &str,
+        role: Role,
+        desk: Option<&crate::desk::DeskStatus>,
+    ) -> bool {
+        let Some(desk) = desk else { return false };
+        let mut aired = self.aired.lock().expect("joins lock");
+        aired.retain(|id| desk.people.iter().any(|p| &p.identity == id));
+        for p in desk.people.iter().filter(|p| p.on_air) {
+            aired.insert(p.identity.clone());
+        }
+        role != Role::Caller
+            && !aired.contains(identity)
+            && desk.people.iter().any(|p| p.identity == identity)
+    }
+
+    /// Take `identity` out of the rehearsal `session` for good: their rehearsal link there buys
+    /// no more tokens, and its page says it ended.
+    pub fn remove_from_rehearsal(&self, session: &str, identity: &str) {
+        self.removed
+            .lock()
+            .expect("joins lock")
+            .insert((session.to_owned(), identity.to_owned()));
+    }
+
+    /// Whether `identity` was taken out of the rehearsal `session`.
+    pub fn removed_from_rehearsal(&self, session: &str, identity: &str) -> bool {
+        self.removed
+            .lock()
+            .expect("joins lock")
+            .contains(&(session.to_owned(), identity.to_owned()))
+    }
+
+    /// Whether a pass is ended: by the studio (by identity), or, for a rehearsal link, by its
+    /// session's runner taking the person out.
+    pub fn pass_ended(&self, c: &PassClaims) -> bool {
+        self.ended(&c.id, c.iat)
+            || c.session
+                .as_deref()
+                .is_some_and(|s| self.removed_from_rehearsal(s, &c.id))
+    }
+
     /// End an identity's pass: no more tokens, and its page says the call ended.
     pub fn end(&self, identity: &str) {
         let now = now_ms();
@@ -759,16 +814,27 @@ struct RehearsalPass {
 }
 
 impl RehearsalPass {
-    /// Why it cannot join the rehearsal room now, in a sentence for its page.
-    fn closed(&self) -> Option<String> {
+    /// Why it cannot join the rehearsal room now, in a sentence for its page. After a move the
+    /// sentence depends on whether `identity` was moved: only a person who was in the rehearsal
+    /// when it moved is taken to the live studio by their page (1.3.1).
+    fn closed(&self, identity: &str) -> Option<String> {
         if self.open {
             return None;
         }
         Some(match &self.session {
-            Some(s) if s.ended == Some(weavesignal_model::rehearsal::Ended::Moved) => format!(
-                "The rehearsal for {} has moved to the live studio. This page takes you there.",
-                self.show_name
-            ),
+            Some(s) if s.ended == Some(weavesignal_model::rehearsal::Ended::Moved) => {
+                if s.moved.iter().any(|m| m == identity) {
+                    format!(
+                        "The rehearsal for {} has moved to the live studio. This page takes you there.",
+                        self.show_name
+                    )
+                } else {
+                    format!(
+                        "The rehearsal for {} has moved to the live studio, and this link was not in it when it moved, so it goes nowhere now. Ask whoever invited you for a link to the live studio.",
+                        self.show_name
+                    )
+                }
+            }
             _ => format!(
                 "The rehearsal studio for {} is not open. Ask whoever invited you to open it again.",
                 self.show_name
@@ -1052,7 +1118,7 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
             Ok(rp) => rp,
             Err(r) => return r,
         };
-        let not_now = match rp.closed() {
+        let not_now = match rp.closed(&c.id) {
             Some(why) => Some(why),
             None => rehearsal_step_refusal(&rp, &c)
                 .await
@@ -1066,7 +1132,7 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
             station: state.station_name(),
             show: rp.show_name.clone(),
             expires_at_ms: c.exp * 1000,
-            ended: state.joins.ended(&c.id, c.iat),
+            ended: state.joins.pass_ended(&c),
             relay: RelayInfo {
                 turn_tls_port: state.turn_tls_port,
                 stun_servers: state.join.stun_servers.clone(),
@@ -1082,9 +1148,13 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         identity: c.id.clone(),
         name: c.name.clone(),
         station: state.station_name(),
-        show: state.hub.view().show.title.clone(),
+        // A moved pass names the show it was made for, whatever is on air now (1.3.1).
+        show: c
+            .show_name
+            .clone()
+            .unwrap_or_else(|| state.hub.view().show.title.clone()),
         expires_at_ms: c.exp * 1000,
-        ended: state.joins.ended(&c.id, c.iat),
+        ended: state.joins.pass_ended(&c),
         relay: RelayInfo {
             turn_tls_port: state.turn_tls_port,
             stun_servers: state.join.stun_servers.clone(),
@@ -1114,7 +1184,7 @@ async fn rehearsal_token(state: &AppState, c: &PassClaims, pass: String) -> Resp
         Ok(rp) => rp,
         Err(r) => return r,
     };
-    if let Some(why) = rp.closed() {
+    if let Some(why) = rp.closed(&c.id) {
         return problem(StatusCode::CONFLICT, why);
     }
     if let Some(hidden) = rehearsal_step_refusal(&rp, c).await {
@@ -1158,10 +1228,10 @@ pub async fn pass_token(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         Ok(p) => p,
         Err(r) => return r,
     };
-    if c.studio == Studio::Rehearsal && !state.joins.ended(&c.id, c.iat) {
+    if c.studio == Studio::Rehearsal && !state.joins.pass_ended(&c) {
         return rehearsal_token(&state, &c, pass).await;
     }
-    if state.joins.ended(&c.id, c.iat) {
+    if state.joins.pass_ended(&c) {
         return problem(
             StatusCode::GONE,
             if c.role == Role::Caller {
@@ -1228,7 +1298,7 @@ pub async fn pass_events(State(state): State<Arc<AppState>>, headers: HeaderMap)
         .flatten();
     let mut moved: Option<crate::join::MoveTo> = None;
     let stream = IntervalStream::new(tokio::time::interval(ME_TICK)).filter_map(move |_| {
-        let ended = state.joins.ended(&c.id, c.iat);
+        let ended = state.joins.pass_ended(&c);
         let rehearsal = state
             .hub
             .rehearsal
@@ -1267,13 +1337,19 @@ pub async fn pass_events(State(state): State<Arc<AppState>>, headers: HeaderMap)
                 me.move_to = moved.clone();
                 me
             }
-            None => me_state(
-                &c.id,
-                c.role,
-                &state.hub.view(),
-                state.hub.desk_status().as_ref(),
-                ended || c.studio == Studio::Rehearsal,
-            ),
+            None => {
+                let desk = state.hub.desk_status();
+                let mut me = me_state(
+                    &c.id,
+                    c.role,
+                    &state.hub.view(),
+                    desk.as_ref(),
+                    ended || c.studio == Studio::Rehearsal,
+                );
+                let standing = state.joins.standing_by(&c.id, c.role, desk.as_ref());
+                me.standing_by = standing && matches!(me.phase, Phase::OffAir | Phase::Cue);
+                me
+            }
         };
         let mut me = me;
         me.released = state.joins.released(&c.id, c.iat);
@@ -1305,6 +1381,7 @@ fn mint_move(
         .clamp(1, weavesignal_proto::MAX_PASS_TTL_S);
     let scope = PassScope::moved(
         &m.show_slug,
+        &m.show_name,
         u64::try_from(opening.standby_until_ms).unwrap_or(0),
     );
     match room

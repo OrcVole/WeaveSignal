@@ -305,6 +305,9 @@ pub struct Studio {
     /// The next handover as the post's rule last worked it out (ADR-0280); `None` before the
     /// first look and when there is nothing to say.
     post: Option<weavesignal_model::post::PostView>,
+    /// People moved from the rehearsal studio whose opening still waits to be applied (1.3.1),
+    /// by identity: until when they stand by, in ms since the Unix epoch.
+    moved_standing: BTreeMap<String, i64>,
 }
 
 /// How long a slot promised to an admitted source waits for the desk to report it.
@@ -456,8 +459,10 @@ const NOMINAL_FEED_BUFFER_MS: u64 = 500;
 pub const DEFAULT_MOUNT_HOLD_MS: u64 = 12_000;
 
 /// What a listener's own player is taken to add on top: the default of
-/// `studio.player_allowance_ms`.
-pub const DEFAULT_PLAYER_ALLOWANCE_MS: u64 = 500;
+/// `studio.player_allowance_ms`. 3 s since 1.3.1 (0.5 s before): a cart pressed on a Bazzite
+/// station was in the stream 23 to 24 s later against the desk's "about 21 s", so 2.5 s of what
+/// the browser buffers and the stream holds were not counted; the estimate is now 23.5 s.
+pub const DEFAULT_PLAYER_ALLOWANCE_MS: u64 = 3_000;
 
 /// The part of the listener delay that nothing reads, as the settings give it (ADR-0289).
 ///
@@ -480,7 +485,9 @@ impl Default for ListenerPath {
 }
 
 impl ListenerPath {
-    /// The defaults: 12 s and 0.5 s, which with the buffer make the old 13 s.
+    /// The defaults: 12 s of mount and 3 s of player, and the buffer's 0.5 s (read, or its
+    /// nominal half second): 15.5 s with nothing read. Before 1.3.1 the player's share was
+    /// 0.5 s, which with the buffer made the old 13 s.
     pub fn default_parts() -> Self {
         ListenerPath::Parts {
             player_allowance_ms: DEFAULT_PLAYER_ALLOWANCE_MS,
@@ -593,6 +600,10 @@ pub struct Source {
     pub person: DeskPerson,
     /// For a caller: what the screener sent with them.
     pub caller: Option<CallerNote>,
+    /// For someone moved from the rehearsal studio (1.3.1): until when they stand by for the
+    /// show's opening state, in ms since the Unix epoch, while they are not on air and the
+    /// opening still waits to be applied. `None` for everyone else.
+    pub standby_until_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
@@ -782,6 +793,16 @@ impl Studio {
     }
 
     /// The post's rule's view of the next handover; returns whether it changed.
+    /// Who was moved from the rehearsal studio and still waits for the opening state
+    /// (identity to the time they stand by until); `true` if that changed.
+    pub fn set_moved_standing(&mut self, moved: BTreeMap<String, i64>) -> bool {
+        if self.moved_standing == moved {
+            return false;
+        }
+        self.moved_standing = moved;
+        true
+    }
+
     pub fn set_post(&mut self, post: Option<weavesignal_model::post::PostView>) -> bool {
         if self.post == post {
             return false;
@@ -1557,10 +1578,16 @@ impl Studio {
                         sent: c.state == CallerState::Ready,
                         taken: c.taken,
                     });
+                let standby_until_ms = self
+                    .moved_standing
+                    .get(id)
+                    .copied()
+                    .filter(|&until| !p.on_air && (now as i64) < until);
                 Some(Source {
                     slot: i + 1,
                     person: p,
                     caller,
+                    standby_until_ms,
                 })
             })
             .collect();
@@ -1817,16 +1844,16 @@ mod tests {
         assert_eq!(
             none,
             ListenerDelay {
-                ms: 21_000,
+                ms: 23_500,
                 measured: false,
                 desk_ms: 8_000,
                 process_ms: None,
-                rest_ms: 13_000,
+                rest_ms: 15_500,
                 basis: DelayBasis::Estimate,
                 read_ms: 8_000,
-                set_ms: 13_000,
+                set_ms: 15_500,
                 mount_hold_ms: Some(12_000),
-                player_ms: Some(500),
+                player_ms: Some(3_000),
             }
         );
         // Its buffer read: it replaces the 0.5 s the setting is taken to hold, once.
@@ -1838,8 +1865,8 @@ mod tests {
         assert!(s.set_feed_buffer(Some(3_600)), "a move of 0.4 s is");
         let read = s.listener_delay(Some(&delay(8_040)));
         assert_eq!(read.process_ms, Some(3_600));
-        assert_eq!(read.rest_ms, 12_500);
-        assert_eq!(read.ms, 8_000 + 3_600 + 12_500);
+        assert_eq!(read.rest_ms, 15_000);
+        assert_eq!(read.ms, 8_000 + 3_600 + 15_000);
         assert_eq!(
             read.ms,
             read.desk_ms + read.process_ms.unwrap() + read.rest_ms
@@ -1858,14 +1885,14 @@ mod tests {
         );
         let json = serde_json::to_value(read).unwrap();
         assert_eq!(json["mount_hold_ms"], 12_000);
-        assert_eq!(json["player_ms"], 500);
+        assert_eq!(json["player_ms"], 3_000);
         assert_eq!(json["basis"], "estimate");
         assert_eq!(json["read_ms"], 11_600);
-        assert_eq!(json["set_ms"], 12_500);
+        assert_eq!(json["set_ms"], 15_000);
         // No desk: no profanity delay.
         assert_eq!(s.listener_delay(None).desk_ms, 0);
         assert!(s.set_feed_buffer(None));
-        assert_eq!(s.listener_delay(None).ms, 13_000);
+        assert_eq!(s.listener_delay(None).ms, 15_500);
     }
 
     #[test]
@@ -1878,16 +1905,20 @@ mod tests {
             dumped_ms_ago: None,
         };
         let mut s = Studio::new("Show", vec![]);
-        // The defaults are the old 13 s: 12 s of mount, 0.5 s of player, 0.5 s of buffer.
-        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 13_000);
+        // The defaults: 12 s of mount, 3 s of player (0.5 s until 1.3.1, the old 13 s), 0.5 s of
+        // buffer.
+        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 15_500);
         assert!(s.set_feed_buffer(Some(500)));
-        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 12_500);
-        // The old figure and its parts give the same answer, buffer read or not, for the old
-        // default; the old figure still means what it did for any other value.
+        assert_eq!(s.listener_delay(Some(&delay)).rest_ms, 15_000);
+        // The old figure still means what it did for any other value; the parts with the old
+        // player allowance give the old default's answer, buffer read or not.
         for read in [false, true] {
             assert_eq!(
                 ListenerPath::Whole(13_000).rest_ms(read),
-                ListenerPath::default_parts().rest_ms(read)
+                ListenerPath::Parts {
+                    player_allowance_ms: 500
+                }
+                .rest_ms(read)
             );
         }
         assert_eq!(ListenerPath::Whole(9_000).rest_ms(false), 9_000);
@@ -2194,6 +2225,40 @@ mod tests {
         let src = v.sources.iter().find(|x| x.slot == 4).unwrap();
         assert_eq!(src.caller.as_ref().unwrap().note, "Nervous; go gentle");
         assert!(v.callers[0].cue && v.desk_taking_callers);
+    }
+
+    #[test]
+    fn a_source_moved_from_rehearsal_says_until_when_it_stands_by() {
+        let mut s = Studio::new("", vec![]);
+        let mut gregor = person("gregor", Role::Guest);
+        gregor.on_air = false;
+        let mut kirsty = person("kirsty", Role::Guest);
+        kirsty.on_air = false;
+        let d = desk(vec![gregor.clone(), kirsty]);
+        s.sync(&d, 1);
+        let standby = |s: &Studio, d: &DeskStatus, now: u64, id: &str| {
+            s.view("", Some(d), None, now)
+                .sources
+                .iter()
+                .find(|x| x.person.identity == id)
+                .map(|x| x.standby_until_ms)
+        };
+        assert_eq!(standby(&s, &d, 2, "gregor"), Some(None), "nobody moved");
+        assert!(s.set_moved_standing(BTreeMap::from([("gregor".to_owned(), 10_000)])));
+        assert!(!s.set_moved_standing(BTreeMap::from([("gregor".to_owned(), 10_000)])));
+        assert_eq!(standby(&s, &d, 2, "gregor"), Some(Some(10_000)));
+        assert_eq!(standby(&s, &d, 2, "kirsty"), Some(None), "not moved");
+        assert_eq!(
+            standby(&s, &d, 10_000, "gregor"),
+            Some(None),
+            "the time has passed"
+        );
+        // On air, the mark goes.
+        let mut on = gregor;
+        on.on_air = true;
+        let d2 = desk(vec![on]);
+        s.sync(&d2, 3);
+        assert_eq!(standby(&s, &d2, 4, "gregor"), Some(None));
     }
 
     #[test]

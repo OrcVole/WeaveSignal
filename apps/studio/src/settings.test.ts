@@ -139,7 +139,8 @@ describe('Settings > Retention', () => {
     // The page's own panels, in order; its dialogs carry names too (ADR-0245), checked below.
     const all = [...body.matchAll(/<(\w+)[^>]*?data-panel="([^"]+)"/g)];
     const drawn = all.filter((m) => m[1] !== 'dialog').map((m) => m[2]);
-    expect(drawn).toEqual(SETTINGS.filter((p) => p.name.split('.').length === 2).map((p) => p.name));
+    // The player's panel (1.3.1) is every window's, ahead of the retention panels.
+    expect(drawn).toEqual(['settings.player', ...SETTINGS.filter((p) => p.name.split('.').length === 2).map((p) => p.name)]);
     for (const m of all) expect(panel(m[2]).name).toBe(m[2]);
     expect(all.filter((m) => m[1] === 'dialog').map((m) => m[2])).toEqual(['settings.periods.confirm', 'settings.holds.extend', 'settings.holds.release']);
   });

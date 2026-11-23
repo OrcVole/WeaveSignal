@@ -269,6 +269,20 @@ pub struct PostShow {
     pub started: bool,
 }
 
+/// The opening state a move from the rehearsal studio left for the post's show (1.3.1): who goes
+/// on air and who is muted when its host is put on air, while it still waits to be applied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct PostOpening {
+    /// Who goes on air when it is applied (sorted, identities).
+    pub on: Vec<String>,
+    /// Who is muted when it is applied, before anyone is put on (sorted, identities).
+    pub mute: Vec<String>,
+    /// The show's host among the people moved, whose going on air applies it.
+    pub host: Option<String>,
+    /// Until when the moved people stand by, in ms since the Unix epoch.
+    pub standby_until_ms: i64,
+}
+
 /// What `/studio` and `GET /sources` say of the post (design section 10).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct PostView {
@@ -301,6 +315,9 @@ pub struct PostView {
     /// empty; the control plane fills it from [`crate::handover_window::for_post`]. Absent when
     /// the window is off or nobody is down for the show.
     pub window: Option<crate::handover_window::WindowView>,
+    /// The opening state moved from the rehearsal studio for this show, while it waits to be
+    /// applied (1.3.1). [`plan`] leaves it empty; the control plane fills it from the moves.
+    pub opening: Option<PostOpening>,
 }
 
 /// The rule's answer: what to do, what to show, and who End show would pass the air to.
@@ -535,6 +552,7 @@ pub fn plan(f: &Facts<'_>) -> Plan {
         holders: f.holders.iter().map(|h| h.name.clone()).collect(),
         link_lost: None,
         window: None,
+        opening: None,
     };
 
     if let (Some(p), Some(h)) = (post, &f.hold)

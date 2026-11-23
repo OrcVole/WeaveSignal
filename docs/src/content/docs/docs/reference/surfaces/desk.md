@@ -25,11 +25,11 @@ The name never covers a live control and never takes a key.
 
 The studio clock: room time with tenths of a second, and back-timing to the next hard post in the rundown, with a bar that fills as it nears.
 
-Under it, the time listeners are hearing and how far behind that is, as an estimate: *Listeners hear 16:00:57 · about 21 s behind* (ADR-0103, ADR-0165, ADR-0272; issue 17, built for 1.1).
-Each panel of the desk states the figure once. The stage's line above says *listeners about 21 s behind (an estimate)*, and the delay panel beside it says what the profanity delay holds, not where listeners are ([`desk.delay`](#deskdelay)).
+Under it, the time listeners are hearing and how far behind that is, as an estimate: *Listeners hear 16:00:57 · about 24 s behind* (ADR-0103, ADR-0165, ADR-0272; issue 17, built for 1.1).
+Each panel of the desk states the figure once. The stage's line above says *listeners about 24 s behind (an estimate)*, and the delay panel beside it says what the profanity delay holds, not where listeners are ([`desk.delay`](#deskdelay)).
 No honest end-to-end measurement exists: a marker cannot travel in the listener stream (a metadata change chains the Ogg stream and drops the mount), and a listener's own player buffers on top of what the station sends.
-So the figure is made of parts, and one line under it names them, in one place only and in the order the sound travels: *8.0 s profanity delay, 0.5 s buffer, 12 s held by the stream, about 0.5 s in listeners' players (estimated)*.
-The parts add up to the figure on the line above (*about 21 s behind* here).
+So the figure is made of parts, and one line under it names them, in one place only and in the order the sound travels: *8.0 s profanity delay, 0.5 s buffer, 12 s held by the stream, about 3 s in listeners' players (estimated)*.
+The parts add up to the figure on the line above (*about 24 s behind* here).
 
 - **The profanity delay** is the station's own reading, live from the desk (8 s when full, by default, 0 just after a dump).
 - **The buffer** is what the listener process holds of playout's feed, its own reading every five seconds (about 0.5 s; it grows on a loaded host, which is how to see a backlog).
@@ -92,6 +92,7 @@ It carries the handover's button while there is a press to make for that source.
 
 Playout (Liquidsoap): whether it is connected to the desk, and for how long.
 While listeners hear the default loop WeaveSignal ships, because the station has no fallback files of its own, a **Default loop** chip and a line say so; adding fallback files takes it away ([Playout](/docs/reference/playout/#the-default-loop)).
+While a cart that listeners hear sounds with nobody on air (1.3.1), the chip reads **ON AIR**, which means only that listeners can hear this, and *a cart is playing* stands beside it; the stage's lamp stays **STANDBY**.
 While playout is down the panel offers **Restart playout** (`⌃R` twice), which from 1.1 asks the station to restart it; in 1.0.0 it only showed a note ([When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/)).
 Playout's queue and hard posts are not shown ([planned](/docs/reference/release-one-status/#not-in-release-one)).
 
@@ -259,6 +260,29 @@ The control plane asks the listener process's `/status.json` on loopback, which 
 It cannot answer while the listener process is down or restarting, and in a test stack without one; the figure is then a dash with the reason (`audience.listeners` is `null`, never 0), and it comes back by itself at the next answer.
 Under the figure, a chip says what listeners hear: HEARING THE DESK, PLAYOUT DOWN, or ON AUTOMATION while the station is in auto mode ([The state vocabulary](/docs/reference/states/)).
 When video is on, more than about 500 are connected and the station has no CDN or edges configured (no steering edges, and `join.hls_url` on the station itself), the panel also warns that video needs a CDN ([Put Bunny in front of the station](/docs/how-to/use-bunny/), ADR-0017).
+
+Under the chip, from 1.3.1, are **Open the player** and **Copy link**, in one row.
+Until this computer has opened or copied the player once, the panel also says **Sound plays in your browser, not in this app** above them; after that the sentence is not drawn, to leave the column's height to the picture and the fault toast, and it stays in **Open the player**'s tooltip and in **Settings → The player**.
+That is remembered on this computer for each station.
+A good answer (*Copied. Paste it into a browser.*) clears after six seconds; a failure stays until the next press.
+The studio app is a control surface and makes no sound; the player is the station's web page, and it plays what listeners hear, some seconds behind the desk.
+**Open the player** hands the player's address to your own browser (the packaged app asks the system to open it; a browser build opens a tab), and **Copy link** puts it on the clipboard; if the clipboard refuses, the link is shown in a box to copy by hand.
+The address is the station's public address (`publishing.public_url`), because that is the one people elsewhere reach and, on Cloudron, the studio's own domain is behind Cloudron's login.
+A station with no public address, such as a Compose install on a home network, has the player on the address this window already uses; **Settings → The player** says so.
+Until the station has answered, the buttons are dimmed and say why beside them.
+Neither button is drawn in the sandbox.
+See [Listen to your station](/docs/how-to/listen-to-your-station/).
+
+## `desk.station-key`
+
+On a window signed in with the **station key**, from 1.3.1, where **Join with my microphone…** would be.
+The key is nobody's account, so it cannot make a microphone link; the station refuses one.
+The desk says *The station key has no microphone. To speak, add yourself in Staff, then sign in as yourself.* with **Open Staff**, which opens Settings scrolled to the Staff panel with the focus on **Add someone…**.
+It is drawn in the stage's empty message when nobody is in the room (replacing *join yourself with your own microphone link*).
+When someone is already there it takes no seat from the stage where the desk has a **Not on air** row (every step above Solo): it is one quiet line in that row's head, in place of the row's legend, *The station key has no microphone: sign in as yourself to speak.*, with **Open Staff** before **Invite someone…**, and the line wraps to a second line where the row is narrow.
+At **Solo**, which has no **Not on air** row, it keeps a quiet seat among the tiles; Solo has at most one other tile, so the seat costs nothing.
+Under it, on an empty desk, a line for the first minute: open the player and press **Listen live**, then press a pad on the Carts tab (`⌃3`), and wait the delay the desk states.
+It is not drawn for a signed-in account, nor once a presenter is in the room, nor in a preparing window.
 
 ## `desk.picture`
 

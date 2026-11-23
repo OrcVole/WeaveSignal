@@ -174,3 +174,7 @@ It never throws work away: while the episode, series or show in the column has c
 
 See [Cart wall](/docs/reference/surfaces/carts/).
 The presenter kit's presets are buttons in **Settings › Presenter kit** from 1.2 (the station's half, on Compose and the Quadlets); keys for them, `⌥1` to `⌥4` in the design, are not built ([Presenter kit](/docs/reference/surfaces/kit/)).
+
+Five buttons of 1.3.1 have no key, by design: **Open the player** and **Copy link** (the Desk's Listeners panel, **Settings › The player**), **Open Staff** (on a window signed in with the station key) and the notice band's **Default pack…** and **Not now**.
+Each is reached by `Tab` and pressed with `Space` or `⏎`, like any button.
+They add no letter to the Desk, so the Desk's keys are unchanged ([Listen to your station](/docs/how-to/listen-to-your-station/)).

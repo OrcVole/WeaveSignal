@@ -59,6 +59,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/rehearsal/open", post(open))
         .route("/api/v1/rehearsal/commands", post(command))
         .route("/api/v1/rehearsal/end", post(end))
+        .route("/api/v1/rehearsal/remove", post(remove))
         .route("/api/v1/rehearsal/move", post(move_people))
 }
 
@@ -465,6 +466,10 @@ pub struct RehearsalView {
     /// The handover window of the session's show, when it is the window the live studio is
     /// showing (the rehearsal view says "On air at 14:05: move by then").
     pub window: Option<weavesignal_model::handover_window::WindowView>,
+    /// Whether the person asking may run the open session (1.3.1): whoever may change its
+    /// show's step. False with no session open. It is the asker's own, filled in for each
+    /// request and each event.
+    pub may_run: bool,
 }
 
 /// The rehearsal desk's link.
@@ -505,6 +510,10 @@ pub struct RehearsalPerson {
     pub present: bool,
     pub linked: bool,
     pub lufs: Option<f32>,
+    /// The person's strip, from 1 (1.3.1): the station gives each person at the rehearsal desk
+    /// the lowest free number as they arrive and keeps it while the desk lists them, so every
+    /// window draws the same person in the same strip.
+    pub slot: u16,
 }
 
 /// A cart sounding at the rehearsal desk.
@@ -546,6 +555,26 @@ struct Inner {
     /// Since when the open session has had nobody present at the desk.
     empty_since_ms: Option<u64>,
     labels: BTreeMap<String, String>,
+    /// Each person's strip while the desk lists them (see [`RehearsalPerson::slot`]).
+    slots: BTreeMap<String, u16>,
+}
+
+/// Give each person the desk lists a strip: those already placed keep theirs, those who have
+/// gone give theirs up, and each new person takes the lowest number free, in the desk's order.
+fn assign_slots<'a>(
+    slots: &mut BTreeMap<String, u16>,
+    identities: impl IntoIterator<Item = &'a str> + Clone,
+) {
+    slots.retain(|id, _| identities.clone().into_iter().any(|x| x == id));
+    for id in identities {
+        if slots.contains_key(id) {
+            continue;
+        }
+        let free = (1..=u16::MAX)
+            .find(|n| !slots.values().any(|v| v == n))
+            .unwrap_or(u16::MAX);
+        slots.insert(id.to_owned(), free);
+    }
 }
 
 /// The rehearsal studio: the second desk link, the session, and the view.
@@ -605,6 +634,7 @@ impl Rehearsal {
                 desk_error: error,
                 empty_since_ms: None,
                 labels: BTreeMap::new(),
+                slots: BTreeMap::new(),
             }),
             tx: watch::channel(Arc::new(view)).0,
             sessions: tokio::sync::Mutex::new(()),
@@ -654,6 +684,7 @@ impl Rehearsal {
                         present: p.present,
                         linked: p.linked,
                         lufs: p.lufs,
+                        slot: inner.slots.get(&p.identity).copied().unwrap_or(0),
                     })
                     .collect()
             })
@@ -689,6 +720,7 @@ impl Rehearsal {
             carts_sounding,
             max_people: self.config.max_people,
             window: inner.window.clone(),
+            may_run: false,
         };
         self.tx.send_if_modified(|old| {
             if **old == view {
@@ -725,6 +757,14 @@ impl Rehearsal {
     /// The moves whose openings are not cleared, newest first.
     pub fn moves(&self) -> Vec<Session> {
         self.moves.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// The moves whose opening state still waits to be applied at `now`, newest first.
+    pub fn waiting_moves(&self, now: i64) -> Vec<Session> {
+        self.moves()
+            .into_iter()
+            .filter(|s| s.opening.as_ref().is_some_and(|o| o.waiting(now)))
+            .collect()
     }
 
     /// The move of `session` that took `identity` to the live studio, if it is still offered.
@@ -791,6 +831,7 @@ impl Rehearsal {
                     } else if i.session.is_some() && i.empty_since_ms.is_none() {
                         i.empty_since_ms = Some(now);
                     }
+                    assign_slots(&mut i.slots, st.people.iter().map(|p| p.identity.as_str()));
                     i.desk = Some(st);
                 }
                 Err(e) => {
@@ -1008,7 +1049,7 @@ pub async fn start(hub: &Arc<Hub>, config: &crate::config::Config, store: Store)
 
 #[derive(utoipa::OpenApi)]
 #[openapi(
-    paths(view, events, open, command, end, move_people),
+    paths(view, events, open, command, end, remove, move_people),
     components(schemas(
         MoveResult,
         RehearsalView,
@@ -1017,6 +1058,7 @@ pub async fn start(hub: &Arc<Hub>, config: &crate::config::Config, store: Store)
         RehearsalPerson,
         RehearsalSounding,
         OpenRequest,
+        RemoveRequest,
         RehearsalCommand
     ))
 )]
@@ -1034,12 +1076,21 @@ fn rehearsal(state: &AppState) -> Result<&Arc<Rehearsal>, Response> {
         .ok_or_else(|| problem(StatusCode::SERVICE_UNAVAILABLE, OFF))
 }
 
-fn current(state: &AppState) -> Arc<RehearsalView> {
+/// The rehearsal view as `actor` sees it: the shared view with their own `may_run`.
+fn seen_by(r: &Rehearsal, actor: &Actor) -> RehearsalView {
+    let mut view = (*r.view()).clone();
+    view.may_run = r
+        .session()
+        .is_some_and(|s| crate::steps::may_change(actor, s.presenter_account));
+    view
+}
+
+fn current(state: &AppState, actor: &Actor) -> RehearsalView {
     state
         .hub
         .rehearsal
         .get()
-        .map_or_else(|| Arc::new(Rehearsal::off_view()), |r| r.view())
+        .map_or_else(Rehearsal::off_view, |r| seen_by(r, actor))
 }
 
 fn store_problem(e: &StoreError) -> Response {
@@ -1079,7 +1130,7 @@ fn session_for(r: &Rehearsal, actor: &Actor) -> Result<Session, Response> {
     operation_id = "rehearsal_view",
     tag = "rehearsal",
     summary = "The rehearsal studio",
-    description = "Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.",
+    description = "Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. `may_run` says whether the asker may run the open session. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.",
     responses(
         (status = 200, description = "The rehearsal studio.", body = RehearsalView),
         (status = 401, response = crate::openapi::Unauthorized),
@@ -1087,10 +1138,11 @@ fn session_for(r: &Rehearsal, actor: &Actor) -> Result<Session, Response> {
     security(("staff_session" = []), ("station_key" = [])),
 )]
 async fn view(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    if let Err(r) = state.check(&headers, Need::Staff) {
-        return r;
-    }
-    Json(current(&state)).into_response()
+    let actor = match state.check(&headers, Need::Staff) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    Json(current(&state, &actor)).into_response()
 }
 
 #[utoipa::path(
@@ -1107,9 +1159,10 @@ async fn view(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respons
     security(("staff_session" = []), ("station_key" = [])),
 )]
 async fn events(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    if let Err(r) = state.check(&headers, Need::Staff) {
-        return r;
-    }
+    let actor = match state.check(&headers, Need::Staff) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
     let event = |view: &RehearsalView| {
         Ok::<_, Infallible>(
             Event::default()
@@ -1119,10 +1172,12 @@ async fn events(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
         )
     };
     let keep = KeepAlive::new().interval(Duration::from_secs(10));
-    match state.hub.rehearsal.get() {
-        Some(r) => Sse::new(WatchStream::new(r.subscribe()).map(move |v| event(&v)))
-            .keep_alive(keep)
-            .into_response(),
+    match state.hub.rehearsal.get().cloned() {
+        Some(r) => {
+            Sse::new(WatchStream::new(r.subscribe()).map(move |_| event(&seen_by(&r, &actor))))
+                .keep_alive(keep)
+                .into_response()
+        }
         None => {
             let off =
                 tokio_stream::once(event(&Rehearsal::off_view())).chain(tokio_stream::pending());
@@ -1198,8 +1253,8 @@ async fn open(
         return resp;
     }
     match r.open(&show, &crate::steps::mover_name(&actor)).await {
-        Ok(Opened::New(_)) => (StatusCode::CREATED, Json(r.view())).into_response(),
-        Ok(Opened::Already(_)) => Json(r.view()).into_response(),
+        Ok(Opened::New(_)) => (StatusCode::CREATED, Json(seen_by(r, &actor))).into_response(),
+        Ok(Opened::Already(_)) => Json(seen_by(r, &actor)).into_response(),
         Ok(Opened::Busy(other)) => problem(
             StatusCode::CONFLICT,
             format!(
@@ -1377,7 +1432,7 @@ async fn command(
         return desk_problem(&e);
     }
     r.poll_once(labels(&state.hub)).await;
-    Json(r.view()).into_response()
+    Json(seen_by(r, &actor)).into_response()
 }
 
 #[utoipa::path(
@@ -1446,7 +1501,97 @@ async fn end(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response
         None => {}
     }
     r.poll_once(labels(&state.hub)).await;
-    Json(r.view()).into_response()
+    Json(seen_by(r, &actor)).into_response()
+}
+
+/// The person to take out of the rehearsal.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveRequest {
+    /// Their identity, as the rehearsal view's `people` give it.
+    pub identity: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/rehearsal/remove",
+    operation_id = "rehearsal_remove",
+    tag = "rehearsal",
+    summary = "Take one person out of the rehearsal",
+    description = "Takes one person out of the rehearsal room and ends their rehearsal link for this session: it buys no token for it again, and their page says it ended. The session carries on with everyone else, and they can be invited again. Whoever may run the session's show (403 otherwise); 409 with no session open; 404 when they are not in the rehearsal studio; 422 for the rehearsal desk's own identity. Answers with the rehearsal view.",
+    request_body = RemoveRequest,
+    responses(
+        (status = 200, description = "The rehearsal view after the removal.", body = RehearsalView),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 403, response = crate::openapi::Forbidden),
+        (status = 404, response = crate::openapi::NotFound),
+        (status = 409, response = crate::openapi::Conflict),
+        (status = 422, response = crate::openapi::Unprocessable),
+        (status = 503, response = crate::openapi::Unavailable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn remove(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<RemoveRequest>,
+) -> Response {
+    let actor = match state.check(&headers, Need::Staff) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let r = match rehearsal(&state) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let session = match session_for(r, &actor) {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+    let identity = req.identity.trim().to_owned();
+    if identity.is_empty() || r.is_desk(&identity) {
+        return problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "That is not a person in the rehearsal studio.",
+        );
+    }
+    // In the room as the rehearsal desk or LiveKit has them.
+    let in_room = match &state.hub.room {
+        Some(room) => room
+            .list_in(&r.room)
+            .await
+            .map(|l| l.iter().any(|id| id == &identity))
+            .unwrap_or(false),
+        None => false,
+    };
+    if !r.has_person(&identity) && !in_room {
+        return problem(
+            StatusCode::NOT_FOUND,
+            format!(
+                "`{identity}` is not in the rehearsal studio for {}.",
+                session.show_name
+            ),
+        );
+    }
+    // Written first: their link buys nothing from here on, then out of the room.
+    state
+        .joins
+        .remove_from_rehearsal(&session.id.to_string(), &identity);
+    match &state.hub.room {
+        Some(room) => {
+            if let Err(e) = room.remove_in(&r.room, &identity).await {
+                tracing::warn!(%identity, error = %format!("{e:#}"), "cannot take them out of the rehearsal room; their link no longer joins it");
+            }
+        }
+        None => {
+            tracing::warn!(
+                "no LiveKit secret: their rehearsal link is ended, but they are still in the rehearsal room"
+            );
+        }
+    }
+    tracing::info!(show = %session.show_slug, by = %actor.label(), %identity, "taken out of the rehearsal");
+    r.poll_once(labels(&state.hub)).await;
+    Json(seen_by(r, &actor)).into_response()
 }
 
 /// What a move did (`POST /api/v1/rehearsal/move`).

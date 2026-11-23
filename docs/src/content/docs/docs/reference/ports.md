@@ -95,6 +95,8 @@ With `--public` ([Publish a station from the Compose bundle](/docs/how-to/publis
 A taken 443 or 80 stops the script rather than moving the proxy, since a certificate authority reaches those two only; it names the alternative and says to forward to it.
 A rootless Podman cannot bind a port below 1024 unless `net.ipv4.ip_unprivileged_port_start` allows it, and the script says so before it starts.
 
+With `--lan` ([Listen on a phone or another computer](/docs/how-to/listen-on-another-device/)) the script also checks and writes `LAN_PORT` (TCP, 7300, then 17300 and 27300): the one port of the listen-only web server, bound to the one address `LAN_ADDRESS` (a private address of this machine) and no other. It is not one of the control plane's `[ports]`, so `check-ports` does not list it. Open it in the machine's firewall for the phone to reach it; nothing else needs opening. A listener on that port on any address stops the script.
+
 `SOURCE_ICECAST_PORT` (TCP), `SOURCE_SRT_PORT` (UDP) and `SOURCE_WHIP_PORT` (UDP), for hosts' own studios, are 0, off, unless you set them; a set one is checked as a public port and kept.
 `INGEST_WHIP_PORT` (7319) is the ingest's loopback port for WHIP's requests, checked like the other loopback ports.
 

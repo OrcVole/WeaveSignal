@@ -136,7 +136,7 @@ fn the_examples_in_env_example_set_what_they_say_on_both_routes() {
         let c = parse(&fragment);
         assert_eq!(c.studio.show, "The Morning Kettle", "{route}");
         assert_eq!(c.studio.listener_delay_ms, 13_000, "{route}");
-        assert_eq!(c.studio.player_allowance_ms, Some(500), "{route}");
+        assert_eq!(c.studio.player_allowance_ms, Some(3000), "{route}");
         assert_eq!(c.studio.rundown.len(), 2, "{route}");
         assert!(c.studio.rundown[0].hard_post, "{route}");
         assert_eq!(c.studio.rundown[0].key.as_deref(), Some("F2"), "{route}");

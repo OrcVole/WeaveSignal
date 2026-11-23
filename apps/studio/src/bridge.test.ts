@@ -165,6 +165,12 @@ describe('the bridge’s panel, drawn (17j)', () => {
     expect(render(Bridge).body).not.toContain('data-panel="settings.bridge"');
   });
 
+  it('says what “your software” is, and that nothing needs doing without it', () => {
+    const b = draw(VIEWS.off);
+    expect(b).toContain('“Your software” means the program a host broadcasts with, such as OBS, BUTT or Mixxx.');
+    expect(b).toMatch(/data-testid="bridge-if-none">\s*<b>If you do not use a program like that, nothing here needs doing:<\/b> leave the bridge off\./);
+  });
+
   it('says where it stands, with Start or Stop beside it', () => {
     expect(draw(VIEWS.off)).toContain('Start the bridge');
     expect(draw(VIEWS.off)).not.toContain('Stop the bridge');

@@ -19,7 +19,7 @@
   import ChatPanel from './lib/chat/ChatPanel.svelte';
   import OnAirLine from './lib/chat/OnAirLine.svelte';
   import { check, firstError, request, type LobbyErrors } from './lib/lobby.ts';
-  import { CLOSED_WHILE_FILLING, closedLine, closedUnderForm } from './lib/lines.ts';
+  import { CLOSED_WHILE_FILLING, NEEDS_HTTPS, closedLine, closedUnderForm, talkNeedsHttps } from './lib/lines.ts';
   import MicCheck from './lib/MicCheck.svelte';
   import * as store from './lib/store.ts';
   import * as streams from './lib/streams.ts';
@@ -56,6 +56,8 @@
   let sendProblem = $state<string | null>(null);
   /** The chat is open to write in (the chat panel says): the way to reach a show that takes no calls. */
   let chatOpen = $state(false);
+  /** Plain HTTP on a home-network address: no microphone, so no call (1.3.1). */
+  const insecure = talkNeedsHttps(typeof window === 'undefined' ? undefined : window.isSecureContext);
   let lobbyHeading = $state<HTMLElement | undefined>();
   // Call-in's challenge (ADR-0006): fetched and answered in a worker as the lobby opens, so by
   // the time the caller has typed their name it is long done. Nothing to see or solve.
@@ -180,6 +182,7 @@
   }
 
   async function openLobby() {
+    if (insecure) return;
     view = 'lobby';
     sendProblem = null;
     startCheck();
@@ -417,7 +420,10 @@
     {:else if info}
       <section class="card" aria-labelledby="callin-h">
         <h2 id="callin-h">Talk to the studio</h2>
-        {#if kept}
+        {#if insecure}
+          <p class="small" role="status" data-needs-https>{NEEDS_HTTPS}</p>
+          <button type="button" class="btn big wide" disabled>Call the studio</button>
+        {:else if kept}
           <p>You were on a call as <b>{kept.name}</b>. Your place in the queue is held for a few minutes.</p>
           <button type="button" class="btn primary big wide" onclick={rejoin}>Rejoin your call</button>
           <button type="button" class="btn quiet wide" onclick={() => { store.forget(); kept = null; }}>Forget it</button>
