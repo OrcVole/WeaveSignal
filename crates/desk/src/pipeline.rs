@@ -56,7 +56,7 @@ use weavesignal_proto::{Keys, Role, check_identity};
 
 use crate::analysis::Tap;
 use crate::carts::{CartError, CartsStatus, Deck, Decoder, Fire, Fired, PlayEvent};
-use crate::config::{Config, FEED_PASSWORD_ENV, LiveKit};
+use crate::config::{Config, DeskMode, FEED_PASSWORD_ENV, LiveKit};
 use crate::feed::Feed;
 use crate::hls_sound::{HlsSound, Source, StationMode};
 use crate::matrix::{Bus, Switches, gate_to_bus, reaches};
@@ -92,6 +92,13 @@ impl Outputs {
     pub const NONE: Outputs = Outputs {
         srt: false,
         mix_minus_to_room: false,
+    };
+    /// A rehearsal desk (1.3): the returns into its room and nothing else. The programme bus
+    /// still exists inside the mixer, because the returns are made from it, but it has no
+    /// output: no `srtsink` is ever made.
+    pub const REHEARSAL: Outputs = Outputs {
+        srt: false,
+        mix_minus_to_room: true,
     };
 }
 
@@ -431,6 +438,10 @@ struct Inner {
     video: Option<Video>,
     /// Playout's output back to the desk, for the video's sound (ADR-0172; video on).
     feed: Option<Feed>,
+    /// When this desk was built (ms since the Unix epoch): its status says so, and the control
+    /// plane reads a new value as a desk that started again, whose people it puts back on air
+    /// (1.3: guests and invitations arrive standing by, so a restart alone would leave them off).
+    started_ms: u64,
 }
 
 /// The desk. Cheap to clone: every clone is the same desk.
@@ -612,9 +623,13 @@ pub(crate) fn signal_with_data(
     data: Option<DataHandler>,
 ) {
     let sig = element.property::<glib::Object>("signaller");
+    let no_ice_tcp = lk.no_ice_tcp;
     sig.connect("webrtcbin-ready", false, move |values| {
         if let Some(Ok(bin)) = values.get(2).map(|v| v.get::<gst::Element>()) {
             no_upnp(&bin);
+            if no_ice_tcp {
+                ice_tcp_off(&bin);
+            }
             // The room opens channels of its own toward a subscriber; closed at once, they
             // take their threads with them. A phone booth's reliable one carries its keys.
             let data = data.clone();
@@ -931,6 +946,15 @@ impl Desk {
     /// [`Desk::add_person`].
     pub fn new(config: Config, outputs: Outputs) -> Result<Self> {
         gst::init()?;
+        if config.desk.mode == DeskMode::Rehearsal {
+            // The wall, again where the desk is built (section 1.7): whatever its caller asks.
+            if outputs.srt {
+                bail!("a rehearsal desk has no programme output; it cannot be built with one");
+            }
+            if config.video.enabled || config.sources.enabled {
+                bail!("a rehearsal desk takes no video and no hosts' sources");
+            }
+        }
         if outputs.mix_minus_to_room {
             signaller_limits_subscribers()?;
         }
@@ -961,6 +985,7 @@ impl Desk {
         );
         let desk = Desk {
             inner: Arc::new(Inner {
+                started_ms: crate::room::now_ms(),
                 pipeline,
                 state: Mutex::new(State {
                     people: BTreeMap::new(),
@@ -1031,6 +1056,20 @@ impl Desk {
 
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    /// When this desk was built, in ms since the Unix epoch: a new value is a new desk.
+    pub fn started_ms(&self) -> u64 {
+        self.inner.started_ms
+    }
+
+    /// Which studio this desk mixes: `live`, or `rehearsal` with no way to the air.
+    pub fn desk_mode(&self) -> DeskMode {
+        self.inner.config.desk.mode
+    }
+
+    fn rehearsing(&self) -> bool {
+        self.desk_mode() == DeskMode::Rehearsal
     }
 
     pub fn pipeline(&self) -> &gst::Pipeline {
@@ -1730,6 +1769,9 @@ impl Desk {
         name: &str,
         facts: SourceFacts,
     ) -> Result<Arc<InputRing>> {
+        if self.rehearsing() {
+            bail!("not on a rehearsal desk: a host's own studio stands by at the live desk");
+        }
         check_identity(identity, &self.inner.config.desk.identity)?;
         if !identity.starts_with(SOURCE_PREFIX) {
             bail!("a source's identity begins `{SOURCE_PREFIX}`, not `{identity}`");
@@ -1779,6 +1821,9 @@ impl Desk {
     /// opening one already open changes nothing. Each block is stamped from its place in the
     /// mix like every bus's (`mix_block`), never from the clock at encode time.
     pub fn open_monitor(&self, key_id: &str) -> Result<bool> {
+        if self.rehearsing() {
+            bail!("not on a rehearsal desk: it has no monitor links");
+        }
         let identity = weavesignal_proto::source_wire::identity(key_id);
         let n = self.next_serial();
         {
@@ -1843,6 +1888,9 @@ impl Desk {
         bind: Option<IpAddr>,
         outs: Vec<crate::vban_out::OutSpec>,
     ) -> Result<(), String> {
+        if self.rehearsing() {
+            return Err("not on a rehearsal desk: it sends no VBAN".into());
+        }
         let mut started = Vec::new();
         let mut refused = Vec::new();
         if let Some(bind) = bind {
@@ -1934,6 +1982,39 @@ impl Desk {
     /// As [`Self::add_person`], in a given LiveKit room: a caller's booth (ADR-0193), or the
     /// studio room with `None`. Someone seen in another room than before joins afresh there.
     pub fn add_person_in(&self, identity: &str, role: Role, room: Option<&str>) -> Result<()> {
+        self.add_person_with(identity, role, room, Switches::at_join(role))
+    }
+
+    /// As [`Self::add_person_in`], for someone the room watch has just found (1.3): on a live
+    /// desk a guest, and anyone whose standing-by time is still ahead at `now_ms`, starts
+    /// standing by ([`Switches::arriving`]); a rehearsal desk starts everyone by their role.
+    /// Only a fresh arrival is decided so: someone the desk still holds (back within the
+    /// leave grace) keeps the switches they had.
+    pub fn add_person_arriving(
+        &self,
+        identity: &str,
+        role: Role,
+        room: Option<&str>,
+        standby_until_ms: Option<u64>,
+        now_ms: u64,
+    ) -> Result<()> {
+        let switches = match self.desk_mode() {
+            DeskMode::Live => Switches::arriving(role, standby_until_ms, now_ms),
+            DeskMode::Rehearsal => Switches::at_join(role),
+        };
+        if !switches.on_air && Switches::at_join(role).on_air {
+            tracing::info!(participant = %identity, %role, until_ms = ?standby_until_ms, "arrives standing by");
+        }
+        self.add_person_with(identity, role, room, switches)
+    }
+
+    fn add_person_with(
+        &self,
+        identity: &str,
+        role: Role,
+        room: Option<&str>,
+        switches: Switches,
+    ) -> Result<()> {
         check_identity(identity, &self.inner.config.desk.identity)?;
         if !role.at_desk() {
             bail!("`{identity}` is a {role}: the desk takes no listeners");
@@ -1966,7 +2047,7 @@ impl Desk {
                     role,
                     room: room.map(str::to_owned),
                     name: String::new(),
-                    switches: Switches::at_join(role),
+                    switches,
                     away_since: None,
                     source: None,
                     fade: None,
@@ -2787,10 +2868,14 @@ impl Desk {
     /// appears inside the pipeline, including inside LiveKit's bins: `livekitwebrtcsrc` has
     /// no property for it (spike 01). Each `webrtcbin`'s UPnP is turned off on the way.
     fn set_jitter_buffer(&self, ms: u32) {
-        fn apply(el: &gst::Element, ms: u32) {
+        let no_ice_tcp = self.inner.config.livekit.no_ice_tcp;
+        let apply = move |el: &gst::Element, ms: u32| {
             let Some(f) = el.factory() else { return };
             if f.name() == "webrtcbin" {
                 no_upnp(el);
+                if no_ice_tcp {
+                    ice_tcp_off(el);
+                }
             }
             if matches!(
                 f.name().as_str(),
@@ -2807,7 +2892,7 @@ impl Desk {
             if f.name() == "rtpbin" && el.find_property("max-ts-offset").is_some() {
                 el.set_property("max-ts-offset", 1i64);
             }
-        }
+        };
         self.inner
             .pipeline
             .connect_deep_element_added(move |_, _, el| {
@@ -2836,6 +2921,19 @@ fn no_upnp(webrtcbin: &gst::Element) {
         && agent.find_property("upnp").is_some()
     {
         agent.set_property("upnp", false);
+    }
+}
+
+/// Turn ICE over TCP off in a `webrtcbin`'s ICE agent (a rehearsal desk, 1.3): libnice would
+/// otherwise listen on a passive TCP port for every connection. The desk reaches LiveKit over
+/// UDP.
+fn ice_tcp_off(webrtcbin: &gst::Element) {
+    if let Some(ice) = webrtcbin
+        .find_property("ice-agent")
+        .map(|_| webrtcbin.property::<glib::Object>("ice-agent"))
+        && ice.find_property("ice-tcp").is_some()
+    {
+        ice.set_property("ice-tcp", false);
     }
 }
 

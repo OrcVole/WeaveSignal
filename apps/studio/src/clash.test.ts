@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest';
 import { tabStretches, clashCounts, clashesOf, clusters, dayParts, foldWeek, front, lanesOf, shownBlock, takesAir, type DayFold, type FoldOptions } from './schedule/clash.ts';
 import { TAB_NAME_ROOM, tabTitle, blockAria, blockClasses, blockHtml, blockTitle, countHtml, countTitle, namesOf } from './schedule/blockHtml.ts';
 import { instant, markConflicts, weekOf, type Block } from './schedule/model.ts';
-import { dayToOpen, keyView, moveDay, moveWeek, openDay, sched, select, setView, showInWeek, backToShows, openShow, step, today } from './lib/schedule.svelte.ts';
+import { dayToOpen, keyView, moveDay, moveWeek, openDay, sched, select, setView, showInWeek, backToShows, openShow, step, today, weekBlocks, weekRehearsals } from './lib/schedule.svelte.ts';
+import type { RehearsalBlock } from './lib/api.ts';
+import type { WeekEpisode } from './lib/schedule.ts';
 
 const ZONE = 'Europe/London';
 /** Monday 16 November 2026, 10:12: the design's own week. */
@@ -479,5 +481,79 @@ describe('the fold tab’s ground and ink, from the tokens', () => {
     };
     for (const t of ['dark', 'light', 'night'] as const) expect(least(t).tint).toBeGreaterThan(0.4);
     expect(at40('dark')).toBeLessThan(2);
+  });
+});
+
+// Studios as columns (1.3.0; rehearsal-mode-build-plan.md section 2.1). Every show on air is in
+// the one column, wherever its host is, because there is one programme; the rehearsal studio's
+// bookings and sessions are beside it and never on air. So the clash rule is not keyed on the
+// column, and nothing of the rehearsal studio is ever in a clash.
+describe('clashes and the studios', () => {
+  it('an own-studio show overlapping a room show is still a clash', () => {
+    // The Morning Kettle from the room; Steeped's host comes in from their own studio at 13:00.
+    const kettle = block('The Morning Kettle', 18, [10, 0], [14, 0], 'episode', { studio: 'studio', from: 'room' });
+    const steeped = block('Steeped', 18, [13, 0], [15, 0], 'episode', { studio: 'studio', from: 'own' });
+    markConflicts([kettle, steeped]);
+    expect([kettle.conflict, steeped.conflict]).toEqual([true, true]);
+    expect(clashesOf(steeped, [kettle, steeped]).map((o) => [o.block.show, o.minutes])).toEqual([['The Morning Kettle', 60]]);
+    expect(clashCounts([kettle, steeped], days)[2]).toBe(2);
+    expect(takesAir(kettle, [steeped]).block).toBe(steeped);
+  });
+
+  it('is never keyed on the column: a block with no column, or another one, clashes the same', () => {
+    // Before 1.3.0 a clash counted only within one `studio` value. A dotted date carries the
+    // column too, and a block made without one (an older build's) is not let off.
+    const a = block('The Tea Break', 18, [15, 0], [16, 0], 'episode', { studio: 'studio' });
+    const b = block('Schools Hour', 18, [15, 0], [16, 0], 'rule', { studio: null });
+    const c = block('Kettle Drive', 18, [15, 30], [18, 0], 'episode', { studio: 'somewhere-else' });
+    markConflicts([a, b, c]);
+    expect([a.conflict, b.conflict, c.conflict]).toEqual([true, true, true]);
+  });
+
+  /** One episode as the station sends it with the week, on Wednesday 18 November. */
+  const aired = (slug: string, name: string, hh: number, minutes: number, from?: 'room' | 'own'): WeekEpisode =>
+    ({
+      show: { slug, name },
+      series: { number: 1 },
+      episode: { id: `${slug}-1`, number: 1, title: '', air_at: at(18, hh) / 1000, minutes, aired_at: null, kind: 'live' },
+      resolved: { show: name, slug, colour_slot: 4, hosts: [], rule: null, slot: null, episode: { title: '', minutes } },
+      ...(from ? { studio: 'studio', from } : {}),
+    }) as unknown as WeekEpisode;
+  const booked = (o: Partial<RehearsalBlock> = {}): RehearsalBlock => ({ id: 'b1', kind: 'booking', show: 'steeped', show_name: 'Steeped', colour_slot: 13, start_ms: at(18, 13, 30), end_ms: at(18, 14), by: 'Finlay', open: false, ended: null, ...o });
+  const seed = (rehearsals: RehearsalBlock[]) =>
+    Object.assign(sched, { zone: ZONE, anchor: NOW, view: 'week', selected: null, booking: null, dates: null, hours: [], clocks: [], defaultClock: null, shows: [], episodes: [aired('the-morning-kettle', 'The Morning Kettle', 10, 240, 'room'), aired('steeped', 'Steeped', 14, 120, 'own')], rehearsals });
+
+  it('a booking beside an episode is not a clash', () => {
+    // Steeped is booked to rehearse at 13:30 while The Morning Kettle is on air until 14:00.
+    seed([booked()]);
+    const { blocks } = weekBlocks(NOW);
+    const kettle = blocks.find((b) => b.slug === 'the-morning-kettle')!;
+    expect(kettle.conflict).toBe(false);
+    expect(blocks.some((b) => b.conflict)).toBe(false);
+    expect(clashesOf(kettle, blocks)).toEqual([]);
+    expect(clashCounts(blocks, days)).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    // A session while a show is on air is not one either, open or over.
+    seed([booked(), booked({ id: 's1', kind: 'session', start_ms: at(18, 11), end_ms: at(18, 11, 40), by: 'Kirsty', ended: 'ended' }), booked({ id: 's2', kind: 'session', start_ms: at(18, 13, 32), end_ms: at(18, 13, 40), open: true })]);
+    expect(weekBlocks(at(18, 13, 45)).blocks.some((b) => b.conflict)).toBe(false);
+  });
+
+  it('the rehearsal studio is never among the week’s blocks, and automation does not yield to it', () => {
+    seed([]);
+    const bare = weekBlocks(NOW).blocks;
+    seed([booked({ start_ms: at(18, 16), end_ms: at(18, 17) }), booked({ id: 's1', kind: 'session', start_ms: at(18, 18), end_ms: at(18, 19), ended: 'moved' })]);
+    const withStudio = weekBlocks(NOW).blocks;
+    // 16:00 to 19:00 is automation's, booked or not: the same blocks, to the id.
+    expect(withStudio).toEqual(bare);
+    expect(withStudio.filter((b) => b.kind === 'automation' && b.start <= at(18, 16) && b.end >= at(18, 19))).toHaveLength(1);
+    expect(withStudio.every((b) => b.kind === 'episode' || b.kind === 'automation')).toBe(true);
+    // They are the Rehearsal column's alone, bookings first.
+    expect(weekRehearsals(NOW).map((r) => [r.id, r.kind, r.show])).toEqual([
+      ['reh:b1', 'booking', 'Steeped'],
+      ['reh:s1', 'session', 'Steeped'],
+    ]);
+    // The fold sees shows only, so nothing of the rehearsal studio folds or is counted.
+    expect(foldWeek(withStudio, days, { selected: null, now: NOW, lanes: () => false })[2].placed.map((p) => p.block.show)).toEqual(['The Morning Kettle', 'Steeped']);
+    seed([]);
+    sched.episodes = [];
   });
 });

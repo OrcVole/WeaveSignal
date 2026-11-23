@@ -333,9 +333,9 @@ async fn thumbs(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
             Json(serde_json::json!({ "thumbs": thumbs })),
         )
             .into_response(),
-        Err(DeskError::NotConfigured | DeskError::Unreachable { .. }) => {
-            problem(StatusCode::SERVICE_UNAVAILABLE, "the desk is not answering")
-        }
+        Err(
+            DeskError::NotConfigured | DeskError::Unreachable { .. } | DeskError::WrongMode { .. },
+        ) => problem(StatusCode::SERVICE_UNAVAILABLE, "the desk is not answering"),
         // The desk refuses with video off.
         Err(e) => problem(StatusCode::CONFLICT, e.to_string()),
     }

@@ -2,6 +2,51 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.3.0 (2026-11-23)
+
+- **A rehearsal studio.** A second desk, the same program in a mode that has no way to the air
+  (`[desk] mode = "rehearsal"`), mixes a room of its own, `<room>-rehearsal`, for one show at a time.
+  A show's presenter, a producer or an admin opens it for the show (also from a preparing
+  window), invites guests to it with rehearsal invitations, and rehearses with the desk's own
+  keys and the show's carts: the rehearsed show's banks and the station's, never another show's.
+  Nothing said or played there reaches listeners, the recordings, the per-play log, webhooks,
+  now-playing or the chat. In it a person is *in the mix* or *not in the mix*, never on air, and
+  its lamp says REHEARSAL, never ON AIR or OPEN. The rehearsal desk is a separate process, so a
+  fault there cannot take the live desk down; it takes only nine requests on its control socket,
+  refuses to start with video or hosts' own studios on, and has no TCP listener. It ends by itself
+  after 30 minutes with nobody in it, takes six people (`rehearsal.max_people`), and is the first
+  process the system stops under memory pressure.
+- **Move to the live studio.** One press carries the people on the links they already have: each
+  page is given a live pass, leaves the rehearsal room keeping its microphone and joins the live
+  room standing by. Who was in the mix and who was muted becomes the show's *opening state*, applied
+  once when the show's host is put on air at the live desk, by the schedule's bring-on, the
+  handover's press, taking the air back from automation or their own On key: the muted first, then
+  the others, with the station's fade. The move is refused when nobody is in the rehearsal or the
+  show has no airing within twelve hours; the handover window says *… rehearsing* beside a show
+  that is rehearsing. Nobody is moved automatically.
+- **Behaviour change: every guest now arrives standing by at the live desk.** Until 1.2 a guest,
+  and a presenter who came by an invitation, went on air the moment their link joined, which could
+  put their first test words into the show on air. From 1.3.0 every guest and everyone who joins
+  by an invitation, a presenter's own link included, joins off air, under *Not on air*, until a
+  press puts them on: their slot's key, the handover, taking the air back from automation (which
+  puts the show's presenter on with it) or the schedule's bring-on. A desk that starts again puts
+  back on air the people it had on. The documentation's pages that said otherwise are corrected.
+- **Studios as columns in the Schedule tab, with optional bookings.** The schedule's week gives
+  `studios` (Studio, and Rehearsal when the station has a rehearsal studio), each episode's
+  `studio` and where its host comes from (`from`: `room` or `own`), and `rehearsals`, the bookings
+  and sessions in the range. The studio is first come; a booking holds it for a show from its start
+  to its end, bookings never share time (409, naming the one in the way), and while one holds the
+  studio Open for another show is refused. Whoever may change a show's step may book for it. The
+  calendar file never lists a rehearsal.
+- **A setting and two keys.** `REHEARSAL` (`true` or `false`, off by default) on Compose, the
+  Quadlets and Cloudron adds the rehearsal desk and opens no port; `[rehearsal]` in the control
+  plane's settings (`enabled`, `socket`, `desk_identity`, `room_suffix`, `max_people`,
+  `idle_end_s`); `[desk] mode` in the desk's. Migration 0070 makes `rehearsal_session` and
+  `rehearsal_booking`.
+- **Documentation.** *Rehearse before your show*, *What moves to the live studio*, the reference
+  *The rehearsal studio* and *The rehearsal studio's data*, the API reference's *rehearsal* routes,
+  the glossary, and the Roles and Who hears whom pages' standing-by rule.
+
 ## 1.2.1 (2026-11-22)
 
 - **The Screener's columns no longer cut the Room off.** Its first two columns were fixed widths

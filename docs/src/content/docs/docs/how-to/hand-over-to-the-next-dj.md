@@ -30,7 +30,7 @@ In the studio app 1.0.0 `⇧⏎` only showed a note; there, use the keys in [By 
 1. **Create an invitation for Finlay with the role DJ**: on the Desk tab, **Invite someone…** at the right end of the **Not on air** line; give his name, keep **DJ** under **They join as**, press **Create invitation**, then **Copy link**.
    The link is shown once, and works for the station's invitation time; anyone who has it can join as Finlay, so send it to him alone.
    A DJ joins off air: nothing of his reaches listeners until someone puts him on.
-   An invitation with the role presenter would put him on air the moment he joined.
+   An invitation with the role presenter stands by too (since 1.3), but takes a presenter's slot and keys.
    A program can create the same invitation with `POST /api/v1/invites` (`{"role": "dj", "name": "Finlay Grant"}`); the answer's `link` is the invitation ([Control plane API](/docs/reference/api/#post-apiv1invites)).
    The link lasts the station's `join.invite_ttl_s`, four hours by default ([Settings](/docs/reference/settings/)), so send it on the day.
 2. **Finlay gets ready** as any presenter does: headphones, the echo test, the invitation link in a browser, **Join the studio** ([Get ready to present](/docs/how-to/get-ready/)).

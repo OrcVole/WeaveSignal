@@ -1641,6 +1641,7 @@ mod tests {
             host: "Heather Douglas".into(),
             from: Origin::Push,
             heads_up_ms: Some(NOW),
+            rehearsing: false,
             late: None,
         });
         // Finlay holds the air: the line is not his.

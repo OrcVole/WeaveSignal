@@ -1,0 +1,39 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The rehearsal desk (1.3.0; rehearsal-mode-build-plan.md, screens 2 and 4). It is desk B's
+   layout with what the rehearsal has no use for left out. No new colour: the rehearsal's own
+   marks are the accent, hollow, and its lamp is dashed, so nothing here can be taken for the
+   air's red lamp or the white OPEN lamp (ADR-0062, ADR-0079). */
+
+.desk {
+  /* The Desk tab's choice of studio heads the left column, on both desks: a row of its own, taken
+     from the column's last panel, which is the one that gives way. */
+  .col.left.has-choice { grid-template-rows: auto auto auto minmax(0, 1fr); }
+
+  /* The REHEARSAL lamp: the lamp's size and place, hollow and dashed in the accent colour. */
+  .lamp.rehearsal { background: transparent; color: var(--ink); border: 2px dashed var(--accent); }
+  .lamp.rehearsal svg { color: var(--accent); }
+
+  /* In the rehearsal's mix: the tile's edge in the accent colour, one pixel, never the air's. */
+  .tile.is-mix { border-color: var(--accent); box-shadow: var(--e-1); }
+
+  /* The opening state's line under the handover window, at the live desk. */
+  .clock .post.opening .name { display: flex; gap: var(--s-1); align-items: baseline; font-weight: 400; color: var(--ink-2); line-height: var(--lh-label); }
+  .clock .post.opening svg { width: 12px; height: 12px; flex: none; align-self: center; color: var(--accent); }
+
+  /* Moved from rehearsal, standing by at the live desk: the note's mark. */
+  .tile .extra.moved svg { color: var(--accent); }
+}
+
+.desk.rehearsal {
+  /* Two panels on the left, not three: each as tall as its words. */
+  .col.left { grid-template-rows: auto auto; }
+  .col.left.has-choice { grid-template-rows: auto auto auto; }
+  /* Carts, then the toast's slot. */
+  .col.right.three { grid-template-rows: max-content minmax(var(--slot-floor, 6rem), 1fr); }
+  .clock .post.says .why { grid-column: 1 / -1; font-size: var(--fs-12); color: var(--ink-2); line-height: var(--lh-label); }
+  /* The post has come and the rehearsal has not moved: the line is marked, in words first. */
+  .clock .post.due .name { border-left: 3px solid var(--status-warning); padding-left: var(--s-2); }
+  .stage-head .air { display: grid; }
+  .empty.open { gap: var(--s-3); }
+}

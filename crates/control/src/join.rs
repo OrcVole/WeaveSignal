@@ -262,6 +262,28 @@ pub struct MeState {
     /// The presenter answers the phones themselves: the show runs at Callers, which has no
     /// screener (ADR-0271), so the page names the presenter where it would say "the producer".
     pub presenter_answers: bool,
+    /// Where this link leads (1.3): `live`, or `rehearsal` for a link to the rehearsal studio,
+    /// whose desk reaches no air (`phase` `on_air` there is in the rehearsal's mix, and
+    /// `show_on_air` and `open` are always false).
+    pub studio: weavesignal_proto::Studio,
+    /// The move to the live studio (1.3), for a rehearsal link whose person was moved: the page
+    /// swaps this pass into its link, leaves the rehearsal room keeping its tracks, and joins the
+    /// live room standing by through `POST /api/v1/pass/token`. Sent again on reconnecting.
+    #[serde(rename = "move")]
+    pub move_to: Option<MoveTo>,
+}
+
+/// A move to the live studio, for one person's page (1.3).
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct MoveTo {
+    /// The person's new pass, to the live studio.
+    pub pass: String,
+    /// The join page with the new pass in the fragment, as an invitation's link is.
+    pub link: String,
+    /// The show they move for, by name.
+    pub show: String,
+    /// The show's airing they stand by for: its start, in ms since the Unix epoch.
+    pub airing_start_ms: i64,
 }
 
 /// One person's state from the studio's view and the desk's people.
@@ -352,6 +374,8 @@ pub fn me_state(
         desk_reachable: view.desk.reachable,
         released: None,
         presenter_answers: view.step.step == crate::steps::Step::Callers,
+        studio: weavesignal_proto::Studio::Live,
+        move_to: None,
     }
 }
 
@@ -559,6 +583,8 @@ mod tests {
                 video: None,
                 kit: None,
                 phone: None,
+                desk_mode: None,
+                started_ms: None,
             };
             studio.sync(&desk, 0);
             World { studio, desk }

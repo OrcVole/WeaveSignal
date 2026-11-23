@@ -38,7 +38,7 @@ use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::IntervalStream;
-use weavesignal_proto::{PassClaims, PassKind, Role};
+use weavesignal_proto::{PassClaims, PassKind, PassScope, Role, Studio, UNTIL_PUT_ON_AIR};
 
 use crate::app::{AppState, TokenRequest, problem};
 use crate::hub::now_ms;
@@ -660,16 +660,66 @@ fn joined(state: &AppState, claims: &PassClaims, pass: String) -> Response {
             "Joining is not set up at this station yet.",
         );
     };
+    // A rehearsal pass (1.3) buys a token for the rehearsal room only, whatever its role: never
+    // the studio room. With the rehearsal studio off it buys nothing.
+    if claims.studio == Studio::Rehearsal {
+        let Some(r) = state.hub.rehearsal.get() else {
+            return problem(StatusCode::SERVICE_UNAVAILABLE, crate::rehearsal::OFF);
+        };
+        let room_name = r.room.clone();
+        return match room.keys.participant_with(
+            &room_name,
+            &claims.id,
+            &claims.name,
+            claims.role,
+            room.config.token_ttl_s,
+            true,
+        ) {
+            Ok(token) => (
+                StatusCode::CREATED,
+                Json(Joined {
+                    pass,
+                    token,
+                    url: room.config.public_url.clone(),
+                    room: room_name,
+                    identity: claims.id.clone(),
+                    role: claims.role,
+                    name: claims.name.clone(),
+                    hear: format!("{}-mm-{}", r.config.desk_identity, claims.id),
+                    see: None,
+                    pass_expires_at_ms: claims.exp * 1000,
+                }),
+            )
+                .into_response(),
+            Err(e) => problem(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        };
+    }
     // A caller joins their own booth (ADR-0193); anyone else the studio room.
     let room_name = weavesignal_proto::room_for(&room.config.name, claims.role, &claims.id);
-    match room.keys.participant_with(
-        &room_name,
-        &claims.id,
-        &claims.name,
-        claims.role,
-        room.config.token_ttl_s,
-        true,
-    ) {
+    // Every invitation arrives standing by (1.3, the operator's answer to the plan's question
+    // 9): the live desk keeps them off air until a press puts them on (the handover, taking the
+    // air from automation, their On key, the schedule's bring-on).
+    let token = if claims.kind == PassKind::Invite {
+        room.keys.participant_standing_by(
+            &room_name,
+            &claims.id,
+            &claims.name,
+            claims.role,
+            room.config.token_ttl_s,
+            true,
+            UNTIL_PUT_ON_AIR,
+        )
+    } else {
+        room.keys.participant_with(
+            &room_name,
+            &claims.id,
+            &claims.name,
+            claims.role,
+            room.config.token_ttl_s,
+            true,
+        )
+    };
+    match token {
         Ok(token) => (
             StatusCode::CREATED,
             Json(Joined {
@@ -695,6 +745,70 @@ fn joined(state: &AppState, claims: &PassClaims, pass: String) -> Response {
             .into_response(),
         Err(e) => problem(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
+}
+
+/// Where a rehearsal pass stands (1.3): its session, open or not, and its show's step.
+struct RehearsalPass {
+    r: Arc<crate::rehearsal::Rehearsal>,
+    /// The session the pass names, if it can be read.
+    session: Option<weavesignal_model::rehearsal::Session>,
+    /// It is the open session.
+    open: bool,
+    /// The show's name, for the page's sentences.
+    show_name: String,
+}
+
+impl RehearsalPass {
+    /// Why it cannot join the rehearsal room now, in a sentence for its page.
+    fn closed(&self) -> Option<String> {
+        if self.open {
+            return None;
+        }
+        Some(match &self.session {
+            Some(s) if s.ended == Some(weavesignal_model::rehearsal::Ended::Moved) => format!(
+                "The rehearsal for {} has moved to the live studio. This page takes you there.",
+                self.show_name
+            ),
+            _ => format!(
+                "The rehearsal studio for {} is not open. Ask whoever invited you to open it again.",
+                self.show_name
+            ),
+        })
+    }
+}
+
+/// A rehearsal pass's session, read: `Err` is the refusal (the studio off, a pass with no
+/// session).
+async fn rehearsal_pass(state: &AppState, c: &PassClaims) -> Result<RehearsalPass, Response> {
+    let Some(r) = state.hub.rehearsal.get().cloned() else {
+        return Err(problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            crate::rehearsal::OFF,
+        ));
+    };
+    let Some(id) = c
+        .session
+        .as_deref()
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+    else {
+        return Err(problem(
+            StatusCode::UNAUTHORIZED,
+            "This link is not valid. Ask the station for a new one.",
+        ));
+    };
+    let open = r.session().filter(|s| s.id == id);
+    let session = match open.clone() {
+        Some(s) => Some(s),
+        None => r.store_session(id).await,
+    };
+    Ok(RehearsalPass {
+        show_name: session
+            .as_ref()
+            .map_or_else(|| "this show".to_owned(), |s| s.show_name.clone()),
+        open: open.is_some(),
+        session,
+        r,
+    })
 }
 
 #[utoipa::path(
@@ -894,8 +1008,12 @@ pub struct PassInfo {
     pub relay: RelayInfo,
     /// Why the pass cannot join the room now, in a sentence for its page, while the show on
     /// air runs at a step that has switched its seat off (ADR-0271); the pass stays good for
-    /// later. `None` when it can join.
+    /// later. For a rehearsal link, while its session is not open, or its show's step has
+    /// switched the seat off. `None` when it can join.
     pub not_now: Option<String>,
+    /// Where the link leads (1.3): `live`, or `rehearsal`, whose desk reaches no air. For a
+    /// rehearsal link `show` is the rehearsed show.
+    pub studio: Studio,
 }
 
 /// The seat the step hides from this pass, if it does and the person is not already in the
@@ -929,6 +1047,35 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         Ok(p) => p,
         Err(r) => return r,
     };
+    if c.studio == Studio::Rehearsal {
+        let rp = match rehearsal_pass(&state, &c).await {
+            Ok(rp) => rp,
+            Err(r) => return r,
+        };
+        let not_now = match rp.closed() {
+            Some(why) => Some(why),
+            None => rehearsal_step_refusal(&rp, &c)
+                .await
+                .map(|h| h.at_join().to_owned()),
+        };
+        return Json(PassInfo {
+            kind: c.kind,
+            role: c.role,
+            identity: c.id.clone(),
+            name: c.name.clone(),
+            station: state.station_name(),
+            show: rp.show_name.clone(),
+            expires_at_ms: c.exp * 1000,
+            ended: state.joins.ended(&c.id, c.iat),
+            relay: RelayInfo {
+                turn_tls_port: state.turn_tls_port,
+                stun_servers: state.join.stun_servers.clone(),
+            },
+            not_now,
+            studio: Studio::Rehearsal,
+        })
+        .into_response();
+    }
     Json(PassInfo {
         kind: c.kind,
         role: c.role,
@@ -943,8 +1090,47 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
             stun_servers: state.join.stun_servers.clone(),
         },
         not_now: step_refusal(&state, &c).map(|h| h.at_join().to_owned()),
+        studio: Studio::Live,
     })
     .into_response()
+}
+
+/// The seat the rehearsed show's step hides from a rehearsal pass (ADR-0271): invitations to a
+/// rehearsal follow the rehearsed show's step, never the show on air's.
+async fn rehearsal_step_refusal(
+    rp: &RehearsalPass,
+    c: &PassClaims,
+) -> Option<crate::steps::Hidden> {
+    let show = rp.session.as_ref()?.show_id;
+    let policy = rp.r.policy_of(show).await?;
+    let in_room = rp.r.has_person(&c.id);
+    crate::steps::pass_refusal(policy, c.role, &c.id, in_room)
+}
+
+/// A token for a rehearsal pass (1.3): only while the session it names is open, its show's step
+/// allows the seat, and the room has space (`rehearsal.max_people`).
+async fn rehearsal_token(state: &AppState, c: &PassClaims, pass: String) -> Response {
+    let rp = match rehearsal_pass(state, c).await {
+        Ok(rp) => rp,
+        Err(r) => return r,
+    };
+    if let Some(why) = rp.closed() {
+        return problem(StatusCode::CONFLICT, why);
+    }
+    if let Some(hidden) = rehearsal_step_refusal(&rp, c).await {
+        return problem(StatusCode::CONFLICT, hidden.at_join());
+    }
+    let max = usize::from(rp.r.config.max_people);
+    if !rp.r.has_person(&c.id) && rp.r.people_in_room(state.hub.room.as_ref(), &c.id).await >= max {
+        return problem(
+            StatusCode::CONFLICT,
+            format!(
+                "The rehearsal studio for {} is full: it takes {max} people at once. Try again when someone leaves.",
+                rp.show_name
+            ),
+        );
+    }
+    joined(state, c, pass)
 }
 
 /// A fresh room token for the pass's identity. A caller's needs their consent still on file:
@@ -972,6 +1158,9 @@ pub async fn pass_token(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         Ok(p) => p,
         Err(r) => return r,
     };
+    if c.studio == Studio::Rehearsal && !state.joins.ended(&c.id, c.iat) {
+        return rehearsal_token(&state, &c, pass).await;
+    }
     if state.joins.ended(&c.id, c.iat) {
         return problem(
             StatusCode::GONE,
@@ -1028,15 +1217,64 @@ pub async fn pass_events(State(state): State<Arc<AppState>>, headers: HeaderMap)
         Err(r) => return r,
     };
     let mut last = String::new();
+    // A rehearsal link (1.3): its session, and the move to the live studio once minted (once
+    // for this stream; a page that reconnects is sent a fresh one).
+    let session = (c.studio == Studio::Rehearsal)
+        .then(|| {
+            c.session
+                .as_deref()
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        })
+        .flatten();
+    let mut moved: Option<crate::join::MoveTo> = None;
     let stream = IntervalStream::new(tokio::time::interval(ME_TICK)).filter_map(move |_| {
         let ended = state.joins.ended(&c.id, c.iat);
-        let me: MeState = me_state(
-            &c.id,
-            c.role,
-            &state.hub.view(),
-            state.hub.desk_status().as_ref(),
-            ended,
-        );
+        let rehearsal = state
+            .hub
+            .rehearsal
+            .get()
+            .filter(|_| c.studio == Studio::Rehearsal);
+        let me: MeState = match rehearsal {
+            Some(r) => {
+                let open = session.is_some() && r.session().map(|s| s.id) == session;
+                let now = now_ms() as i64;
+                if moved.is_none()
+                    && let Some(m) = session.and_then(|sid| r.move_of(sid, &c.id, now))
+                {
+                    moved = mint_move(&state, &c, &m);
+                }
+                let desk = r.desk_status();
+                let mut me = me_state(
+                    &c.id,
+                    c.role,
+                    &state.hub.view(),
+                    desk.as_ref(),
+                    ended || (!open && moved.is_none()),
+                );
+                me.studio = Studio::Rehearsal;
+                me.show = r
+                    .session()
+                    .filter(|s| Some(s.id) == session)
+                    .map(|s| s.show_name)
+                    .or_else(|| moved.as_ref().map(|m| m.show.clone()))
+                    .unwrap_or_default();
+                // Nothing in the rehearsal studio is on air or open.
+                me.open = false;
+                me.show_on_air = false;
+                me.presenter = String::new();
+                me.presenter_live = false;
+                me.desk_reachable = desk.is_some();
+                me.move_to = moved.clone();
+                me
+            }
+            None => me_state(
+                &c.id,
+                c.role,
+                &state.hub.view(),
+                state.hub.desk_status().as_ref(),
+                ended || c.studio == Studio::Rehearsal,
+            ),
+        };
         let mut me = me;
         me.released = state.joins.released(&c.id, c.iat);
         let json = serde_json::to_string(&me).expect("the state serialises");
@@ -1050,6 +1288,43 @@ pub async fn pass_events(State(state): State<Arc<AppState>>, headers: HeaderMap)
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(10)))
         .into_response()
+}
+
+/// A moved person's live pass and link (1.3): the same identity, role and name, to the live
+/// studio for the move's show, for the station's invitation lifetime.
+fn mint_move(
+    state: &AppState,
+    c: &PassClaims,
+    m: &weavesignal_model::rehearsal::Session,
+) -> Option<crate::join::MoveTo> {
+    let room = state.room.as_ref()?;
+    let opening = m.opening.as_ref()?;
+    let ttl = state
+        .join
+        .invite_ttl_s
+        .clamp(1, weavesignal_proto::MAX_PASS_TTL_S);
+    let scope = PassScope::moved(
+        &m.show_slug,
+        u64::try_from(opening.standby_until_ms).unwrap_or(0),
+    );
+    match room
+        .keys
+        .pass_with(PassKind::Invite, c.role, &c.id, &c.name, ttl, scope)
+    {
+        Ok((pass, _)) => {
+            tracing::info!(identity = %c.id, show = %m.show_slug, "a moved person's live pass is sent");
+            Some(crate::join::MoveTo {
+                link: invite_link(&state.join.public_url, &pass),
+                pass,
+                show: m.show_name.clone(),
+                airing_start_ms: opening.airing_start_ms,
+            })
+        }
+        Err(e) => {
+            tracing::warn!(identity = %c.id, error = %e, "cannot sign a moved person's live pass");
+            None
+        }
+    }
 }
 
 /// A caller hangs up: out of the queue with no held place, out of the room, the pass ended.
@@ -1107,6 +1382,14 @@ pub struct InviteRequest {
     /// can be made again. Needs a staff session, not the station key.
     #[serde(default)]
     pub for_me: bool,
+    /// Which studio the link leads to (1.3): `live` (the default) or `rehearsal`, the
+    /// rehearsal studio for `show`, whose session must be open. A rehearsal link follows that
+    /// show's step, not the show on air's, and buys nothing once its session has ended.
+    #[serde(default)]
+    pub studio: Studio,
+    /// The show to rehearse, by its slug: needed with `studio` `rehearsal`, and only then.
+    #[serde(default)]
+    pub show: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -1116,6 +1399,8 @@ pub struct Invite {
     pub role: Role,
     pub name: String,
     pub expires_at_ms: u64,
+    /// Where the link leads: `live` or `rehearsal` (1.3).
+    pub studio: Studio,
     /// The join page with the pass in the fragment, which browsers never send: absolute on the
     /// station's public address (`publishing.public_url`) when it is set, else a path.
     pub link: String,
@@ -1159,7 +1444,27 @@ pub async fn invite(
             "the room is not configured: set WEAVESIGNAL_LIVEKIT_API_SECRET",
         );
     };
-    let policy = state.hub.read_studio(|s| s.step_policy());
+    // A rehearsal link (1.3): for the open session of the show named, made by whoever may run
+    // its rehearsal, at that show's step.
+    let mut scope = PassScope::default();
+    let policy = if req.studio == Studio::Rehearsal {
+        match rehearsal_invite(&state, &actor, req.show.as_deref()).await {
+            Ok((session, policy)) => {
+                scope = PassScope::rehearsal(&session.to_string());
+                policy
+            }
+            Err(r) => return r,
+        }
+    } else {
+        if req.show.is_some() {
+            return field_problem(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "show",
+                "a show is named only for a link to the rehearsal studio",
+            );
+        }
+        state.hub.read_studio(|s| s.step_policy())
+    };
     let name = match clean_line(&req.name, 120, "a name") {
         Ok(n) => n,
         Err(e) => return problem(StatusCode::UNPROCESSABLE_ENTITY, e),
@@ -1233,10 +1538,10 @@ pub async fn invite(
         .min(state.join.invite_ttl_s);
     match room
         .keys
-        .pass(PassKind::Invite, role, &identity, &name, ttl)
+        .pass_with(PassKind::Invite, role, &identity, &name, ttl, scope)
     {
         Ok((pass, claims)) => {
-            tracing::info!(identity = %identity, %role, ttl_s = ttl, for_me = req.for_me, "invitation made");
+            tracing::info!(identity = %identity, %role, ttl_s = ttl, for_me = req.for_me, studio = claims.studio.as_str(), "invitation made");
             (
                 StatusCode::CREATED,
                 Json(Invite {
@@ -1246,12 +1551,67 @@ pub async fn invite(
                     role,
                     name,
                     expires_at_ms: claims.exp * 1000,
+                    studio: claims.studio,
                 }),
             )
                 .into_response()
         }
         Err(e) => problem(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()),
     }
+}
+
+/// The open rehearsal session a rehearsal link is made for, and its show's step: `Err` is the
+/// refusal (503 the studio off, 422 no show named, 404 no such show, 403 no rights over it, 409
+/// its session not open).
+async fn rehearsal_invite(
+    state: &AppState,
+    actor: &crate::staff::Actor,
+    show: Option<&str>,
+) -> Result<(uuid::Uuid, crate::studio::StepPolicy), Response> {
+    let Some(r) = state.hub.rehearsal.get() else {
+        return Err(problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            crate::rehearsal::OFF,
+        ));
+    };
+    let Some(slug) = show.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Err(field_problem(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "show",
+            "a link to the rehearsal studio names the show it rehearses",
+        ));
+    };
+    let Some(session) = r.session().filter(|s| s.show_slug == slug) else {
+        return Err(match r.show_ref(slug).await {
+            None => problem(
+                StatusCode::NOT_FOUND,
+                format!("show `{slug}` does not exist"),
+            ),
+            Some(found) => problem(
+                StatusCode::CONFLICT,
+                format!(
+                    "The rehearsal studio is not open for {}. Open it first, then invite people to it.",
+                    found.name
+                ),
+            ),
+        });
+    };
+    if !crate::steps::may_change(actor, session.presenter_account) {
+        return Err(problem(
+            StatusCode::FORBIDDEN,
+            format!(
+                "Only an admin, a producer or the presenter of {} invites people to its rehearsal.",
+                session.show_name
+            ),
+        ));
+    }
+    let Some(policy) = r.policy_of(session.show_id).await else {
+        return Err(problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the rehearsed show's step could not be read",
+        ));
+    };
+    Ok((session.id, policy))
 }
 
 // ---- the description (ADR-0195) ----

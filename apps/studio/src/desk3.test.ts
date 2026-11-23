@@ -294,21 +294,20 @@ describe('joining while a host in their own studio has the air (the look’s rev
     // Two hosts on air at once, in an overlap: neither is named.
     expect(airHost([finlay(true), { ...finlay(true), identity: 'source-OTHER', name: 'Heather Douglas' }], null)).toEqual({ name: '', lost: false });
   });
-  it('says what joining is for, and that it puts you on air', () => {
-    expect(ownLinkBeside({ name: 'Finlay', lost: false })).toBe('Join to talk to Finlay or to hear a cue. Joining puts you on air.');
-    expect(ownLinkBeside({ name: '', lost: false })).toBe('Join to talk to the hosts or to hear a cue. Joining puts you on air.');
+  it('says what joining is for, and that you join standing by (1.3)', () => {
+    expect(ownLinkBeside({ name: 'Finlay', lost: false })).toBe('Join to talk to Finlay or to hear a cue. You join off air, standing by.');
+    expect(ownLinkBeside({ name: '', lost: false })).toBe('Join to talk to the hosts or to hear a cue. You join off air, standing by.');
     // A lost link, the desk still holding the air (the first seconds, or a station without the
-    // playout layer): nobody to talk to, and whoever joins holds the air, so a returning host stands by.
-    expect(ownLinkBeside({ name: 'Finlay', lost: true }, 'live')).toBe('Joining puts you on air. If Finlay reconnects, they then stand by.');
-    expect(ownLinkBeside({ name: 'Finlay', lost: true }, null)).toBe('Joining puts you on air. If Finlay reconnects, they then stand by.');
+    // playout layer): nobody to talk to; whoever joins and goes on holds the air, so a returning host stands by.
+    expect(ownLinkBeside({ name: 'Finlay', lost: true }, 'live')).toBe('You join standing by; your own On key puts you on air. If Finlay reconnects while you are on, they stand by.');
+    expect(ownLinkBeside({ name: 'Finlay', lost: true }, null)).toBe('You join standing by; your own On key puts you on air. If Finlay reconnects while you are on, they stand by.');
   });
-  it('does not say on air while automation holds the air: whoever joins is open to the room, and not heard', () => {
-    // Automation covers the lost link. The station brings a returning host back by itself and
-    // takes the air back with them (`plan`, crates/model/src/post.rs), so whoever joined is on air then.
-    expect(ownLinkBeside({ name: 'Finlay', lost: true }, 'auto')).toBe('You join open to the room, and are on air when Finlay is back.');
+  it('does not promise the air while automation holds it: whoever joins stands by', () => {
+    // Automation covers the lost link, and holds the air until the host is back.
+    expect(ownLinkBeside({ name: 'Finlay', lost: true }, 'auto')).toBe('You join standing by. Automation holds the air until Finlay is back.');
     // The air was handed to automation while the host is open.
-    expect(ownLinkBeside({ name: 'Finlay', lost: false }, 'auto')).toBe('Join to talk to Finlay or to hear a cue. You join open to the room.');
-    for (const lost of [true, false]) expect(ownLinkBeside({ name: 'Finlay', lost }, 'auto')).not.toMatch(/puts you on air/);
+    expect(ownLinkBeside({ name: 'Finlay', lost: false }, 'auto')).toBe('Join to talk to Finlay or to hear a cue. You join off air, standing by.');
+    for (const lost of [true, false]) for (const mode of ['auto', 'live', null] as const) expect(ownLinkBeside({ name: 'Finlay', lost }, mode)).not.toMatch(/Joining puts you on air|the moment/);
   });
   it('does not headline the offer on the stage: one quiet line in the Not on air row, beside Invite someone…', () => {
     show(view(at(14, 10, 5), [finlay(true)], full));
@@ -316,7 +315,7 @@ describe('joining while a host in their own studio has the air (the look’s rev
     expect(stage(body)).not.toContain('You are not in the room yet');
     expect(stage(body)).not.toContain('data-testid="own-link"');
     expect(body).not.toMatch(/class="btn primary[^"]*"[^>]*>Join with my microphone…/);
-    expect(text(row(body))).toContain('Not on air Join to talk to Finlay or to hear a cue. Joining puts you on air. Join with my microphone…');
+    expect(text(row(body))).toContain('Not on air Join to talk to Finlay or to hear a cue. You join off air, standing by. Join with my microphone…');
     expect(row(body).indexOf('>Invite someone…</button>')).toBeGreaterThan(row(body).indexOf('>Join with my microphone…</button>'));
     // The quiet button of the row, named by the line beside it; the row's own note steps aside.
     expect(row(body)).toMatch(/<button type="button" class="btn quiet invite[^"]*" aria-haspopup="dialog" aria-describedby="own-beside"[^>]*>Join with my microphone…<\/button>/);
@@ -330,12 +329,12 @@ describe('joining while a host in their own studio has the air (the look’s rev
     show(kept('auto', true));
     let body = render(DeskB).body;
     expect(stage(body)).not.toContain('You are not in the room yet');
-    expect(text(row(body))).toContain('You join open to the room, and are on air when Finlay is back. Join with my microphone…');
+    expect(text(row(body))).toContain('You join standing by. Automation holds the air until Finlay is back. Join with my microphone…');
     // The first seconds, before automation covers: the desk still holds the air.
     show(kept('live', false));
     body = render(DeskB).body;
     expect(stage(body)).not.toContain('You are not in the room yet');
-    expect(text(row(body))).toContain('Joining puts you on air. If Finlay reconnects, they then stand by. Join with my microphone…');
+    expect(text(row(body))).toContain('You join standing by; your own On key puts you on air. If Finlay reconnects while you are on, they stand by. Join with my microphone…');
   });
   it('takes the guest’s seat at Solo, which has no Not on air row: a sentence and a quiet button, no headline', () => {
     studio.showAll = false;
@@ -343,7 +342,7 @@ describe('joining while a host in their own studio has the air (the look’s rev
     const body = render(DeskB).body;
     expect(body).not.toContain('data-panel="desk.waiting"');
     expect(body).not.toContain('You are not in the room yet');
-    expect(body).toMatch(/<div class="empty seat own" data-testid="own-link"><span id="own-beside">Join to talk to Finlay or to hear a cue\. Joining puts you on air\.<\/span>/);
+    expect(body).toMatch(/<div class="empty seat own" data-testid="own-link"><span id="own-beside">Join to talk to Finlay or to hear a cue\. You join off air, standing by\.<\/span>/);
     expect(body).not.toMatch(/class="btn primary[^"]*"[^>]*>Join with my microphone…/);
     expect(body).toMatch(/class="btn quiet invite[^"]*"[^>]*aria-describedby="own-beside"[^>]*>Join with my microphone…/);
     expect(body).not.toContain('Just you on this show');
@@ -371,7 +370,7 @@ describe('the join words', () => {
     expect(OWN_LINK.lede).toContain('Keep that tab open: it carries your voice.');
     expect(OWN_LINK.opened).toContain('Keep that tab open: it carries your voice.');
     expect(OWN_LINK.stage).toContain('Keep that tab open: it carries your voice.');
-    // Under automation joining opens a person to the room; neither line promises the air.
+    // Since 1.3 a person joins standing by; no line promises the air at joining.
     expect(OWN_LINK.stageAuto).not.toContain('you are on air');
     expect(OWN_LINK.ledeAuto).not.toContain('You are on air');
     expect(OWN_LINK.stageAuto).toContain('Take the air back');

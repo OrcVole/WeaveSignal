@@ -3,6 +3,7 @@
 
 //! WeaveSignal's control plane.
 
+pub mod air_kept;
 pub mod api;
 pub mod apikey;
 pub mod app;
@@ -30,6 +31,8 @@ pub mod playout;
 pub mod ports;
 pub mod post;
 pub mod public;
+pub mod rehearsal;
+pub mod rehearsal_bookings;
 pub mod retention;
 pub mod rota;
 pub mod rules;
@@ -284,6 +287,15 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     }
     hub.spawn_poller();
     hub.start_carts().await;
+    // The rehearsal studio (1.3.0): a second desk link, beside the hub's and never through it.
+    let store = match &db {
+        Some(pool) => rehearsal::Store::Db {
+            pool: pool.clone(),
+            station: station.id,
+        },
+        None => rehearsal::Store::None,
+    };
+    rehearsal::start(&hub, &config, store).await;
     onair_api::LIBRARY_UPLOAD_MB.store(
         config.playout.library_max_upload_mb,
         std::sync::atomic::Ordering::Relaxed,

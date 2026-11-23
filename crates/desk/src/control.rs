@@ -80,6 +80,18 @@
 //! The status also carries `carts`: what is sounding, whether beds are dipped, and
 //! `play_seq`, the number of the last play event (ADR-0117).
 //!
+//! **A rehearsal desk** (`[desk] mode = "rehearsal"`, 1.3) takes only the desk's keys: `status`,
+//! `on_air`, `mute`, `cue`, `talk`, `talk_to`, `cart_fire`, `cart_stop` and `cart_stop_all`.
+//! Every other request, and any request added later, is refused before it is read further, with
+//! `{"ok": false, "code": "rehearsal", "error": "not on a rehearsal desk: …"}`. Its plays are
+//! never asked for (`cart_plays` is refused), so nothing rehearsed reaches the per-play log. The
+//! status carries `desk_mode`, `live` or `rehearsal` (`mode` stays the station's mode), so the
+//! control plane drives each desk only through its own link.
+//!
+//! The status also carries `started_ms`, when the desk was built (ms since the Unix epoch): the
+//! control plane reads a new value as a desk that started again, and puts back on air the people
+//! it had on air before (guests and invitations arrive standing by since 1.3).
+//!
 //! `cart_fire` answers `{"ok": true, "pool": "shot", "player": 3, "play": 17}`, or an error
 //! with a `code`: `invalid`, `missing` (no such file in the cart directory), `busy` (every
 //! player of the pool is sounding) or `decode`. `cart_stop` and `cart_stop_all` fade carts
@@ -95,6 +107,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::carts::{CartMode, CartsStatus, Fire, Pool};
+use crate::config::DeskMode;
 use crate::hls_sound::StationMode;
 use crate::pipeline::{DelayStatus, Desk, HlsSoundStatus, MixStats, PersonStatus, PlayoutLink};
 use crate::video::{NowPlaying, VideoStatus};
@@ -213,13 +226,18 @@ pub enum Request {
 pub enum Reply {
     Status {
         ok: bool,
+        /// Which studio this desk mixes: `live` or `rehearsal` (1.3).
+        desk_mode: DeskMode,
+        /// When this desk was built (ms since the Unix epoch): a new value is a desk that
+        /// started again (1.3).
+        started_ms: u64,
         people: Vec<PersonStatus>,
         playout: PlayoutLink,
         /// The station's mode, as the control plane last said (live until it does).
         mode: StationMode,
         delay: DelayStatus,
         mix: MixStats,
-        carts: CartsStatus,
+        carts: Box<CartsStatus>,
         #[serde(skip_serializing_if = "Option::is_none")]
         video: Option<Box<VideoStatus>>,
         /// The video stream's sound (video on): the desk's or playout's (ADR-0172).
@@ -263,6 +281,59 @@ pub enum Reply {
     },
 }
 
+impl Request {
+    /// The request's `op`, as it is written on the socket.
+    pub fn op(&self) -> &'static str {
+        match self {
+            Request::Status => "status",
+            Request::OnAir { .. } => "on_air",
+            Request::Mute { .. } => "mute",
+            Request::Cue { .. } => "cue",
+            Request::Talk { .. } => "talk",
+            Request::TalkTo { .. } => "talk_to",
+            Request::Dump => "dump",
+            Request::CartFire { .. } => "cart_fire",
+            Request::CartStop { .. } => "cart_stop",
+            Request::CartStopAll { .. } => "cart_stop_all",
+            Request::CartPlays { .. } => "cart_plays",
+            Request::Picture { .. } => "picture",
+            Request::Caption { .. } => "caption",
+            Request::Thumbs => "thumbs",
+            Request::NowPlaying { .. } => "now_playing",
+            Request::Mode { .. } => "mode",
+            Request::Rtmp { .. } => "rtmp",
+            Request::Kit { .. } => "kit",
+            Request::PhoneWords { .. } => "phone_words",
+            Request::PhoneAdmit { .. } => "phone_admit",
+            Request::PhoneHangUp { .. } => "phone_hang_up",
+        }
+    }
+}
+
+/// The only requests a rehearsal desk takes (section 1.7): its keys, its carts and its status.
+pub const REHEARSAL_OPS: [&str; 9] = [
+    "status",
+    "on_air",
+    "mute",
+    "cue",
+    "talk",
+    "talk_to",
+    "cart_fire",
+    "cart_stop",
+    "cart_stop_all",
+];
+
+/// A rehearsal desk's refusal of `req`, or `None` when it may take it. An allow-list: a request
+/// added later is refused here until it is named in [`REHEARSAL_OPS`].
+pub fn rehearsal_refusal(req: &Request) -> Option<Reply> {
+    let op = req.op();
+    (!REHEARSAL_OPS.contains(&op)).then(|| Reply::Error {
+        ok: false,
+        code: Some("rehearsal"),
+        error: format!("not on a rehearsal desk: `{op}` reaches no air here"),
+    })
+}
+
 /// A phone request's answer: done, or its error with the code `phone`.
 fn phone_reply(r: Result<()>) -> Reply {
     match r {
@@ -286,6 +357,11 @@ pub fn handle(desk: &Desk, line: &str) -> Reply {
             };
         }
     };
+    if desk.desk_mode() == DeskMode::Rehearsal
+        && let Some(refused) = rehearsal_refusal(&req)
+    {
+        return refused;
+    }
     let done = |known: bool, id: &str| {
         if known {
             Reply::Done { ok: true }
@@ -300,12 +376,14 @@ pub fn handle(desk: &Desk, line: &str) -> Reply {
     match req {
         Request::Status => Reply::Status {
             ok: true,
+            desk_mode: desk.desk_mode(),
+            started_ms: desk.started_ms(),
             people: desk.status(),
             playout: desk.playout(),
             mode: desk.mode(),
             delay: desk.delay(),
             mix: desk.mix_stats(),
-            carts: desk.carts(),
+            carts: Box::new(desk.carts()),
             video: desk.video().map(|v| Box::new(v.status())),
             sound: desk.video().map(|_| desk.hls_sound()),
             kit: Box::new(desk.kit_status()),
@@ -577,6 +655,120 @@ pub fn listen(desk: Desk, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One of every request, as the control plane writes them.
+    const EVERY_OP: [&str; 21] = [
+        r#"{"op":"status"}"#,
+        r#"{"op":"on_air","identity":"gregor","on":true}"#,
+        r#"{"op":"mute","identity":"gregor","on":true}"#,
+        r#"{"op":"cue","identity":"gregor","on":true}"#,
+        r#"{"op":"talk","identity":"moira","on":true}"#,
+        r#"{"op":"talk_to","identity":"moira","to":"gregor","on":true}"#,
+        r#"{"op":"dump"}"#,
+        r#"{"op":"cart_fire","cart":"c","file":"f.flac","gain_db":-7.0,"mode":"bed"}"#,
+        r#"{"op":"cart_stop","cart":"c"}"#,
+        r#"{"op":"cart_stop_all"}"#,
+        r#"{"op":"cart_plays","after":0}"#,
+        r#"{"op":"picture","mode":"auto"}"#,
+        r#"{"op":"caption","text":"x"}"#,
+        r#"{"op":"thumbs"}"#,
+        r#"{"op":"now_playing","title":"T"}"#,
+        r#"{"op":"mode","mode":"auto"}"#,
+        r#"{"op":"rtmp","set":"s","destinations":[]}"#,
+        r#"{"op":"kit","set":"s","bind":"127.0.0.1","outs":[]}"#,
+        r#"{"op":"phone_words","person":"phone-x","file":"f.flac","version":"1"}"#,
+        r#"{"op":"phone_admit","person":"phone-x"}"#,
+        r#"{"op":"phone_hang_up","person":"phone-x"}"#,
+    ];
+
+    fn refused(line: &str) -> bool {
+        let req: Request = serde_json::from_str(line).unwrap();
+        match rehearsal_refusal(&req) {
+            None => false,
+            Some(Reply::Error { ok, code, error }) => {
+                assert!(!ok);
+                assert_eq!(code, Some("rehearsal"));
+                assert!(error.contains(req.op()), "{error}");
+                true
+            }
+            Some(other) => panic!("not a refusal: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_op_is_named_once_and_the_list_is_whole() {
+        let ops: Vec<&str> = EVERY_OP
+            .iter()
+            .map(|l| serde_json::from_str::<Request>(l).unwrap().op())
+            .collect();
+        let mut seen = ops.clone();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), ops.len(), "an op written twice");
+        for op in REHEARSAL_OPS {
+            assert!(ops.contains(&op), "{op} has no example");
+        }
+    }
+
+    #[test]
+    fn a_rehearsal_desk_takes_its_keys_carts_and_status() {
+        for line in &EVERY_OP[..6] {
+            assert!(!refused(line), "{line}");
+        }
+        for line in &EVERY_OP[7..10] {
+            assert!(!refused(line), "{line}");
+        }
+    }
+
+    // One test per refused op (section 1.7's table).
+    #[test]
+    fn a_rehearsal_desk_refuses_dump() {
+        assert!(refused(EVERY_OP[6]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_cart_plays() {
+        assert!(refused(EVERY_OP[10]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_picture() {
+        assert!(refused(EVERY_OP[11]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_caption() {
+        assert!(refused(EVERY_OP[12]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_thumbs() {
+        assert!(refused(EVERY_OP[13]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_now_playing() {
+        assert!(refused(EVERY_OP[14]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_mode() {
+        assert!(refused(EVERY_OP[15]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_rtmp() {
+        assert!(refused(EVERY_OP[16]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_kit() {
+        assert!(refused(EVERY_OP[17]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_phone_words() {
+        assert!(refused(EVERY_OP[18]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_phone_admit() {
+        assert!(refused(EVERY_OP[19]));
+    }
+    #[test]
+    fn a_rehearsal_desk_refuses_phone_hang_up() {
+        assert!(refused(EVERY_OP[20]));
+    }
 
     #[test]
     fn requests_parse() {

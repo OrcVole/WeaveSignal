@@ -156,6 +156,7 @@ fn booth() -> (Seen, PhoneSeen) {
             has_audio: true,
             muted: false,
             room: Some(ROOM.into()),
+            standby_until_ms: None,
         },
         PhoneSeen {
             person: PERSON.into(),

@@ -26,6 +26,7 @@ use hmac::{KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
+use crate::rehearsal::Studio;
 use crate::role::Role;
 use crate::token::{Keys, TokenError};
 
@@ -59,6 +60,52 @@ pub struct PassClaims {
     pub name: String,
     pub iat: u64,
     pub exp: u64,
+    /// Where the pass leads (1.3, the rehearsal studio). Left out for the live studio, so a
+    /// live pass reads and is written exactly as a 1.2 pass.
+    #[serde(default, skip_serializing_if = "Studio::is_live")]
+    pub studio: Studio,
+    /// The rehearsal session a rehearsal pass belongs to (its id): it buys a token only while
+    /// that session is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// The show a live pass was made for by a move from the rehearsal studio (its slug).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<String>,
+    /// For a moved person: until when (ms since the Unix epoch) the live desk keeps them
+    /// standing by; their room token carries it as `weavesignal.standby_until`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standby_until_ms: Option<u64>,
+}
+
+/// What a pass adds to who it is for (1.3): which studio, and for a rehearsal or a move, the
+/// session, the show and the standing-by time. The default is a live pass as 1.2 made them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PassScope {
+    pub studio: Studio,
+    pub session: Option<String>,
+    pub show: Option<String>,
+    pub standby_until_ms: Option<u64>,
+}
+
+impl PassScope {
+    /// A pass to a rehearsal session.
+    pub fn rehearsal(session: &str) -> Self {
+        Self {
+            studio: Studio::Rehearsal,
+            session: Some(session.to_owned()),
+            ..Self::default()
+        }
+    }
+
+    /// A live pass made by a move from the rehearsal studio: standing by until a moment.
+    pub fn moved(show: &str, standby_until_ms: u64) -> Self {
+        Self {
+            studio: Studio::Live,
+            show: Some(show.to_owned()),
+            standby_until_ms: Some(standby_until_ms),
+            ..Self::default()
+        }
+    }
 }
 
 fn now_s() -> u64 {
@@ -77,7 +124,7 @@ impl Keys {
         HmacSha256::new_from_slice(&key).expect("HMAC takes a key of any length")
     }
 
-    /// Sign a pass for `ttl_s` seconds from now.
+    /// Sign a pass for `ttl_s` seconds from now, to the live studio.
     pub fn pass(
         &self,
         kind: PassKind,
@@ -85,6 +132,19 @@ impl Keys {
         identity: &str,
         name: &str,
         ttl_s: u64,
+    ) -> Result<(String, PassClaims), TokenError> {
+        self.pass_with(kind, role, identity, name, ttl_s, PassScope::default())
+    }
+
+    /// As [`Self::pass`], with a [`PassScope`]: the rehearsal studio, or a moved live pass.
+    pub fn pass_with(
+        &self,
+        kind: PassKind,
+        role: Role,
+        identity: &str,
+        name: &str,
+        ttl_s: u64,
+        scope: PassScope,
     ) -> Result<(String, PassClaims), TokenError> {
         if !(1..=MAX_PASS_TTL_S).contains(&ttl_s) {
             return Err(TokenError::Lifetime {
@@ -100,6 +160,10 @@ impl Keys {
             name: name.to_owned(),
             iat,
             exp: iat + ttl_s,
+            studio: scope.studio,
+            session: scope.session,
+            show: scope.show,
+            standby_until_ms: scope.standby_until_ms,
         };
         let body = B64.encode(serde_json::to_vec(&claims).expect("claims serialise"));
         let input = format!("{PASS_PREFIX}.{body}");
@@ -193,6 +257,113 @@ mod tests {
             .0;
         let mut a: Vec<&str> = p.split('.').collect();
         let b: Vec<&str> = forged.split('.').collect();
+        a[1] = b[1];
+        assert_eq!(k.verify_pass(&a.join(".")), Err(TokenError::BadSignature));
+    }
+
+    /// Sign claims as given, as a control plane of another version would have.
+    fn sign_raw(k: &Keys, json: &str) -> String {
+        let body = B64.encode(json.as_bytes());
+        let input = format!("{PASS_PREFIX}.{body}");
+        let mut mac = k.pass_mac();
+        mac.update(input.as_bytes());
+        format!("{input}.{}", B64.encode(mac.finalize().into_bytes()))
+    }
+
+    #[test]
+    fn a_pass_made_by_1_2_still_verifies_and_leads_to_the_live_studio() {
+        let k = keys();
+        let exp = now_s() + 600;
+        let old = sign_raw(
+            &k,
+            &format!(
+                r#"{{"kind":"invite","role":"guest","id":"guest-gregor","name":"Gregor Stewart","iat":1,"exp":{exp}}}"#
+            ),
+        );
+        let c = k.verify_pass(&old).unwrap();
+        assert_eq!(c.studio, Studio::Live);
+        assert_eq!((c.session, c.show, c.standby_until_ms), (None, None, None));
+        assert_eq!(c.role, Role::Guest);
+    }
+
+    #[test]
+    fn a_live_pass_is_written_as_1_2_wrote_it() {
+        let k = keys();
+        let (p, _) = k
+            .pass(PassKind::Invite, Role::Guest, "guest-x", "", 60)
+            .unwrap();
+        let body = B64.decode(p.split('.').nth(1).unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["exp", "iat", "id", "kind", "name", "role"]);
+    }
+
+    #[test]
+    fn a_rehearsal_pass_and_a_moved_pass_round_trip() {
+        let k = keys();
+        let (p, c) = k
+            .pass_with(
+                PassKind::Invite,
+                Role::Guest,
+                "guest-kirsty",
+                "Kirsty Wilson",
+                3600,
+                PassScope::rehearsal("5f0c9a36-4d8e-4c9e-9f53-0d6b1d2e7a10"),
+            )
+            .unwrap();
+        let back = k.verify_pass(&p).unwrap();
+        assert_eq!(back, c);
+        assert_eq!(back.studio, Studio::Rehearsal);
+        assert_eq!(
+            back.session.as_deref(),
+            Some("5f0c9a36-4d8e-4c9e-9f53-0d6b1d2e7a10")
+        );
+        let body = B64.decode(p.split('.').nth(1).unwrap()).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["studio"], "rehearsal");
+
+        let (p, _) = k
+            .pass_with(
+                PassKind::Invite,
+                Role::Presenter,
+                "eilidh",
+                "Eilidh Fraser-MacLeod",
+                3600,
+                PassScope::moved("steeped", 1_800_000_000_000),
+            )
+            .unwrap();
+        let back = k.verify_pass(&p).unwrap();
+        assert_eq!(back.studio, Studio::Live);
+        assert_eq!(back.show.as_deref(), Some("steeped"));
+        assert_eq!(back.standby_until_ms, Some(1_800_000_000_000));
+        assert_eq!(back.session, None);
+    }
+
+    #[test]
+    fn a_pass_cannot_be_moved_to_another_studio_without_its_signature() {
+        let k = keys();
+        let (p, _) = k
+            .pass_with(
+                PassKind::Invite,
+                Role::Guest,
+                "guest-x",
+                "",
+                60,
+                PassScope::rehearsal("s1"),
+            )
+            .unwrap();
+        let live = k
+            .pass(PassKind::Invite, Role::Guest, "guest-x", "", 60)
+            .unwrap()
+            .0;
+        let mut a: Vec<&str> = p.split('.').collect();
+        let b: Vec<&str> = live.split('.').collect();
         a[1] = b[1];
         assert_eq!(k.verify_pass(&a.join(".")), Err(TokenError::BadSignature));
     }

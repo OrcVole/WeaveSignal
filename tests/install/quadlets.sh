@@ -21,17 +21,19 @@ printf '%s\n' '---' 'cdiVersion: 0.5.0' 'kind: nvidia.com/gpu' 'devices:' '  - n
 # A station's own consent words (issue #26) with apostrophes, quotes, commas, braces and a " #":
 # they must reach the control plane's unit whole.
 consent='You'"'"'ll be on {presenter}'"'"'s show, "live", on {station}; kept {kept} # all. Ask {contact}.'
-# Five times: the loopback bundle, a public station (the proxy joins with its health check, and
+# Six times: the loopback bundle, a public station (the proxy joins with its health check, and
 # LiveKit's unit waits for it), a loopback station with the telephone line (17f: phone.yaml), one
-# with video on an NVIDIA card (17e: gpu.yaml, the card by its CDI name), and one installed before
+# with video on an NVIDIA card (17e: gpu.yaml, the card by its CDI name), one with the
+# rehearsal studio (1.3: rehearsal.yaml, the rehearsal desk's unit), and one installed before
 # 1.2 that is updated on a server with a card (1.2.1, ADR-0292: it keeps the CPU, and is told).
-for variant in loopback public phone gpu upgrade; do
+for variant in loopback public phone gpu rehearsal upgrade; do
   dir="$run/$variant"; mkdir -p "$dir"
   # A public station's LiveKit address is the name's A record unless NODE_IP is given (ADR-0290),
   # and station.example has none: a documentation address stands in, as nothing is started.
   extra=(); [ "$variant" != public ] || extra=(--public station.example)
   node_ip=; [ "$variant" != public ] || node_ip=203.0.113.7
   phone=false; [ "$variant" != phone ] || phone=true
+  rehearsal=false; [ "$variant" != rehearsal ] || rehearsal=true
   cdi="$run/cdi-none"; gpu=auto; [ "$variant" != gpu ] || { cdi="$run/cdi"; gpu=nvidia; }
   # VBAN on and a printed address by hand, on the loopback station (1.2.1: 1.2.0's weavesignal.sh
   # dropped both from the settings file, so neither reached the units).
@@ -42,7 +44,7 @@ for variant in loopback public phone gpu upgrade; do
   # The phone station's trunk is a documentation one (RFC 5737 addresses, an Ofcom drama number).
   PHONE_NUMBERS='"+441314960000"' PHONE_ALLOWED_ADDRESSES='"198.51.100.0/24"' PHONE_PUBLIC_IP=203.0.113.7 \
   PROXY_HTTPS_PORT=18443 PROXY_HTTP_PORT=18080 NODE_IP=$node_ip CONSENT_TEXT="$consent" PHONE=$phone \
-  WEAVESIGNAL_CDI_DIRS=$cdi GPU=$gpu KIT_VBAN=$vban PUBLIC_ORIGIN=$origin \
+  WEAVESIGNAL_CDI_DIRS=$cdi GPU=$gpu REHEARSAL=$rehearsal KIT_VBAN=$vban PUBLIC_ORIGIN=$origin \
     "$root/deploy/compose/weavesignal.sh" --project "$project" --env-file "$dir/station.env" --no-start "${extra[@]}" >/dev/null
   [ "$variant" != gpu ] || echo VIDEO=true >> "$dir/station.env"
   if [ "$variant" = upgrade ]; then
@@ -149,6 +151,24 @@ for variant in loopback public phone gpu upgrade; do
       || { echo "the control plane is not given the trunk's digest password as a secret" >&2; exit 1; }
   else
     [ ! -f "$units/$project-livekit-sip.container" ] || { echo "a station without the line has a SIP unit" >&2; exit 1; }
+  fi
+  if [ "$variant" = rehearsal ]; then
+    # The rehearsal studio (1.3): the rehearsal desk's unit, raised for the kernel to stop first,
+    # with its own settings and none of the sources password; the control plane's turned on.
+    grep -qx 'REHEARSAL=true' "$dir/station.env" || { echo "weavesignal.sh did not keep REHEARSAL=true" >&2; exit 1; }
+    u="$units/$project-desk-rehearsal.container"
+    [ -f "$u" ] || { echo "the rehearsal station has no rehearsal desk unit" >&2; exit 1; }
+    grep -qx 'PodmanArgs=--oom-score-adj=500' "$u" || { echo "the rehearsal desk's unit is not at oom_score_adj 500" >&2; exit 1; }
+    grep -q -- '--oom-score-adj=500' "$dir/dryrun.txt" || { echo "Podman's generator dropped the rehearsal desk's oom score" >&2; exit 1; }
+    ! grep -q 'DESK_SOURCES_PASSWORD\|PLAYOUT_FEED_PASSWORD' "$u" || { echo "the rehearsal desk's unit carries a password it must not have" >&2; exit 1; }
+    ! grep -q 'hls-media\|phone-words' "$u" || { echo "the rehearsal desk mounts the HLS or the phone words" >&2; exit 1; }
+    grep -qx 'mode = "rehearsal"' "$dir/out/config/desk-rehearsal" && grep -qx 'room = "studio-rehearsal"' "$dir/out/config/desk-rehearsal" \
+      && ! grep -q '^\[video\|^\[sources\|^\[programme' "$dir/out/config/desk-rehearsal" \
+      || { echo "the rehearsal desk's settings are not a rehearsal desk's with no way to the air" >&2; exit 1; }
+    grep -A1 -x '\[rehearsal\]' "$dir/out/config/control" | grep -qx 'enabled = true' || { echo "the control plane's rehearsal studio is not on" >&2; exit 1; }
+  else
+    [ ! -f "$units/$project-desk-rehearsal.container" ] || { echo "a $variant station without the rehearsal studio has a rehearsal desk unit" >&2; exit 1; }
+    grep -A1 -x '\[rehearsal\]' "$dir/out/config/control" | grep -qx 'enabled = false' || { echo "the rehearsal studio is not off by default" >&2; exit 1; }
   fi
   if [ "$variant" = public ]; then
     grep -q "^Environment=WEAVESIGNAL_INGEST_BIND=0.0.0.0$" "$units/$project-ingest.container" || { echo "the public station's ingest does not take every address" >&2; exit 1; }

@@ -24,17 +24,33 @@
   // the event objects), so nothing kept on an element outlives a selection or a minute: the
   // label, the tooltip and the listeners are set each time one mounts, the focus is put back by
   // the block's key, and the fold's swap of widths is animated from where the block was.
+  //
+  // The Studios view (1.3.0; rehearsal-mode-build-plan.md section 2) is the library's
+  // `resourceTimeGridDay`: one day, a column for each studio the station names. Everything on
+  // air is in the first column, as the Day view draws it, with the lanes for a clash inside
+  // that column. The second is the rehearsal studio: its bookings and sessions are a list of
+  // their own (`rehearsals`), never among the blocks, so they never fold, never clash and never
+  // say ON AIR. The dates go above the studios (`datesAboveResources`), so the Day view's strip
+  // of days is the head's first row here too and each studio's name stands under it. A drag
+  // across empty Rehearsal time asks for a booking; a drag never takes a block to the other
+  // column.
   import { tick, untrack } from 'svelte';
   import { Calendar, Interaction, ResourceTimeGrid, TimeGrid } from '@event-calendar/core';
   import '@event-calendar/core/index.css';
-  import type { GridProps } from './types.ts';
+  import type { GridProps, GridRehearsal } from './types.ts';
   import { movable } from './types.ts';
-  import { blockAria, blockClasses, blockHtml, blockTitle, countHtml, countTitle, esc, type BlockPlace } from '../blockHtml.ts';
-  import { HOUR_MS, dayLength, dayWords, floating, fromFloating, hm, longDayWords, parts, type Block } from '../model.ts';
+  import { blockAria, blockClasses, blockHtml, blockTitle, columnOf, countHtml, countTitle, esc, rehearsalAria, rehearsalClasses, rehearsalHtml, studioHeadHtml, type BlockPlace, type RehearsalContext } from '../blockHtml.ts';
+  import { HOUR_MS, REHEARSAL, STUDIO, dayLength, dayWords, floating, fromFloating, hm, longDayWords, parts, type Block } from '../model.ts';
   import { foldWeek, tabStretches, type CountTab, type Placed } from '../clash.ts';
   import { remPx } from '../../lib/rem.ts';
 
-  let { blocks, days, zone, now, selected, onSelect, onClear, onMove, onOpenDay, studios = null, view = 'week', day = 0, reveal = null }: GridProps = $props();
+  let { blocks, days, zone, now, selected, onSelect, onClear, onMove, onOpenDay, studios = null, rehearsals = [], onBook, bookWhy = '', view = 'week', day = 0, reveal = null }: GridProps = $props();
+
+  /** The Studios view's columns; a station that names none has the one. */
+  const columns = $derived(view === 'studios' ? (studios?.length ? studios : [{ id: STUDIO, name: 'Studio' }]) : []);
+  const hasRehearsal = $derived(columns.some((c) => c.id === REHEARSAL));
+  /** The library's own component, for `unselect` (it exports the method; its types do not say so). */
+  let cal = $state<unknown>(null);
 
   /** The slot is half an hour and 24 px tall, in the week and in the day alike. */
   const SLOT = 24;
@@ -109,24 +125,30 @@
     return s;
   }
 
-  type Props = { block?: Block; key: string; place?: BlockPlace | null; count?: CountTab; day?: number };
+  type Props = { block?: Block; key: string; place?: BlockPlace | null; count?: CountTab; day?: number; rehearsal?: GridRehearsal; rctx?: RehearsalContext };
 
   function eventOf(b: Block, p: Placed | null, whole: boolean) {
     const longNight = b.kind === 'automation' && b.start === days[6] && days[7] - days[6] !== 24 * 3_600_000;
     const place = p ? placeOf(p) : null;
-    const c = { ...ctx, longNight, place, wide: view !== 'week' };
+    const c = { ...ctx, longNight, place, wide: view !== 'week', columns: view === 'studios' };
     const folded = place?.role === 'tab';
+    // A tab does not drag: the first press brings it forward, the next drags it. A part of a
+    // block cut at midnight does not drag either: it is moved from its editor.
+    const drag = whole && !folded && movable(b, now);
     return {
       id: whole ? b.id : p!.key,
       start: floating(whole ? b.start : p!.from, zone),
       end: floating(whole ? b.end : p!.to, zone),
       title: { html: blockHtml(b, c) },
-      // A tab does not drag: the first press brings it forward, the next drags it. A part of a
-      // block cut at midnight does not drag either: it is moved from its editor.
-      editable: whole && !folded && movable(b, now),
+      // Said three ways: the library asks an event for `startEditable` and `durationEditable`
+      // before it looks at the view's own setting, and at `editable` only after it (5.18.1,
+      // `eventDraggable`), so `editable` alone left every block with a hand to drag it by.
+      editable: drag,
+      startEditable: drag,
+      durationEditable: drag,
       classNames: blockClasses(b, c),
       style: p ? styleOf(p) : [`--show-colour:${colourOf(b)}`],
-      resourceIds: b.studio ? [b.studio] : [],
+      resourceIds: [columnOf(b)],
       extendedProps: { block: b, key: p?.key ?? b.id, place, day: p?.day } satisfies Props,
     };
   }
@@ -141,9 +163,11 @@
       end: floating(c.to, zone),
       title: { html: countHtml(c.blocks.length) },
       editable: false,
+      startEditable: false,
+      durationEditable: false,
       classNames: ['ev', 'tab', 'count'],
       style: [`inset-inline-start:calc(${WIDE} - ${TAB_REM}rem)`, `inline-size:${TAB_REM}rem`, 'z-index:40', `--stripes:linear-gradient(90deg, ${stripes})`],
-      resourceIds: [],
+      resourceIds: [STUDIO],
       extendedProps: { key: c.key, count: c, day: c.day } satisfies Props,
     };
   }
@@ -171,16 +195,51 @@
     return out;
   });
 
-  const nowLine = $derived({
-    id: 'now',
-    start: floating(now, zone),
-    end: floating(now + 60_000, zone),
-    display: 'background' as const,
-    classNames: ['now-line'],
-    resourceIds: studios ?? [],
+  // ---- the Rehearsal column ----
+  /** A session is drawn half an hour tall at least, so that its name can be read; its words
+   *  keep its own times. A booking keeps its own length: its edge is what a drag takes hold of. */
+  const SESSION_FLOOR = HOUR_MS / 2;
+
+  function rehearsalEvent(r: GridRehearsal) {
+    const end = r.kind === 'session' ? Math.max(r.end, r.start + SESSION_FLOOR) : r.end;
+    const tall = px(r.start, end);
+    const c: RehearsalContext = { now, zone, selected, draft: r.draft, short: tall < SLOT * 2 + 6, tiny: tall < SLOT * 2 - 4 };
+    return {
+      id: r.id,
+      start: floating(r.start, zone),
+      end: floating(end, zone),
+      title: { html: rehearsalHtml(r, c) },
+      // A booking under way keeps its start: only its end is dragged.
+      editable: r.change !== 'none',
+      startEditable: r.change === 'all',
+      durationEditable: r.change !== 'none',
+      classNames: rehearsalClasses(r, c),
+      style: [`--show-colour:${r.colour ? `var(--cart-${r.colour})` : 'var(--deemph)'}`],
+      resourceIds: [REHEARSAL],
+      extendedProps: { key: r.id, rehearsal: r, rctx: c } satisfies Props,
+    };
+  }
+
+  /** The day's bookings and sessions, only where the station has a rehearsal studio. */
+  const rehearsalEvents = $derived.by(() => {
+    if (!hasRehearsal) return [];
+    const i = Math.min(6, Math.max(0, day));
+    return rehearsals.filter((r) => r.start < days[i + 1] && Math.max(r.end, r.start + 1) > days[i]).map(rehearsalEvent);
   });
 
-  const events = $derived([...blockEvents, ...(todayIndex >= 0 ? [nowLine] : [])]);
+  /** The now line crosses every column; the time is written once, in the first. */
+  const nowLines = $derived(
+    (columns.length ? columns.map((c) => c.id) : [null]).map((col, i) => ({
+      id: i ? `now:${col}` : 'now',
+      start: floating(now, zone),
+      end: floating(now + 60_000, zone),
+      display: 'background' as const,
+      classNames: i ? ['now-line', 'cont'] : ['now-line'],
+      resourceIds: col ? [col] : [],
+    })),
+  );
+
+  const events = $derived([...blockEvents, ...rehearsalEvents, ...(todayIndex >= 0 ? nowLines : [])]);
 
   // ---- the heads ----
   const chip = (n: number) => (n ? `<span class="cl"><svg aria-hidden="true"><use href="#g-fault"/></svg>${n} clash</span>` : '');
@@ -212,7 +271,7 @@
 
   /** A new function whenever what a head says changes, so the library draws the heads again. */
   const header = $derived.by(() => {
-    const html = view === 'day' ? strip() : null;
+    const html = view === 'week' ? null : strip();
     const counts = clashing;
     const today = todayIndex;
     return (d: Date) => {
@@ -225,9 +284,23 @@
     };
   });
 
-  /** A press on a day's header, or on a day of the strip. */
+  /** A studio's head in the Studios view; a new function whenever what it says changes. */
+  const studioHead = $derived.by(() => {
+    const book = !!onBook;
+    const why = bookWhy;
+    const names = new Map(columns.map((c) => [c.id, c.name]));
+    return (info: { resource: { id: string | number; title?: unknown } }) => {
+      const id = String(info.resource.id);
+      return { html: studioHeadHtml({ id, name: names.get(id) ?? id }, { book, bookWhy: why }) };
+    };
+  });
+
+  /** A press on a day's header, or on a day of the strip; or on the Rehearsal column's Book…. */
   function headClick(e: MouseEvent) {
-    const b = (e.target as HTMLElement | null)?.closest<HTMLElement>('button[data-day]');
+    const t = e.target as HTMLElement | null;
+    const book = t?.closest<HTMLElement>('button[data-book]');
+    if (book && host?.contains(book)) return void onBook?.(null);
+    const b = t?.closest<HTMLElement>('button[data-day]');
     if (!b || !host?.contains(b)) return;
     focusHead = true;
     onOpenDay?.(Number(b.dataset.day));
@@ -294,8 +367,7 @@
       requestAnimationFrame(() => {
         const main = host?.querySelector<HTMLElement>('.ec-main');
         if (main && top !== null && changed) main.scrollTop = top;
-        if (view === 'studios') return;
-        const to = view === 'day' ? host?.querySelector<HTMLElement>('.strip button[aria-pressed="true"]') : host?.querySelector<HTMLElement>(`button.dayhd[data-day="${day}"]`);
+        const to = view !== 'week' ? host?.querySelector<HTMLElement>('.strip button[aria-pressed="true"]') : host?.querySelector<HTMLElement>(`button.dayhd[data-day="${day}"]`);
         to?.focus({ preventScroll: true });
       }),
     );
@@ -337,13 +409,18 @@
     if (!x.key) return;
     el.dataset.key = x.key;
     el.classList.add('selectable');
-    const act = x.count ? () => onOpenDay?.(x.count!.day) : () => onSelect(x.block!.id);
-    if (x.count) {
+    const act = x.count ? () => onOpenDay?.(x.count!.day) : x.rehearsal ? () => onSelect(x.rehearsal!.id) : () => onSelect(x.block!.id);
+    if (x.rehearsal) {
+      // A short one has room for a line: the rest is here, for a pointer and a screen reader.
+      const say = rehearsalAria(x.rehearsal, x.rctx ?? { now, zone, selected });
+      el.setAttribute('aria-label', say);
+      el.title = say;
+    } else if (x.count) {
       const say = countTitle(x.count.blocks);
       el.setAttribute('aria-label', say);
       el.title = say;
     } else if (x.block) {
-      const c = { ...ctx, place: x.place ?? null };
+      const c = { ...ctx, place: x.place ?? null, columns: view === 'studios' };
       el.setAttribute('aria-label', blockAria(x.block, c));
       const title = blockTitle(x.block, c);
       if (title) el.title = title;
@@ -379,8 +456,27 @@
   /** The block an event stands for: a part of a block cut at midnight names its block. */
   const blockId = (id: string | number) => String(id).replace(/@\d$/, '');
 
+  type Dragged = { event: { id: string | number; start: Date; end: Date }; revert: () => void };
+  /** A block dropped or resized: the caller's to take or refuse, and a refusal snaps it back. */
+  function dropped(info: Dragged) {
+    void onMove(blockId(info.event.id), fromFloating(info.event.start, zone), fromFloating(info.event.end, zone)).then((why) => {
+      if (why) info.revert();
+    });
+  }
+  /** A stretch dragged across empty time (the Studios view): a booking is asked for, in the
+   *  Rehearsal column only. The library's own mark goes at once: the booking being made is
+   *  drawn as a block of its own. */
+  function stretched(info: { start: Date; end: Date; resource?: { id: string | number } }) {
+    (cal as { unselect?: () => void } | null)?.unselect?.();
+    if (String(info.resource?.id) !== REHEARSAL) return;
+    onBook?.({ start: fromFloating(info.start, zone), end: fromFloating(info.end, zone) });
+  }
+
   const options = $derived({
     view: view === 'studios' ? 'resourceTimeGridDay' : view === 'day' ? 'timeGridDay' : 'timeGridWeek',
+    // The Studios view: the day (its strip) above, each studio's name under it.
+    datesAboveResources: true,
+    resourceLabelContent: studioHead,
     date: floating(view === 'week' ? days[0] : days[Math.min(6, Math.max(0, day))], zone),
     firstDay: 1 as const,
     headerToolbar: { start: '', center: '', end: '' },
@@ -394,12 +490,20 @@
     // library's own overlap, each block half over the next, is never what is seen.
     slotEventOverlap: false,
     // The day is at most 80 rem wide beside the axis; a wider window leaves the rest to the plane.
-    columnWidth: view === 'day' ? 'minmax(0, 80rem)' : undefined,
+    // Two studios share the width; a third and more keep 20 rem each and the grid scrolls sideways.
+    columnWidth: view === 'day' || (view === 'studios' && columns.length < 2) ? 'minmax(0, 80rem)' : view === 'studios' ? 'minmax(20rem, 1fr)' : undefined,
     eventStartEditable: true,
     eventDurationEditable: true,
     events,
-    resources: view === 'studios' && studios ? studios.map((s) => ({ id: s, title: s })) : [],
+    resources: columns.map((c) => ({ id: c.id, title: c.name })),
     filterEventsWithResources: view === 'studios',
+    // A drag keeps to its own column: a show does not go to the rehearsal studio, nor a booking on air.
+    dragConstraint: view === 'studios' ? (info: { newResource?: unknown }) => info.newResource === undefined : undefined,
+    // Booking by a drag: in the Rehearsal column, over time that has not all gone, by whoever may.
+    selectable: view === 'studios' && hasRehearsal && !!onBook,
+    selectConstraint: (info: { end: Date; resource?: { id: string | number } }) => String(info.resource?.id) === REHEARSAL && fromFloating(info.end, zone) > now,
+    select: stretched,
+    selectBackgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)',
     highlightedDates: todayIndex >= 0 ? [floating(days[todayIndex], zone)] : [],
     dayHeaderFormat: header,
     slotLabelFormat: { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } as Intl.DateTimeFormatOptions,
@@ -410,23 +514,15 @@
       if (x.count) onOpenDay?.(x.count.day);
       else onSelect(blockId(info.event.id));
     },
-    eventDrop: (info: { event: { id: string | number; start: Date; end: Date }; revert: () => void }) => {
-      void onMove(blockId(info.event.id), fromFloating(info.event.start, zone), fromFloating(info.event.end, zone)).then((why) => {
-        if (why) info.revert();
-      });
-    },
-    eventResize: (info: { event: { id: string | number; start: Date; end: Date }; revert: () => void }) => {
-      void onMove(blockId(info.event.id), fromFloating(info.event.start, zone), fromFloating(info.event.end, zone)).then((why) => {
-        if (why) info.revert();
-      });
-    },
+    eventDrop: dropped,
+    eventResize: dropped,
   });
 </script>
 
 <!-- The heads are buttons inside the library's own header, so one listener here hears them all. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="ec-host" class:dayview={view === 'day'} data-grid="event-calendar" data-view={view} data-day-rem={dayRem || undefined} bind:this={host} onclick={headClick} onpointerdown={gridPress}>
-  <Calendar plugins={[TimeGrid, ResourceTimeGrid, Interaction]} {options} />
+<div class="ec-host" class:dayview={view !== 'week'} class:studios={view === 'studios'} data-grid="event-calendar" data-view={view} data-columns={columns.length || undefined} data-day-rem={dayRem || undefined} bind:this={host} onclick={headClick} onpointerdown={gridPress}>
+  <Calendar bind:this={cal} plugins={[TimeGrid, ResourceTimeGrid, Interaction]} {options} />
 </div>
 
 <style>

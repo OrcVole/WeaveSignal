@@ -228,6 +228,11 @@ pub enum CartProblem {
     OnAir(String),
     #[error("“{0}” is in another show's own bank: it fires only while that show is the one on air")]
     OtherShow(String),
+    /// In rehearsal (1.3.0): another show's cart, whatever is on air.
+    #[error(
+        "“{0}” is in another show's own bank: in rehearsal only the rehearsed show's carts and the station's fire"
+    )]
+    NotRehearsed(String),
     #[error("nothing is sounding")]
     NothingSounding,
     #[error("every {0} player is sounding; stop one first")]
@@ -744,7 +749,10 @@ impl Hub {
                 });
             }
             Err(e) => {
-                if matches!(e, DeskError::Unreachable { .. }) {
+                if matches!(
+                    e,
+                    DeskError::Unreachable { .. } | DeskError::WrongMode { .. }
+                ) {
                     let text = e.to_string();
                     self.wall(|w| {
                         w.desk_ok = false;
@@ -776,6 +784,26 @@ impl Hub {
             });
         });
         Ok(())
+    }
+
+    /// A cart for the rehearsal desk (1.3.0) and its file: the station's, or the rehearsed show's
+    /// own (by its slug), whatever show is on air; with its file on the disk. Read only: the
+    /// live wall's state (what sounds, FILE MISSING) is the live desk's and is not touched, so
+    /// nothing a rehearsal does reaches the studio's view.
+    pub fn rehearsal_cart(&self, id: Uuid, show: &str) -> Result<(Cart, String), CartProblem> {
+        let cart = self
+            .read_inner(|i| i.carts.carts.iter().find(|c| c.id == id).cloned())
+            .ok_or(CartProblem::NoCart(id))?;
+        if cart.show.as_deref().is_some_and(|s| s != show) {
+            return Err(CartProblem::NotRehearsed(cart.label));
+        }
+        match &cart.file {
+            Some(f) if self.carts.config.media_dir.join(f).is_file() => {
+                let file = f.clone();
+                Ok((cart, file))
+            }
+            _ => Err(CartProblem::Missing(cart.label)),
+        }
     }
 
     async fn stop_cart(&self, id: Uuid) -> Result<(), CartProblem> {

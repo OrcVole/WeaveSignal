@@ -19,6 +19,8 @@
 #   SOURCE_ICE_PORT=27405 (tcp)  SOURCE_SRT_PORT=27410 (udp): hosts' own studios (1.1), enabled
 #   SOURCE_WHIP_PORT=27412 (udp): WHIP from OBS (17d), enabled
 #   VIDEO=false  (true: the video path on, ADR-0227: the HLS, the camera check, a guest's camera)
+#   REHEARSAL=true  (the rehearsal studio, 1.3, on for the main run; off, as installed, for cold
+#                    starts: then the rehearsal desk must not run)
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -36,6 +38,7 @@ SOURCE_SRT_PORT=${SOURCE_SRT_PORT:-27410}
 SOURCE_WHIP_PORT=${SOURCE_WHIP_PORT:-27412}
 COMPAT=${COMPAT:-true}
 VIDEO=${VIDEO:-false}
+REHEARSAL=${REHEARSAL:-true}
 MEMORY=${MEMORY:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["memoryLimit"])' "$here/CloudronManifest.json")}
 # A new listener hears what the listener process holds, about 20 s behind live (M4).
 ROOM_SECONDS=${ROOM_SECONDS:-50}
@@ -47,6 +50,7 @@ ok() { echo "ok    $*"; }
 
 down() {
     podman rm -f "$p-app" "$p-pg" "$p-tone" "$p-cam" "$p-smtp" >/dev/null 2>&1 || true
+    podman rm -f weavesignal-cloudron-local-load-{eilidh,morag,fraser} weavesignal-cloudron-local-load-rehearse-{1,2,3} >/dev/null 2>&1 || true
     podman network rm "$p-net" >/dev/null 2>&1 || true
     podman volume rm "$p-data" >/dev/null 2>&1 || true
 }
@@ -118,6 +122,9 @@ up() {
     [[ $COMPAT != true ]] || podman exec "$p-app" sed -i 's/^COMPAT_STREAM=false$/COMPAT_STREAM=true/; s/^COMPAT_HIGH_STREAM=false$/COMPAT_HIGH_STREAM=true/' /app/data/weavesignal.env
     # The video path (ADR-0227), off as installed; VIDEO=true turns it on for this run.
     [[ $VIDEO != true ]] || podman exec "$p-app" sed -i 's/^VIDEO=false$/VIDEO=true/' /app/data/weavesignal.env
+    # The rehearsal studio (1.3), off as installed; on for the main run.
+    podman exec "$p-app" grep -qx 'REHEARSAL=false' /app/data/weavesignal.env || fail "weavesignal.env does not say REHEARSAL=false as installed"
+    [[ $REHEARSAL != true ]] || podman exec "$p-app" sed -i 's/^REHEARSAL=false$/REHEARSAL=true/' /app/data/weavesignal.env
     # The stream's password on for the main run, so its refusal is checked; off, the default
     # since 1.0.0, for cold starts.
     [[ $COMPAT != true ]] || podman exec "$p-app" sed -i 's/^LISTENERS_AUTH=off$/LISTENERS_AUTH=on/' /app/data/weavesignal.env
@@ -694,6 +701,17 @@ start_tone() {
         audiotestsrc is-live=true wave=sine freq=1000 volume=0.3 ! audioconvert ! audioresample \
         ! livekitwebrtcsink name=s signaller::ws-url="ws://127.0.0.1:8002" \
           signaller::auth-token="$token" signaller::room-name=studio >/dev/null
+    # Every guest arrives standing by since 1.3, a directly issued token's too: the press that
+    # puts the tone guest on air, once the desk has them (the live desk's On key).
+    local i
+    for i in $(seq 1 60); do
+        curl -fsS -m 5 -X POST -H "Authorization: Bearer $admin" -H 'content-type: application/json' \
+            "http://127.0.0.1:$HTTP_PORT/api/v1/desk/commands" \
+            -d '{"op":"on_air","identity":"tone-guest","on":true}' 2>/dev/null \
+            | grep -q '"identity":"tone-guest"[^}]*"on_air":true' && return 0
+        sleep 1
+    done
+    fail "the desk never took the press that puts the tone guest on air"
 }
 
 # The room test: a guest publishes a 1 kHz tone through the room domain with a publish-only
@@ -804,6 +822,89 @@ if errors:
 PY
 }
 
+# The rehearsal studio (1.3): with REHEARSAL=true the rehearsal desk runs under supervisord, says
+# it is a rehearsal desk on its own socket, runs at oom_score_adj 500, has none of the passwords
+# it must not hold, holds no TCP listener, and the control plane links it; a rehearsal invitation
+# buys a token for the rehearsal room only. Off, it is not started at all.
+rehearsal_checks() {
+    local state pid
+    state=$(podman exec "$p-app" supervisorctl -c /app/code/supervisord.conf status desk-rehearsal || true)
+    if [[ $REHEARSAL != true ]]; then
+        [[ $state == *STOPPED* ]] || fail "REHEARSAL=false, yet the rehearsal desk is $state"
+        ok "rehearsal off (as installed): the rehearsal desk is not started ($state)"
+        return
+    fi
+    for i in $(seq 1 40); do
+        state=$(podman exec "$p-app" supervisorctl -c /app/code/supervisord.conf status desk-rehearsal || true)
+        [[ $state == *RUNNING* ]] && break
+        sleep 0.5; [[ $i == 40 ]] && fail "the rehearsal desk is not running: $state"
+    done
+    pid=$(podman exec "$p-app" supervisorctl -c /app/code/supervisord.conf pid desk-rehearsal)
+    podman exec -u cloudron -i "$p-app" python3 - "$pid" <<'PY' || fail "the rehearsal desk's checks"
+import json, os, socket, sys, time
+pid = sys.argv[1]
+for _ in range(60):
+    try:
+        s = socket.socket(socket.AF_UNIX); s.connect("/run/weavesignal/desk-rehearsal.sock"); break
+    except OSError:
+        time.sleep(0.5)
+s.sendall(b'{"op": "status"}\n')
+buf = b""
+while not buf.endswith(b"\n"):
+    buf += s.recv(65536)
+st = json.loads(buf)
+assert st["desk_mode"] == "rehearsal", st.get("desk_mode")
+s.sendall(b'{"op": "dump"}\n'); buf = b""
+while not buf.endswith(b"\n"):
+    buf += s.recv(65536)
+assert json.loads(buf).get("code") == "rehearsal", buf
+oom = open(f"/proc/{pid}/oom_score_adj").read().strip()
+assert oom == "500", f"oom_score_adj {oom}"
+env = open(f"/proc/{pid}/environ", "rb").read().split(b"\0")
+for key in (b"WEAVESIGNAL_DESK_SOURCES_PASSWORD=", b"WEAVESIGNAL_PLAYOUT_FEED_PASSWORD=", b"WEAVESIGNAL_INGEST_TOKEN="):
+    assert not any(e.startswith(key) for e in env), key
+# No TCP listener of its own: none of its sockets is a listening TCP socket.
+mine = set()
+for fd in os.listdir(f"/proc/{pid}/fd"):
+    try:
+        t = os.readlink(f"/proc/{pid}/fd/{fd}")
+    except OSError:
+        continue
+    if t.startswith("socket:["):
+        mine.add(t[8:-1])
+for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+    for line in open(f).read().splitlines()[1:]:
+        cols = line.split()
+        assert not (cols[3] == "0A" and cols[9] in mine), f"listening on {cols[1]}"
+rss = [l for l in open(f"/proc/{pid}/status") if l.startswith("VmRSS")][0].split()[1]
+print(f"ok    the rehearsal desk (pid {pid}): desk_mode rehearsal, dump refused, oom_score_adj 500, no passwords, no TCP listener, {int(rss) // 1024} MiB at rest")
+PY
+    local view
+    for i in $(seq 1 40); do
+        view=$(curl -fsS -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/rehearsal")
+        python3 -c 'import json,sys; v=json.loads(sys.argv[1]); sys.exit(0 if v["enabled"] and v["desk"]["linked"] else 1)' "$view" && break
+        sleep 0.5; [[ $i == 40 ]] && fail "the control plane does not link the rehearsal desk: $view"
+    done
+    ok "the control plane links the rehearsal desk (GET /api/v1/rehearsal: enabled, linked)"
+    # A rehearsal invitation for an open session buys a token for the rehearsal room only.
+    local a=http://127.0.0.1:$HTTP_PORT inv pass room
+    curl -fsS -X PUT -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "$a/api/v1/shows/rehearsal-check" \
+        -d '{"name":"Rehearsal Check","colour_slot":3}' >/dev/null
+    # A show at Solo has no seat for a guest, so the check's show runs at Full.
+    curl -fsS -X PUT -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "$a/api/v1/shows/rehearsal-check/step" \
+        -d '{"step":"full"}' >/dev/null
+    curl -fsS -X POST -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "$a/api/v1/rehearsal/open" \
+        -d '{"show":"rehearsal-check"}' >/dev/null || fail "the rehearsal studio did not open"
+    inv=$(curl -fsS -X POST -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "$a/api/v1/invites" \
+        -d '{"role":"guest","name":"Gregor Stewart","studio":"rehearsal","show":"rehearsal-check"}')
+    pass=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["pass"])' "$inv")
+    room=$(curl -fsS -X POST -H "Authorization: Bearer $pass" -H 'Content-Type: application/json' "$a/api/v1/pass/token" -d '{}' \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["room"])')
+    [[ $room == studio-rehearsal ]] || fail "a rehearsal pass bought a token for $room"
+    curl -fsS -X POST -H "Authorization: Bearer $admin" "$a/api/v1/rehearsal/end" >/dev/null || fail "the rehearsal did not end"
+    ok "a rehearsal invitation buys a token for $room only; the session ends"
+}
+
 faults() {
     podman logs "$p-app" > "$work/app.log" 2>&1 || true
     local dts gen epipe oom
@@ -821,14 +922,15 @@ case ${1:-} in
     cold)
         n=${2:-3}
         COMPAT=false
+        REHEARSAL=false
         for run in $(seq 1 "$n"); do
             echo "--- cold start $run of $n"
-            up; room_test; podman rm -f -t 0 "$p-tone" >/dev/null; faults
+            up; room_test; podman rm -f -t 0 "$p-tone" >/dev/null; rehearsal_checks; faults
             cp "$work/app.log" "$work/app-cold-$run.log"
         done
         ;;
     *)
-        up; checks; sources_checks; video_checks; room_test; restart_test; faults
+        up; checks; sources_checks; video_checks; rehearsal_checks; room_test; restart_test; faults
         ;;
 esac
 echo "ok    running: http://127.0.0.1:$HTTP_PORT (public pages http://127.0.0.1:$PUBLIC_PORT; stop with: $0 down)"

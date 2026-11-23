@@ -19,6 +19,14 @@
   // Its own On key stays lit, and pressing it is Off air: the place is let go at once.
   // While the station counts a late host on air (section 3.5) the tile says so, with Not yet;
   // Go on air now is the handover's button and key.
+  //
+  // The rehearsal desk (1.3.0; `context="rehearsal"`, RehearsalDesk.svelte) draws its people with
+  // this tile. Nothing there reaches the air, so in that context the tile never says or draws ON
+  // AIR or OPEN (ADR-0062): its word is IN THE MIX or NOT IN THE MIX, its first button is Mix,
+  // its presses go to the rehearsal desk's own route (`runRehearsal`), a preparing window drives
+  // it, and it has no End pass (the live route ends a pass by identity, which would also refuse
+  // the live pass a move mints for that person). `off` is why the controls are read-only there.
+  // At the live desk, `moved` is the one line on a person who came from rehearsal and stands by.
   import type { Source } from '../lib/api.ts';
   import { CHIP, isOpen, listenersHear, sourceChip, type Chip, type StationMode } from '../../../../packages/ui/states.ts';
   import StateChip from '../../../../packages/ui/StateChip.svelte';
@@ -38,6 +46,9 @@
   import { account } from '../lib/account.svelte.ts';
   import { LEAVE, isMine } from '../lib/invite.ts';
   import { setup } from '../lib/wizard.svelte.ts';
+  import type { Action } from '../../../../packages/ui/keymap.ts';
+  import { personChip } from '../lib/rehearsalDesk.ts';
+  import { rdesk, runRehearsal, talkWhyOff } from '../lib/rehearsalDesk.svelte.ts';
 
   interface Props {
     /** The source, or null for slot 6, playout. */
@@ -62,19 +73,35 @@
     /** The seat notice (handover-window.md): this host is on next, said on their own tile from
      *  the window's opening until their post. One line; it takes the place of the tile's note. */
     next?: string | null;
+    /** Which desk the tile is at: the live desk, or the rehearsal desk, which has no air. */
+    context?: 'live' | 'rehearsal';
+    /** At the rehearsal desk: why this window cannot drive it (another show's rehearsal); the
+     *  controls are then off, with this as their tooltip. */
+    off?: string | null;
+    /** At the live desk: this person came from rehearsal and stands by; what the handover does
+     *  with them, in one line. */
+    moved?: string | null;
   }
-  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null, handoverOff = false, kept = null, count = null, othersOnAir = false, next = null }: Props = $props();
+  let { source, slot, playoutUp, playoutForMs, mode = null, handover = null, handoverOff = false, kept = null, count = null, othersOnAir = false, next = null, context = 'live', off = null, moved = null }: Props = $props();
 
-  const keys = $derived(slotKeys(slot));
-  /** This window is preparing (ADR-0276): the tile shows the live desk, and its controls are off. */
-  const prep = $derived(preparing());
-  const prepWhy = $derived(prep ? OFF_WHY : undefined);
+  /** The rehearsal desk: no air, its own words, its own route. */
+  const reh = $derived(context === 'rehearsal');
+  /** A strip beyond the sixth has a tile and no keys. */
+  const keys = $derived(slot >= 1 && slot <= 6 ? slotKeys(slot) : { on: '', cue: '', talk: '', mute: '' });
+  /** This window is preparing (ADR-0276): the tile shows the live desk, and its controls are off.
+   *  A preparing window drives the rehearsal desk, which changes nothing on air. */
+  const prep = $derived(reh ? !!off : preparing());
+  const prepWhy = $derived(reh ? (off ?? undefined) : prep ? OFF_WHY : undefined);
+  /** A press, to the desk this tile is at. */
+  const press = (a: Action) => (reh ? runRehearsal(a) : run(a));
   const isPlayout = $derived(source === null);
   const ready = $derived(!!source?.caller?.sent && !source.caller.taken);
   /** The place is kept and nothing arrives: the stand-in's controls have nothing to act on. */
   const gone = $derived(!!kept && !kept.back);
   const chip: Chip = $derived(
-    kept
+    reh && source
+      ? personChip({ on: source.on_air, mute: source.mute, cue: source.cue })
+      : kept
       ? CHIP.linkLost
       : source
       ? sourceChip({ on_air: source.on_air, mute: source.mute, cue: source.cue, ready }, playoutUp, mode)
@@ -85,7 +112,7 @@
   const open = $derived(!!source && isOpen(source));
   /** Listeners hear the room: playout is up and automation does not hold the air (ADR-0183). */
   const heard = $derived(listenersHear(playoutUp, mode));
-  const talking = $derived(!!source && studio.talking.includes(source.identity));
+  const talking = $derived(!!source && (reh ? rdesk.talking : studio.talking).includes(source.identity));
   const ROLE: Record<string, [string, string]> = {
     presenter: ['g-mic', 'Presenter'],
     dj: ['g-disc', 'Remote DJ'],
@@ -129,12 +156,17 @@
   // first day; Talk is disabled, as playout's buttons are, because there is nobody to talk to.
   /** A host's monitor link is open: someone listens there, so Talk reaches them. */
   const monitorOpen = $derived(!!own?.monitor);
-  const talkOff = $derived((look() === 'solo' && source?.role === 'presenter') || (isSource && !monitorOpen));
-  const talkWhy = $derived(isSource ? (gone ? GONE_WHY : talkOffWhy(firstName(source?.name ?? '', 'This host'))) : 'Talk needs someone to talk to. It comes with Guests.');
+  /** At the rehearsal desk Talk is this window's own voice in that room, to someone else there. */
+  const rehTalkWhy = $derived(reh && source ? talkWhyOff(source) : null);
+  const talkOff = $derived(reh ? !!rehTalkWhy : (look() === 'solo' && source?.role === 'presenter') || (isSource && !monitorOpen));
+  const talkWhy = $derived(rehTalkWhy ?? '');
+  const liveTalkWhy = $derived(isSource ? (gone ? GONE_WHY : talkOffWhy(firstName(source?.name ?? '', 'This host'))) : 'Talk needs someone to talk to. It comes with Guests.');
   // A phone caller the desk has no name for is *Phone caller*, never their key (1.2, 17f).
   const name = $derived(source ? source.caller?.name_on_air || source.name || (isPhonePerson(source.identity) ? 'Phone caller' : source.identity) : 'Playout');
   const hears = $derived(
-    !source
+    reh
+      ? 'Hears the others here'
+      : !source
       ? 'Takes the desk into the programme'
       : source.role === 'presenter' || source.role === 'dj'
         ? 'Hears the programme'
@@ -151,26 +183,29 @@
   // End pass (ADR-0119) is for the people who joined with an invite: a presenter, a remote DJ
   // or a guest. A caller has Drop, which ends the pass too; playout has no pass. Two presses,
   // as Drop, and the arm is this tile's own: it carries the identity it was pressed for.
-  const invited = $derived(source?.role === 'presenter' || source?.role === 'dj' || source?.role === 'guest');
+  const invited = $derived(!reh && (source?.role === 'presenter' || source?.role === 'dj' || source?.role === 'guest'));
   const armedEnd = $derived(!!source && studio.armed?.what === 'end-pass' && studio.armed.identity === source.identity);
   /** The presenter's own tile: this window's account in the room by its microphone link. Its
    *  quiet button is Leave, which is End pass for yourself (two presses), and its link line
    *  says so in words. */
   const mine = $derived(!!source && source.role === 'presenter' && isMine(source.identity, account.me));
+  /** In the rehearsal's mix: the tile's edge, in the accent colour, never the air's. */
+  const inMix = $derived(reh && open);
   const TICKS = [-40, -30, -23, -18, -10];
 </script>
 
 <section
   class="tile"
-  class:is-onair={open && heard}
-  class:is-open={open && !heard}
+  class:is-onair={!reh && open && heard}
+  class:is-open={!reh && open && !heard}
+  class:is-mix={inMix}
   class:is-source={isSource}
   class:is-kept={!!kept}
-  data-panel="desk.tile.{slot}"
-  aria-label="Source {slot}, {name}"
+  data-panel="{reh ? 'rehearsal' : 'desk'}.tile.{slot}"
+  aria-label="{reh ? 'Rehearsal strip' : 'Source'} {slot}, {name}"
 >
   <div class="thumb">
-    {#if isSource}<b>own studio</b><span>sound only: a host’s picture is not used yet</span>{:else}<b>{source?.role === 'caller' ? 'name card' : 'camera'}</b><span>no picture in the tile yet</span>{/if}
+    {#if reh}<b>sound only</b><span>no pictures in rehearsal: cameras are checked on the join page</span>{:else if isSource}<b>own studio</b><span>sound only: a host’s picture is not used yet</span>{:else}<b>{source?.role === 'caller' ? 'name card' : 'camera'}</b><span>no picture in the tile yet</span>{/if}
   </div>
   <div class="head">
     <span class="slot num">{slot}</span>
@@ -187,7 +222,9 @@
     <div class="chips">
       <StateChip {chip} />
       {#if talking}<StateChip chip={CHIP.talk} />{/if}
-      {#if source?.role === 'caller'}
+      {#if reh}
+        <!-- No End pass here: ending a pass by identity is the live studio's route. -->
+      {:else if source?.role === 'caller'}
         <button
           type="button"
           class="btn quiet"
@@ -288,15 +325,15 @@
     <button
       type="button"
       class="btn"
-      class:lit-onair={!!source?.on_air && heard}
-      class:lit-open={!!source?.on_air && !heard}
-      class:lit-on={gone}
+      class:lit-onair={!reh && !!source?.on_air && heard}
+      class:lit-open={!reh && !!source?.on_air && !heard}
+      class:lit-on={gone || (reh && !!source?.on_air)}
       aria-pressed={!!source?.on_air || gone}
       aria-disabled={isPlayout}
       disabled={prep}
-      title={prepWhy ?? (gone ? OFF_AIR_WHY : undefined)}
-      onclick={() => run({ type: 'on', slot })}
-      ><span><svg aria-hidden="true"><use href={heard ? '#g-onair' : '#g-open'} /></svg> On</span><kbd>{keys.on}</kbd></button
+      title={prepWhy ?? (reh ? 'In the rehearsal’s mix, or out of it: the others here hear them, listeners never do.' : gone ? OFF_AIR_WHY : undefined)}
+      onclick={() => press({ type: 'on', slot })}
+      >{#if reh}<span><svg aria-hidden="true"><use href="#g-good" /></svg> Mix</span>{:else}<span><svg aria-hidden="true"><use href={heard ? '#g-onair' : '#g-open'} /></svg> On</span>{/if}{#if keys.on}<kbd>{keys.on}</kbd>{/if}</button
     >
     <button
       type="button"
@@ -306,8 +343,8 @@
       aria-disabled={isPlayout || gone}
       disabled={prep}
       title={prepWhy ?? (gone ? GONE_WHY : undefined)}
-      onclick={() => run({ type: 'cue', slot })}
-      ><span><svg aria-hidden="true"><use href="#g-cue" /></svg> Cue</span><kbd>{keys.cue}</kbd></button
+      onclick={() => press({ type: 'cue', slot })}
+      ><span><svg aria-hidden="true"><use href="#g-cue" /></svg> Cue</span>{#if keys.cue}<kbd>{keys.cue}</kbd>{/if}</button
     >
     <button
       type="button"
@@ -316,12 +353,12 @@
       aria-pressed={talking}
       aria-disabled={isPlayout || talkOff}
       disabled={prep}
-      title={prepWhy ?? (talkOff ? talkWhy : undefined)}
+      title={prepWhy ?? (talkOff ? talkWhy || liveTalkWhy : undefined)}
       aria-label="Talk to {name}, held"
-      onpointerdown={() => run({ type: 'talk', slot, held: true })}
-      onpointerup={() => run({ type: 'talk', slot, held: false })}
-      onpointerleave={() => talking && run({ type: 'talk', slot, held: false })}
-      ><span><svg aria-hidden="true"><use href="#g-talk" /></svg> Talk</span><kbd>{keys.talk}</kbd></button
+      onpointerdown={() => press({ type: 'talk', slot, held: true })}
+      onpointerup={() => press({ type: 'talk', slot, held: false })}
+      onpointerleave={() => talking && press({ type: 'talk', slot, held: false })}
+      ><span><svg aria-hidden="true"><use href="#g-talk" /></svg> Talk</span>{#if keys.talk}<kbd>{keys.talk}</kbd>{/if}</button
     >
     <button
       type="button"
@@ -331,8 +368,8 @@
       aria-disabled={isPlayout || gone}
       disabled={prep}
       title={prepWhy ?? (gone ? GONE_WHY : undefined)}
-      onclick={() => run({ type: 'mute', slot })}
-      ><span><svg aria-hidden="true"><use href="#g-muted" /></svg> Mute</span><kbd>{keys.mute}</kbd></button
+      onclick={() => press({ type: 'mute', slot })}
+      ><span><svg aria-hidden="true"><use href="#g-muted" /></svg> Mute</span>{#if keys.mute}<kbd>{keys.mute}</kbd>{/if}</button
     >
   </div>
 
@@ -396,13 +433,13 @@
     {:else if degraded}
       <span class="st"
         ><StateChip chip={CHIP.linkDegraded} /><span class="lg-only"
-          >{isSource ? 'nothing arriving from their software' : away !== null ? `left the room ${dur(away)} ago · kept 30 s` : 'no audio reaching the desk'}</span
+          >{isSource ? 'nothing arriving from their software' : reh && !source?.present ? 'left the rehearsal studio' : away !== null ? `left the room ${dur(away)} ago · kept 30 s` : 'no audio reaching the desk'}</span
         ></span
       >
     {:else if own}
       <span data-testid="source-link"><svg class="g-good" aria-hidden="true"><use href="#g-link" /></svg><span>{tileLink(own)}</span></span>
     {:else}
-      <span data-testid={mine ? 'in-room' : undefined}><svg class="g-good" aria-hidden="true"><use href="#g-link" /></svg><span>{mine ? `${LEAVE.inRoom} · linked` : 'Linked · in the room'}</span></span>
+      <span data-testid={mine ? 'in-room' : undefined}><svg class="g-good" aria-hidden="true"><use href="#g-link" /></svg><span>{reh ? 'Linked · in the rehearsal studio' : mine ? `${LEAVE.inRoom} · linked` : 'Linked · in the room'}</span></span>
     {/if}
     {#if handover && own && !kept}
       <!-- With the handover's button in the first place, a source's monitor line keeps a line of
@@ -432,6 +469,10 @@
     {/if}
     {#if keptSays}
       <div class="extra kept">{keptSays}</div>
+    {:else if moved && !count}
+      <!-- Moved from the rehearsal studio and standing by (1.3): what the handover does with
+           them, in the note's place, so the tile is no taller for it. -->
+      <div class="extra next moved" data-testid="from-rehearsal"><svg aria-hidden="true"><use href="#g-loop" /></svg><span>{moved}</span></div>
     {:else if next && !count}
       <!-- The seat notice: one line in the note's place, so the tile is no taller for it. The
            late count, when it runs, says more and has the place. -->

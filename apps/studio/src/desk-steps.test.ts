@@ -413,7 +413,7 @@ describe('the desk at each step (design section 1)', () => {
     const body = desk('solo', { sources: [] });
     const stage = body.slice(body.indexOf('data-panel="desk.stage"'), body.indexOf('data-panel="desk.audience"'));
     expect(stage).toContain('You are not in the room yet');
-    expect(stage).toContain('Your voice reaches the desk from a browser tab on this computer. Open your microphone link, press Join the studio, and you are on air.');
+    expect(stage).toContain('Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join off air, standing by, and your own On key puts you on air.');
     expect(stage).toMatch(/<button[^>]*class="btn primary[^"]*"[^>]*>Join with my microphone…<\/button>/);
     expect(stage).not.toContain('Nobody is open');
     expect(body).not.toContain('data-panel="desk.step-note"');

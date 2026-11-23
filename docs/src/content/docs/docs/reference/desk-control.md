@@ -3,7 +3,7 @@ title: "The desk's control socket"
 description: "The Unix socket the desk listens on: its requests (people, the dump, the carts, the picture, the mode), its answers, and the status it reports."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-21
 sidebar:
   order: 9
 ---
@@ -39,7 +39,7 @@ A request for someone the desk does not know answers `{"ok": false, "error": "â€
 `status` answers with everyone the desk knows, whether playout is connected, the station's mode ([below](#the-stations-mode)), the delay, the mixing pass, and the carts sounding (`carts`, described in [Carts in the desk](/docs/reference/desk-carts/)):
 
 ```json
-{"ok": true, "people": [], "playout": {"connected": true, "for_ms": 5120}, "mode": "live",
+{"ok": true, "desk_mode": "live", "started_ms": 1762214390000, "people": [], "playout": {"connected": true, "for_ms": 5120}, "mode": "live",
  "delay": {"delay_ms": 8000, "target_ms": 8000, "rebuilding": false, "dumps": 0, "dumped_ms_ago": null},
  "mix": {"blocks": 9000, "late": 0, "max_pass_us": 410, "realtime": false},
  "carts": {"ducked": false, "mic_open": false, "sounding": [], "play_seq": 0, "started_ms": 1762214400000}}
@@ -65,10 +65,35 @@ Each entry in `people` carries:
 | `underruns`, `late_ms`, `ring_ms` | their voice's buffer at the desk: blocks it ran out within, audio that arrived after its place was read and was dropped, and how much it holds now |
 | `camera` | their camera has a picture at the desk (video on) |
 
+`desk_mode` is `live` or `rehearsal` ([below](#the-rehearsal-desk)); `mode` is the station's mode.
+`started_ms` is when this desk was built (milliseconds since the Unix epoch): a new value is a desk that started again (1.3).
+
+### Arriving standing by
+
+When the desk first sees someone in the room, it starts them with their role's switches, with two exceptions on a live desk (1.3):
+
+- **Every guest arrives standing by**: at the desk, heard on cue and by talk, but off air until a press puts them on (`on_air`). Until 1.2 a guest went on air the moment their link joined.
+- **Anyone whose token carries `weavesignal.standby_until`** (milliseconds since the Unix epoch, set only by the control plane) stands by while that time is ahead. The control plane puts it on every token it signs for an invitation, with the largest value (`18446744073709551615`, until a press), so a presenter who joins by an invitation, or is moved from the rehearsal studio, stands by too.
+
+Someone back within the leave grace keeps the switches they had. A desk that restarts sees everyone afresh, so everyone stands by again; the control plane notices the new `started_ms` and puts back on air the guests, presenters and DJs it had on air before, as the desk finds them present (within a minute). Callers are not put back: one goes on air only by a press, with their consent on file.
+
 `playout.connected` says whether Liquidsoap is connected to the desk's programme output; `for_ms` is how long it has been in that state, or `null` before playout has ever connected.
 The studio app's lamp reads it: see [States](/docs/reference/states/).
 
 With video on, the status also carries `video` and `sound`, the video stream's sound: `source` (`desk` or `playout`), `live`, `feed_connected`, `feed_connections`, `feed_replaced`, `feed_underruns`, `feed_late_ms` and `feed_ring_ms` ([Video in the desk](/docs/reference/desk-video/#the-sound)).
+
+## The rehearsal desk
+
+A desk with `[desk] mode = "rehearsal"` mixes the rehearsal studio: each person's return and the carts, and nothing else.
+Its socket takes only `status`, `on_air`, `mute`, `cue`, `talk`, `talk_to`, `cart_fire`, `cart_stop` and `cart_stop_all`.
+Every other request, including any added in a later version, is refused before it is read further:
+
+```json
+{"ok": false, "code": "rehearsal", "error": "not on a rehearsal desk: `dump` reaches no air here"}
+```
+
+`cart_plays` is among the refused, so nothing played in rehearsal reaches the per-play log.
+On a rehearsal desk `on_air` means *in the mix* of the rehearsal room: the returns are made from it, and no output carries it further.
 
 ## The station's mode
 

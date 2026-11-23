@@ -438,15 +438,15 @@ export class Station {
   }
 
   /** Someone from the cast who was not in the room joins now, from their invitation link (a
-   *  guest, a remote DJ, a presenter): seated by their role, a guest or a presenter on air the
-   *  moment they join, a DJ off air on strip 5. The pass is checked again when it is used: if the
+   *  guest, a remote DJ, a presenter): seated by their role, and off air, standing by, as
+   *  everyone invited is since 1.3 (a DJ on strip 5). The pass is checked again when it is used: if the
    *  step has since hidden their seat they stay out, and their link is good for later. */
   join(id: string, now: number): void {
     const who = this.scenario.cast.find((c) => c.identity === id);
     if (!who || this.person(id)) return;
     if (hiddenSeat(this.step, who.role)) return;
     this.clock = now;
-    this.people.push(person(id, who.name, who.role, { on_air: who.role === 'guest' || who.role === 'presenter' }));
+    this.people.push(person(id, who.name, who.role));
     this.seat();
     const slot = this.slots.indexOf(id) + 1;
     const first = who.name.split(' ')[0];
@@ -456,7 +456,9 @@ export class Station {
       'person.joined',
       id,
       `${first} joined the room`,
-      who.role === 'dj' ? `Off air under Not on air${slot ? `, on strip ${slot}` : ''}: cue them to hear them; ⇧⏎ brings them on air with you.` : `On air, on strip ${slot || '–'}.`,
+      who.role === 'dj'
+        ? `Off air under Not on air${slot ? `, on strip ${slot}` : ''}: cue them to hear them; ⇧⏎ brings them on air with you.`
+        : `Standing by under Not on air${slot ? `, on strip ${slot}` : ''}: press ${slot || 'their number'} to put them on air.`,
     );
     this.version++;
   }

@@ -572,6 +572,58 @@ struct WeekEpisode {
     series: Series,
     episode: Episode,
     resolved: Resolved,
+    /// The studio column the episode is in (1.3.0): `studio`, for every show on air, wherever
+    /// its host is. Shows on air share one programme, so they are never in two columns.
+    #[schema(example = "studio")]
+    studio: &'static str,
+    /// Where its host comes from (1.3.0): `room`, at the desk, or `own`, their own studio with a
+    /// show key that has not ended (ADR-0280). Worked out as the rota works it out, from the
+    /// show keys standing now.
+    from: HostFrom,
+}
+
+/// Where a show's host comes from, for the Studios view's *Own studio* chip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum HostFrom {
+    /// The room: a presenter or DJ at the desk.
+    Room,
+    /// Their own studio, sending with a show key.
+    Own,
+}
+
+impl From<weavesignal_model::handover_window::Origin> for HostFrom {
+    fn from(o: weavesignal_model::handover_window::Origin) -> Self {
+        match o {
+            weavesignal_model::handover_window::Origin::Room => HostFrom::Room,
+            weavesignal_model::handover_window::Origin::Push => HostFrom::Own,
+        }
+    }
+}
+
+/// A column of the Studios view (1.3.0): the live studio, and the rehearsal studio when the
+/// station has one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub(crate) struct StudioColumn {
+    /// `studio` or `rehearsal`: what an episode's `studio` names.
+    pub id: &'static str,
+    /// The column's heading.
+    pub name: &'static str,
+}
+
+/// The Studios view's columns: Studio, and Rehearsal when the station has a rehearsal studio.
+pub(crate) fn studio_columns(rehearsal: bool) -> Vec<StudioColumn> {
+    let mut out = vec![StudioColumn {
+        id: "studio",
+        name: "Studio",
+    }];
+    if rehearsal {
+        out.push(StudioColumn {
+            id: "rehearsal",
+            name: "Rehearsal",
+        });
+    }
+    out
 }
 
 /// Every episode airing in the range, with its show, series and resolved fields, and the zone
@@ -582,7 +634,7 @@ struct WeekEpisode {
     operation_id = "shows_episodes_between",
     tag = "schedule",
     summary = "Episodes in a range",
-    description = "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281).",
+    description = "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281). From release 1.3.0 also the Studios view's columns (`studios`: Studio, and Rehearsal when the station has a rehearsal studio), each episode's `studio` and `from` (`room` or `own`, as the rota says), and `rehearsals`: the rehearsal studio's bookings and its sessions in the range (empty without a rehearsal studio). The public calendar file never lists rehearsals.",
     params(("from_ms" = i64, Query, description = "From, in milliseconds since the Unix epoch"), ("to_ms" = i64, Query, description = "To (exclusive)")),
     responses(
         (status = 200, description = "The episodes.", body = WeekBody),
@@ -617,6 +669,26 @@ async fn episodes_between(
         q.to_ms.div_euclid(1000) + 1,
     )
     .await?;
+    // Who is down for each show, as the rota works it out (`post::down_of` over the show keys
+    // standing now), so the Studios view's chip and the rota never disagree.
+    let keys = weavesignal_model::sources::live_keys(
+        pool,
+        state.station.id,
+        Timestamp::now().as_millisecond(),
+    )
+    .await?;
+    let mut week_shows: Vec<Show> = Vec::new();
+    for (show, _, _) in &found {
+        if !week_shows.iter().any(|s| s.id == show.id) {
+            week_shows.push(show.clone());
+        }
+    }
+    let down = crate::post::down_of(&week_shows, &keys);
+    let from_of = |show: uuid::Uuid| {
+        down.iter()
+            .find(|d| d.show == show)
+            .map_or(HostFrom::Room, |d| d.from.into())
+    };
     let mut out = Vec::with_capacity(found.len());
     let mut siblings: std::collections::HashMap<uuid::Uuid, Vec<Episode>> = Default::default();
     for (show, series, episode) in found {
@@ -632,6 +704,8 @@ async fn episodes_between(
             &siblings[&series.id],
         );
         out.push(WeekEpisode {
+            from: from_of(show.id),
+            studio: "studio",
             show,
             series,
             episode,
@@ -639,11 +713,23 @@ async fn episodes_between(
         });
     }
     let dates = crate::rules::open_dates(&state, q.from_ms, q.to_ms).await?;
+    let rehearsal = state
+        .hub
+        .as_ref()
+        .is_some_and(|h| h.rehearsal.get().is_some());
+    let rehearsals = if rehearsal {
+        crate::rehearsal_bookings::blocks_between(pool, state.station.id, q.from_ms, q.to_ms)
+            .await?
+    } else {
+        Vec::new()
+    };
     Ok(Json(json!({
         "zone": state.zone.name(),
         "episodes": out,
         "dates": dates,
         "public_url": state.public(),
+        "studios": studio_columns(rehearsal),
+        "rehearsals": rehearsals,
     }))
     .into_response())
 }
@@ -2556,6 +2642,14 @@ struct WeekBody {
     /// which on Cloudron is behind the login (release 1.0.5, ADR-0281).
     #[schema(example = "https://station.example")]
     public_url: Option<String>,
+    /// The Studios view's columns, in order (1.3.0): `studio`, and `rehearsal` only when the
+    /// station has a rehearsal studio. A later studio is one more entry. Absent from a station
+    /// older than 1.3.0.
+    studios: Vec<StudioColumn>,
+    /// The rehearsal studio in the range (1.3.0): every booking, then every session (past or
+    /// open; an open one ends now), each in start order. Empty when the station has no rehearsal
+    /// studio. Never in the public calendar file.
+    rehearsals: Vec<crate::rehearsal_bookings::RehearsalBlock>,
 }
 
 /// A card's fields, as `weavesignal-cards`' `CardData` has them (inheritance already resolved).

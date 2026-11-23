@@ -144,7 +144,8 @@ describe('desk B', () => {
     expect(dialog).toContain('Invite someone to the room');
     expect(dialog.indexOf('<strong>DJ</strong>')).toBeLessThan(dialog.indexOf('<strong>Guest</strong>'));
     expect(dialog).toContain('Joins off air, under Not on air.');
-    expect(dialog).toContain('On air the moment they join.');
+    expect(dialog).toContain('Joins off air, standing by under Not on air, until you put them on.');
+    expect(dialog).not.toContain('the moment they join');
   });
 
   it('puts the handover button on the DJ’s tile and the rundown’s ⇧⏎ row, worded as the next press', () => {

@@ -27,7 +27,8 @@ Each source keeps its slot, and its keys, while it is in the room (ADR-0096): yo
 Press their slot's digit: `1` to `5`.
 They move onto the stage, and their word is ON AIR (OPEN while playout is down or the station is in auto mode).
 The same key takes them off.
-Guests are on air from the moment they join; a DJ or a caller joins off air and waits for you.
+Everyone joins off air and waits for you under Not on air: press their slot's digit to put them on air. (Until 1.2 a guest, and a presenter who joined by an invitation, went on air the moment they joined.)
+Taking the air back from automation puts the show's presenter on air with it, and yours if you joined with your own microphone link.
 
 ## Hear someone before they go on air
 

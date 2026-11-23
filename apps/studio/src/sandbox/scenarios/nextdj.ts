@@ -22,7 +22,7 @@ export const NEXT_DJ: Scenario = {
   step: 'full',
   learn: [
     'Before the day: both shows are in the schedule back to back, each with its DJ’s name and takedown contact, so the call page’s words change at the post by themselves. That is the Schedule tab of a real station; the sandbox has none.',
-    'The next DJ joins early, from an invitation you create at the desk: Invite someone…, beside Not on air, with the role DJ. A DJ arrives off air, on strip 5; a guest or a presenter would be on air the moment they joined.',
+    'The next DJ joins early, from an invitation you create at the desk: Invite someone…, beside Not on air, with the role DJ. A DJ arrives off air, on strip 5, as everyone invited does: a guest or a presenter waits under Not on air too, until you put them on.',
     'Cue them to hear their level, and talk to them off air to agree when you bring them on. Then they stand by.',
   ],
   you: EILIDH,

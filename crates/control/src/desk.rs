@@ -312,6 +312,27 @@ impl StationMode {
     }
 }
 
+/// Which studio a desk mixes (1.3.0, rehearsal): the live studio, whose programme goes to
+/// playout, or the rehearsal studio, built with no way to the air. The desk reports it as
+/// `desk_mode` in its status (`mode` there is the station's mode, [`StationMode`]); a desk that
+/// does not report one is a live desk from before rehearsal.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DeskMode {
+    #[default]
+    Live,
+    Rehearsal,
+}
+
+impl DeskMode {
+    pub fn word(self) -> &'static str {
+        match self {
+            DeskMode::Live => "live",
+            DeskMode::Rehearsal => "rehearsal",
+        }
+    }
+}
+
 /// The desk's answer to `status`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct DeskStatus {
@@ -337,6 +358,13 @@ pub struct DeskStatus {
     /// The phone line's booths and keys (17f); `None` from a desk without it or with it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phone: Option<DeskPhone>,
+    /// Which studio the desk mixes; absent from a desk before rehearsal, which is a live desk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk_mode: Option<DeskMode>,
+    /// When the desk was built (ms since the Unix epoch): a new value is a desk that started
+    /// again. Absent from a desk before 1.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_ms: Option<u64>,
 }
 
 /// The presenter kit's outputs as the desk holds them.
@@ -501,6 +529,16 @@ pub enum DeskError {
     /// A refusal with the desk's word for it (`busy`, `missing`, `invalid`, `decode`).
     #[error("the desk refused: {message}")]
     Rejected { code: String, message: String },
+    /// The desk on this socket mixes the other studio: nothing is sent to it (1.3.0). A
+    /// rehearsal link never drives a live desk, and the live link never drives a rehearsal desk.
+    #[error(
+        "the desk on {path} is a {found} desk, not the {expected} desk this link drives; nothing was sent"
+    )]
+    WrongMode {
+        path: String,
+        expected: &'static str,
+        found: &'static str,
+    },
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -525,6 +563,10 @@ struct Reply {
     #[serde(default)]
     kit: Option<DeskKit>,
     phone: Option<DeskPhone>,
+    #[serde(default)]
+    desk_mode: Option<DeskMode>,
+    #[serde(default)]
+    started_ms: Option<u64>,
     #[serde(default)]
     pool: Option<Pool>,
     #[serde(default)]
@@ -552,24 +594,86 @@ impl Reply {
 struct Conn {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
+    /// This connection's desk has said which studio it mixes, and it is the one expected.
+    checked: bool,
 }
 
-/// One connection to the desk's control socket, made again after any failure.
+impl Conn {
+    async fn round_trip(&mut self, line: &str) -> Result<Reply, String> {
+        self.write
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut answer = String::new();
+        let n = self
+            .read
+            .read_line(&mut answer)
+            .await
+            .map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err("the desk closed the connection".to_owned());
+        }
+        serde_json::from_str::<Reply>(&answer).map_err(|e| format!("not a reply: {e}"))
+    }
+}
+
+/// The status request, as sent.
+const STATUS: &str = r#"{"op":"status"}"#;
+
+/// Why an exchange failed.
+enum Fail {
+    Io(String),
+    /// The desk mixes the other studio.
+    Wrong(DeskMode),
+}
+
+/// One connection to the desk's control socket, made again after any failure. Each connection
+/// is checked before anything but `status` is sent on it: the desk must say it mixes the studio
+/// this link drives (`desk_mode`), so a rehearsal link never drives a live desk, and the live
+/// link never drives a rehearsal desk (1.3.0). A desk that says nothing is a live desk from
+/// before rehearsal: the live link takes it, the rehearsal link refuses it.
 pub struct DeskClient {
     path: Option<PathBuf>,
+    expect: DeskMode,
     conn: tokio::sync::Mutex<Option<Conn>>,
 }
 
 impl DeskClient {
+    /// The link to the live desk.
     pub fn new(path: Option<&Path>) -> Self {
         DeskClient {
             path: path.map(Path::to_path_buf),
+            expect: DeskMode::Live,
             conn: tokio::sync::Mutex::new(None),
         }
     }
 
+    /// The link to the rehearsal desk (1.3.0): it sends nothing to a desk that does not say it
+    /// is one.
+    pub fn rehearsal(path: Option<&Path>) -> Self {
+        DeskClient {
+            expect: DeskMode::Rehearsal,
+            ..DeskClient::new(path)
+        }
+    }
+
+    /// The studio this link drives.
+    pub fn expects(&self) -> DeskMode {
+        self.expect
+    }
+
     pub fn configured(&self) -> bool {
         self.path.is_some()
+    }
+
+    /// `Ok` when a status reply's desk mixes the studio this link drives.
+    fn check(&self, r: &Reply) -> Result<(), Fail> {
+        let found = r.desk_mode.unwrap_or_default();
+        if found == self.expect {
+            Ok(())
+        } else {
+            Err(Fail::Wrong(found))
+        }
     }
 
     async fn ask(&self, line: &str) -> Result<Reply, DeskError> {
@@ -583,34 +687,53 @@ impl DeskClient {
         let mut guard = self.conn.lock().await;
         let exchange = async {
             if guard.is_none() {
-                let stream = UnixStream::connect(path).await.map_err(|e| e.to_string())?;
+                let stream = UnixStream::connect(path)
+                    .await
+                    .map_err(|e| Fail::Io(e.to_string()))?;
                 let (r, w) = stream.into_split();
                 *guard = Some(Conn {
                     read: BufReader::new(r),
                     write: w,
+                    checked: false,
                 });
             }
             let conn = guard.as_mut().expect("connected above");
-            conn.write
-                .write_all(format!("{line}\n").as_bytes())
-                .await
-                .map_err(|e| e.to_string())?;
-            let mut answer = String::new();
-            let n = conn
-                .read
-                .read_line(&mut answer)
-                .await
-                .map_err(|e| e.to_string())?;
-            if n == 0 {
-                return Err("the desk closed the connection".to_owned());
+            let is_status = line == STATUS;
+            if !conn.checked && !is_status {
+                let r = conn.round_trip(STATUS).await.map_err(Fail::Io)?;
+                if !r.ok {
+                    return Err(Fail::Io(format!(
+                        "the desk did not say which studio it mixes: {}",
+                        r.error.unwrap_or_default()
+                    )));
+                }
+                self.check(&r)?;
+                conn.checked = true;
             }
-            serde_json::from_str::<Reply>(&answer).map_err(|e| format!("not a reply: {e}"))
+            let r = conn.round_trip(line).await.map_err(Fail::Io)?;
+            if is_status && r.ok {
+                self.check(&r)?;
+                conn.checked = true;
+            }
+            Ok(r)
         };
         match tokio::time::timeout(TIMEOUT, exchange).await {
             Ok(Ok(reply)) => Ok(reply),
-            Ok(Err(reason)) => {
+            Ok(Err(Fail::Io(reason))) => {
                 *guard = None;
                 Err(unreachable(reason))
+            }
+            Ok(Err(Fail::Wrong(found))) => {
+                *guard = None;
+                tracing::warn!(
+                    socket = %path.display(), expected = self.expect.word(), found = found.word(),
+                    "the desk on this socket mixes the other studio; nothing is sent to it"
+                );
+                Err(DeskError::WrongMode {
+                    path: path.display().to_string(),
+                    expected: self.expect.word(),
+                    found: found.word(),
+                })
             }
             Err(_) => {
                 *guard = None;
@@ -621,7 +744,7 @@ impl DeskClient {
 
     /// Everyone at the desk, and the playout link.
     pub async fn status(&self) -> Result<DeskStatus, DeskError> {
-        let r = self.ask(r#"{"op":"status"}"#).await?;
+        let r = self.ask(STATUS).await?;
         if !r.ok {
             return Err(DeskError::Refused(r.error.unwrap_or_default()));
         }
@@ -634,6 +757,8 @@ impl DeskClient {
             video: r.video,
             kit: r.kit,
             phone: r.phone,
+            desk_mode: r.desk_mode,
+            started_ms: r.started_ms,
         })
     }
 
@@ -777,6 +902,10 @@ pub(crate) mod fake {
         pub video: Option<Value>,
         /// The phone line as the desk reports it (17f); `None`: no phone line.
         pub phone: Option<Value>,
+        /// Which studio it says it mixes (`live`, `rehearsal`); `None`: a desk before rehearsal.
+        pub desk_mode: Option<String>,
+        /// When it says it was built; a test sets a new value to play a desk that started again.
+        pub started_ms: Option<u64>,
     }
 
     impl FakeDesk {
@@ -836,6 +965,7 @@ pub(crate) mod fake {
                     });
                     json!({"ok": true, "people": self.people, "playout": {"connected": true, "for_ms": 10},
                         "mode": self.mode, "delay": delay, "video": video, "phone": self.phone,
+                        "desk_mode": self.desk_mode, "started_ms": self.started_ms,
                         "carts": {"ducked": self.mic_open || sweeping, "mic_open": self.mic_open,
                             "sounding": sounding, "play_seq": self.plays.len()}})
                 }
@@ -895,14 +1025,15 @@ pub(crate) mod fake {
                     }
                     json!({"ok": true, "stopped": n})
                 }
-                "on_air" => {
+                "on_air" | "mute" => {
                     let on = v["on"].as_bool().unwrap_or(false);
+                    let field = v["op"].as_str().unwrap_or_default().to_owned();
                     for p in self
                         .people
                         .iter_mut()
                         .filter(|p| p["identity"] == v["identity"])
                     {
-                        p["on_air"] = json!(on);
+                        p[field.as_str()] = json!(on);
                     }
                     json!({"ok": true})
                 }

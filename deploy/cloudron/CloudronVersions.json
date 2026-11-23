@@ -1138,6 +1138,142 @@
             "creationDate": "Sun, 22 Nov 2026 08:56:09 GMT",
             "ts": "Sun, 22 Nov 2026 08:56:09 GMT",
             "publishState": "published"
+        },
+        "1.3.0": {
+            "manifest": {
+                "manifestVersion": 2,
+                "id": "top.weavesignal.cloudronapp",
+                "title": "WeaveSignal",
+                "author": "The WeaveSignal contributors",
+                "tagline": "An internet radio and video studio: a live room with callers, the desk, playout, streams and chat",
+                "description": "<!-- SPDX-License-Identifier: AGPL-3.0-only -->\n<!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->\nWeaveSignal is talk-radio software: presenters, guests and callers meet in a live room, a desk\nmixes the programme with a mix-minus for each person, and playout sends it to listeners.\n\nThis package runs release one's server in one app: the control plane (Rust, Axum), the live\nchat (Rust, Axum), the desk (Rust, GStreamer), Liquidsoap 2.5 for playout and for the listener\nprocess that holds the stream with `icecast.server`, LiveKit with its own TURN, and the\nstation's public pages. It uses Cloudron's PostgreSQL and mail.\n\nA Cloudron app is given no GPU, so with video on the desk encodes AV1 on the CPU with SVT-AV1\n(`VIDEO_ENCODER=svt`). A station that wants NVENC runs the Compose bundle or the Quadlets on a\nserver with an NVIDIA card instead.\n\nThe studio app for presenters and screeners (Linux and Windows) connects to it over https.\nDocumentation: https://weavesignal.top. Source: https://forgejo.weavesignal.top/WeaveSignal/weavesignal.\n",
+                "version": "1.3.0",
+                "upstreamVersion": "1.3.0",
+                "website": "https://weavesignal.top",
+                "contactEmail": "info@weavesignal.top",
+                "packagerName": "The WeaveSignal contributors",
+                "packagerUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal",
+                "packageUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/src/branch/main/deploy/cloudron",
+                "documentationUrl": "https://weavesignal.top/docs/how-to/install-on-cloudron/",
+                "icon": "file://logo.png",
+                "iconUrl": "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.3.0/deploy/cloudron/logo.png",
+                "healthCheckPath": "/health",
+                "httpPort": 8000,
+                "httpPorts": {
+                    "LISTENERS_DOMAIN": {
+                        "title": "Listener stream",
+                        "description": "The listener stream (Ogg Opus), served by icecast.server behind this domain. It is not listed in any directory.",
+                        "containerPort": 8001,
+                        "defaultValue": "weavesignal-listen"
+                    },
+                    "ROOM_DOMAIN": {
+                        "title": "Live room signalling",
+                        "description": "LiveKit's signalling for presenters, guests and callers (WebSocket). Room access needs a short-lived token from the station.",
+                        "containerPort": 8002,
+                        "defaultValue": "weavesignal-room"
+                    },
+                    "PUBLIC_DOMAIN": {
+                        "title": "Public pages",
+                        "description": "The station's public pages, outside Cloudron's login: the player with call-in and the live chat, invited guests' join page, the echo test, podcast feeds, show cards and episode files. The app's own domain stays for the studio.",
+                        "containerPort": 8003,
+                        "defaultValue": "weavesignal-public"
+                    }
+                },
+                "udpPorts": {
+                    "LIVEKIT_MEDIA_PORT": {
+                        "title": "Live room media (UDP)",
+                        "description": "LiveKit's one WebRTC media port (ADR-0023). Default 7882; a port in 52000-60000 or 443/udp are alternatives, and any free UDP port may be used. Avoid 50000-51000, Cloudron's own TURN relay range.",
+                        "defaultValue": 7882
+                    },
+                    "TURN_UDP_PORT": {
+                        "title": "TURN over UDP",
+                        "description": "LiveKit's built-in TURN over UDP. Off by default: guests who cannot use the media port use TURN over TLS. Cloudron's own TURN holds 3478, so 3479 or 13478; any free UDP port may be used.",
+                        "defaultValue": 3479,
+                        "enabledByDefault": false
+                    },
+                    "SOURCE_SRT_PORT": {
+                        "title": "Hosts' own studios: SRT",
+                        "description": "SRT from a host's own software (OBS, vMix, ffmpeg) with a show key: the key id is the stream ID and its secret the passphrase (ADR-0280). Off by default; the ingest listens only while a show key exists. Default 9710; 19710 or 29710 are alternatives, and any free UDP port may be used.",
+                        "defaultValue": 9710,
+                        "enabledByDefault": false
+                    },
+                    "SOURCE_WHIP_PORT": {
+                        "title": "Hosts' own studios: WHIP",
+                        "description": "WHIP's sound from a host's OBS (30 and later) with a show key: the offer goes to https://<public domain>/whip/<key id> with the key's secret as the Bearer Token, and the sound to this port (ICE-lite, no STUN or TURN). Needs the public domain. Off by default; the ingest listens only while a show key exists. Default 9712; 19712 or 29712 are alternatives, and any free UDP port may be used.",
+                        "defaultValue": 9712,
+                        "enabledByDefault": false
+                    }
+                },
+                "tcpPorts": {
+                    "TURN_TLS_PORT": {
+                        "title": "TURN over TLS",
+                        "description": "LiveKit's built-in TURN over TLS, for guests on networks that block UDP and for GrapheneOS's browser (ADR-0059). On Cloudron the default is 15349, because Cloudron's own TURN holds 5349 (ADR-0106); any free TCP port may be used.",
+                        "defaultValue": 15349
+                    },
+                    "LIVEKIT_TCP_PORT": {
+                        "title": "Live room media over TCP",
+                        "description": "LiveKit's ICE over TCP, a fallback when UDP is blocked. Off by default: TURN over TLS covers the same guests. Default 7881; any free TCP port may be used.",
+                        "defaultValue": 7881,
+                        "enabledByDefault": false
+                    },
+                    "SOURCE_ICECAST_PORT": {
+                        "title": "Hosts' own studios: Icecast",
+                        "description": "Icecast sources from a host's own software (BUTT, Mixxx, RadioDJ) with a show key (ADR-0280). Off by default; the ingest listens only while a show key exists. Default 8005; 18005 or 28005 are alternatives, and any free TCP port may be used.",
+                        "defaultValue": 8005,
+                        "enabledByDefault": false
+                    }
+                },
+                "addons": {
+                    "localstorage": {},
+                    "postgresql": {},
+                    "sendmail": {},
+                    "tls": {},
+                    "proxyAuth": {
+                        "path": "!/health",
+                        "supportsBearerAuth": true
+                    }
+                },
+                "optionalSso": true,
+                "memoryLimit": 2147483648,
+                "minBoxVersion": "10.0.0",
+                "postInstallMessage": "<!-- SPDX-License-Identifier: AGPL-3.0-only -->\n<!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->\nYour station is installed. The guide is at https://weavesignal.top/docs/how-to/install-on-cloudron/.\n\n**First steps.** The dashboard's checklist for this app lists them too.\n\n1. **Set the station up** at `$CLOUDRON-APP-ORIGIN/setup/`: sign in with `CONTROL_ADMIN_TOKEN`\n   from `/app/data/secrets.env` (open it with the File Manager). Give the station its name, the\n   takedown contact that opens call-in, its jurisdiction and its look (colour, icon, banner).\n   The install wizard at https://weavesignal.top/docs/install-wizard/ makes `weavesignal.env`\n   and the DNS list.\n2. **Make yourself an admin.** In the studio app choose **Use the station key instead** with\n   `CONTROL_ADMIN_TOKEN`, add yourself under **Settings → Staff**, then sign in as yourself.\n   Each member of staff then gets their own account there.\n3. **Choose who hears the stream.** It is unlisted but open to anyone with its address. To ask\n   for a password, set `LISTENERS_AUTH=on` in `weavesignal.env` and restart the app: it then\n   asks for the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`. The player page\n   cannot play a stream that has a password.\n4. **Open the public ports** (below) in the server's firewall and any cloud firewall.\n5. **Hosts in their own studios.** If hosts will send their shows from their own\n   software, turn on the two source ports, Icecast (TCP) and SRT (UDP), in this app's\n   **Location** settings. They are off until you do, and the station listens on them only once\n   a show has a key. Open them in the firewall too.\n\n* The station's settings are in `/app/data/weavesignal.env`, and its generated secrets (the\n  station identifier, LiveKit's key, the control plane's admin token, the listener password,\n  and the keys that hash chatters' and staff's email addresses) are in `/app/data/secrets.env`.\n  Keep the email keys: a new one finds none of the accounts made before. Open them with the File Manager; restart the app after an edit.\n* The consent words a caller agrees to are the shipped two sentences until you set\n  `CONSENT_TEXT` in `weavesignal.env`, in double quotes (`\\\"` for a quote); they may name\n  `{station}`, `{kept}`, `{contact}` and the show's `{presenter}`.\n* The listener stream is at `https://<listener domain>/programme.opus`. It is in no directory\n  and open to anyone with the address; set `LISTENERS_AUTH=on` in `weavesignal.env` to ask for\n  the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`.\n* The player page, with call-in and the live chat, is at `https://<public domain>/`; podcast\n  feeds, show cards and episode files are served there too. The chat's sign-in codes are sent\n  through Cloudron's mail (`MAIL_MODE` in `weavesignal.env`).\n* Room tokens: `POST /api/v1/room/tokens` with a staff sign-in or `CONTROL_ADMIN_TOKEN` as the bearer.\n* The public ports (room media over UDP, TURN over TLS, the optional TURN over UDP and ICE\n  over TCP, and the two ports for hosts' own studios if you turned them on) must be open in the server's firewall and any cloud firewall.\n<sso>\n* The station's own domain is behind Cloudron's login; the listener, room and public domains\n  are not, and are protected by the listener password, by room tokens, and by serving only\n  the public routes.\n</sso>\n",
+                "checklist": {
+                    "set-up-the-station": {
+                        "message": "Set the station up. Open the app's own address with `/setup/` on the end and sign in with `CONTROL_ADMIN_TOKEN` from `/app/data/secrets.env` (open it with the File Manager). Give the station its name, a takedown contact (call-in stays closed until you do), its jurisdiction and its look."
+                    },
+                    "make-yourself-an-admin": {
+                        "message": "Make yourself an admin. In the studio app choose **Use the station key instead**, add yourself under **Settings > Staff**, then sign in as yourself. Give each member of staff an account of their own there."
+                    },
+                    "choose-who-hears-the-stream": {
+                        "message": "Choose who may hear the stream. It is unlisted but open to anyone with its address. To ask for a password, set `LISTENERS_AUTH=on` in `/app/data/weavesignal.env` and restart the app; it then asks for the user `listener` and `LISTENERS_PASSWORD` from `secrets.env`. The player page cannot play a stream that has a password."
+                    },
+                    "open-the-ports": {
+                        "message": "Open the public ports in the server's firewall and in any cloud firewall: the live room's media port (UDP), TURN over TLS, and any optional port you turned on."
+                    },
+                    "hosts-own-studios": {
+                        "message": "Only if hosts will send their shows from their own software: the two ports for it, Icecast (TCP) and SRT (UDP), are off until you turn them on in the app's **Location** settings. Open them in the firewall too. The station listens on them only once a show has a key."
+                    }
+                },
+                "changelog": "- **A rehearsal studio**: a second desk that has no way to the air mixes a room of its own for one show at a time. A presenter, producer or admin opens it, invites guests with rehearsal invitations and rehearses with the desk's keys and the show's carts; nothing said there reaches listeners, recordings, webhooks or the chat. **One press moves the people to the live studio** on the links they already have, standing by.\n- **Behaviour change: every guest now arrives standing by at the live desk** (under *Not on air*) until a press puts them on, so a guest's first test words no longer reach the air.\n- **Studios as columns in the Schedule tab**, with optional bookings that hold the studio for a show; a booking never overlaps another.\n- **New setting `REHEARSAL`**, off by default (`/app/data/weavesignal.env`); it adds the rehearsal desk and opens no port. **Migration 0070** (`rehearsal_session`, `rehearsal_booking`). Video and hosts' own studios are off in the rehearsal desk.\n",
+                "tags": [
+                    "media",
+                    "radio",
+                    "streaming",
+                    "video",
+                    "chat"
+                ],
+                "mediaLinks": [
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.3.0/docs/src/assets/screens/reference-desk-window.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.3.0/docs/src/assets/screens/reference-screener-queue.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.3.0/docs/src/assets/screens/reference-public-pages-player.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.3.0/docs/src/assets/screens/reference-calendar-week.png",
+                    "https://forgejo.weavesignal.top/WeaveSignal/weavesignal/raw/tag/v1.3.0/docs/src/assets/screens/reference-carts-window.png"
+                ],
+                "dockerImage": "forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.3.0"
+            },
+            "creationDate": "Mon, 23 Nov 2026 00:43:01 GMT",
+            "ts": "Mon, 23 Nov 2026 00:43:01 GMT",
+            "publishState": "published"
         }
     }
 }

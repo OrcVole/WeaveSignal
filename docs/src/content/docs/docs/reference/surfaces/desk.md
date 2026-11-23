@@ -211,6 +211,10 @@ The line says only what will happen. While automation holds the air (the lamp sa
 While the host's link is lost and their place is kept there is nobody to talk to. Once automation covers, the line reads *You join open to the room, and are on air when Finlay is back.*: the station brings a returning host back by itself and takes the air back with them, which puts you on air beside them.
 In the seconds before that, and on a station without the playout layer, the desk still holds the air, and the line reads *Joining puts you on air. If Finlay reconnects, they then stand by.*
 
+From 1.3 a person who joins by an invitation, their own link included, joins standing by under **Not on air**, and goes on air by a press: their own key, the handover, or taking the air back from automation.
+The lines above are the studio app's wording of 1.2, in which joining put you on air; they are due to be revised for 1.3.0.
+<!-- R16: the strings are in apps/studio/src/lib (ownLinkBeside, desk3.test.ts): update this section when they change. -->
+
 ## `desk.next`
 
 At Solo only, in the guest's empty seat: the next show's source from a host's own studio (ADR-0280).
@@ -225,12 +229,12 @@ Not on air: the sources in the room that are cued or standing by, and playout's 
 A source here keeps its slot and its keys (ADR-0096).
 In a short window it is this row that gives way to the tiles on air (1.2.0): it scrolls inside itself, with its name and **Invite someone…** staying in sight. In a 1,440 × 900 window that is three on air with two waiting, where playout's tile is reached by scrolling; with five on air everything under the stage's head scrolls.
 It arrives at the Guests step, with **Invite someone…** at its head; at Solo there is one tile, and it stays on the stage on air or off.
-While a host in their own studio has the air and you are not in the room (1.1), **Join with my microphone…** is offered here too, quietly, with one line that says what joining is for and that it puts you on air ([`desk.step-note`](#deskstep-note)); the row's note on how sources move steps aside for it.
+While a host in their own studio has the air and you are not in the room (1.1), **Join with my microphone…** is offered here too, quietly, with one line that says what joining is for and what joining is for ([`desk.step-note`](#deskstep-note); from 1.3 a person who joins stands by until a press puts them on); the row's note on how sources move steps aside for it.
 
 ## `desk.invite`
 
 The invitation dialog: a name and a role, then the link to send, **Copy link** and how long it lasts.
-A DJ joins off air; a guest or a presenter is on air the moment they join.
+Everyone invited joins off air, standing by until you put them on: a DJ always has, a guest and a presenter since 1.3. Press their slot's digit, hand over with `⇧⏎`, or take the air back from automation, which puts the show's presenter on with it.
 The roles follow the show's step: a guest and a presenter from Guests, the next show's DJ at Full.
 At Solo it is your own microphone link instead, from **Join with my microphone…**, with **Open in browser**.
 

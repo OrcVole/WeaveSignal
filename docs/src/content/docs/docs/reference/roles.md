@@ -3,7 +3,7 @@ title: "Roles"
 description: "The seven roles a person can join the room with, and what each one can do at the desk."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-22
 sidebar:
   order: 2
 ---
@@ -15,13 +15,18 @@ Roles are written in lowercase everywhere: in tokens, in the API and on the comm
 
 | Role | Who | On air when they join | Can reach the programme | Hears talkback | At the desk | Token can publish |
 |---|---|---|---|---|---|---|
-| `presenter` | presents the show from the studio | yes | yes | yes | yes | yes |
+| `presenter` | presents the show from the studio | by invitation, no: stands by (1.3) until a press puts them on; by a token issued directly, yes | yes | yes | yes | yes |
 | `dj` | a remote DJ | no; put on air at the desk | yes | yes | yes | yes |
-| `guest` | a guest in the room | yes | yes | no | yes | yes |
+| `guest` | a guest in the room | no; stands by (1.3), until a press puts them on | yes | no | yes | yes |
 | `caller` | a listener calling in | no; sent by the screener, taken by the presenter | yes | no | yes | yes |
 | `screener` | screens callers | never | no | no | yes | yes |
 | `producer` | produces the show; counts the presenter in | never | no | no | yes | yes |
 | `listener` | a monitor, a recorder, a test's ear | never | no | no | no | no |
+
+**Standing by** (from 1.3) is at the desk, heard on cue and by talk, and off air until a press puts the person on: their slot's key, the handover, taking the air back from automation, or the schedule's bring-on.
+Every guest arrives standing by, whatever way their token was made, and so does everyone who comes by an invitation, a presenter's own link included; until 1.2 a guest and an invited presenter went on air the moment they joined.
+A token issued directly ([Issue room tokens](/docs/how-to/issue-room-tokens/)) carries no standing-by mark, so a presenter's is still on air at join; a DJ's never was.
+The role's own default, on air for a presenter and a guest, is what the *rehearsal* desk uses: there a person starts *in the mix*, and nothing in it reaches the air ([The rehearsal studio](/docs/reference/rehearsal-studio/)).
 
 "At the desk" means the desk mixes the person's voice and makes them a mix-minus.
 A `listener` is left out: it has no voice and no mix-minus, and it subscribes to the one track it needs, such as `desk-mm-eilidh` for what Eilidh hears.

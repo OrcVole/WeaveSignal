@@ -77,6 +77,10 @@ pub struct Config {
     /// The telephone line (Phase 17f); off by default, and off until a trunk is set.
     #[serde(default)]
     pub phone: crate::phone::config::PhoneConfig,
+    /// The rehearsal studio (1.3.0): a second desk that never reaches the air. Off unless the
+    /// installation turns it on (`REHEARSAL`).
+    #[serde(default)]
+    pub rehearsal: RehearsalConfig,
     /// Set from [`DATABASE_URL_ENV`]; never from the file.
     #[serde(skip)]
     pub database_url: Option<String>,
@@ -249,6 +253,91 @@ impl Default for DeskConfig {
             socket: None,
             poll_ms: 250,
         }
+    }
+}
+
+/// The rehearsal studio (1.3.0, #23): the rehearsal desk's control socket and the studio's
+/// limits. The rehearsal desk mixes `<room.name><room_suffix>` and has no way to the air.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct RehearsalConfig {
+    /// Whether this station has a rehearsal studio. The installation writes it from its
+    /// `REHEARSAL` setting; off, the studio's rehearsal routes say it is off here.
+    pub enabled: bool,
+    /// The rehearsal desk's control socket (`/run/weavesignal/desk-rehearsal.sock`); needed
+    /// when `enabled`.
+    pub socket: Option<PathBuf>,
+    /// The rehearsal desk's identity in its room (its returns are `<identity>-mm-<person>`).
+    pub desk_identity: String,
+    /// What follows the live room's name to make the rehearsal room's: `studio-rehearsal`.
+    pub room_suffix: String,
+    /// The most people in the rehearsal room at once.
+    pub max_people: u16,
+    /// An open session with nobody in it for this long ends by itself, in seconds.
+    pub idle_end_s: u64,
+}
+
+impl Default for RehearsalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            socket: None,
+            desk_identity: "desk-rehearsal".to_owned(),
+            room_suffix: "-rehearsal".to_owned(),
+            max_people: 6,
+            idle_end_s: 1_800,
+        }
+    }
+}
+
+impl RehearsalConfig {
+    /// The rehearsal room's name beside the live room `room`.
+    pub fn room(&self, room: &str) -> String {
+        format!("{room}{}", self.room_suffix)
+    }
+
+    pub fn validate(&self, live_desk_identity: &str) -> Result<(), ConfigError> {
+        if self.enabled && self.socket.is_none() {
+            return Err(ConfigError::Invalid(
+                "`rehearsal.enabled` is on but `rehearsal.socket` is not set: name the rehearsal desk's control socket".into(),
+            ));
+        }
+        let suffix_ok = self.room_suffix.len() > 1
+            && self.room_suffix.len() <= 40
+            && self.room_suffix.starts_with('-')
+            && self
+                .room_suffix
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        // The live desk finds booths, phone booths and monitor rooms by these words in a room's
+        // name: the rehearsal room must never look like one of them.
+        let clashes = ["-booth-", "-phone", "-monitor-"]
+            .iter()
+            .any(|w| self.room_suffix.contains(w));
+        if !suffix_ok || clashes {
+            return Err(ConfigError::Invalid(format!(
+                "`rehearsal.room_suffix` is `{}`; write a dash and lower-case letters, digits or dashes (at most 40), without `-booth-`, `-phone` or `-monitor-`",
+                self.room_suffix
+            )));
+        }
+        if self.desk_identity.trim().is_empty() || self.desk_identity == live_desk_identity {
+            return Err(ConfigError::Invalid(
+                "`rehearsal.desk_identity` must be set, and not the live desk's `room.desk_identity`".into(),
+            ));
+        }
+        if !(1..=20).contains(&self.max_people) {
+            return Err(ConfigError::Invalid(format!(
+                "`rehearsal.max_people` is {}; allow 1 to 20",
+                self.max_people
+            )));
+        }
+        if !(60..=86_400).contains(&self.idle_end_s) {
+            return Err(ConfigError::Invalid(format!(
+                "`rehearsal.idle_end_s` is {}; end an empty session after 60 to 86400 s",
+                self.idle_end_s
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -782,6 +871,7 @@ impl Config {
         }
         self.video.validate()?;
         self.phone.validate()?;
+        self.rehearsal.validate(&self.room.desk_identity)?;
         let max = weavesignal_proto::token::MAX_PARTICIPANT_TTL_S;
         if !(1..=max).contains(&self.room.token_ttl_s) {
             return Err(ConfigError::Invalid(format!(

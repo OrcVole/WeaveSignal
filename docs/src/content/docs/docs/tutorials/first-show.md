@@ -54,7 +54,7 @@ You are on the Desk tab.
 At the top of the stage the lamp says **ON AIR**: playout is connected and people are on air.
 
 On the stage are three tiles, in slot order: Eilidh in slot 1, Gregor Stewart in slot 2, Kirsty Wilson in slot 3.
-Presenters and guests are on air from the moment they join.
+Each was put on air by a press: since 1.3 everyone invited joins off air, standing by under *Not on air*, until the presenter puts them on.
 Under the stage, in *Not on air*, is Finlay Grant, the remote DJ, in slot 5: DJs join off air.
 
 ![The desk in the studio app: the ON AIR lamp, Eilidh, Gregor and Kirsty on the stage, Finlay and the playout tile below, the clock and rundown on the left, listeners and carts on the right.](../../../../assets/screens/reference-desk-window.png)

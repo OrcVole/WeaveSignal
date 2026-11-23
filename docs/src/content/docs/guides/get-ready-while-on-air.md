@@ -44,7 +44,7 @@ If someone else's show is still on air, the app asks first: switch only when you
 
 - **The desk's buttons are greyed out.** The window is preparing: press **Switch to Live** when the desk is yours.
 - **The station does not move to your show at the post.** It is not scheduled, or its time is wrong: check it on the **Schedule** tab.
-- **You went on air the moment you joined.** The invitation was for a guest or a presenter: leave, and ask for one with the role **DJ**.
+- **You went on air as soon as you joined.** Someone at the desk pressed your key, or took the air back from automation for your show: everyone invited joins off air since 1.3, so ask them to take you off until you are ready.
 
 ## More detail
 

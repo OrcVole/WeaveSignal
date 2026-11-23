@@ -65,6 +65,8 @@ async function shot(page, name) {
   log('shot', path);
 }
 
+// ONLY=rehearsal runs the rehearsal desk's screens alone (tests/screens/rehearsal.mjs).
+if (process.env.ONLY !== 'rehearsal') {
 // ---- the keyboard-driven run at 1,440 × 900, dark ----
 const { ctx, page } = await open(1440, 900, 'dark');
 
@@ -253,6 +255,14 @@ for (const [w, h] of [
     await shot(p, `schedule-episode-${w}-${theme}`);
     await c.close();
   }
+}
+
+}
+
+// ---- the rehearsal desk (1.3.0, step R13): its own file, tests/screens/rehearsal.mjs ----
+{
+  const { rehearsalScreens } = await import('./rehearsal.mjs');
+  await rehearsalScreens({ browser, check, log, OUT, STUDIO, CONTROL, TOKEN, ZONE });
 }
 
 await browser.close();

@@ -1,6 +1,6 @@
 ---
 title: "What release one does, and what it leaves out"
-description: "WeaveSignal 1.0.0 to 1.2.0: what each part of release one brings, what is not in it, what each later release added, the known limits, and what was measured. Every 'planned' mark on this site points here."
+description: "WeaveSignal 1.0.0 to 1.3.0: what each part of release one brings, what is not in it, what each later release added, the known limits, and what was measured. Every 'planned' mark on this site points here."
 type: reference
 status: draft
 last_verified: 2026-11-19
@@ -8,7 +8,7 @@ sidebar:
   order: 1
 ---
 
-WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists; **1.2.0** on 2026-11-20 adds the list under [In 1.2.0](#in-120); **1.2.1** on 2026-11-22 mends what the first real-kit tries found (its list is in the changelog). It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
+WeaveSignal's release one shipped as **1.0.0** on 2026-11-04; **1.0.1** and **1.0.2** on 2026-11-12, **1.0.3** on 2026-11-13, **1.0.4** on 2026-11-15, **1.0.5** on 2026-11-16, **1.1.0** on 2026-11-18, and **1.1.1** on 2026-11-19, add what [Since 1.0.0](#since-100) lists; **1.2.0** on 2026-11-20 adds the list under [In 1.2.0](#in-120); **1.2.1** on 2026-11-22 mends what the first real-kit tries found (its list is in the changelog); **1.3.0** on 2026-11-23 adds the rehearsal studio, Studios as columns in the Schedule tab with optional bookings, and guests who always arrive standing by (its list is in the changelog). It was built in milestones (M1 to M11), each a working slice, and this site was written as each one landed (ADR-0072).
 Where a page says **planned**, the feature is not in release one; [Not in release one](#not-in-release-one) says where it stands.
 
 ## In release one
@@ -141,7 +141,7 @@ Released 2026-11-20 (the changelog dates it). The part tables below say what was
 
 How a host's sound gets in, all six ways side by side: [Ways in for a host's sound](/docs/reference/ways-in/).
 
-Not in 1.2: the macOS studio app; TURN for guests reaching it over IPv6 (issue 11, waiting on LiveKit); a host's own picture passed through; the presenter kit on the presenter's own computer; the telephone line on Cloudron; the presenter talking from the Screener tab, a rehearsal studio beside the live one and Studios as columns in the Schedule tab (issues 25, 23 and 24).
+Not in 1.3: the macOS studio app; TURN for guests reaching it over IPv6 (issue 11, waiting on LiveKit); a host's own picture passed through; the presenter kit on the presenter's own computer; the telephone line on Cloudron; the presenter talking from the Screener tab (issue 25). The rehearsal studio beside the live one and Studios as columns in the Schedule tab (issues 23 and 24) came in 1.3.0 ([The rehearsal studio](/docs/reference/rehearsal-studio/)).
 
 ## Decisions that changed release one
 

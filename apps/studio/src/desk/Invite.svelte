@@ -13,28 +13,54 @@
   // While a host in their own studio has the air that button is a quiet one beside Invite
   // someone… (`beside`): the show is theirs, and the stage does not headline the offer.
   //
+  // Since 1.3 everyone invited joins off air, standing by, whatever their role; and while the
+  // rehearsal studio is open for a show this window may run, the dialog asks where the link
+  // leads: the live studio, or that show's rehearsal (rehearsal-mode-build-plan.md, screen 5).
+  // At the rehearsal desk (`rehearsal`) it makes rehearsal links only, at the rehearsed show's
+  // step, and never one that leads to the air.
+  //
   // A dialog owns the keyboard (keymap rule 5): App.svelte keeps the desk's keys out of it by
   // its panel name, so a name typed here never opens a fader. Esc closes it and the browser
   // puts the focus back on the button that opened it.
-  import { base, makeInvite, makeOwnInvite, openInBrowser, sandboxed, type Invite, type InviteRole } from '../lib/api.ts';
-  import { DJ_COMES_WITH_FULL, OWN_LINK, inviteProblem, inviteUrl, joinsLine, lastsLine, nameProblem, rolesAt } from '../lib/invite.ts';
+  import { base, makeInvite, makeOwnInvite, makeOwnRehearsalInvite, makeRehearsalInvite, openInBrowser, sandboxed, type DeskStudio, type Invite, type InviteRole } from '../lib/api.ts';
+  import { DJ_COMES_WITH_FULL, OWN_LINK, WHERE, inviteProblem, inviteUrl, joinsLine, lastsLine, nameProblem, rehearsalJoinsLine, rehearsalRolesAt, rolesAt } from '../lib/invite.ts';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { stationStep } from '../lib/steps.ts';
+  import { rehearsal as rehearsalStore } from '../lib/rehearsal.svelte.ts';
+  import { mayDrive } from '../lib/rehearsalDesk.svelte.ts';
+  import { loadShows, setup } from '../lib/wizard.svelte.ts';
 
   let {
     own = false,
     beside = undefined,
+    rehearsal = false,
   }: {
+    /** At the rehearsal desk: every link made here leads to the rehearsal studio. */
+    rehearsal?: boolean;
     /** The Solo DJ's own microphone link, in place of the dialog's first page. */
     own?: boolean;
     /** With `own`, while a host in their own studio has the air: the quiet button of the Not on
      *  air row, not the stage's filled one. The id of the line beside it, which says what joining
-     *  is for and that it puts you on air. */
+     *  is for and that you join standing by. */
     beside?: string;
   } = $props();
 
-  /** The roles the station's step lets the desk invite; the first is the one picked. */
-  const roles = $derived(rolesAt(stationStep(studio.view)));
+  /** The open rehearsal, when this window may make links to it. */
+  const session = $derived(mayDrive() ? (rehearsalStore.view?.session ?? null) : null);
+  /** Where the link leads. At the live desk the choice is offered only while a rehearsal this
+   *  window may run is open, and starts on the live studio. */
+  let chosen = $state<DeskStudio>('live');
+  const where: DeskStudio = $derived(rehearsal ? 'rehearsal' : session ? chosen : 'live');
+  /** A rehearsal link follows the rehearsed show's step, not the show on air's. */
+  const rehearsedStep = $derived(setup.shows.find((x) => x.slug === session?.show)?.step ?? 'full');
+  /** The roles the step lets the desk invite; the first is the one picked. */
+  const roles = $derived(where === 'rehearsal' ? rehearsalRolesAt(rehearsedStep) : rolesAt(stationStep(studio.view)));
+  // The role picked is always one on offer: the choice of studio changes which there are.
+  $effect(() => {
+    if (roles.length && !roles.some((r) => r.role === role)) role = roles[0].role;
+  });
+  /** What the last link made leads to, for the second page's words. */
+  let madeFor = $state<{ studio: DeskStudio; show: string }>({ studio: 'live', show: '' });
 
   let dialogEl = $state<HTMLDialogElement | null>(null);
   let name = $state('');
@@ -53,10 +79,14 @@
     errors = {};
     made = null;
     copied = '';
+    chosen = 'live';
   }
 
   function open() {
     fresh();
+    // The rehearsed show's step decides a rehearsal link's roles: read the shows if this window
+    // has not (the station decides in the end; this is for the dialog to say it first).
+    if (session && !setup.shows.length) void loadShows();
     dialogEl?.showModal();
   }
 
@@ -73,7 +103,9 @@
     if (problem) return document.getElementById('inv-name')?.focus();
     busy = true;
     try {
-      made = await makeInvite(role, name.trim());
+      const to = where === 'rehearsal' && session ? session : null;
+      made = to ? await makeRehearsalInvite(role, name.trim(), to.show) : await makeInvite(role, name.trim());
+      madeFor = { studio: to ? 'rehearsal' : 'live', show: to?.show_name ?? '' };
       copied = '';
       queueMicrotask(() => document.getElementById('inv-copy')?.focus());
     } catch (err) {
@@ -90,11 +122,14 @@
     fresh();
     busy = true;
     try {
-      made = await makeOwnInvite();
+      const to = rehearsal ? session : null;
+      if (rehearsal && !to) throw new Error('No rehearsal is open.');
+      made = to ? await makeOwnRehearsalInvite(to.show) : await makeOwnInvite();
+      madeFor = { studio: to ? 'rehearsal' : 'live', show: to?.show_name ?? '' };
       dialogEl?.showModal();
       queueMicrotask(() => document.getElementById('inv-open')?.focus());
     } catch (err) {
-      errors = { form: inviteProblem(err) };
+      errors = { form: err instanceof Error && err.message === 'No rehearsal is open.' ? err.message : inviteProblem(err) };
     } finally {
       busy = false;
     }
@@ -121,7 +156,7 @@
 {#if own}
   <button
     type="button"
-    class="btn {beside ? 'quiet invite' : 'primary'}"
+    class="btn {beside || rehearsal ? 'quiet invite' : 'primary'}"
     aria-haspopup="dialog"
     disabled={busy}
     aria-busy={busy || undefined}
@@ -138,7 +173,7 @@
   {#if made && own}
     <div class="made">
       <h2 id="inv-h" data-panel-title>{OWN_LINK.title}</h2>
-      <p class="lede">{studio.view?.mode === 'auto' ? OWN_LINK.ledeAuto : OWN_LINK.lede}</p>
+      <p class="lede">{madeFor.studio === 'rehearsal' ? WHERE.ownLede(madeFor.show) : studio.view?.mode === 'auto' ? OWN_LINK.ledeAuto : OWN_LINK.lede}</p>
       <div class="link">
         <input id="inv-link" type="text" readonly value={url} aria-label="Your microphone link" onfocus={(e) => e.currentTarget.select()} />
         <button id="inv-open" type="button" class="btn primary" onclick={openLink}>{OWN_LINK.open}</button>
@@ -155,8 +190,23 @@
     </div>
   {:else if !made}
     <form onsubmit={onMake} novalidate>
-      <h2 id="inv-h" data-panel-title>Invite someone to the room</h2>
-      <p class="lede">You get a link to send them. They open it in a browser; no account, nothing to install.</p>
+      <h2 id="inv-h" data-panel-title>{rehearsal && session ? `Invite someone to the rehearsal of ${session.show_name}` : 'Invite someone to the room'}</h2>
+      <p class="lede">You get a link to send them. They open it in a browser; no account, nothing to install.{rehearsal ? ' The link leads to the rehearsal studio, never to the air.' : ''}</p>
+      {#if !rehearsal && session}
+        <!-- Where the link leads (screen 5): offered only while a rehearsal this window may run
+             is open. The live studio is the default: a link to the air is never a surprise. -->
+        <fieldset data-testid="inv-where">
+          <legend>{WHERE.legend}</legend>
+          <label class="choice">
+            <input type="radio" name="inv-where" value="live" bind:group={chosen} />
+            <span><strong>{WHERE.live.name}</strong><span class="what">{WHERE.live.what}</span></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="inv-where" value="rehearsal" bind:group={chosen} />
+            <span><strong>{WHERE.rehearsal(session.show_name).name}</strong><span class="what">{WHERE.rehearsal(session.show_name).what}</span></span>
+          </label>
+        </fieldset>
+      {/if}
       <div class="field">
         <label for="inv-name">Their name</label>
         <!-- svelte-ignore a11y_autofocus -->
@@ -182,18 +232,19 @@
             <span><strong>{r.name}</strong><span class="what">{r.what}</span></span>
           </label>
         {/each}
-        {#if !roles.some((r) => r.role === 'dj')}<p class="hint">{DJ_COMES_WITH_FULL}</p>{/if}
+        {#if where === 'rehearsal' && !roles.length && session}<p class="hint" data-testid="inv-solo">{WHERE.solo(session.show_name)}</p>
+        {:else if where === 'live' && !roles.some((r) => r.role === 'dj')}<p class="hint">{DJ_COMES_WITH_FULL}</p>{/if}
       </fieldset>
       {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
       <div class="acts">
         <button type="button" class="btn quiet" onclick={() => dialogEl?.close()} disabled={busy}>Cancel <kbd>Esc</kbd></button>
-        <button type="submit" class="btn primary" disabled={busy} aria-busy={busy || undefined}>{busy ? 'Creating…' : 'Create invitation'} <kbd>⏎</kbd></button>
+        <button type="submit" class="btn primary" disabled={busy || !roles.length} aria-busy={busy || undefined}>{busy ? 'Creating…' : 'Create invitation'} <kbd>⏎</kbd></button>
       </div>
     </form>
   {:else}
     <div class="made">
       <h2 id="inv-h" data-panel-title>Send {made.name} this link</h2>
-      <p class="lede">{joinsLine(made)}</p>
+      <p class="lede" data-testid="inv-joins">{madeFor.studio === 'rehearsal' ? rehearsalJoinsLine(made, madeFor.show) : joinsLine(made)}</p>
       <div class="link">
         <input id="inv-link" type="text" readonly value={url} aria-label="The invitation link for {made.name}" onfocus={(e) => e.currentTarget.select()} />
         <button id="inv-copy" type="button" class="btn primary" onclick={copy}>Copy link</button>

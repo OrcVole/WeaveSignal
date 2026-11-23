@@ -168,6 +168,9 @@ fn a_failure_inside_one_persons_chain_stays_theirs() {
         desk.status()
     );
     assert!(desk.set_on_air("callum", true));
+    // A guest arrives standing by (1.3, question 9); the press puts them on.
+    assert!(!desk.person("gregor").unwrap().switches.on_air);
+    assert!(desk.set_on_air("gregor", true));
     // Playout connects to the desk's SRT listener within a second or two of the desk.
     assert!(
         wait_for(&desk, Duration::from_secs(15), || desk.playout().connected).is_some(),
@@ -300,7 +303,8 @@ fn twelve_people_join_at_once() {
         desk.status()
     );
     for (id, role, _) in &cast {
-        if *role == Role::Caller {
+        // Callers wait off air, and guests arrive standing by (1.3): both are put on.
+        if matches!(*role, Role::Caller | Role::Guest) {
             assert!(desk.set_on_air(id, true));
         }
     }
@@ -373,7 +377,7 @@ fn twelve_people_joining_while_the_desk_restarts_cannot_stop_it() {
             desk.status()
         );
         for (id, role, _) in &cast {
-            if *role == Role::Caller {
+            if matches!(*role, Role::Caller | Role::Guest) {
                 assert!(desk.set_on_air(id, true));
             }
         }

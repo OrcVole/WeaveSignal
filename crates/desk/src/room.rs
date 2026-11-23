@@ -41,6 +41,9 @@ pub struct Seen {
     pub muted: bool,
     /// Their booth, for a caller (ADR-0193); `None` in the studio room.
     pub room: Option<String>,
+    /// Until when the live desk keeps them standing by (`weavesignal.standby_until`, ms since
+    /// the Unix epoch), if their token says: someone moved from the rehearsal studio (1.3).
+    pub standby_until_ms: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -92,7 +95,9 @@ pub fn parse(reply: &str, desk_prefix: &str) -> Result<Vec<Seen>> {
             }
             let mut audio = p.tracks.iter().filter(|t| t.kind == "AUDIO").peekable();
             let has_audio = audio.peek().is_some();
+            let standby_until_ms = weavesignal_proto::rehearsal::standby_until_ms(&p.attributes);
             Some(Seen {
+                standby_until_ms,
                 has_audio,
                 muted: has_audio && audio.all(|t| t.muted),
                 identity: p.identity,
@@ -231,9 +236,24 @@ pub struct RoomApi {
     keys: Keys,
     room: String,
     desk_prefix: String,
+    /// A rehearsal desk's (1.3): only its own room is listed, never a booth, phone booth or
+    /// monitor room.
+    own_room_only: bool,
 }
 
 impl RoomApi {
+    /// The room API for a desk's settings: a rehearsal desk lists its own room only.
+    pub fn for_desk(c: &crate::config::Config) -> Self {
+        let mut api = Self::new(&c.api_url(), c.keys(), &c.livekit.room, &c.desk.identity);
+        api.own_room_only = c.desk.mode == crate::config::DeskMode::Rehearsal;
+        api
+    }
+
+    /// Whether this API lists only the desk's own room.
+    pub fn own_room_only(&self) -> bool {
+        self.own_room_only
+    }
+
     pub fn new(url: &str, keys: Keys, room: &str, desk_prefix: &str) -> Self {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(2)))
@@ -246,6 +266,7 @@ impl RoomApi {
             keys,
             room: room.to_owned(),
             desk_prefix: desk_prefix.to_owned(),
+            own_room_only: false,
         }
     }
 
@@ -272,6 +293,9 @@ impl RoomApi {
             )?,
             &self.desk_prefix,
         )?;
+        if self.own_room_only {
+            return Ok((seen, BTreeMap::new(), Vec::new()));
+        }
         let rooms = self.call("ListRooms", &self.room, serde_json::json!({}))?;
         for (booth, owner) in parse_booths(&rooms, &self.room)? {
             let reply = self.call(
@@ -350,8 +374,9 @@ impl RoomApi {
 /// What to do to bring the desk in line with the room.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Someone to mix, in their room (`None`: the studio room).
-    Add(String, Role, Option<String>),
+    /// Someone to mix, in their room (`None`: the studio room), with their standing-by time if
+    /// their token carries one.
+    Add(String, Role, Option<String>, Option<u64>),
     Subscribe(String, String),
     Resubscribe(String, String),
     Away(String),
@@ -441,7 +466,12 @@ pub fn reconcile(
         let known = desk.people.get(&s.identity);
         let moved = desk.rooms.get(&s.identity).is_some_and(|r| *r != s.room);
         if moved || known.is_none_or(|(role, away)| *role != s.role || away.is_some()) {
-            out.push(Action::Add(s.identity.clone(), s.role, s.room.clone()));
+            out.push(Action::Add(
+                s.identity.clone(),
+                s.role,
+                s.room.clone(),
+                s.standby_until_ms,
+            ));
         }
         if !s.has_audio {
             continue;
@@ -491,6 +521,15 @@ pub fn reconcile(
     out
 }
 
+/// The wall clock in milliseconds since the Unix epoch, as the control plane writes
+/// `weavesignal.standby_until`.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 impl Desk {
     /// The desk as the room watch sees it.
     pub fn view(&self) -> DeskView {
@@ -534,7 +573,9 @@ impl Desk {
     pub fn apply(&self, actions: &[Action]) {
         for a in actions {
             let r = match a {
-                Action::Add(id, role, room) => self.add_person_in(id, *role, room.as_deref()),
+                Action::Add(id, role, room, standby) => {
+                    self.add_person_arriving(id, *role, room.as_deref(), *standby, now_ms())
+                }
                 Action::Subscribe(id, sid) => self.subscribe(id, sid),
                 Action::Resubscribe(id, sid) => {
                     tracing::info!(participant = %id, sid, "subscribing again");
@@ -716,6 +757,7 @@ mod tests {
                     has_audio: true,
                     muted: false,
                     room: None,
+                    standby_until_ms: None,
                 },
                 Seen {
                     identity: "gregor".into(),
@@ -725,6 +767,7 @@ mod tests {
                     has_audio: false,
                     muted: false,
                     room: None,
+                    standby_until_ms: None,
                 },
             ]
         );
@@ -741,6 +784,7 @@ mod tests {
             has_audio: audio,
             muted: false,
             room: None,
+            standby_until_ms: None,
         }
     }
 
@@ -834,7 +878,7 @@ mod tests {
         let empty = DeskView::default();
         assert_eq!(
             reconcile(&[seen("g", "PA_1", false)], &empty, GRACE, TIMEOUT),
-            vec![Action::Add("g".into(), Role::Guest, None)]
+            vec![Action::Add("g".into(), Role::Guest, None, None)]
         );
         let mut v = DeskView::default();
         v.people.insert("g".into(), (Role::Guest, None));
@@ -881,7 +925,7 @@ mod tests {
         assert_eq!(
             reconcile(&[seen("g", "PA_2", true)], &v, GRACE, TIMEOUT),
             vec![
-                Action::Add("g".into(), Role::Guest, None),
+                Action::Add("g".into(), Role::Guest, None, None),
                 Action::Subscribe("g".into(), "PA_2".into())
             ]
         );
@@ -1241,11 +1285,91 @@ mod tests {
             vec![Action::Add(
                 "c7f3".into(),
                 Role::Caller,
-                Some("studio-booth-c7f3".into())
+                Some("studio-booth-c7f3".into()),
+                None
             )]
         );
         v.rooms
             .insert("c7f3".into(), Some("studio-booth-c7f3".into()));
         assert!(reconcile(&[s], &v, GRACE, TIMEOUT).is_empty());
+    }
+
+    /// A moved person's token, as LiveKit lists them: their role and the standing-by time.
+    fn moved_reply(until: Option<u64>) -> String {
+        let attrs = match until {
+            Some(t) => format!(
+                r#"{{"weavesignal.role": "presenter", "weavesignal.standby_until": "{t}"}}"#
+            ),
+            None => r#"{"weavesignal.role": "presenter"}"#.to_owned(),
+        };
+        format!(
+            r#"{{"participants": [{{"sid": "PA_9", "identity": "eilidh", "name": "Eilidh Fraser-MacLeod",
+               "state": "ACTIVE", "tracks": [{{"type": "AUDIO"}}], "attributes": {attrs}}}]}}"#
+        )
+    }
+
+    #[test]
+    fn the_standing_by_time_is_read_from_the_list_and_carried_to_the_desk() {
+        let now = 1_700_000_000_000;
+        let seen = parse(&moved_reply(Some(now + 600_000)), "desk").unwrap();
+        assert_eq!(seen[0].standby_until_ms, Some(now + 600_000));
+        // First sight: the time goes with the person to the desk, which decides at once.
+        let a = reconcile(&seen, &DeskView::default(), GRACE, TIMEOUT);
+        assert_eq!(
+            a,
+            vec![
+                Action::Add("eilidh".into(), Role::Presenter, None, Some(now + 600_000)),
+                Action::Subscribe("eilidh".into(), "PA_9".into()),
+            ]
+        );
+        let Action::Add(_, role, _, until) = &a[0] else {
+            unreachable!()
+        };
+        // The time ahead: standing by.
+        assert!(!crate::matrix::Switches::arriving(*role, *until, now).on_air);
+        // The time past: the role's default (a presenter is on at joining).
+        assert!(crate::matrix::Switches::arriving(*role, *until, now + 600_001).on_air);
+        // A live desk restarted before the time sees the same list with an empty desk: the
+        // same first sight, so standing by again.
+        let again = reconcile(&seen, &DeskView::default(), GRACE, TIMEOUT);
+        assert_eq!(again[0], a[0]);
+        // No attribute: as 1.2.
+        let plain = parse(&moved_reply(None), "desk").unwrap();
+        assert_eq!(plain[0].standby_until_ms, None);
+        assert!(crate::matrix::Switches::arriving(Role::Presenter, None, now).on_air);
+        // Someone the desk already holds is not added again: their switches stay as they are.
+        let mut v = DeskView::default();
+        v.people.insert("eilidh".into(), (Role::Presenter, None));
+        v.rooms.insert("eilidh".into(), None);
+        assert!(
+            reconcile(&seen, &v, GRACE, TIMEOUT)
+                .iter()
+                .all(|a| !matches!(a, Action::Add(..)))
+        );
+    }
+
+    #[test]
+    fn a_rehearsal_room_api_lists_only_its_own_room() {
+        let c = crate::config::Config::from_toml(
+            r#"
+[livekit]
+url = "ws://127.0.0.1:7880"
+api_key = "devkey"
+room = "studio-rehearsal"
+
+[desk]
+mode = "rehearsal"
+identity = "desk-rehearsal"
+"#,
+            "t",
+        )
+        .unwrap();
+        assert!(RoomApi::for_desk(&c).own_room_only());
+        let live = crate::config::Config::from_toml(
+            "[livekit]\nurl = \"ws://127.0.0.1:7880\"\napi_key = \"k\"\nroom = \"studio\"\n",
+            "t",
+        )
+        .unwrap();
+        assert!(!RoomApi::for_desk(&live).own_room_only());
     }
 }

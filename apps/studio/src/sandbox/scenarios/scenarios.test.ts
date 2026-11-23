@@ -186,15 +186,15 @@ describe('a guest by link', () => {
     expect(invite).toMatchObject({ role: 'guest', name: 'Gregor Stewart' });
     expect(stepNow()).toBe('joined');
     t = run(s, t, t + 12_000);
-    // A guest is on air the moment he joins, on strip 2, and the desk says so.
-    expect(s.person('gregor')).toMatchObject({ on_air: true, role: 'guest' });
+    // A guest joins standing by, off air, on strip 2 (everyone invited does, since 1.3), and the desk says so.
+    expect(s.person('gregor')).toMatchObject({ on_air: false, role: 'guest' });
     expect(s.view(t).sources.find((x) => x.identity === 'gregor')?.slot).toBe(2);
-    expect(s.view(t).notices.find((n) => n.kind === 'person.joined')?.message).toBe('On air, on strip 2.');
+    expect(s.view(t).notices.find((n) => n.kind === 'person.joined')?.message).toBe('Standing by under Not on air, on strip 2: press 2 to put them on air.');
     t = run(s, t, t + 26_000);
-    expect(s.done('gregor')).toBe(true);
+    // Nothing of him is heard until he is put on.
+    expect(s.done('gregor')).toBe(false);
     expect(stepNow()).toBe('aside');
     // Off air, and talkback: he hears Eilidh, listeners do not.
-    s.desk({ op: 'on_air', identity: 'gregor', on: false }, t);
     s.desk({ op: 'talk_to', identity: 'eilidh', to: 'gregor', on: true }, t);
     t = run(s, t, t + 300);
     expect(s.speaking?.line).toMatchObject({ id: 't-guest-aside-e', heard: 'booth' });
@@ -202,8 +202,10 @@ describe('a guest by link', () => {
     s.desk({ op: 'talk_to', identity: 'eilidh', to: 'gregor', on: false }, t);
     expect(s.has('talked')).toBe(true);
     expect(stepNow()).toBe('back');
+    // His own key puts him on air: the introduction, then what he was asked for off air.
     s.desk({ op: 'on_air', identity: 'gregor', on: true }, t);
-    t = run(s, t, t + 10_000);
+    t = run(s, t, t + 40_000);
+    expect(s.done('gregor')).toBe(true);
     expect(s.done('back')).toBe(true);
     expect(stepNow()).toBe('mute');
     s.desk({ op: 'mute', identity: 'gregor', on: true }, t);

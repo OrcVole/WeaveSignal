@@ -46,7 +46,14 @@ struct Shared {
 impl Sources {
     /// Listen on `settings.bind`:`settings.port` for the ingest; `None` when sources are off or
     /// the desk has no password for them (then nothing on the machine can hand it a source).
+    /// A rehearsal desk never listens, whatever it is given (1.3, section 1.7).
     pub fn start(desk: &Desk, settings: &SourcesIn, password: Option<String>) -> Option<Sources> {
+        if desk.desk_mode() == crate::config::DeskMode::Rehearsal {
+            tracing::info!(
+                "a rehearsal desk takes no host's own studio: not listening for sources"
+            );
+            return None;
+        }
         if !settings.enabled {
             return None;
         }

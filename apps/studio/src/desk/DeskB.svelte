@@ -22,7 +22,15 @@
   // the station's, and the desk says what it is doing: the clock's post line counts the grace
   // with Hold, or says who keeps the air; the rundown has a row for the show whose post it is;
   // a late host is counted on air; a source whose link is lost keeps its tile on the stage; and
-  // End show says where the air goes. A grace running is offered in the toast (On air on the
+  // End show says where the air goes.
+  //
+  // People moved from the rehearsal studio (1.3; rehearsal-mode-build-plan.md, screen 4) arrive
+  // standing by under Not on air. The window that pressed Move remembers what the station
+  // answered (`rdesk.moved`): their tiles say From rehearsal and what the handover does with
+  // them, and a line under the handover window names who the opening state puts on. The
+  // station's `/studio` view does not carry the move, so another window, or this one after a
+  // reload, shows them as anyone standing by. The window's row says "rehearsing" while the next
+  // show is in the rehearsal studio. A grace running is offered in the toast (On air on the
   // handover's key, Not now), and at Solo the next show's source has the guest's empty seat
   // (`desk.next`). The rules are in `lib/post.ts`.
   import { onMount } from 'svelte';
@@ -72,6 +80,9 @@
   import { preparing } from '../lib/prepare.svelte.ts';
   import { OFF_WHY } from '../lib/prepare.ts';
   import { edges } from '../schedule/rule/edges.ts';
+  import { fromRehearsal, fromRehearsalNote, openingLine } from '../lib/rehearsalDesk.ts';
+  import { choiceShown, rdesk } from '../lib/rehearsalDesk.svelte.ts';
+  import StudioChoice from './StudioChoice.svelte';
 
   const v = $derived(studio.view);
   /** The station's step: what is switched on. */
@@ -122,7 +133,9 @@
   const onStage = $derived(placed.stage);
   const offStage = $derived(placed.waiting);
   /** The Solo stage offers the DJ their own microphone link until a presenter is in the room. */
-  // Not in a preparing window: that link joins on air, which is not a preparing window's to do.
+  // Not in a preparing window. Until 1.3 that link joined on air, which is not a preparing
+  // window's to do; since 1.3 it joins standing by, and the gate is kept until the operator
+  // decides otherwise (the R13 report's question on it).
   const ownLink = $derived(!prep && !!v?.desk.reachable && needsOwnLink(sources, lk, !!v?.step?.may_change, !account.me || account.me.kind === 'staff'));
   /** A host in their own studio has the air (on air, or their place kept while their link is
    *  lost): the show is theirs, so the stage does not headline *You are not in the room yet* with
@@ -182,6 +195,10 @@
   /** The handover window (1.2): who is next and how far they have got, in rows of their own
    *  under the post line. The count above keeps Hold and its figure; the window changes no act. */
   const win = $derived(windowRows(v?.post, now));
+  /** What the handover does with the people moved from rehearsal, while any still stands by. */
+  const opening = $derived(openingLine(rdesk.moved, sources, now));
+  /** The note on a moved person's tile, or null. */
+  const movedNote = (s: (typeof sources)[number]) => (rdesk.moved && fromRehearsal(rdesk.moved, s, now) ? fromRehearsalNote(rdesk.moved, s.identity) : null);
   /** The show the line above already names with its time: its row leaves them out. */
   const lineShow = $derived(line && (line.kind === 'post' || line.kind === 'count') ? (v?.post?.show?.slug ?? null) : null);
   /** The tile of the host who is on next: it says so until their post (the seat notice). */
@@ -459,7 +476,9 @@
 <div class="desk" bind:this={deskEl}>
   <div class="cols">
     <!-- left: time -->
-    <div class="col left">
+    <div class="col left" class:has-choice={choiceShown()}>
+      <!-- The Desk tab's studio (1.3): the live desk, or the rehearsal desk (`desk.studio`). -->
+      {#if choiceShown()}<StudioChoice />{/if}
       <section class="panel clock" data-panel="desk.clock" aria-label="Studio clock">
         <div class="time num" data-panel-title>{hms(now)}<small>.{tenth}</small></div>
         {#if count}
@@ -519,6 +538,10 @@
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if opening}
+          <!-- The opening state a move carried (1.3): who the handover puts on air. -->
+          <div class="post says opening" data-testid="opening-line"><span class="name"><svg aria-hidden="true"><use href="#g-loop" /></svg>{opening}</span></div>
         {/if}
         <!-- The listener delay, once: the figure on this line, its parts on the line under it and
              nowhere else (no tooltip repeats them), in words a presenter reads on air. -->
@@ -740,7 +763,7 @@
           </div>
         {/if}
         {#each onStage as s (s.identity)}
-          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} kept={kept?.identity === s.identity ? kept : null} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} {othersOnAir} />
+          <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} kept={kept?.identity === s.identity ? kept : null} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} {othersOnAir} moved={movedNote(s)} />
         {:else}
           {#if !ownHead}
             <!-- Says why the stage is empty and what to do (the operator's 1.0.2 run: "Nobody is
@@ -837,7 +860,7 @@
             {#if off('invite')}<span class="offtag">invitations {tag}</span>{:else}<Invite />{/if}
           </div>
           {#each offStage as s (s.identity)}
-            <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} />
+            <Tile source={s} slot={s.slot} playoutUp={up} playoutForMs={playout.for_ms} {mode} next={seat?.identity === s.identity ? seat.words : null} handover={handover?.dj === s.identity ? handover : null} handoverOff={off('handover')} count={counted?.source.identity === s.identity ? { at_ms: counted.at_ms, key: counted.key } : null} moved={movedNote(s)} />
           {/each}
           <Tile source={null} slot={6} playoutUp={up} playoutForMs={playout.for_ms} {mode} />
         </div>

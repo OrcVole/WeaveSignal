@@ -3,7 +3,7 @@ title: "Settings"
 description: "The control plane's and the desk's settings files, and the environment variables that carry their secrets."
 type: reference
 status: draft
-last_verified: 2026-11-21
+last_verified: 2026-11-22
 sidebar:
   order: 10
 ---
@@ -50,6 +50,9 @@ The install routes write these files for you: the Compose bundle from its `.env`
 | | `token_ttl_s` | `600` | how long a room token can be used to join, 1 s to 4 h (ADR-0085) |
 | `[desk]` | `socket` | none | the desk's control socket; left out, the studio app shows the desk as not set up |
 | | `poll_ms` | `250` | how often the desk is asked for its status, 50 to 5,000 |
+| `[rehearsal]` | `enabled`, `socket` | `false`, none | from 1.3: the rehearsal studio, a second desk with no way to the air. The install routes write both from `REHEARSAL` (`true` or `false`, off by default, no port); `socket` is the rehearsal desk's control socket, needed when `enabled` ([The rehearsal studio](/docs/reference/rehearsal-studio/)) |
+| | `desk_identity`, `room_suffix` | `desk-rehearsal`, `-rehearsal` | the rehearsal desk's identity (not the live desk's), and what follows `room.name` to make the rehearsal room's: a dash and lower-case letters, digits or dashes, never containing `-booth-`, `-phone` or `-monitor-` |
+| | `max_people`, `idle_end_s` | `6`, `1800` | the most people in the rehearsal room at once (1 to 20), and how long an open session with nobody in it lasts before it ends by itself (60 to 86,400 s) |
 | `[playout]` | `socket`, `listeners_socket` | none | playout's control socket, and the listener process's, through which the legal logger is turned on and off; left out, the logger cannot record |
 | | `poll_ms` | `250` | how often playout is asked for its state, 50 to 5,000 |
 | | `library_dir`, `library_lufs`, `library_max_seconds`, `library_max_upload_mb` | `/var/lib/weavesignal/library`, `-23`, `1800`, `200` | the music library's files (playout reads the same directory), their loudness target, the longest track and the largest upload |
@@ -150,7 +153,8 @@ The last three change nothing: they tell the control plane what the install scri
 |---|---|---|---|
 | `[livekit]` | `url`, `api_key`, `room` | — | the room, as the desk reaches it on the server |
 | | `stun_servers` | empty | STUN servers the desk's WebRTC connections may ask, `host:port` each, comma-separated; the first is used. Empty: none, which clears GStreamer's default of Google's server ([STUN servers](/docs/reference/packages/#stun-servers)) |
-| `[desk]` | `identity` | `desk` | the desk's identity prefix |
+| `[desk]` | `mode` | `live` | `live`, or `rehearsal` (1.3): a rehearsal desk mixes the rehearsal room (`<room>-rehearsal`) with no way to the air. It makes no programme output, refuses to start with `[video] enabled` or `[sources] enabled = true` (exit 2, saying why), never opens the sources listener, lists only its own room, and its control socket takes only the desk's keys ([The rehearsal desk](/docs/reference/desk-control/#the-rehearsal-desk)). A live desk refuses a room whose name ends `-rehearsal` |
+| | `identity` | `desk` | the desk's identity prefix; a rehearsal desk's must differ from the live desk's (`desk-rehearsal`) |
 | | `jitter_buffer_ms` | `50` | the receive jitter buffer; LiveKit's 200 ms default doubles a guest's delay |
 | | `video_jitter_buffer_ms` | `300` | the cameras' own receive jitter buffer, at most 2000: a frame spans many packets, and at 50 ms a browser camera through a VPN lost 2.7 % of its packets as late; the picture can run this far behind the voices |
 | | `mix_buffer_ms` | `20` | the mixing block: one pass computes every bus for a block this long; 10 or 20 (one Opus frame) |

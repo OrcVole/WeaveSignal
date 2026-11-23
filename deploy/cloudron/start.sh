@@ -112,6 +112,7 @@ setting DESK_FEED_PORT 7317 "Playout's programme back to the desk, the video's s
 setting DESK_SOURCES_PORT 7318 "Hosts' own studios from the ingest to the desk (ADR-0280), on loopback. The public ports for hosts' software are chosen in Cloudron's dashboard."
 setting INGEST_WHIP_PORT 7319 "WHIP's requests from the control plane to the ingest (17d), on loopback; WHIP's own UDP port is chosen in Cloudron's dashboard."
 # --- cloudron-video (ADR-0227): the video path, off by default ---------------------------------
+setting REHEARSAL false "The rehearsal studio (1.3): true or false. On, a second desk with no way to the air runs beside the live one, where a show's people rehearse and fire its carts before they move to the live studio on the same links. It opens no port of its own, and costs memory and CPU while people rehearse; under memory pressure it is stopped before anything else. Off, the default: the studio app says it is off here. Restart the app after changing it."
 setting VIDEO false "The desk's video path (ADR-0009, ADR-0227): true or false. On, the desk takes guests' cameras, mixes the picture, encodes AV1 on the CPU with SVT-AV1 and writes CMAF HLS that the public domain serves at /hls/; the join pages offer a camera check. It costs memory and CPU (see the install guide); restart the app after changing it."
 # --- icecast-out (ADR-0226): send the programme to another Icecast server ---------------------
 setting ICECAST_OUT false "Send the programme to another Icecast server as a source, for a DJ's AzuraCast (ADR-0226): true or false. Needs the server below and its password in secrets.env (ICECAST_OUT_PASSWORD). The studio's Settings choose when it sends."
@@ -155,7 +156,7 @@ MAIL_MODE=${MAIL_MODE:-cloudron}
 # a restart loop, so it stops the start here instead, with the setting named.
 is_bool() { [[ ${!1} == true || ${!1} == false ]] || { log "$1=${!1} in weavesignal.env is not true or false"; exit 1; }; }
 is_number() { [[ ${!1} =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { log "$1=${!1} in weavesignal.env is not a number"; exit 1; }; }
-for b in SEARCH_LISTING DIRECTORY_LISTING COMPAT_STREAM COMPAT_HIGH_STREAM PROCESSING VIDEO; do is_bool "$b"; done
+for b in SEARCH_LISTING DIRECTORY_LISTING COMPAT_STREAM COMPAT_HIGH_STREAM PROCESSING VIDEO REHEARSAL; do is_bool "$b"; done
 for n in COMPAT_BITRATE PROCESSING_TARGET_LUFS PROCESSING_MAX_GAIN_DB DESK_FEED_PORT DESK_SOURCES_PORT FEED_BUFFER_S; do is_number "$n"; done
 # rtmp-out
 is_number RTMP_VIDEO_KBPS
@@ -550,6 +551,33 @@ h264 = "$RTMP_H264"
 video_kbps = $RTMP_VIDEO_KBPS
 TOML
 
+# --- The rehearsal desk (1.3) -------------------------------------------------------------------
+# The same desk in rehearsal mode: it mixes the rehearsal room with no way to the air, so it has
+# no [programme], no [video] and no [sources] (it refuses to start with either on) and opens no
+# port. Written whether or not REHEARSAL is on; supervisord starts it only when it is.
+cat > "$run/desk-rehearsal.toml" <<TOML
+# Written by start.sh on every start.
+[livekit]
+url = "ws://127.0.0.1:$LIVEKIT_HTTP_PORT"
+api_key = "$LIVEKIT_API_KEY"
+room = "$ROOM_NAME-rehearsal"
+stun_servers = "$stun_servers"
+
+# No way to the air: no programme output, no video, no sources, no VBAN.
+[desk]
+mode = "rehearsal"
+identity = "desk-rehearsal"
+realtime = false
+workers = 2
+congestion_control = "$congestion_control"
+
+[control]
+socket = "$run/desk-rehearsal.sock"
+
+[carts]
+dir = "$data/carts"
+TOML
+
 # --- The control plane ------------------------------------------------------------------------
 # Disabled public ports keep their defaults in the registry: nothing listens on them.
 stream_url=
@@ -663,6 +691,11 @@ episodes_dir = "$data/episodes"
 
 [retention]
 recordings_dir = "$data/recordings"
+
+# The rehearsal studio (1.3): REHEARSAL in weavesignal.env; off by default.
+[rehearsal]
+enabled = $REHEARSAL
+socket = "$run/desk-rehearsal.sock"
 
 # The telephone line (17f): off on Cloudron for now; its shipped voice is a setting already.
 [phone]
@@ -1119,5 +1152,8 @@ if ! out=$(/app/code/bin/weavesignal-control --config "$run/control.toml" check-
     log "the control plane's settings or ports are wrong:"; echo "$out"; exit 1
 fi
 
-log "station $STATION_ID; room wss://${ROOM_DOMAIN:-?}; media udp ${LIVEKIT_MEDIA_PORT:-off}; TURN/TLS ${turn_tls:-off}; TURN/UDP ${TURN_UDP_PORT:-off}; ICE/TCP ${LIVEKIT_TCP_PORT:-off}; sources icecast ${SOURCE_ICECAST_PORT:-off} srt ${SOURCE_SRT_PORT:-off} whip ${SOURCE_WHIP_PORT:-off}; listeners https://${LISTENERS_DOMAIN:-?}/$LISTENERS_MOUNT (auth ${LISTENERS_AUTH:-off}); public pages ${PUBLIC_DOMAIN:-off}; cards and feeds $public_url; chat mail $mail_mode; video $VIDEO"
+log "station $STATION_ID; room wss://${ROOM_DOMAIN:-?}; media udp ${LIVEKIT_MEDIA_PORT:-off}; TURN/TLS ${turn_tls:-off}; TURN/UDP ${TURN_UDP_PORT:-off}; ICE/TCP ${LIVEKIT_TCP_PORT:-off}; sources icecast ${SOURCE_ICECAST_PORT:-off} srt ${SOURCE_SRT_PORT:-off} whip ${SOURCE_WHIP_PORT:-off}; listeners https://${LISTENERS_DOMAIN:-?}/$LISTENERS_MOUNT (auth ${LISTENERS_AUTH:-off}); public pages ${PUBLIC_DOMAIN:-off}; cards and feeds $public_url; chat mail $mail_mode; video $VIDEO; rehearsal $REHEARSAL"
+# supervisord reads REHEARSAL for the rehearsal desk's autostart (%(ENV_REHEARSAL)s), and would
+# refuse its whole configuration were it unset: it is always exported, true or false (checked above).
+export REHEARSAL
 exec /usr/bin/supervisord --configuration /app/code/supervisord.conf --nodaemon

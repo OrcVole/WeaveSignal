@@ -6,8 +6,8 @@
 // of each local hour (ADR-0045), conflicts, a moved instance, and the editor's field markers
 // (inherited, set here, as aired; ADR-0055). Pure, so it is tested on its own.
 
-import type { ScheduleDate } from '../lib/api.ts';
-import type { CardFields, Clock, Resolved, Show, WeekEpisode, WeekHour } from '../lib/schedule.ts';
+import type { RehearsalBlock, ScheduleDate } from '../lib/api.ts';
+import type { CardFields, Clock, HostFrom, Resolved, Show, WeekEpisode, WeekHour } from '../lib/schedule.ts';
 
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
@@ -156,6 +156,11 @@ export function lengthWords(ms: number): string {
   return r ? `${h} h ${pad(r)}` : `${h} h`;
 }
 
+/** The Studios view's two columns, by the ids the station gives them (1.3.0): everything on air,
+ *  and the rehearsal studio, which never is. */
+export const STUDIO = 'studio';
+export const REHEARSAL = 'rehearsal';
+
 /** What the grid draws: an episode, a date from a show's rule that nobody has drafted yet, or
  *  automation filling a gap by the clock of each local hour. */
 export interface Block {
@@ -183,8 +188,14 @@ export interface Block {
   moved: string | null;
   /** Automation: the clock's name. */
   clock: string | null;
-  /** The studio the block is in; the model has none yet. */
+  /** The column of the Studios view the block is in (1.3.0). Everything that goes on air is in
+   *  `studio`, wherever its host is: there is one programme. Null only on a block made without
+   *  one (a test's); the grid puts it in the first column. */
   studio: string | null;
+  /** Where the show's host comes from (1.3.0): the room, or their own studio with a show key
+   *  (the Studios view's *Own studio* chip). Absent on a dotted date and on automation, and
+   *  from a station older than 1.3.0. */
+  from?: HostFrom;
   /** An episode made beforehand and played out (ADR-0188), not presented live. */
   prerecorded?: boolean;
 }
@@ -253,7 +264,9 @@ export function episodeBlocks(eps: WeekEpisode[], zone: string, now: number): Bl
       conflict: false,
       moved: movedWords(w, start, zone),
       clock: null,
-      studio: null,
+      // An older station sends neither: it has the one studio, and its hosts are in the room.
+      studio: w.studio ?? STUDIO,
+      from: w.from === 'own' ? 'own' : 'room',
       prerecorded: w.episode.kind === 'prerecorded',
     });
   }
@@ -261,13 +274,18 @@ export function episodeBlocks(eps: WeekEpisode[], zone: string, now: number): Bl
 }
 
 /** Every block that shares time with another carries CONFLICT, an episode and a dotted date
- *  alike (week-clashes.md: a date nobody has drafted clashes too, and never said so). The model
- *  has no studios yet, so every overlap is one; automation never conflicts, it yields. */
+ *  alike (week-clashes.md: a date nobody has drafted clashes too, and never said so).
+ *
+ *  The rule is never keyed on the studio column (rehearsal-mode-build-plan.md section 2.1):
+ *  there is one programme, so two shows that overlap on air clash wherever their hosts are, a
+ *  host in their own studio and one in the room alike. The rehearsal studio's bookings and
+ *  sessions are not blocks at all (`rehearsalBlocks`), so one beside an episode is never a
+ *  clash. Automation never conflicts, it yields. */
 export function markConflicts(blocks: Block[]): Block[] {
   const all = blocks.filter((b) => b.kind !== 'automation');
   for (const a of all) {
     for (const b of all) {
-      if (a !== b && a.start < b.end && b.start < a.end && (a.studio === null || a.studio === b.studio)) a.conflict = true;
+      if (a !== b && a.start < b.end && b.start < a.end) a.conflict = true;
     }
   }
   return blocks;
@@ -302,7 +320,7 @@ export function dateBlocks(dates: readonly ScheduleDate[] | null, shows: readonl
       conflict: false,
       moved: d.moved_from && isoDayWords(d.moved_from) ? `was ${isoDayWords(d.moved_from)}` : null,
       clock: null,
-      studio: null,
+      studio: STUDIO,
     });
   }
   return out;
@@ -378,8 +396,65 @@ function auto(day: number, start: number, end: number, clock: string | null): Bl
     conflict: false,
     moved: null,
     clock,
-    studio: null,
+    studio: STUDIO,
   };
+}
+
+/** What the Rehearsal column draws (1.3.0, rehearsal-mode-build-plan.md section 2): a booking,
+ *  the studio held ahead for a show, or a session, the studio as it was used or is being used.
+ *  Not a `Block`: nothing here goes on air, so it never clashes with a show, automation never
+ *  yields to it, and it is never drawn in the week. */
+export interface Rehearsal {
+  /** `reh:<the station's id>`: the selection's id, apart from every block's. */
+  id: string;
+  /** The booking's or the session's id at the station. */
+  ref: string;
+  kind: 'booking' | 'session';
+  /** Epoch ms. An open session ends at `now`. */
+  start: number;
+  end: number;
+  show: string;
+  slug: string;
+  /** The show's bank slot, 1 to 12 (ADR-0066). */
+  colour: number | null;
+  /** Who booked it, or who opened the session. */
+  by: string;
+  /** A session still open. Never a booking. */
+  open: boolean;
+  /** How a session ended; null while open and for a booking. */
+  ended: 'ended' | 'moved' | 'idle' | null;
+  /** It is over. */
+  past: boolean;
+}
+
+/** The selection's id for a booking or a session. */
+export const rehearsalId = (ref: string): string => `reh:${ref}`;
+/** Whether a selection's id names a booking or a session (or the booking being made). */
+export const isRehearsalId = (id: string | null | undefined): boolean => !!id && id.startsWith('reh:');
+
+/** The Rehearsal column's blocks from what the station sent with the week (`rehearsals`),
+ *  bookings first, each kind by start. A session still open runs to `now`: the station's own
+ *  end for it was the moment the week was read, and the week is not read again every minute. */
+export function rehearsalBlocks(raw: readonly RehearsalBlock[], now: number): Rehearsal[] {
+  const out = raw.map((r): Rehearsal => {
+    const open = r.kind === 'session' && r.open;
+    const end = open ? Math.max(now, r.start_ms) : r.end_ms;
+    return {
+      id: rehearsalId(r.id),
+      ref: r.id,
+      kind: r.kind,
+      start: r.start_ms,
+      end,
+      show: r.show_name || r.show,
+      slug: r.show,
+      colour: r.colour_slot >= 1 && r.colour_slot <= 12 ? r.colour_slot : null,
+      by: r.by,
+      open,
+      ended: r.kind === 'session' && !open ? (r.ended ?? 'ended') : null,
+      past: !open && end <= now,
+    };
+  });
+  return out.sort((a, b) => (a.kind === b.kind ? a.start - b.start || a.id.localeCompare(b.id) : a.kind === 'booking' ? -1 : 1));
 }
 
 /** Which marker an editor field carries (calendar.md §4). */

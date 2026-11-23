@@ -766,6 +766,11 @@ pub struct LiveKit {
     /// otherwise ask Google's. `webrtcbin` takes one server, so the first is used.
     #[serde(default)]
     pub stun_servers: String,
+    /// No ICE over TCP for the desk's WebRTC connections: set for a rehearsal desk (1.3), never
+    /// from the file. libnice otherwise listens on a passive TCP port for each connection, and a
+    /// rehearsal desk opens no listener at all (section 1.9); it reaches LiveKit over UDP.
+    #[serde(skip)]
+    pub no_ice_tcp: bool,
 }
 
 impl LiveKit {
@@ -779,9 +784,43 @@ impl LiveKit {
     }
 }
 
+/// Which studio a desk mixes (1.3, the rehearsal studio; design `rehearsal-mode-build-plan.md`
+/// section 1.7).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DeskMode {
+    /// The live studio: the programme to playout, and everything else a station sends.
+    #[default]
+    Live,
+    /// The rehearsal studio: the returns (mix-minus) and carts only. Built with no way to the
+    /// air: no programme output, no video, HLS or RTMP, no hosts' sources, no VBAN out, no phone,
+    /// no monitor links, and its control socket refuses every request but the desk's keys.
+    Rehearsal,
+}
+
+impl DeskMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DeskMode::Live => "live",
+            DeskMode::Rehearsal => "rehearsal",
+        }
+    }
+
+    /// What a desk in this mode sends out.
+    pub fn outputs(self) -> crate::pipeline::Outputs {
+        match self {
+            DeskMode::Live => crate::pipeline::Outputs::ALL,
+            DeskMode::Rehearsal => crate::pipeline::Outputs::REHEARSAL,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, default)]
 pub struct DeskSettings {
+    /// `live` (the default) or `rehearsal` (1.3): a rehearsal desk mixes `<room>-rehearsal` and
+    /// has no route to the air (section 1.7 of the rehearsal build plan).
+    pub mode: DeskMode,
     /// The prefix of the desk's own room identities: `<prefix>-<participant>` subscribes to a
     /// participant, `<prefix>-mm-<participant>` publishes their mix-minus.
     pub identity: String,
@@ -820,6 +859,7 @@ pub struct DeskSettings {
 impl Default for DeskSettings {
     fn default() -> Self {
         Self {
+            mode: DeskMode::Live,
             identity: "desk".to_owned(),
             jitter_buffer_ms: 50,
             video_jitter_buffer_ms: 300,
@@ -907,6 +947,24 @@ impl Config {
     pub fn from_toml(text: &str, path: &str) -> Result<Self, ConfigError> {
         let mut c: Config =
             toml::from_str(text).map_err(|e| ConfigError::Parse(path.to_owned(), Box::new(e)))?;
+        if c.desk.mode == DeskMode::Rehearsal {
+            // A rehearsal desk takes no host's own studio. `sources.enabled` defaults to true, so
+            // only a file that turns it on by name is refused; left out, it is off here.
+            let raw: toml::Table = toml::from_str(text)
+                .map_err(|e| ConfigError::Parse(path.to_owned(), Box::new(e)))?;
+            let asked = raw
+                .get("sources")
+                .and_then(|s| s.get("enabled"))
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(false);
+            if asked {
+                return Err(ConfigError::Invalid(
+                    "sources.enabled is true on a rehearsal desk; a host's own studio stands by at the live desk only".into(),
+                ));
+            }
+            c.sources.enabled = false;
+            c.livekit.no_ice_tcp = true;
+        }
         for role in [Role::Presenter, Role::Dj] {
             c.inputs
                 .entry(role)
@@ -1045,10 +1103,54 @@ impl Config {
             return invalid("carts.start_wait_ms must be 50 to 5000".into());
         }
         self.video.validate().map_err(ConfigError::Invalid)?;
+        self.validate_mode()?;
         if self.room.link_timeout_ms < 1_000 {
             return invalid("room.link_timeout_ms must be at least 1000".into());
         }
         Ok(())
+    }
+}
+
+impl Config {
+    /// The walls between a rehearsal desk and the air (section 1.7): what it may not be given.
+    /// A live desk may not mix a room shaped like a rehearsal room, which would air it.
+    fn validate_mode(&self) -> Result<(), ConfigError> {
+        let invalid = |m: String| Err(ConfigError::Invalid(m));
+        let rehearsal_room = weavesignal_proto::looks_like_rehearsal_room(&self.livekit.room);
+        match self.desk.mode {
+            DeskMode::Live if rehearsal_room => invalid(format!(
+                "livekit.room `{}` is a rehearsal room; a live desk would put it on air. Set desk.mode = \"rehearsal\" or mix the studio room",
+                self.livekit.room
+            )),
+            DeskMode::Live => Ok(()),
+            DeskMode::Rehearsal => {
+                if !rehearsal_room {
+                    return invalid(format!(
+                        "livekit.room `{}` is not a rehearsal room (`<room>{}`); a rehearsal desk mixes only that",
+                        self.livekit.room,
+                        weavesignal_proto::REHEARSAL_SUFFIX
+                    ));
+                }
+                if self.video.enabled {
+                    return invalid(
+                        "video.enabled is true on a rehearsal desk; it sends no picture, HLS, RTMP or playout feed".into(),
+                    );
+                }
+                if self.sources.enabled {
+                    return invalid(
+                        "sources.enabled is true on a rehearsal desk; a host's own studio stands by at the live desk only".into(),
+                    );
+                }
+                if self.desk.identity == DeskSettings::default().identity {
+                    return invalid(format!(
+                        "desk.identity is `{}`, the live desk's; a rehearsal desk is `{}`",
+                        self.desk.identity,
+                        weavesignal_proto::REHEARSAL_DESK_IDENTITY
+                    ));
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -1266,5 +1368,140 @@ room = "studio"
             let text = format!("{MINIMAL}\n{bad}\n");
             assert!(Config::from_toml(&text, "t").is_err(), "{bad}");
         }
+    }
+
+    const REHEARSAL: &str = r#"
+[livekit]
+url = "ws://127.0.0.1:7880"
+api_key = "devkey"
+room = "studio-rehearsal"
+
+[desk]
+mode = "rehearsal"
+identity = "desk-rehearsal"
+"#;
+
+    #[test]
+    fn a_desk_is_live_unless_its_settings_say_rehearsal() {
+        let c = Config::from_toml(MINIMAL, "t").unwrap();
+        assert_eq!(c.desk.mode, DeskMode::Live);
+        assert!(c.sources.enabled, "a live desk still takes hosts' sources");
+        assert!(!c.livekit.no_ice_tcp);
+        let c = Config::from_toml(REHEARSAL, "t").unwrap();
+        assert_eq!(c.desk.mode, DeskMode::Rehearsal);
+        assert!(!c.sources.enabled, "a rehearsal desk takes none, unasked");
+        assert!(c.livekit.no_ice_tcp, "and listens on no ICE-TCP port");
+        assert!(!c.video.enabled);
+        assert!(!c.desk.mode.outputs().srt);
+        assert!(c.desk.mode.outputs().mix_minus_to_room);
+        assert!(DeskMode::Live.outputs().srt);
+    }
+
+    #[test]
+    fn a_rehearsal_desk_refuses_video_sources_and_the_live_room() {
+        for (extra, why) in [
+            ("[video]\nenabled = true\n", "video"),
+            ("[sources]\nenabled = true\n", "sources"),
+            (
+                "[sources]\nenabled = true\nport = 7318\n",
+                "sources with a port",
+            ),
+        ] {
+            let e = Config::from_toml(&format!("{REHEARSAL}\n{extra}"), "t").unwrap_err();
+            assert!(e.to_string().contains("rehearsal desk"), "{why}: {e}");
+        }
+        // `sources.enabled = false` by name is fine, as is a sources table without it.
+        assert!(
+            Config::from_toml(&format!("{REHEARSAL}\n[sources]\nenabled = false\n"), "t").is_ok()
+        );
+        let c = Config::from_toml(&format!("{REHEARSAL}\n[sources]\nport = 7400\n"), "t").unwrap();
+        assert!(!c.sources.enabled);
+        // The studio room, or the live desk's identity: refused.
+        let live_room = REHEARSAL.replace("studio-rehearsal", "studio");
+        assert!(Config::from_toml(&live_room, "t").is_err());
+        let live_identity = REHEARSAL.replace("identity = \"desk-rehearsal\"", "");
+        assert!(Config::from_toml(&live_identity, "t").is_err());
+        // A desk built by hand past `from_toml` is still checked.
+        let mut c = Config::from_toml(REHEARSAL, "t").unwrap();
+        c.sources.enabled = true;
+        assert!(c.validate().is_err());
+        let mut c = Config::from_toml(REHEARSAL, "t").unwrap();
+        c.video.enabled = true;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn a_live_desk_refuses_a_rehearsal_room() {
+        let text = MINIMAL.replace("room = \"studio\"", "room = \"studio-rehearsal\"");
+        let e = Config::from_toml(&text, "t").unwrap_err();
+        assert!(e.to_string().contains("rehearsal room"), "{e}");
+    }
+
+    /// The settings an install route writes for its rehearsal desk, with each `${NAME:-default}`
+    /// given its default (and `${NAME}` a stand-in), as the route would with nothing set.
+    fn rendered(text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(at) = rest.find("${") {
+            out.push_str(&rest[..at]);
+            let end = rest[at..].find('}').expect("a closing brace") + at;
+            let inner = &rest[at + 2..end];
+            out.push_str(match inner.split_once(":-") {
+                Some((_, default)) => default,
+                None => "stand-in",
+            });
+            rest = &rest[end + 1..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn the_compose_rehearsal_desks_settings_load_as_a_rehearsal_desk() {
+        let yaml = include_str!("../../../deploy/compose/rehearsal.yaml");
+        let block: String = yaml
+            .split_once("    content: |\n")
+            .expect("the desk-rehearsal settings")
+            .1
+            .lines()
+            .take_while(|l| l.is_empty() || l.starts_with("      "))
+            .map(|l| format!("{}\n", l.strip_prefix("      ").unwrap_or(l)))
+            .collect();
+        let c = Config::from_toml(&rendered(&block), "rehearsal.yaml").unwrap();
+        assert_eq!(c.desk.mode, DeskMode::Rehearsal);
+        assert_eq!(c.livekit.room, "studio-rehearsal");
+        assert_eq!(c.desk.identity, "desk-rehearsal");
+        assert!(!c.sources.enabled && !c.video.enabled && !c.desk.realtime);
+        assert!(!c.desk.mode.outputs().srt);
+    }
+
+    #[test]
+    fn the_cloudron_rehearsal_desks_settings_load_as_a_rehearsal_desk() {
+        let start = include_str!("../../../deploy/cloudron/start.sh");
+        let block = start
+            .split_once("cat > \"$run/desk-rehearsal.toml\" <<TOML\n")
+            .expect("start.sh writes the rehearsal desk's settings")
+            .1
+            .split_once("\nTOML\n")
+            .expect("the settings end")
+            .0
+            .replace("$LIVEKIT_HTTP_PORT", "7880")
+            .replace("$LIVEKIT_API_KEY", "weavesignal")
+            .replace("$ROOM_NAME", "studio")
+            .replace("$stun_servers", "")
+            .replace("$congestion_control", "gcc")
+            .replace("$run", "/run/weavesignal")
+            .replace("$data", "/app/data");
+        assert!(!block.contains('$'), "a variable left in: {block}");
+        let c = Config::from_toml(&block, "start.sh").unwrap();
+        assert_eq!(c.desk.mode, DeskMode::Rehearsal);
+        assert_eq!(c.livekit.room, "studio-rehearsal");
+        assert!(!c.sources.enabled && !c.video.enabled);
+    }
+
+    #[test]
+    fn an_unknown_mode_is_refused() {
+        let text = REHEARSAL.replace("mode = \"rehearsal\"", "mode = \"backstage\"");
+        assert!(Config::from_toml(&text, "t").is_err());
     }
 }

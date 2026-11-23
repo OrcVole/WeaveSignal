@@ -23,6 +23,7 @@ use hmac::{KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
+use crate::rehearsal::STANDBY_ATTRIBUTE;
 use crate::role::{ROLE_ATTRIBUTE, Role};
 
 type HmacSha256 = hmac::Hmac<Sha256>;
@@ -91,6 +92,11 @@ impl TokenClaims {
     /// The role the token carries, if any.
     pub fn role(&self) -> Option<Role> {
         self.attributes.get(ROLE_ATTRIBUTE)?.parse().ok()
+    }
+
+    /// Until when the live desk keeps this person standing by, if the token says.
+    pub fn standby_until_ms(&self) -> Option<u64> {
+        crate::rehearsal::standby_until_ms(&self.attributes)
     }
 }
 
@@ -215,6 +221,29 @@ impl Keys {
             },
             attributes: BTreeMap::from([(ROLE_ATTRIBUTE.to_owned(), role.as_str().to_owned())]),
         };
+        Ok(self.sign(&claims))
+    }
+
+    /// As [`Self::participant_with`], with the person kept standing by at the live desk until
+    /// `standby_until_ms` (ms since the Unix epoch): the attribute
+    /// [`STANDBY_ATTRIBUTE`] beside their role. A person moved from the rehearsal studio, or
+    /// an invitation that arrives standing by ([`crate::rehearsal::UNTIL_PUT_ON_AIR`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn participant_standing_by(
+        &self,
+        room: &str,
+        identity: &str,
+        name: &str,
+        role: Role,
+        ttl_s: u64,
+        can_subscribe: bool,
+        standby_until_ms: u64,
+    ) -> Result<String, TokenError> {
+        let token = self.participant_with(room, identity, name, role, ttl_s, can_subscribe)?;
+        let mut claims = self.verify(&token).expect("a token just signed verifies");
+        claims
+            .attributes
+            .insert(STANDBY_ATTRIBUTE.to_owned(), standby_until_ms.to_string());
         Ok(self.sign(&claims))
     }
 
@@ -483,6 +512,43 @@ mod tests {
         assert!(monitor.video.recorder && !monitor.video.hidden);
         assert_eq!(monitor.role(), Some(Role::Listener));
         assert_eq!(monitor.video.can_publish, Some(false));
+    }
+
+    #[test]
+    fn a_moved_persons_token_carries_the_standing_by_attribute() {
+        let k = keys();
+        let t = k
+            .participant_standing_by(
+                "studio",
+                "gregor",
+                "Gregor Stewart",
+                Role::Guest,
+                600,
+                true,
+                1_800_000_000_000,
+            )
+            .unwrap();
+        let c = k.verify(&t).unwrap();
+        assert_eq!(c.role(), Some(Role::Guest));
+        assert_eq!(c.standby_until_ms(), Some(1_800_000_000_000));
+        let body = t.split('.').nth(1).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&B64.decode(body).unwrap()).unwrap();
+        assert_eq!(
+            json["attributes"]["weavesignal.standby_until"],
+            "1800000000000"
+        );
+        assert!(
+            !c.video.can_update_own_metadata,
+            "nobody changes it for themselves"
+        );
+        // An ordinary token carries none.
+        let plain = k
+            .verify(
+                &k.participant("studio", "gregor", "", Role::Guest, 60)
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(plain.standby_until_ms(), None);
     }
 
     #[test]

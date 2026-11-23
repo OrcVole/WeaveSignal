@@ -381,7 +381,7 @@ pub(crate) async fn write(
 /// One On or Off for the desk, fading over `fade_ms` when it is more than 0. A desk from before
 /// the fade refuses the field it does not know; the move is then made at once, which is what the
 /// station did before, rather than not made.
-async fn on_air_command(
+pub(crate) async fn on_air_command(
     state: &AppState,
     identity: &str,
     on: bool,
@@ -450,6 +450,13 @@ pub(crate) async fn bring_on(
     if set_live && let Some(onair) = state.hub.onair.get() {
         onair.set_mode(StationMode::Live).await?;
     }
+    // The show brought on: an opening from rehearsal for it is applied now (1.3).
+    crate::rehearsal::apply_openings(
+        state,
+        weavesignal_model::rehearsal::Moment::BringOn,
+        Some(show),
+    )
+    .await;
     let event = if cause == Cause::Back {
         "back"
     } else {
@@ -481,6 +488,85 @@ pub(crate) async fn bring_on(
     }
     tracing::info!(who = %identity, ?cause, %by, "the post: on air");
     Ok(())
+}
+
+/// Taking the air back from automation (1.3). Invitations arrive standing by, so the press that
+/// takes the air back also puts on air, at once, the presenter it is for: the show on air by the
+/// schedule's own presenter (their own link), and the person who pressed (their own link), each
+/// if they are at the desk standing by. Then an opening from rehearsal for the show on air is
+/// applied: taking the air back while it is on air by the schedule is its moment.
+pub(crate) async fn take_air_back(state: &AppState, actor: &Actor) {
+    let now_s = (now_ms() as i64).div_euclid(1000);
+    let on_air_show = match &state.db {
+        Some(pool) => {
+            match shows::episodes_between(pool, state.station.id, now_s - LOOK_BACK_S, now_s + 1)
+                .await
+            {
+                Ok(eps) => {
+                    let airings: Vec<Airing> = eps
+                        .iter()
+                        .filter_map(|(show, series, ep)| {
+                            shows::air_window(show, series, ep).map(|(start, end)| Airing {
+                                show: show.id,
+                                start,
+                                end,
+                            })
+                        })
+                        .collect();
+                    rule::airing_now(&airings, now_s).and_then(|a| {
+                        eps.iter()
+                            .find(|(s, _, _)| s.id == a.show)
+                            .map(|(s, _, _)| s.clone())
+                    })
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "taking the air back: the schedule could not be read");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    let mut wanted: Vec<String> = Vec::new();
+    if let Some(account) = on_air_show.as_ref().and_then(|s| s.presenter_account) {
+        wanted.push(crate::steps::own_identity(account));
+    }
+    if let Actor::Staff(a) = actor {
+        let own = crate::steps::own_identity(a.id);
+        if !wanted.contains(&own) {
+            wanted.push(own);
+        }
+    }
+    let people = state
+        .hub
+        .desk_status()
+        .map(|d| d.people)
+        .unwrap_or_default();
+    for id in wanted {
+        let standing_by = people.iter().any(|p| {
+            p.identity == id
+                && p.present
+                && !p.on_air
+                && matches!(p.role, Role::Presenter | Role::Dj)
+        });
+        if !standing_by {
+            continue;
+        }
+        match on_air_command(state, &id, true, 0).await {
+            Ok(()) => {
+                tracing::info!(identity = %id, by = %actor.label(), "taking the air back put the presenter on air")
+            }
+            Err(e) => {
+                tracing::warn!(identity = %id, error = %e, "taking the air back could not put the presenter on air")
+            }
+        }
+    }
+    crate::rehearsal::apply_openings(
+        state,
+        weavesignal_model::rehearsal::Moment::TakeAir,
+        on_air_show.map(|s| s.id),
+    )
+    .await;
 }
 
 /// The handover's second press: everyone in `takeoff` off air, and the sources among them
@@ -638,10 +724,22 @@ pub async fn tick(state: &AppState) -> anyhow::Result<Plan> {
     {
         w.heads_up_ms = Some(now);
     }
+    // The rehearsal studio (1.3): the window says when the show it is about is rehearsing, and
+    // the rehearsal view shows the window of its own show.
+    if let Some(r) = state.hub.rehearsal.get() {
+        let rehearsing = r.rehearsing();
+        if let Some(w) = window.as_mut() {
+            w.rehearsing =
+                rehearsing.is_some_and(|id| g.shows.iter().any(|s| s.id == id && s.slug == w.show));
+        }
+        r.set_window(window.as_ref());
+    }
     if let Some(v) = view.as_mut() {
         v.window = window;
     }
     state.hub.with_studio_if(|s| s.set_post(view));
+    // An opening from rehearsal whose show's host has just gone on air, by any route.
+    crate::rehearsal::apply_openings(state, weavesignal_model::rehearsal::Moment::Look, None).await;
     Ok(plan)
 }
 

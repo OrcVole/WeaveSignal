@@ -18,7 +18,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -45,6 +45,9 @@
 # The telephone line (17f): PHONE=true adds phone.yaml and checks PHONE_SIP_PORT (5060, UDP and
 # TCP), the RTP range from PHONE_RTP_PORT (7340, two UDP ports per PHONE_LINES) and PHONE_REDIS_PORT
 # (7321, loopback), and makes PHONE_REDIS_PASSWORD; the trunk's settings are in .env.example.
+# The rehearsal studio (1.3): REHEARSAL=true adds rehearsal.yaml, a second desk with no way to the
+# air, and turns the rehearsal studio on in the control plane; false (the default) leaves both off.
+# It needs no port of its own.
 # Hosts in their own studios (ADR-0280): SOURCE_ICECAST_PORT (TCP, 8005 suggested),
 # SOURCE_SRT_PORT (UDP, 9710) and SOURCE_WHIP_PORT (UDP, 9712; WHIP from OBS, 17d, its offer through
 # the public route), 0 or unset is off. Set, each is checked free and the ingest listens
@@ -138,6 +141,8 @@ esac
 if [ "$engine" = podman ] && [ -z "${WEAVESIGNAL_OOM_SCORE_ADJ:-}" ]; then
   session_oom=$(cat /proc/self/oom_score_adj 2>/dev/null || echo 0)
   if [[ $session_oom =~ ^[0-9]+$ ]] && [ "$session_oom" -gt 0 ]; then export WEAVESIGNAL_OOM_SCORE_ADJ=$session_oom; fi
+  # The rehearsal desk (1.3) runs at 500, or the session's own when that is higher.
+  if [[ $session_oom =~ ^[0-9]+$ ]] && [ "$session_oom" -gt 500 ]; then export WEAVESIGNAL_REHEARSAL_OOM_SCORE_ADJ=$session_oom; fi
 fi
 # Said on install, as Podman with podman-compose beside Docker now means Docker.
 [ "$action" != install ] || say "Container engine: $engine"
@@ -149,6 +154,10 @@ public_domain=''
 # PHONE=true; install decides it below.
 phone_on=false
 [ -f "$env_file" ] && grep -qx 'PHONE=true' "$env_file" && phone_on=true
+# The rehearsal studio (1.3) is the overlay rehearsal.yaml, used whenever the settings file says
+# REHEARSAL=true; install decides it below.
+rehearsal_on=false
+[ -f "$env_file" ] && grep -qx 'REHEARSAL=true' "$env_file" && rehearsal_on=true
 # A GPU for the desk (17e) is the overlay gpu.yaml, used when the settings file says GPU=nvidia
 # and VIDEO=true (a desk without video has nothing to encode); install decides it below.
 gpu_on=false
@@ -156,6 +165,7 @@ gpu_on=false
 compose() {
   local files=(-f compose.yaml); [ -z "$public_domain" ] || files+=(-f public.yaml)
   [ "$phone_on" = false ] || files+=(-f phone.yaml)
+  [ "$rehearsal_on" = false ] || files+=(-f rehearsal.yaml)
   [ "$gpu_on" = false ] || files+=(-f gpu.yaml)
   (cd "$here" && "$engine" compose --env-file "$env_file" -p "$project" "${files[@]}" "$@")
 }
@@ -220,7 +230,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -605,6 +615,10 @@ if [ "$phone" = true ]; then
   phone_redis_pw=${have[PHONE_REDIS_PASSWORD]:-$(secret)}
 fi
 phone_on=$phone
+# The rehearsal studio (1.3): off unless REHEARSAL=true. It opens no port, so nothing to check.
+rehearsal=$(unquote "$(keep REHEARSAL false)")
+case $rehearsal in true|false) ;; *) die "REHEARSAL is true or false, not '$rehearsal'" ;; esac
+rehearsal_on=$rehearsal
 gpu_on=false; [ "$gpu" != nvidia ] || [ "$video" != true ] || gpu_on=true
 # Liquidsoap also opens TCP on the port above two of its listeners, on loopback, with no setting
 # to turn it off: icecast.server's legacy source port (LISTENERS_PORT + 1) and the playout feed's
@@ -768,6 +782,9 @@ trap 'rm -f "$tmp"' EXIT
   say "SOURCE_ICECAST_PORT=${port[SOURCE_ICECAST_PORT]}"
   say "SOURCE_SRT_PORT=${port[SOURCE_SRT_PORT]}"
   say "SOURCE_WHIP_PORT=${port[SOURCE_WHIP_PORT]}"
+  say "# The rehearsal studio (1.3): true runs rehearsal.yaml, a second desk with no way to the air,"
+  say "# where a show's people rehearse before they move to the live studio. No port of its own."
+  say "REHEARSAL=$rehearsal"
   say "# VBAN from a studio PC on this network (the presenter kit, 1.2): true lets the station take it"
   say "# (Settings, Presenter kit). It has no password and no encryption: only on a local network."
   say "KIT_VBAN=$kit_vban"
@@ -803,7 +820,7 @@ trap 'rm -f "$tmp"' EXIT
   fi
   # Anything else the file held is kept as it was.
   known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU GPU_FOUND PULL_ALLOW_PRIVATE "
-  known+="PHONE "
+  known+="PHONE REHEARSAL "
   [ "$gpu" != nvidia ] || known+="GPU_DEVICE NVENC_SESSIONS "
   [ "$phone" = false ] || known+="PHONE_LINES PHONE_SIP_PORT PHONE_RTP_PORT PHONE_RTP_LAST PHONE_REDIS_PORT PHONE_REDIS_PASSWORD $phone_settings "
   extra=''

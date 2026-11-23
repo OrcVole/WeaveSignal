@@ -178,6 +178,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(crate::whip_route::routes())
         // The telephone line (17f): its state, number bans, the takedown search.
         .merge(crate::phone::api::routes())
+        // The rehearsal studio (1.3.0): its own desk and session, never the live desk's.
+        .merge(crate::rehearsal::routes())
+        // Its bookings (1.3.0, R14): first come, with optional bookings.
+        .merge(crate::rehearsal_bookings::routes())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -632,7 +636,9 @@ async fn end_pass(
 
 pub(crate) fn desk_problem(e: &DeskError) -> Response {
     let code = match e {
-        DeskError::NotConfigured | DeskError::Unreachable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        DeskError::NotConfigured | DeskError::Unreachable { .. } | DeskError::WrongMode { .. } => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
         DeskError::Refused(_) | DeskError::Rejected { .. } => StatusCode::CONFLICT,
     };
     problem(code, e.to_string())
@@ -714,7 +720,19 @@ async fn desk_command(
         return problem(StatusCode::CONFLICT, why);
     }
     match state.hub.command(&cmd).await {
-        Ok(()) => Json(state.view_for(&actor)).into_response(),
+        Ok(()) => {
+            // Someone put on air by a press (the handover's first press, their own On key):
+            // an opening from rehearsal whose host this is is applied at once (1.3).
+            if matches!(cmd, DeskCommand::OnAir { on: true, .. }) {
+                crate::rehearsal::apply_openings(
+                    &state,
+                    weavesignal_model::rehearsal::Moment::Look,
+                    None,
+                )
+                .await;
+            }
+            Json(state.view_for(&actor)).into_response()
+        }
         Err(e) => desk_problem(&e),
     }
 }
@@ -915,17 +933,27 @@ async fn set_mode(
     headers: HeaderMap,
     Json(req): Json<ModeRequest>,
 ) -> Response {
-    if let Some(r) = on_air_refusal(&state, &headers) {
-        return r;
-    }
+    let actor = match state.check(&headers, crate::staff::Need::OnAir) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
     let Some(onair) = state.hub.onair.get() else {
         return problem(
             StatusCode::SERVICE_UNAVAILABLE,
             "the station's mode needs the database and playout's socket",
         );
     };
+    let from_auto =
+        state.hub.read_studio(|s| s.station_mode()) == Some(crate::desk::StationMode::Auto);
     match onair.set_mode(req.mode).await {
-        Ok(()) => Json(state.hub.view()).into_response(),
+        Ok(()) => {
+            // Taking the air back from automation (1.3): the presenter standing by goes on air
+            // with it, since invitations now arrive standing by.
+            if from_auto && req.mode == crate::desk::StationMode::Live {
+                crate::post::take_air_back(&state, &actor).await;
+            }
+            Json(state.hub.view()).into_response()
+        }
         Err(e) => {
             tracing::warn!(error = %e, "the mode was not saved");
             problem(
@@ -1168,7 +1196,7 @@ async fn chat_modes(
     Json(state.view_for(&actor)).into_response()
 }
 
-fn cart_problem(e: &CartProblem) -> Response {
+pub(crate) fn cart_problem(e: &CartProblem) -> Response {
     let code = match e {
         CartProblem::NoCart(_) | CartProblem::NoBank(_) | CartProblem::EmptySlot(..) => {
             StatusCode::NOT_FOUND
@@ -1180,9 +1208,12 @@ fn cart_problem(e: &CartProblem) -> Response {
         | CartProblem::AlreadySounding(_)
         | CartProblem::OnAir(_)
         | CartProblem::OtherShow(_)
+        | CartProblem::NotRehearsed(_)
         | CartProblem::NothingSounding
         | CartProblem::Busy(_) => StatusCode::CONFLICT,
-        CartProblem::Desk(DeskError::NotConfigured | DeskError::Unreachable { .. })
+        CartProblem::Desk(
+            DeskError::NotConfigured | DeskError::Unreachable { .. } | DeskError::WrongMode { .. },
+        )
         | CartProblem::NoDatabase
         | CartProblem::NoPack(_) => StatusCode::SERVICE_UNAVAILABLE,
         CartProblem::Desk(DeskError::Refused(_) | DeskError::Rejected { .. }) => {
@@ -1992,7 +2023,15 @@ mod tests {
             s["ends_ms"].as_u64().unwrap() - s["started_ms"].as_u64().unwrap(),
             3_000
         );
-        let fire = fake.lock().unwrap().lines[0].clone();
+        // The first request on a new connection asks which studio the desk mixes (1.3.0).
+        let fire = fake
+            .lock()
+            .unwrap()
+            .lines
+            .iter()
+            .find(|l| l["op"] != "status")
+            .cloned()
+            .unwrap();
         assert_eq!(fire["op"], "cart_fire");
         assert_eq!(fire["cart"], applause.to_string());
         assert_eq!(
@@ -2520,7 +2559,15 @@ mod tests {
         let (code, view) = post(serde_json::json!({"op": "cue", "cart": applause})).await;
         assert_eq!(code, StatusCode::OK, "{view}");
         assert_eq!(view["carts"]["sounding"][0]["cue"], true);
-        assert_eq!(fake.lock().unwrap().lines[0]["cue"], true);
+        assert_eq!(
+            fake.lock()
+                .unwrap()
+                .lines
+                .iter()
+                .find(|l| l["op"] == "cart_fire")
+                .unwrap()["cue"],
+            true
+        );
         // Space is for what is on air: a cue is not stopped by it.
         let (code, _) = post(serde_json::json!({"op": "stop_last"})).await;
         assert_eq!(code, StatusCode::CONFLICT);

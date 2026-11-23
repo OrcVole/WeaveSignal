@@ -245,9 +245,11 @@ try {
     if (okB) break; await sleep(500);
   }
   log('both pressed Join');
-  const onAir = async (ev) => { for (let i = 0; i < 120; i++) { if ((await ev(phase).catch(() => null)) === 'on_air') return true; await sleep(250); } return false; };
-  results.a_on_air = await onAir((e) => a.evaluate(e));
-  results.b_on_air = await onAir((e) => phone.evaluate(e));
+  // Guests arrive standing by (1.3, question 9): the desk's press puts each on air, tried every
+  // 2 s until the desk has them.
+  const onAir = async (ev, inv) => { for (let i = 0; i < 120; i++) { if ((await ev(phase).catch(() => null)) === 'on_air') return true; if (i % 8 === 0) await post('/api/v1/desk/commands', { op: 'on_air', identity: inv.identity, on: true }).catch(() => null); await sleep(250); } return false; };
+  results.a_on_air = await onAir((e) => a.evaluate(e), ia);
+  results.b_on_air = await onAir((e) => phone.evaluate(e), ib);
   log('on air:', results.a_on_air, results.b_on_air);
   if (!results.a_on_air || !results.b_on_air) throw new Error('a guest did not get on air');
   await phone.evaluate('window.__g0.answer = true; window.__g0.ctx.resume(); true', true);

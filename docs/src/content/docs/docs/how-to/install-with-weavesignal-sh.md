@@ -31,7 +31,7 @@ Running it again changes nothing that is already set.
 
 ### The server image
 
-The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.1`.
+The bundle runs the published server image, `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0`.
 The script pulls it when it is not on the machine.
 
 To run an image built from the repository instead, build it, then give its tag with `--image`:
@@ -132,8 +132,13 @@ The script also makes two secrets for this, `INGEST_TOKEN` (the ingest's and the
 ### A graphics card for video
 
 With `VIDEO=true` the desk encodes the picture. From 1.2 the script looks for an NVIDIA card's CDI spec on a new install whose settings file has no `GPU` line (or on any station that says `GPU=auto`), writes `GPU=nvidia` or `GPU=none`, and with `nvidia` hands the card to the desk (`gpu.yaml`).
-From 1.2.1 an update never moves a station to the card: a station installed before, with no `GPU` line, gets `GPU=none`, and the script and the studio app's Settings say the card is there (`GPU_FOUND`).
+From 1.3.0 an update never moves a station to the card: a station installed before, with no `GPU` line, gets `GPU=none`, and the script and the studio app's Settings say the card is there (`GPU_FOUND`).
 `VIDEO_ENCODER` (`auto`, `nvenc`, `svt`) chooses the encoder: see [Use a GPU for video](/docs/how-to/use-a-gpu-for-video/).
+
+### The rehearsal studio
+
+With `REHEARSAL=true` (from 1.3.0; off by default, `true` or `false`) the script adds `rehearsal.yaml`, a `desk-rehearsal` service, and turns the rehearsal studio on in the control plane.
+It opens no port, so the script has nothing to check for it ([The rehearsal studio](/docs/reference/rehearsal-studio/#turning-it-on)).
 
 ### Settings only
 

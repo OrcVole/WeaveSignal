@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
+# The rehearsal studio (1.3, #23): a second desk, the same binary in rehearsal mode, that mixes
+# the rehearsal room (`<ROOM>-rehearsal`) with no way to the air. It makes no programme output,
+# opens no TCP listener and needs no new port (its WebRTC sockets are clients of LiveKit's own
+# ports, as the live desk's are); its only listener is its control socket, beside the live
+# desk's in desk-control. Run with the bundle, with REHEARSAL=true in .env (weavesignal.sh adds
+# this file then):
+#
+#   podman compose -f compose.yaml -f rehearsal.yaml up -d
+#
+# It mounts neither hls-media nor phone-words, never gets the hosts' sources password, and its
+# settings carry no [video] and no [sources]: the desk refuses to start in rehearsal mode with
+# either on. Its oom_score_adj is 500 (WEAVESIGNAL_REHEARSAL_OOM_SCORE_ADJ; weavesignal.sh raises
+# it to its own session's when that is higher, as a container cannot be given less), so under
+# memory pressure the kernel stops it before the live desk, and its supervisor starts it again.
+
+services:
+  desk-rehearsal:
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0}
+    oom_score_adj: ${WEAVESIGNAL_REHEARSAL_OOM_SCORE_ADJ:-500}
+    network_mode: host
+    command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk-rehearsal.toml"]
+    environment:
+      WEAVESIGNAL_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      RUST_LOG: ${RUST_LOG:-info}
+    configs:
+      - source: desk-rehearsal
+        target: /etc/weavesignal/desk-rehearsal.toml
+    volumes:
+      - desk-control:/run/weavesignal
+      # The show's carts, fired in rehearsal from the same files.
+      - carts-media:/var/lib/weavesignal/carts:ro
+    depends_on: [livekit]
+    restart: unless-stopped
+
+  control:
+    depends_on:
+      desk-rehearsal:
+        condition: service_started
+
+configs:
+  desk-rehearsal:
+    content: |
+      [livekit]
+      url = "ws://127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}"
+      api_key = "${LIVEKIT_API_KEY}"
+      room = "${ROOM:-studio}-rehearsal"
+      stun_servers = "${STUN_SERVERS:-}"
+
+      # No way to the air: no programme output, no video, no sources, no VBAN.
+      [desk]
+      mode = "rehearsal"
+      identity = "desk-rehearsal"
+      realtime = false
+      workers = 2
+      congestion_control = "${CONGESTION_CONTROL:-gcc}"
+
+      [control]
+      socket = "/run/weavesignal/desk-rehearsal.sock"
+
+      [carts]
+      dir = "/var/lib/weavesignal/carts"

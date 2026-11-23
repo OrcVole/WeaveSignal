@@ -52,6 +52,7 @@ No secret is written into a unit or a settings file.
 Without it, the script lists the secrets the units need.
 PostgreSQL's unit reports healthy only once the database answers, and the control plane and the chat wait for it, as in Compose.
 With `GPU=nvidia` and `VIDEO=true` in the settings file the desk's unit is given the card by its CDI name (`AddDevice=nvidia.com/gpu=all`, or `GPU_DEVICE`) and `SecurityLabelDisable=true` ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)).
+With `REHEARSAL=true` in the settings file (from 1.3.0) the generator adds one more unit, `desk-rehearsal`, a second desk with no way to the air; it opens no port ([The rehearsal studio](/docs/reference/rehearsal-studio/#turning-it-on)).
 From 1.2.1 an update never writes `GPU=nvidia` for a station installed before: its units keep no device until you set it, and the studio app's Settings says when the server has a card that is not in use.
 
 ## Install and start

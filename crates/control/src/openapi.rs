@@ -208,6 +208,7 @@ fn api_token_description() -> String {
         (name = "monitor", description = "A host's monitor link (ADR-0280): their own source's state and the station's clock, and a listen-only room token for the sound of the programme without them. The bearer is the monitor secret from the key's making; it needs no account."),
         (name = "internal", description = "Routes for the station's own processes on the same machine; never reachable through the proxy."),
         (name = "phone", description = "The telephone line (17f): its state, number bans and the takedown search. A person's, never an API token's; no number is kept or echoed."),
+        (name = "rehearsal", description = "The rehearsal studio (1.3.0): a second desk with no way to the air, for one show at a time. A person's, never an API token's."),
         (name = "rtmp", description = "RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown."),
     ),
     components(responses(Unauthorized, Forbidden, NotFound, Conflict, Unprocessable, Unavailable, TooManyRequests, ScopeMissing)),
@@ -242,6 +243,8 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::whip_route::Api::openapi(),
         crate::setup::Api::openapi(),
         crate::phone::api::Api::openapi(),
+        crate::rehearsal::Api::openapi(),
+        crate::rehearsal_bookings::Api::openapi(),
     ] {
         doc.merge(part);
     }

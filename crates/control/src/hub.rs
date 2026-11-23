@@ -53,6 +53,42 @@ impl RoomAdmin {
         failed.map_or(Ok(()), Err)
     }
 
+    /// Remove a participant from a room of the station's that is not the studio room: the
+    /// rehearsal room (1.3.0). Absent is not an error.
+    pub async fn remove_in(&self, room: &str, identity: &str) -> anyhow::Result<()> {
+        self.remove_from(room, identity).await
+    }
+
+    /// Who is in a room now (`RoomService/ListParticipants`), by identity: the rehearsal room's
+    /// people when its desk is not answering (1.3.0). A room that does not exist has nobody.
+    pub async fn list_in(&self, room: &str) -> anyhow::Result<Vec<String>> {
+        let url = format!(
+            "{}/twirp/livekit.RoomService/ListParticipants",
+            self.api_url.trim_end_matches('/')
+        );
+        let token = self.keys.room_admin(room, 60);
+        let body = serde_json::json!({ "room": room });
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<String>> {
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(3)))
+                .http_status_as_error(false)
+                .build()
+                .into();
+            let mut res = agent
+                .post(&url)
+                .header("Authorization", &format!("Bearer {token}"))
+                .send_json(body)?;
+            let status = res.status().as_u16();
+            let text = res.body_mut().read_to_string().unwrap_or_default();
+            match status {
+                200 => Ok(identities(&text)),
+                404 => Ok(Vec::new()),
+                s => anyhow::bail!("LiveKit answered {s}: {text}"),
+            }
+        })
+        .await?
+    }
+
     async fn remove_from(&self, room: &str, identity: &str) -> anyhow::Result<()> {
         let url = format!(
             "{}/twirp/livekit.RoomService/RemoveParticipant",
@@ -80,6 +116,20 @@ impl RoomAdmin {
         })
         .await?
     }
+}
+
+/// The identities in a `ListParticipants` answer.
+fn identities(reply: &str) -> Vec<String> {
+    serde_json::from_str::<serde_json::Value>(reply)
+        .ok()
+        .and_then(|v| {
+            v.get("participants")?.as_array().map(|ps| {
+                ps.iter()
+                    .filter_map(|p| p.get("identity")?.as_str().map(str::to_owned))
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
 }
 
 pub(crate) struct Inner {
@@ -114,6 +164,12 @@ pub struct Hub {
     last_dump: Mutex<Option<DumpRecord>>,
     /// The telephone line (17f), once started; unset while it is off.
     pub phone: std::sync::OnceLock<Arc<crate::phone::line::Line>>,
+    /// The rehearsal studio (1.3.0): its own desk link and session, never this hub's desk or
+    /// studio. Unset while the station has none.
+    pub rehearsal: std::sync::OnceLock<Arc<crate::rehearsal::Rehearsal>>,
+    /// Who was on air, kept across a restart of the live desk, and who a restart took off and
+    /// is still to be put back (1.3: guests and invitations arrive standing by).
+    air_kept: Mutex<(crate::air_kept::AirKept, Vec<String>)>,
 }
 
 /// A Dump the desk took: when, and how much of the programme listeners lost.
@@ -169,6 +225,8 @@ impl Hub {
             sources: Arc::new(crate::sources::Live::from_env()),
             last_dump: Mutex::new(None),
             phone: std::sync::OnceLock::new(),
+            rehearsal: std::sync::OnceLock::new(),
+            air_kept: Mutex::new(Default::default()),
         })
     }
 
@@ -272,6 +330,16 @@ impl Hub {
     /// Fold in the desk's answer to a status request (what `poll_once` does with it).
     pub async fn take_status(&self, answer: Result<DeskStatus, DeskError>) {
         let carts = answer.as_ref().ok().map(|st| st.carts.clone());
+        {
+            let mut kept = self.air_kept.lock().unwrap_or_else(|p| p.into_inner());
+            match &answer {
+                Ok(st) => {
+                    let owed = kept.0.take(st, now_ms());
+                    kept.1.extend(owed);
+                }
+                Err(_) => kept.0.lost(),
+            }
+        }
         self.with_inner(|inner| match answer {
             Ok(st) => {
                 if inner.desk_error.take().is_some() {
@@ -506,8 +574,28 @@ impl Hub {
             loop {
                 tick.tick().await;
                 hub.poll_once().await;
+                hub.put_back_air().await;
             }
         });
+    }
+
+    /// Put back on air the people a restart of the live desk took off (1.3), once each, as it
+    /// finds them: see [`crate::air_kept`]. At once, with no fade: they were on air a moment ago.
+    pub async fn put_back_air(&self) {
+        let owed = std::mem::take(&mut self.air_kept.lock().unwrap_or_else(|p| p.into_inner()).1);
+        for identity in owed {
+            let cmd = DeskCommand::OnAir {
+                identity: identity.clone(),
+                on: true,
+                fade_ms: None,
+            };
+            match self.command(&cmd).await {
+                Ok(()) => tracing::info!(%identity, "put back on air after the desk started again"),
+                Err(e) => {
+                    tracing::warn!(%identity, error = %e, "cannot put them back on air after the desk started again")
+                }
+            }
+        }
     }
 
     /// The station's mode (ADR-0045) from the playout settings: into the studio view (for
@@ -598,6 +686,67 @@ mod tests {
             CartsLink::new(crate::config::CartsConfig::default(), None),
         );
         (hub, fake, dir)
+    }
+
+    #[tokio::test]
+    async fn a_live_desk_that_starts_again_gets_back_on_air_the_people_it_had_on() {
+        let (hub, fake, dir) = hub_with_fake_desk();
+        let p = |id: &str, role: &str, on: bool| {
+            serde_json::json!({"identity": id, "name": "", "role": role, "on_air": on,
+                "talk": false, "present": true, "linked": true})
+        };
+        {
+            let mut f = fake.lock().unwrap();
+            f.started_ms = Some(1);
+            f.people = vec![
+                p("eilidh", "presenter", true),
+                p("gregor", "guest", true),
+                p("kirsty", "guest", false),
+            ];
+        }
+        hub.poll_once().await;
+        hub.put_back_air().await;
+        // The same desk: nothing sent.
+        assert!(
+            fake.lock()
+                .unwrap()
+                .lines
+                .iter()
+                .all(|l| l["op"] == "status")
+        );
+        // It starts again, and finds everyone standing by (guests and invitations, 1.3).
+        {
+            let mut f = fake.lock().unwrap();
+            f.started_ms = Some(2);
+            f.people = vec![
+                p("eilidh", "presenter", false),
+                p("gregor", "guest", false),
+                p("kirsty", "guest", false),
+            ];
+        }
+        hub.poll_once().await;
+        hub.put_back_air().await;
+        let on: Vec<String> = fake
+            .lock()
+            .unwrap()
+            .lines
+            .iter()
+            .filter(|l| l["op"] == "on_air" && l["on"] == true)
+            .map(|l| l["identity"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(on, ["eilidh", "gregor"], "Kirsty was off air before");
+        // Once: no more at the next look.
+        hub.poll_once().await;
+        hub.put_back_air().await;
+        let count = fake
+            .lock()
+            .unwrap()
+            .lines
+            .iter()
+            .filter(|l| l["op"] == "on_air")
+            .count();
+        assert_eq!(count, 2);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn modes_sent(fake: &Mutex<crate::desk::fake::FakeDesk>) -> Vec<String> {

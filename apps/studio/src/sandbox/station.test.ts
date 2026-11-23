@@ -266,11 +266,11 @@ describe('the sandbox station', () => {
     s.setStep('the-morning-kettle', 'solo', T0 + 1_000);
     s.tick(T0 + INVITE_TO_JOIN_MS + 500);
     expect(s.person('gregor')).toBeUndefined();
-    // At Guests he joins from the same kind of invitation, on air at once.
+    // At Guests he joins from the same kind of invitation, standing by: off air until put on.
     const g = at('guest');
     g.makeInvite({ role: 'guest', name: 'Gregor Stewart' }, T0);
     g.tick(T0 + INVITE_TO_JOIN_MS + 500);
-    expect(g.person('gregor')).toMatchObject({ role: 'guest', on_air: true });
+    expect(g.person('gregor')).toMatchObject({ role: 'guest', on_air: false });
     expect(g.view(T0 + INVITE_TO_JOIN_MS + 500).sources.find((x) => x.identity === 'gregor')?.slot).toBe(2);
   });
 

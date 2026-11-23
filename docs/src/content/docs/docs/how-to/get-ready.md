@@ -26,7 +26,7 @@ It takes five minutes, and most of it is the headphones.
 The studio app does not carry your voice: it shows the desk and sends your keys, and your voice reaches the room from the browser.
 The studio app joining the room itself, so you present from one window (ADR-0013), is [planned](/docs/reference/release-one-status/#not-in-release-one).
 
-As a presenter you are on air from the moment you join, in slot 1 of the desk.
+As a presenter you join in slot 1 of the desk, standing by: you go on air when the air is taken back from automation for your show, at the post, at a handover's press, or by your slot's key (since 1.3; before, a presenter's invitation was on air at once).
 
 ## Wear headphones
 

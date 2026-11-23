@@ -3,7 +3,7 @@ title: "Your first show"
 description: "Your first show: join the room, wear headphones, use the desk to put people on air and off, and end the show."
 type: howto
 status: draft
-last_verified: 2026-11-11
+last_verified: 2026-11-22
 sidebar:
   order: 2
 ---
@@ -21,7 +21,8 @@ You use two windows: the **studio app**, which shows the desk and takes your key
    - or open the invitation link the station sent you, in a browser.
 4. On the page, press **Join the studio**, and allow the microphone when the browser asks.
 
-As a presenter you are on air from the moment you join, in the first slot of the desk.
+As a presenter you join in the first slot of the desk, standing by.
+You go on air when the air is taken back from automation for your show, at the handover, or when you press your own slot's key.
 Keep the microphone close to your mouth.
 
 ## Read the desk
@@ -33,7 +34,7 @@ Under it, **Not on air** holds everyone in the room who is not on air yet.
 
 ## Put someone on air, and off
 
-Guests join with their own link and are on air the moment they arrive.
+Guests join with their own link and wait under **Not on air** until you put them on.
 Press their slot's number, `1` to `5`, to put someone on air, or the same key to take them off.
 
 ## Hear someone before air, and mute them

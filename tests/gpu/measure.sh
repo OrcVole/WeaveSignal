@@ -21,7 +21,7 @@
 #   tests/gpu/measure.sh --rungs 480p20 --seconds 20 --parallel 0 --no-svt --no-compose
 #   WEAVESIGNAL_SERVER_IMAGE=localhost/weavesignal-server:r122 tests/gpu/measure.sh
 #
-# Options: --image IMAGE (default $WEAVESIGNAL_SERVER_IMAGE, else the 1.2.0 server image),
+# Options: --image IMAGE (default $WEAVESIGNAL_SERVER_IMAGE, else the 1.3.0 server image),
 # --device CDI-NAME (default $GPU_DEVICE, else nvidia.com/gpu=all), --rungs "A B" (480p20, 360p20,
 # 720p30, 720p25, 1080p30), --seconds N (seconds of picture per run, default 60), --live (each run
 # in real time, so N seconds takes N seconds; without it the encoder runs flat out and a run takes
@@ -46,7 +46,7 @@
 # runs its control flow with every command stubbed, touching no card.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-image=${WEAVESIGNAL_SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.2.0}
+image=${WEAVESIGNAL_SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.0}
 device=${GPU_DEVICE:-nvidia.com/gpu=all}
 cdi_dirs=${WEAVESIGNAL_CDI_DIRS:-/etc/cdi /var/run/cdi}
 rungs="480p20 720p30 1080p30"

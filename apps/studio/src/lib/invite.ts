@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // The desk's invitation (ADR-0074): the words of its dialog, kept out of the component so the
 // tests can hold them. An invitation is a link to the station's join page with a pass in its
-// fragment; the role decides whether its person joins on air or off. The show's step decides
+// fragment. Everyone invited joins off air, standing by, until a press puts them on (1.3; before,
+// a guest or a presenter was on air at joining); the role decides their seat. The show's step decides
 // which roles there are (ADR-0271): the next show's DJ comes with Full.
 
 import { FieldError, type Invite, type InviteRole, type Me, type ShowStep, type Source, type View } from './api.ts';
@@ -12,14 +13,27 @@ import { atLeast, needsOwnLink } from './steps.ts';
 /** The roles an invitation may carry, the DJ first (the default), each with what joining means. */
 export const INVITE_ROLES: readonly { role: InviteRole; name: string; what: string }[] = [
   { role: 'dj', name: 'DJ', what: 'Joins off air, under Not on air. Listeners hear nothing of them until you put them on. For the next show’s DJ.' },
-  { role: 'guest', name: 'Guest', what: 'On air the moment they join.' },
-  { role: 'presenter', name: 'Presenter', what: 'On air the moment they join, as a presenter of this show.' },
+  { role: 'guest', name: 'Guest', what: 'Joins off air, standing by under Not on air, until you put them on.' },
+  { role: 'presenter', name: 'Presenter', what: 'Joins standing by, as a presenter of this show. Their own key, a handover or taking the air back puts them on.' },
 ];
 
 /** The roles the station's step lets the desk invite: a guest and a presenter from Guests, the
  *  next show's DJ at Full (the station refuses the rest). The first is the one picked. */
 export function rolesAt(step: ShowStep): readonly { role: InviteRole; name: string; what: string }[] {
   return INVITE_ROLES.filter((r) => r.role !== 'dj' || atLeast(step, 'full'));
+}
+
+/** The roles a link to the rehearsal studio may carry: the rehearsed show's own people, by that
+ *  show's step (a Solo show's rehearsal takes only its presenter's own link). No DJ: the next
+ *  show's DJ is whoever is rehearsing. The words say nothing of the air, which a rehearsal link
+ *  never reaches. */
+export const REHEARSAL_ROLES: readonly { role: InviteRole; name: string; what: string }[] = [
+  { role: 'guest', name: 'Guest', what: 'A guest of the show. In the rehearsal only the people there hear them.' },
+  { role: 'presenter', name: 'Presenter', what: 'A presenter of the show, with a presenter’s strip and keys.' },
+];
+
+export function rehearsalRolesAt(step: ShowStep): readonly { role: InviteRole; name: string; what: string }[] {
+  return atLeast(step, 'guests') ? REHEARSAL_ROLES : [];
 }
 
 /** Under the roles while the DJ is not among them. */
@@ -59,8 +73,24 @@ export function joinsLine(invite: Pick<Invite, 'role' | 'name' | 'identity'>): s
   const who = firstName(invite.name, invite.identity);
   return invite.role === 'dj'
     ? `${who} opens it in a browser and presses Join the studio. They arrive off air, under Not on air.`
-    : `${who} opens it in a browser and presses Join the studio. They are on air the moment they join.`;
+    : `${who} opens it in a browser and presses Join the studio. They arrive standing by, off air, under Not on air, until you put them on.`;
 }
+
+/** The same for a link to the rehearsal studio (1.3): where it leads, and that it is not the air. */
+export function rehearsalJoinsLine(invite: Pick<Invite, 'name' | 'identity'>, show: string): string {
+  const who = firstName(invite.name, invite.identity);
+  return `${who} opens it in a browser and presses Join. They arrive in the rehearsal studio for ${show}: only the people there hear them, and nothing reaches listeners.`;
+}
+
+/** The dialog's words for where a link leads (`desk.invite`, screen 5). */
+export const WHERE = {
+  legend: 'The link leads to',
+  live: { name: 'Live studio', what: 'The room on air. They join off air, standing by, until you put them on.' },
+  rehearsal: (show: string) => ({ name: `Rehearsal studio · ${show}`, what: 'The rehearsal of this show. Only the people there hear them; you move everyone to the live studio with one press.' }),
+  /** A Solo show's rehearsal takes its presenter's own link and nobody else's. */
+  solo: (show: string) => `${show} runs at Solo, so its rehearsal takes only its presenter’s own link: Join with my microphone…, beside this button. Guests come with the Guests step.`,
+  ownLede: (show: string) => `Open it in a browser on this computer and press Join. You arrive in the rehearsal studio for ${show}: only the people there hear you. Keep that tab open: it carries your voice, and it moves to the live studio with you.`,
+} as const;
 
 /** A sentence of the station's own, whole: it is shown as it stands (a step's refusal says
  *  what is off and where it comes back, and nothing of ours improves on it). */
@@ -119,14 +149,14 @@ export function leaveWords(v: View | null | undefined, signedIn: boolean, look: 
 export const OWN_LINK = {
   button: 'Join with my microphone…',
   title: 'Your microphone link',
-  lede: 'Open it in a browser on this computer and press Join the studio. You are on air the moment you join. Keep that tab open: it carries your voice.',
+  lede: 'Open it in a browser on this computer and press Join the studio. You join off air, standing by: your own On key puts you on air. Keep that tab open: it carries your voice.',
   /** The lede while automation holds the air. */
-  ledeAuto: 'Open it in a browser on this computer and press Join the studio. Automation holds the air, so you join open to the room; Take the air back puts you on air. Keep that tab open: it carries your voice.',
+  ledeAuto: 'Open it in a browser on this computer and press Join the studio. Automation holds the air, so you join standing by; Take the air back puts you on air. Keep that tab open: it carries your voice.',
   /** The stage's words before the link is made: the tab is the microphone. */
-  stage: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link, press Join the studio, and you are on air. Keep that tab open: it carries your voice.',
-  /** The same while automation holds the air: joining opens you to the room, and the air stays
-   *  automation's until it is taken back (the post's rule, ADR-0280). */
-  stageAuto: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join open to the room while automation holds the air, and Take the air back puts you on air. Keep that tab open: it carries your voice.',
+  stage: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join off air, standing by, and your own On key puts you on air. Keep that tab open: it carries your voice.',
+  /** The same while automation holds the air: you join standing by, and the air stays
+   *  automation's until it is taken back, which puts you on with it (the post's rule, ADR-0280). */
+  stageAuto: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join standing by while automation holds the air, and Take the air back puts you on air. Keep that tab open: it carries your voice.',
   open: 'Open in browser',
   /** After the link is handed to the browser. */
   opened: 'Opened in your browser. Allow the microphone if it asks, then press Join the studio. Keep that tab open: it carries your voice.',
@@ -153,23 +183,19 @@ export function airHost(sources: readonly Pick<Source, 'role' | 'on_air' | 'name
 /** The offer's one quiet line while a host in their own studio has the air (the look's review,
  *  2026-11-17, finding 2): beside Invite someone… in the Not on air row, not the stage's
  *  headline. The show is not this window's to present, so the line says what joining is for,
- *  Talk and Cue, and that joining puts you on air: here that is a warning, not a promise.
+ *  Talk and Cue, and that joining does not put you on air: since 1.3 everyone who joins by a
+ *  link stands by until a press (`crates/control/src/public.rs`, `joined`).
  *
- *  It says only what the station will do (`plan` in crates/model/src/post.rs). While automation
- *  holds the air (`mode` is `auto`: it covers a lost link, or was handed the air) a presenter
- *  who joins is open to the room and not heard, so the line says that and not *on air* (the
- *  lamp and the stage's own line above say automation holds the air; one line has no room to
- *  say it again). With the
- *  host's link lost there is nobody to talk to. Then, under automation, the station brings a
- *  returning host back by itself and takes the air back with them, which puts whoever joined on
- *  air too; with the desk holding the air, whoever joined holds it, and the returning host
- *  stands by. */
+ *  It says only what the station will do (`plan` in crates/model/src/post.rs). With the host's
+ *  link lost there is nobody to talk to. Then, under automation, the air stays automation's
+ *  until the host is back; with the desk holding the air, whoever joins and puts themselves on
+ *  holds it, and the returning host stands by. */
 export function ownLinkBeside(host: AirHost, mode?: View['mode']): string {
   const auto = mode === 'auto';
   if (host.lost) {
     const who = host.name || 'the host';
-    return auto ? `You join open to the room, and are on air when ${who} is back.` : `Joining puts you on air. If ${who} reconnects, they then stand by.`;
+    return auto ? `You join standing by. Automation holds the air until ${who} is back.` : `You join standing by; your own On key puts you on air. If ${who} reconnects while you are on, they stand by.`;
   }
   const who = host.name || 'the hosts';
-  return `Join to talk to ${who} or to hear a cue. ${auto ? 'You join open to the room.' : 'Joining puts you on air.'}`;
+  return `Join to talk to ${who} or to hear a cue. You join off air, standing by.`;
 }

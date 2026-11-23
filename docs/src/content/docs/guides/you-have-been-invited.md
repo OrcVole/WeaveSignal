@@ -1,6 +1,6 @@
 ---
 title: "You have been invited"
-description: "You have been invited: open the link, put on headphones, and join the room on air with the presenter."
+description: "You have been invited: open the link, put on headphones, and join the room, and wait to be put on air with the presenter."
 type: howto
 status: draft
 last_verified: 2026-11-11
@@ -15,7 +15,7 @@ When you finish, you will be on air with the presenter, heard by the listeners.
 1. Open the invitation link the station sent you, in a web browser.
 2. Press **Join the studio**, and allow the microphone when the browser asks.
 
-A guest is on air the moment they join, so listeners hear you as soon as you have joined.
+You join off air: listeners do not hear you until the presenter puts you on. The page says when you are on air.
 
 ## Wear headphones
 

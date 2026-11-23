@@ -9,7 +9,7 @@
 // Server-sent events are read with fetch, not EventSource, because EventSource cannot send
 // the Authorization header.
 
-import type { CartsView, Catalogue } from '../../../../packages/ui/carts.ts';
+import type { CartMode, CartsView, Catalogue } from '../../../../packages/ui/carts.ts';
 import type { StationMode } from '../../../../packages/ui/states.ts';
 import type { EpisodeView, ShowInput, ShowView } from './schedule.ts';
 import { markOwn, newChange, unmarkOwn } from './ruleNotice.ts';
@@ -276,6 +276,9 @@ export interface HandoverWindow {
    *  show (1.2.1). Null when nobody is late; absent on a station older than 1.2.1, where the
    *  desk reads the late host from the post's own source. */
   late?: HandoverLate | null;
+  /** The show is in the rehearsal studio now (1.3): the window says "… rehearsing". Its people
+   *  are moved to the live studio by a press there, never by the window. */
+  rehearsing?: boolean;
 }
 
 /** A host who never came: the show under way is theirs, and the window is about the next. */
@@ -997,6 +1000,8 @@ export interface Invite {
   name: string;
   expires_at_ms: number;
   link: string;
+  /** Where the link leads (1.3): the live studio, or the rehearsal studio. Absent before 1.3. */
+  studio?: DeskStudio;
 }
 
 /** The body of an invitation for the signed-in account itself (ADR-0274): a presenter's, allowed
@@ -1066,6 +1071,15 @@ export type LinkState = 'connecting' | 'live' | 'lost';
  *  goes to the unauthorized handler, and the loop ends when it says so: the sign-in has
  *  ended, and the frame offers the way back rather than reconnecting in silence. */
 export function follow(onView: (v: View) => void, onLink: (s: LinkState, why?: string) => void): () => void {
+  return followEvents<View>('/api/v1/studio/events', onView, onLink);
+}
+
+/** Follow one of the control plane's event streams (`/api/v1/studio/events`,
+ *  `/api/v1/rehearsal/events`): `onData` with each event's data as JSON, `onLink` as the stream
+ *  comes and goes, reconnecting after a second as `follow` does. A refusal whose status is in
+ *  `gone` ends the loop for good (a station too old for the route answers 404), as an ended
+ *  sign-in does. Returns a stop function. */
+export function followEvents<T>(path: string, onData: (v: T) => void, onLink: (s: LinkState, why?: string) => void, gone: readonly number[] = []): () => void {
   let stopped = false;
   let ctrl: AbortController | null = null;
   const run = async () => {
@@ -1073,11 +1087,11 @@ export function follow(onView: (v: View) => void, onLink: (s: LinkState, why?: s
       ctrl = new AbortController();
       onLink('connecting');
       try {
-        const res = await netFetch(`${base()}/api/v1/studio/events`, { headers: headers(false), signal: ctrl.signal });
+        const res = await netFetch(`${base()}${path}`, { headers: headers(false), signal: ctrl.signal });
         if (!res.ok || !res.body) {
           const data = await res.json().catch(() => ({}));
           const why = data.error ?? `${res.status} ${res.statusText}`;
-          if (sessionOver) {
+          if (sessionOver || gone.includes(res.status)) {
             stopped = true;
             onLink('lost', why);
             return;
@@ -1100,7 +1114,7 @@ export function follow(onView: (v: View) => void, onLink: (s: LinkState, why?: s
               .filter((l) => l.startsWith('data:'))
               .map((l) => l.slice(5).trimStart())
               .join('\n');
-            if (data) onView(JSON.parse(data) as View);
+            if (data) onData(JSON.parse(data) as T);
           }
         }
         onLink('lost', 'the control plane closed the stream');
@@ -1826,3 +1840,213 @@ export const getRota = () => call<RotaView>('GET', '/api/v1/rota');
 export const getSourceSettings = () => call<SourceSettings>('GET', '/api/v1/settings/sources');
 /** Every rule at once (an admin's). Errors name the field. */
 export const putSourceSettings = (s: SourceSettings) => call<SourceSettings>('PUT', '/api/v1/settings/sources', s);
+
+// --- the rehearsal studio (1.3.0, #23 and #24) ---------------------------------------------
+// The types mirror the control plane's description (`docs/openapi/weavesignal-v1.json`): the
+// schemas RehearsalView, RehearsalDesk, SessionView, RehearsalPerson, RehearsalSounding,
+// RehearsalCommand, RehearsalBlock, BookingList, BookingClash and StudioColumn. Nothing in the
+// rehearsal studio reaches the air, so its words are "in the mix", never "on air" (ADR-0062).
+// The store that follows it is `rehearsal.svelte.ts`; the reference is the docs page
+// `reference/studio-rehearsal-data`.
+
+/** The rehearsal desk's link. */
+export interface RehearsalDesk {
+  /** The rehearsal desk answered the last time it was asked. */
+  linked: boolean;
+  /** Why not: not answering, or a desk on its socket that is not a rehearsal desk. */
+  error: string | null;
+}
+
+/** The open session: one show at a time (the schema `SessionView`). */
+export interface RehearsalSession {
+  id: string;
+  /** The rehearsed show's slug. */
+  show: string;
+  show_name: string;
+  /** Who opened it, as the studio names them ("Kirsty"). */
+  opened_by: string;
+  opened_at_ms: number;
+}
+
+/** One person at the rehearsal desk. `on` is in the rehearsal's mix (the others hear them),
+ *  never on air. */
+export interface RehearsalPerson {
+  identity: string;
+  name: string;
+  role: Role;
+  on: boolean;
+  mute: boolean;
+  cue: boolean;
+  talk: boolean;
+  talk_to: string | null;
+  present: boolean;
+  linked: boolean;
+  lufs: number | null;
+}
+
+/** A cart sounding at the rehearsal desk. */
+export interface RehearsalSounding {
+  cart: string;
+  /** The cart's label, when the station still has the cart. */
+  label: string;
+  mode: CartMode;
+  /** In the presenters' ears only. */
+  cue: boolean;
+  elapsed_ms: number;
+  remaining_ms: number | null;
+  loop: boolean;
+  stopping: boolean;
+}
+
+/** The rehearsal studio (`GET /api/v1/rehearsal`, and each event of
+ *  `/api/v1/rehearsal/events`). Off (`enabled` false), everything else is empty. */
+export interface RehearsalView {
+  /** Whether this station has a rehearsal studio (the installation's `REHEARSAL` setting). */
+  enabled: boolean;
+  desk: RehearsalDesk;
+  /** The open session, or null. */
+  session: RehearsalSession | null;
+  people: RehearsalPerson[];
+  carts_sounding: RehearsalSounding[];
+  /** The most people the rehearsal room takes at once (`rehearsal.max_people`). */
+  max_people: number;
+  /** The handover window of the session's show, when it is the window the live studio is
+   *  showing ("On air at 14:05: move by then"); null or absent otherwise. */
+  window?: HandoverWindow | null;
+}
+
+/** A switch or a cart at the rehearsal desk (`POST /api/v1/rehearsal/commands`). `on_air` is the
+ *  desk's own word for "in the mix": the rehearsal desk has no air. Any other op is 422. */
+export type RehearsalCommand =
+  | { op: 'on_air' | 'mute' | 'cue' | 'talk'; identity: string; on: boolean }
+  | { op: 'talk_to'; identity: string; to: string; on: boolean }
+  | { op: 'cart_fire'; cart: string; cue?: boolean }
+  | { op: 'cart_stop'; cart: string }
+  | { op: 'cart_stop_all'; cue?: boolean | null };
+
+/** The rehearsal studio now. A station older than 1.3.0 answers 404 (`FieldError`). */
+export const getRehearsal = () => call<RehearsalView>('GET', '/api/v1/rehearsal');
+/** Open the rehearsal studio for a show: the view (201, or 200 when it was open for it already).
+ *  Refusals are a `FieldError` with the station's sentence: 403 no rights over the show, 409
+ *  another show's session or a booking for another show, 503 the studio is off. */
+export const openRehearsal = (show: string) => call<RehearsalView>('POST', '/api/v1/rehearsal/open', { show });
+/** A switch or a cart at the rehearsal desk; answers with the view. 409 with no session open. */
+export const rehearsalCommand = (c: RehearsalCommand) => call<RehearsalView>('POST', '/api/v1/rehearsal/commands', c);
+/** End the rehearsal: everyone out of the rehearsal room, its links retired; the view after. */
+export const endRehearsal = () => call<RehearsalView>('POST', '/api/v1/rehearsal/end', {});
+// The rehearsal desk's screens (1.3.0, step R13): the move, and an invitation to the rehearsal.
+
+/** Which studio a link leads to (schema `Studio`). */
+export type DeskStudio = 'live' | 'rehearsal';
+
+/** The opening state a move carries (schema `Opening`): who goes on air and who is muted when
+ *  the show's host is put on air at the live desk, never on arrival. */
+export interface Opening {
+  /** The airing the move is for: its start. */
+  airing_start_ms: number;
+  /** Until when the moved people arrive standing by: the airing's start plus the rules' grace. */
+  standby_until_ms: number;
+  airing_end_ms?: number | null;
+  applied_at_ms?: number | null;
+  cleared_at_ms?: number | null;
+  /** The show's host among the people moved, whose going on air applies the opening state. */
+  host?: string | null;
+  /** Who goes on air when it is applied. */
+  on: string[];
+  /** Who is muted when it is applied, before anyone is put on. */
+  mute: string[];
+}
+
+/** What a move did (`POST /api/v1/rehearsal/move`). */
+export interface MoveResult {
+  /** Everyone moved, by identity. */
+  moved: string[];
+  opening: Opening;
+  airing_start_ms: number;
+}
+
+/** Move everyone in the rehearsal studio to the live studio, standing by, and close the session.
+ *  Refusals are a `FieldError` with the station's sentence: 409 no session, nobody there, or no
+ *  airing within twelve hours; 403 no rights over the session's show. */
+export const moveRehearsal = () => call<MoveResult>('POST', '/api/v1/rehearsal/move', {});
+
+/** An invitation to the rehearsal studio for `show`, whose session must be open (409 otherwise).
+ *  The link follows that show's step, and buys nothing once the session has ended. */
+export const makeRehearsalInvite = (role: InviteRole, name: string, show: string) =>
+  call<Invite>('POST', '/api/v1/invites', { role, name, studio: 'rehearsal', show });
+
+/** The signed-in account's own microphone link into the rehearsal studio for `show`: a
+ *  presenter's, as `makeOwnInvite` is at the live desk. Needs a staff session. */
+export const makeOwnRehearsalInvite = (show: string) => call<Invite>('POST', '/api/v1/invites', { for_me: true, studio: 'rehearsal', show });
+
+/** Follow the rehearsal studio: as `follow`, on `/api/v1/rehearsal/events`. A station older
+ *  than 1.3.0 (404) ends the loop. */
+export const followRehearsal = (onView: (v: RehearsalView) => void, onLink: (s: LinkState, why?: string) => void) =>
+  followEvents<RehearsalView>('/api/v1/rehearsal/events', onView, onLink, [404]);
+
+/** A block in the schedule's Rehearsal column: a booking (the studio held ahead for a show) or
+ *  a session (the studio as it was used, or is being). The bookings' routes answer with the same
+ *  shape, and the week gives both as `rehearsals`. */
+export interface RehearsalBlock {
+  /** The booking's or the session's id. */
+  id: string;
+  kind: 'booking' | 'session';
+  /** The show's slug. */
+  show: string;
+  show_name: string;
+  /** 1 to 12: the show's bank slot in the palette (ADR-0066). */
+  colour_slot: number;
+  /** A booking's start; a session's opening. */
+  start_ms: number;
+  /** A booking's end; a session's end, or now while it is open. */
+  end_ms: number;
+  /** Who booked it, or who opened the session ("Finlay"). */
+  by: string;
+  /** A session still open. Always false for a booking. */
+  open: boolean;
+  /** How a session ended; null while open and for a booking. */
+  ended?: 'ended' | 'moved' | 'idle' | null;
+}
+
+/** A column of the Studios view: `studio`, and `rehearsal` when the station has a rehearsal
+ *  studio. */
+export interface StudioColumn {
+  id: string;
+  name: string;
+}
+
+/** The bookings in a stretch of time (`GET /api/v1/rehearsal/bookings`). */
+export interface BookingList {
+  /** The station has a rehearsal studio; off, none can be made. */
+  enabled: boolean;
+  bookings: RehearsalBlock[];
+}
+
+/** A booking to make. */
+export interface BookingRequest {
+  show: string;
+  start_ms: number;
+  end_ms: number;
+}
+
+/** The bookings that share any time with `[fromMs, toMs)` (at most 62 days), in start order. */
+export const listBookings = (fromMs: number, toMs: number) =>
+  call<BookingList>('GET', `/api/v1/rehearsal/bookings?from_ms=${fromMs}&to_ms=${toMs}`);
+/** Book the rehearsal studio. Refusals are a `FieldError`: 409 sharing time (its booking in the
+ *  way: `bookingClash`), 422 times that cannot be (`field` is `start_ms` or `end_ms`), 403 no
+ *  rights over the show, 503 the studio is off. */
+export const makeBooking = (b: BookingRequest) => call<RehearsalBlock>('POST', '/api/v1/rehearsal/bookings', b);
+/** Move, resize or give a booking to another show; what is left out stays. A booking that is
+ *  over is 409 with no `clash`. */
+export const changeBooking = (id: string, patch: Partial<BookingRequest>) =>
+  call<RehearsalBlock>('PATCH', `/api/v1/rehearsal/bookings/${encodeURIComponent(id)}`, patch);
+/** Free the studio from a booking that is not over. */
+export const deleteBooking = (id: string) => call<void>('DELETE', `/api/v1/rehearsal/bookings/${encodeURIComponent(id)}`);
+
+/** The booking in the way, from a refused booking's error (409 with `clash`); null for any other
+ *  refusal. */
+export function bookingClash(e: unknown): RehearsalBlock | null {
+  if (!(e instanceof FieldError) || e.status !== 409) return null;
+  const c = e.data.clash;
+  return c && typeof c === 'object' && 'kind' in c ? (c as RehearsalBlock) : null;
+}

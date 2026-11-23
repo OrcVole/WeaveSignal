@@ -9,15 +9,27 @@
 // it (ADR-0062), OPEN while playout is down (ADR-0079), DESK BUSY (ADR-0069).
 
 import { CHIP, type Chip } from '../../../../packages/ui/states.ts';
-import type { MeState, Role } from './api.ts';
+import type { MeState, Role, Studio } from './api.ts';
 import { releasedWords } from './lines.ts';
+import type { Moved } from './move.ts';
 
 /** The page's own link to the room. */
-/** `no-mic`: the browser refused the microphone, so the page never joined; it can try again. */
-export type Link = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'lost' | 'ended' | 'no-mic';
+/** `no-mic`: the browser refused the microphone, so the page never joined; it can try again.
+ *  `moving`: the rehearsal studio moved the person, and the page is joining the live studio. */
+export type Link = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'lost' | 'ended' | 'no-mic' | 'moving';
 
-/** The banner's mood: picks its colour band, never its meaning. */
-export type Tone = 'onair' | 'open' | 'cue' | 'talk' | 'wait' | 'good' | 'warn' | 'ended';
+/** The banner's mood: picks its colour band, never its meaning. `rehearsal` is the rehearsal
+ *  studio's own band: never the red of ON AIR, never the white of OPEN (ADR-0062). */
+export type Tone = 'onair' | 'open' | 'cue' | 'talk' | 'wait' | 'good' | 'warn' | 'ended' | 'rehearsal';
+
+/** What the page knows beyond the person's own state: where they are, whether they have been
+ *  on air since they joined (`off_air` alone cannot tell "standing by" from "taken off"), and
+ *  the rehearsal they were moved from, if they were. */
+export interface Context {
+  studio?: Studio;
+  wasOnAir?: boolean;
+  moved?: Moved | null;
+}
 
 export interface Banner {
   tone: Tone;
@@ -30,6 +42,10 @@ const CONNECTING: Chip = { cls: 'hollow hollow-standby', glyph: 'g-standby', gly
 const ENDED: Chip = { cls: 'hollow hollow-off', glyph: 'g-muted', glyphCls: '', word: 'Ended' };
 const NO_MIC: Chip = { cls: 'hollow hollow-off', glyph: 'g-muted', glyphCls: '', word: 'No microphone' };
 const OFF_AIR: Chip = { cls: 'hollow hollow-standby', glyph: 'g-standby', glyphCls: '', word: 'Off air' };
+// The rehearsal studio's own lamp: hollow with a double rule, never red or white. The glyph is
+// the repeat sign until the design has one of its own (the studio's REHEARSAL lamp, screen 2).
+const REHEARSAL: Chip = { cls: 'hollow hollow-rehearsal', glyph: 'g-repeat', glyphCls: '', word: 'Rehearsal' };
+const MOVING: Chip = { cls: 'hollow hollow-rehearsal', glyph: 'g-moved', glyphCls: '', word: 'Moving' };
 const LINES_CLOSED: Chip = { cls: 'hollow hollow-off', glyph: 'g-muted', glyphCls: '', word: 'Lines closed' };
 
 /** "Rory" from "Rory Bruce"; a fallback when there is no name. */
@@ -45,7 +61,8 @@ export function mmss(ms: number): string {
 
 /** The banner: the link first (a page that is not connected cannot be on air), then the phase.
  *  `name` is the person's own, as they gave it, for the one banner that thanks them. */
-export function banner(role: Role, me: MeState | null, link: Link, now: number, heldUntil: number | null, name = ''): Banner {
+export function banner(role: Role, me: MeState | null, link: Link, now: number, heldUntil: number | null, name = '', ctx: Context = {}): Banner {
+  const rehearsal = (ctx.studio ?? me?.studio) === 'rehearsal';
   const p = firstName(me?.presenter ?? '', 'the presenter');
   const P = p === 'the presenter' ? 'The presenter' : p;
   // Who answers the phone: the producer, or at the Callers step the presenter themselves.
@@ -58,6 +75,9 @@ export function banner(role: Role, me: MeState | null, link: Link, now: number, 
     return { tone: 'ended', chip: LINES_CLOSED, headline: w.headline, detail: `${w.thanks} ${w.detail}` };
   }
   if (link === 'ended' || me?.phase === 'ended') {
+    if (rehearsal) {
+      return { tone: 'ended', chip: ENDED, headline: 'You have left the rehearsal studio', detail: 'Open your invitation link again to come back while the rehearsal is open.' };
+    }
     return role === 'caller'
       ? { tone: 'ended', chip: ENDED, headline: 'Your call has ended', detail: `Thanks for calling ${me?.station || 'the station'}. To call again, start from the player page.` }
       : { tone: 'ended', chip: ENDED, headline: 'You have left the studio', detail: 'Open your invitation link again to rejoin while it lasts.' };
@@ -80,6 +100,15 @@ export function banner(role: Role, me: MeState | null, link: Link, now: number, 
       detail: role === 'caller' ? 'Your place was held for 5 minutes and has gone. To call again, start from the player page.' : 'Check your connection, then open your invitation link again.',
     };
   }
+  // The presenter moved everyone: the page is on its way to the live studio, microphone kept.
+  if (link === 'moving') {
+    return {
+      tone: 'rehearsal',
+      chip: MOVING,
+      headline: 'Moving you to the live studio…',
+      detail: 'Nobody goes on air until the handover. Stay on this page; it takes a few seconds.',
+    };
+  }
   if (link === 'reconnecting') {
     const left = heldUntil !== null ? heldUntil - now : null;
     return {
@@ -93,8 +122,16 @@ export function banner(role: Role, me: MeState | null, link: Link, now: number, 
     };
   }
   if (link !== 'connected' || !me || me.phase === 'joining') {
-    return { tone: 'wait', chip: CONNECTING, headline: 'Connecting you to the studio…', detail: 'This takes a few seconds. Allow the microphone if your browser asks.' };
+    return {
+      tone: 'wait',
+      chip: CONNECTING,
+      headline: rehearsal ? 'Connecting you to the rehearsal studio…' : 'Connecting you to the studio…',
+      detail: 'This takes a few seconds. Allow the microphone if your browser asks.',
+    };
   }
+  // The rehearsal studio reaches no air, so none of the live words below is true there: `on_air`
+  // is only "in the rehearsal's mix", and nobody is ever on air or open (ADR-0062).
+  if (rehearsal) return rehearsalBanner(me);
   if (me.phase === 'on_air') {
     if (me.muted) return { tone: 'warn', chip: CHIP.muted, headline: 'On air, muted by the studio', detail: 'Listeners cannot hear you just now. The studio will open your microphone when it is time.' };
     if (me.open) return { tone: 'open', chip: CHIP.open, headline: 'The studio hears you', detail: "Listeners don't, just now: the station's stream is down. Carry on; the studio can hear you." };
@@ -126,15 +163,49 @@ export function banner(role: Role, me: MeState | null, link: Link, now: number, 
       }
     }
   }
+  // Every invitation arrives standing by (1.3): `off_air` before the person has been on air
+  // since they joined is that, and the words say so. After they were on air it is "taken off".
+  const standing = ctx.wasOnAir !== true;
+  const from = ctx.moved ? `You moved here from the rehearsal for ${ctx.moved.show}, which ${standbyAiring(ctx.moved.airing_start_ms, now)}. ` : '';
   if (role === 'dj') {
-    return { tone: 'wait', chip: OFF_AIR, headline: 'Waiting for the handover', detail: `You hear the show. You go on air when ${p} hands over to you.` };
+    return { tone: 'wait', chip: CHIP.standby, headline: 'Waiting for the handover', detail: `${from}You hear the show. You go on air when ${p} hands over to you.` };
+  }
+  if (standing && (role === 'guest' || role === 'presenter')) {
+    const until = role === 'guest' && !ctx.moved ? 'until the studio puts you on' : 'until the handover';
+    return { tone: 'wait', chip: CHIP.standby, headline: 'Standing by', detail: `${from}You are not on air ${until}. You hear the show, and this page tells you when you are.` };
   }
   return { tone: 'wait', chip: OFF_AIR, headline: "You're off air", detail: "Listeners can't hear you. You hear the show, and the studio can bring you back on." };
 }
 
+/** "is due on air at 14:05" or, once past, "was due on air at 14:05". */
+function standbyAiring(startMs: number, now: number): string {
+  return `${startMs > now ? 'is' : 'was'} due on air at ${clock(startMs)}`;
+}
+
+/** A time of day in the person's own zone, as the join page's other times are. */
+export function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** What the rehearsal studio's page says once joined. Only the people in the room hear them;
+ *  the desk has no way to the air. `on_air` is "in the mix", never an air state. */
+function rehearsalBanner(me: MeState): Banner {
+  const only = 'Only the people here hear you. Nobody listening to the station can.';
+  if (me.phase === 'on_air' && me.muted) {
+    return { tone: 'rehearsal', chip: CHIP.muted, headline: 'You are muted in the rehearsal', detail: `${only} The studio will open your microphone when it is time.` };
+  }
+  if (me.phase === 'on_air') {
+    return { tone: 'rehearsal', chip: REHEARSAL, headline: 'You are in the rehearsal studio', detail: `${only} You are in the mix.` };
+  }
+  return { tone: 'rehearsal', chip: REHEARSAL, headline: 'You are in the rehearsal studio', detail: `${only} You are not in the mix yet; the studio brings you in.` };
+}
+
 /** The line about the show itself, so nobody has to guess whether the presenter is live. */
-export function showLine(me: Pick<MeState, 'presenter' | 'presenter_live' | 'show_on_air' | 'desk_reachable'> | null): string {
+export function showLine(me: Pick<MeState, 'presenter' | 'presenter_live' | 'show_on_air' | 'desk_reachable' | 'show'> & { studio?: Studio } | null): string {
   if (!me) return '';
+  if (me.studio === 'rehearsal') {
+    return me.desk_reachable ? `Rehearsing ${me.show || 'the show'}. Nobody listening hears this.` : "The rehearsal studio can't be reached just now.";
+  }
   if (!me.desk_reachable) return "The studio can't be reached just now.";
   const p = me.presenter.trim();
   if (me.show_on_air) return me.presenter_live && p ? `The show is on air · ${p} is live` : 'The show is on air';

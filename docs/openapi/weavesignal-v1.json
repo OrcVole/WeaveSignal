@@ -4247,6 +4247,539 @@
         ]
       }
     },
+    "/api/v1/rehearsal": {
+      "get": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "The rehearsal studio",
+        "description": "Whether this station has a rehearsal studio, its desk's link, the open session (one show at a time), the people at the rehearsal desk and the carts sounding there. Nothing in the rehearsal studio reaches the air. The studio app fetches it once and then follows `GET /api/v1/rehearsal/events`.",
+        "operationId": "rehearsal_view",
+        "responses": {
+          "200": {
+            "description": "The rehearsal studio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/bookings": {
+      "get": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "The rehearsal studio's bookings",
+        "description": "Every booking of the rehearsal studio that shares any time with the stretch asked for (at most 62 days), in start order. A booking holds the studio for its show: Open for another show is refused while one does. The rehearsal studio is first come; bookings are optional. The schedule's week also gives them, with the sessions, as `rehearsals`. For staff; an API token with `schedule:read`.",
+        "operationId": "rehearsal_bookings",
+        "parameters": [
+          {
+            "name": "from_ms",
+            "in": "path",
+            "description": "From, in milliseconds since the Unix epoch.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "path",
+            "description": "To (exclusive); at most 62 days after `from_ms`.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bookings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ScopeMissing"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          },
+          {
+            "api_token": [
+              "schedule:read"
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "Book the rehearsal studio",
+        "description": "Books the rehearsal studio for one show from `start_ms` until `end_ms`: 201 and the booking. From now on (a minute's slack), at least five minutes and at most a day (422 naming the field). Bookings never share time: one that would is 409, with the sentence and the booking in the way (`clash`); one that starts as another ends does not share time. Whoever may change the show's step may (its presenter, a producer, an admin, the station key); 403 otherwise. 503 when the station has no rehearsal studio or no database.",
+        "operationId": "rehearsal_book",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The booking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalBlock"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "It would share time with another booking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingClash"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/bookings/{id}": {
+      "delete": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "Delete a booking",
+        "description": "Frees the rehearsal studio from a booking that is not over: 204. One that is over is 409, and stays in the schedule. Whoever may change the step of the booking's show (a producer or an admin included); 403 otherwise. An open session is not ended by this.",
+        "operationId": "rehearsal_booking_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The booking's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "Change a booking",
+        "description": "Moves or resizes a booking, or gives it to another show; what is left out stays. The same checks as a new booking, except that a booking under way keeps its start. One that is over is 409, and stays as it was. Sharing time with another booking is 409 with `clash`. Whoever may change the step of the booking's show, and of the show it goes to; 403 otherwise.",
+        "operationId": "rehearsal_booking_change",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The booking's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The booking, changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalBlock"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "It would share time with another booking (with `clash`), or it is over.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingClash"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/commands": {
+      "post": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "A switch or a cart at the rehearsal desk",
+        "description": "The rehearsal desk's switches (`on_air`: into the rehearsal's mix, never the air; `mute`, `cue`, `talk`, `talk_to`) and its carts (`cart_fire`, `cart_stop`, `cart_stop_all`). Nothing else: any other op, `dump` and `picture` among them, is 422 naming it. These never reach the live desk. A cart fires from the rehearsed show's own banks or the station's, whatever show is on air; another show's is 409, and its plays are not in the per-play log. Whoever may run the session's show (403 otherwise), from a live or a preparing window. 409 with no session open. Answers with the rehearsal view.",
+        "operationId": "rehearsal_command",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RehearsalCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The rehearsal view after the command.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/end": {
+      "post": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "End the rehearsal",
+        "description": "Ends the open session: its rehearsal links buy nothing from now on, every cart at the rehearsal desk fades, and everyone is taken out of the rehearsal room. Whoever may run the session's show (403 otherwise), from a live or a preparing window; 409 with no session open. Answers with the rehearsal view.",
+        "operationId": "rehearsal_end",
+        "responses": {
+          "200": {
+            "description": "The rehearsal view, with no session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/events": {
+      "get": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "The rehearsal studio as events",
+        "description": "Server-sent events: one `state` event at once whose data is the rehearsal view as JSON, then one per change; a keep-alive comment every 10 seconds. As `GET /api/v1/studio/events` is for the live studio.",
+        "operationId": "rehearsal_events",
+        "responses": {
+          "200": {
+            "description": "An event stream (`text/event-stream`).",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/move": {
+      "post": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "Move to the live studio",
+        "description": "Moves everyone in the rehearsal studio to the live studio, on the links they already have, and closes the session. In order: the move is written on the session (who moved, and the opening state: who is on and who is muted at the rehearsal desk, among the people present); each person's page is sent a live pass on `GET /api/v1/pass/events` (`move`), and joins the live room **standing by**: nobody goes on air until the handover; then the session ends, so its rehearsal links buy nothing more. The opening state is applied when the show's host is put on air at the live desk, by whichever route (the schedule, the handover's press, taking the air from automation, their own On key): the muted are muted, then the others who were on are put on air with the rules' fade. 409 with no session open, with nobody in the rehearsal studio, or when the show has no airing under way or within twelve hours (the sentence says so). Whoever may run the session's show (403 otherwise), from a live or a preparing window.",
+        "operationId": "rehearsal_move",
+        "responses": {
+          "200": {
+            "description": "Who moved, and the opening state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoveResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rehearsal/open": {
+      "post": {
+        "tags": [
+          "rehearsal"
+        ],
+        "summary": "Open the rehearsal studio for a show",
+        "description": "Opens the rehearsal studio for one show: 201 and the view. Whoever may change the show's step may (its presenter, a producer, an admin, the station key), from a window that is live or preparing (ADR-0276); 403 otherwise. The same show's session already open answers 200 with it. Another show's session open is 409, naming who is rehearsing what: one show at a time. A booking for another show holding the studio now is 409 too, naming the show and when it ends (`GET /api/v1/rehearsal/bookings`); with no booking, the studio is first come. 503 when the station has no rehearsal studio or no database.",
+        "operationId": "rehearsal_open",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "It was open for this show already.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalView"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The rehearsal studio, open for the show.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RehearsalView"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "staff_session": []
+          },
+          {
+            "station_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/reports/audience": {
       "get": {
         "tags": [
@@ -5715,7 +6248,7 @@
           "schedule"
         ],
         "summary": "Episodes in a range",
-        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281).",
+        "description": "Every episode airing in the range with its show, series and resolved fields, and `dates`: every date of every show's rule in the range that no episode fills, that the rule does not skip and that is not over (a show's dates are its newest series'), so the calendar's week draws its dotted blocks without expanding a rule. From release 1.0.5 also `public_url`, the station's public address (`null` when none is set), from which the studio makes the calendar links it gives out (ADR-0281). From release 1.3.0 also the Studios view's columns (`studios`: Studio, and Rehearsal when the station has a rehearsal studio), each episode's `studio` and `from` (`room` or `own`, as the rota says), and `rehearsals`: the rehearsal studio's bookings and its sessions in the range (empty without a rehearsal studio). The public calendar file never lists rehearsals.",
         "operationId": "shows_episodes_between",
         "parameters": [
           {
@@ -12135,6 +12668,104 @@
         },
         "additionalProperties": false
       },
+      "BookingClash": {
+        "type": "object",
+        "description": "A booking refused because it would share time with another: the sentence, and the booking in\nthe way.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "clash": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RehearsalBlock",
+                "description": "The booking in the way. Absent from a change refused because the booking is over."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "BookingList": {
+        "type": "object",
+        "description": "The bookings in a stretch of time.",
+        "required": [
+          "enabled",
+          "bookings"
+        ],
+        "properties": {
+          "bookings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RehearsalBlock"
+            },
+            "description": "Every booking that shares any time with the stretch, in start order."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this station has a rehearsal studio. Off, bookings made while it was on are still\nlisted, and none can be made."
+          }
+        }
+      },
+      "BookingPatch": {
+        "type": "object",
+        "description": "A change to a booking: what is left out stays.",
+        "properties": {
+          "end_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "show": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Another show's slug."
+          },
+          "start_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BookingRequest": {
+        "type": "object",
+        "description": "A new booking.",
+        "required": [
+          "show",
+          "start_ms",
+          "end_ms"
+        ],
+        "properties": {
+          "end_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "To: at least five minutes and at most a day after `start_ms`."
+          },
+          "show": {
+            "type": "string",
+            "description": "The show's slug."
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "From, in ms since the Unix epoch: from now on (a minute's slack)."
+          }
+        },
+        "additionalProperties": false
+      },
       "BrandingView": {
         "type": "object",
         "description": "The station's look on its public pages; every part is `null` until it is set.",
@@ -15065,6 +15696,15 @@
           }
         }
       },
+      "Ended": {
+        "type": "string",
+        "description": "How a session ended.",
+        "enum": [
+          "ended",
+          "moved",
+          "idle"
+        ]
+      },
       "Episode": {
         "type": "object",
         "required": [
@@ -15697,6 +16337,10 @@
             "format": "int64",
             "description": "When the window opens (`start_ms` less the rules' `window_s`)."
           },
+          "rehearsing": {
+            "type": "boolean",
+            "description": "The show is in the rehearsal studio now (1.3): the post line says \"… rehearsing\". Its\npeople are moved to the live studio by a press there, never by the window."
+          },
           "show": {
             "type": "string",
             "description": "The show it is about: the post's show (`post.show`), or the next show once that one's\nwindow has opened while the post's show is still waiting for a host who never came."
@@ -15897,6 +16541,14 @@
         "enum": [
           "recording",
           "consent"
+        ]
+      },
+      "HostFrom": {
+        "type": "string",
+        "description": "Where a show's host comes from, for the Studios view's *Own studio* chip.",
+        "enum": [
+          "room",
+          "own"
         ]
       },
       "HostOrigin": {
@@ -16599,6 +17251,7 @@
           "role",
           "name",
           "expires_at_ms",
+          "studio",
           "link"
         ],
         "properties": {
@@ -16622,6 +17275,10 @@
           },
           "role": {
             "$ref": "#/components/schemas/Role"
+          },
+          "studio": {
+            "$ref": "#/components/schemas/Studio",
+            "description": "Where the link leads: `live` or `rehearsal` (1.3)."
           }
         }
       },
@@ -16645,6 +17302,17 @@
                 "type": "null"
               }
             ]
+          },
+          "show": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show to rehearse, by its slug: needed with `studio` `rehearsal`, and only then."
+          },
+          "studio": {
+            "$ref": "#/components/schemas/Studio",
+            "description": "Which studio the link leads to (1.3): `live` (the default) or `rehearsal`, the\nrehearsal studio for `show`, whose session must be open. A rehearsal link follows that\nshow's step, not the show on air's, and buys nothing once its session has ended."
           },
           "ttl_s": {
             "type": [
@@ -17781,6 +18449,33 @@
         },
         "additionalProperties": false
       },
+      "MoveResult": {
+        "type": "object",
+        "description": "What a move did (`POST /api/v1/rehearsal/move`).",
+        "required": [
+          "moved",
+          "opening",
+          "airing_start_ms"
+        ],
+        "properties": {
+          "airing_start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The airing they stand by for: its start, in ms since the Unix epoch."
+          },
+          "moved": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Everyone moved, by identity: each page is sent its live pass on its event stream."
+          },
+          "opening": {
+            "$ref": "#/components/schemas/Opening",
+            "description": "The opening state, applied when the show's host is put on air at the live desk."
+          }
+        }
+      },
       "Moved": {
         "type": "object",
         "description": "An episode that moves to another date.",
@@ -18287,6 +18982,85 @@
           }
         }
       },
+      "OpenRequest": {
+        "type": "object",
+        "description": "The show to open the rehearsal studio for.",
+        "required": [
+          "show"
+        ],
+        "properties": {
+          "show": {
+            "type": "string",
+            "description": "The show's slug."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Opening": {
+        "type": "object",
+        "description": "The opening state a move carries (section 1.6): who is on and who is muted, applied when the\nshow's host is put on air at the live desk, never on arrival. `cue`, `talk` and `talk_to` are\nmomentary and are not carried; there are no levels to carry.",
+        "required": [
+          "airing_start_ms",
+          "standby_until_ms"
+        ],
+        "properties": {
+          "airing_end_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The airing's end, in ms since the Unix epoch: a page that missed the move is offered it\nagain until then, and an opening never applied lapses then."
+          },
+          "airing_start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The airing the move is for: its start, in ms since the Unix epoch."
+          },
+          "applied_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it was applied; kept until `standby_until_ms` has passed so that a live desk that\nstarts again in between can be put right."
+          },
+          "cleared_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it was cleared without being applied (its airing ended, or another move for the same\nshow replaced it). A cleared opening is never applied."
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The show's host among the people moved, whose going on air applies the opening state;\n`None` when no host was moved (it is then applied at the first handover for the show)."
+          },
+          "mute": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who is muted when it is applied, before anyone is put on (sorted)."
+          },
+          "on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who goes on air when it is applied (sorted)."
+          },
+          "standby_until_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Until when the moved people arrive standing by: the airing's start plus the rules'\ngrace ([`standby_until_ms`])."
+          }
+        }
+      },
       "OwnEmail": {
         "type": "object",
         "required": [
@@ -18546,7 +19320,8 @@
           "show",
           "expires_at_ms",
           "ended",
-          "relay"
+          "relay",
+          "studio"
         ],
         "properties": {
           "ended": {
@@ -18571,7 +19346,7 @@
               "string",
               "null"
             ],
-            "description": "Why the pass cannot join the room now, in a sentence for its page, while the show on\nair runs at a step that has switched its seat off (ADR-0271); the pass stays good for\nlater. `None` when it can join."
+            "description": "Why the pass cannot join the room now, in a sentence for its page, while the show on\nair runs at a step that has switched its seat off (ADR-0271); the pass stays good for\nlater. For a rehearsal link, while its session is not open, or its show's step has\nswitched the seat off. `None` when it can join."
           },
           "relay": {
             "$ref": "#/components/schemas/RelayInfo"
@@ -18584,6 +19359,10 @@
           },
           "station": {
             "type": "string"
+          },
+          "studio": {
+            "$ref": "#/components/schemas/Studio",
+            "description": "Where the link leads (1.3): `live`, or `rehearsal`, whose desk reaches no air. For a\nrehearsal link `show` is the rehearsed show."
           }
         }
       },
@@ -20385,6 +21164,454 @@
           "too_fast"
         ]
       },
+      "RehearsalBlock": {
+        "type": "object",
+        "description": "A block in the schedule's Rehearsal column: a booking or a session, in one shape. The\nbookings' routes answer with it too, so the studio app has one type for both.",
+        "required": [
+          "id",
+          "kind",
+          "show",
+          "show_name",
+          "colour_slot",
+          "start_ms",
+          "end_ms",
+          "by",
+          "open"
+        ],
+        "properties": {
+          "by": {
+            "type": "string",
+            "description": "Who booked it, or who opened the session, as the studio names them (\"Finlay\")."
+          },
+          "colour_slot": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 to 12: the show's bank slot in the palette (ADR-0066).",
+            "minimum": 0
+          },
+          "end_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "To: a booking's end; a session's end, or now while it is open."
+          },
+          "ended": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Ended",
+                "description": "How a session ended (`ended`, `moved` or `idle`); null while it is open, and for a\nbooking."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The booking's or the session's id."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RehearsalKind"
+          },
+          "open": {
+            "type": "boolean",
+            "description": "A session still open (its `end_ms` is now). Always false for a booking."
+          },
+          "show": {
+            "type": "string",
+            "description": "The show's slug."
+          },
+          "show_name": {
+            "type": "string"
+          },
+          "start_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "From, in ms since the Unix epoch: a booking's start, a session's opening."
+          }
+        }
+      },
+      "RehearsalCommand": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Into the rehearsal's mix, or out of it (never the air: the rehearsal desk has none).",
+            "required": [
+              "identity",
+              "on",
+              "op"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "on_air"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "identity",
+              "on",
+              "op"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "mute"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "identity",
+              "on",
+              "op"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "cue"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "identity",
+              "on",
+              "op"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "talk"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "identity",
+              "to",
+              "on",
+              "op"
+            ],
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "talk_to"
+                ]
+              },
+              "to": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Fire a cart; `cue` into the presenters' ears only.",
+            "required": [
+              "cart",
+              "op"
+            ],
+            "properties": {
+              "cart": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "cue": {
+                "type": "boolean"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "cart_fire"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Fade out a cart.",
+            "required": [
+              "cart",
+              "op"
+            ],
+            "properties": {
+              "cart": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "cart_stop"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Fade out every cart (`cue`: only the cued, or only the others).",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "cue": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "cart_stop_all"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A request for the rehearsal desk: the nine a rehearsal desk takes, but `status`, which is\n`GET /api/v1/rehearsal`. A person's switches are the desk's own words; a cart is named by\nits id and fired from the rehearsed show's banks or the station's."
+      },
+      "RehearsalDesk": {
+        "type": "object",
+        "description": "The rehearsal desk's link.",
+        "required": [
+          "linked"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why not, when it did not (not answering, or a desk on its socket that is not a\nrehearsal desk)."
+          },
+          "linked": {
+            "type": "boolean",
+            "description": "The rehearsal desk answered the last time it was asked."
+          }
+        }
+      },
+      "RehearsalKind": {
+        "type": "string",
+        "description": "What a rehearsal block is: a booking (the studio held ahead), or a session (the studio as it\nwas used, or is being).",
+        "enum": [
+          "booking",
+          "session"
+        ]
+      },
+      "RehearsalPerson": {
+        "type": "object",
+        "description": "One person at the rehearsal desk.",
+        "required": [
+          "identity",
+          "name",
+          "role",
+          "on",
+          "mute",
+          "cue",
+          "talk",
+          "present",
+          "linked"
+        ],
+        "properties": {
+          "cue": {
+            "type": "boolean"
+          },
+          "identity": {
+            "type": "string"
+          },
+          "linked": {
+            "type": "boolean"
+          },
+          "lufs": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "mute": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "on": {
+            "type": "boolean",
+            "description": "In the rehearsal's mix (the others hear them). The word is `on`, never `on_air`: nothing\nhere is on air (ADR-0062)."
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "talk": {
+            "type": "boolean"
+          },
+          "talk_to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RehearsalSounding": {
+        "type": "object",
+        "description": "A cart sounding at the rehearsal desk.",
+        "required": [
+          "cart",
+          "label",
+          "mode",
+          "cue",
+          "elapsed_ms",
+          "loop",
+          "stopping"
+        ],
+        "properties": {
+          "cart": {
+            "type": "string"
+          },
+          "cue": {
+            "type": "boolean",
+            "description": "In the presenters' ears only."
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string",
+            "description": "The cart's label, when the station still has the cart."
+          },
+          "loop": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CartMode"
+          },
+          "remaining_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "stopping": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RehearsalView": {
+        "type": "object",
+        "description": "The rehearsal studio as the studio app shows it (`GET /api/v1/rehearsal`).",
+        "required": [
+          "enabled",
+          "desk",
+          "people",
+          "carts_sounding",
+          "max_people"
+        ],
+        "properties": {
+          "carts_sounding": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RehearsalSounding"
+            },
+            "description": "The carts sounding at the rehearsal desk."
+          },
+          "desk": {
+            "$ref": "#/components/schemas/RehearsalDesk",
+            "description": "The rehearsal desk's link."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this station has a rehearsal studio (`REHEARSAL` in the installation's\nsettings). Off, everything else is empty."
+          },
+          "max_people": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most people the rehearsal room takes at once (`rehearsal.max_people`).",
+            "minimum": 0
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RehearsalPerson"
+            },
+            "description": "The people at the rehearsal desk. `on` is in the rehearsal's mix, never on air."
+          },
+          "session": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SessionView",
+                "description": "The open session, if any: one show at a time."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HandoverWindow",
+                "description": "The handover window of the session's show, when it is the window the live studio is\nshowing (the rehearsal view says \"On air at 14:05: move by then\")."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "RelayInfo": {
         "type": "object",
         "required": [
@@ -21982,6 +23209,38 @@
           },
           "series": {
             "$ref": "#/components/schemas/SeriesOut"
+          }
+        }
+      },
+      "SessionView": {
+        "type": "object",
+        "description": "The open session.",
+        "required": [
+          "id",
+          "show",
+          "show_name",
+          "opened_by",
+          "opened_at_ms"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "opened_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "opened_by": {
+            "type": "string",
+            "description": "Who opened it, as the studio names them (\"Kirsty\")."
+          },
+          "show": {
+            "type": "string",
+            "description": "The rehearsed show's slug."
+          },
+          "show_name": {
+            "type": "string"
           }
         }
       },
@@ -23636,6 +24895,32 @@
         },
         "additionalProperties": false
       },
+      "Studio": {
+        "type": "string",
+        "description": "Which studio a pass leads to.",
+        "enum": [
+          "live",
+          "rehearsal"
+        ]
+      },
+      "StudioColumn": {
+        "type": "object",
+        "description": "A column of the Studios view (1.3.0): the live studio, and the rehearsal studio when the\nstation has one.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "`studio` or `rehearsal`: what an episode's `studio` names."
+          },
+          "name": {
+            "type": "string",
+            "description": "The column's heading."
+          }
+        }
+      },
       "StudioShow": {
         "type": "object",
         "required": [
@@ -24492,11 +25777,17 @@
           "show",
           "series",
           "episode",
-          "resolved"
+          "resolved",
+          "studio",
+          "from"
         ],
         "properties": {
           "episode": {
             "$ref": "#/components/schemas/Episode"
+          },
+          "from": {
+            "$ref": "#/components/schemas/HostFrom",
+            "description": "Where its host comes from (1.3.0): `room`, at the desk, or `own`, their own studio with a\nshow key that has not ended (ADR-0280). Worked out as the rota works it out, from the\nshow keys standing now."
           },
           "resolved": {
             "$ref": "#/components/schemas/Resolved"
@@ -24506,6 +25797,11 @@
           },
           "show": {
             "$ref": "#/components/schemas/Show"
+          },
+          "studio": {
+            "type": "string",
+            "description": "The studio column the episode is in (1.3.0): `studio`, for every show on air, wherever\nits host is. Shows on air share one programme, so they are never in two columns.",
+            "example": "studio"
           }
         }
       },
@@ -24514,7 +25810,9 @@
         "required": [
           "zone",
           "episodes",
-          "dates"
+          "dates",
+          "studios",
+          "rehearsals"
         ],
         "properties": {
           "dates": {
@@ -24537,6 +25835,20 @@
             ],
             "description": "The station's public address (`publishing.public_url`, without a trailing slash), where\nlisteners reach the calendar files, the cards and the feeds; `null` when none is set. The\nstudio builds the links it gives out from this, never from the address it talks to,\nwhich on Cloudron is behind the login (release 1.0.5, ADR-0281).",
             "example": "https://station.example"
+          },
+          "rehearsals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RehearsalBlock"
+            },
+            "description": "The rehearsal studio in the range (1.3.0): every booking, then every session (past or\nopen; an open one ends now), each in start order. Empty when the station has no rehearsal\nstudio. Never in the public calendar file."
+          },
+          "studios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StudioColumn"
+            },
+            "description": "The Studios view's columns, in order (1.3.0): `studio`, and `rehearsal` only when the\nstation has a rehearsal studio. A later studio is one more entry. Absent from a station\nolder than 1.3.0."
           },
           "zone": {
             "type": "string",
@@ -24857,7 +26169,7 @@
       "api_token": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load, change and empty cart slots; load the default pack.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, and the episodes airing in a range.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still.\n- `sources:read`: Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key."
+        "description": "An API token (`rsa_…`, ADR-0195) from `POST /api/v1/tokens`, made by an admin for one integration with the scopes it needs. A token reaches only the routes its scopes open (each such route lists `api_token` with the scope it needs) and is never an admin: no route marked `x-admin` takes one. Each token is limited per minute (`429`). The scopes:\n\n- `studio:read`: Read the studio's view: sources, callers (with the names and topics they gave), chat modes, notices; and follow it live.\n- `desk:control`: Work the desk: on air, mute, cue, talk, and dump the profanity delay.\n- `screener:control`: Work the screener: screen, send, decline and drop callers; end a pass.\n- `chat:moderate`: Change the chat's modes (slow mode, hold new, links). The chat's own moderation routes are not reachable with a token.\n- `carts:read`: Read the cart wall's banks and carts.\n- `carts:fire`: Fire, stop and cue carts; stop the last; fade all.\n- `carts:write`: Make and rename banks; load, change and empty cart slots; load the default pack.\n- `schedule:read`: Read the clocks, the week, the log of what is to play, the episodes airing in a range, and the rehearsal studio's bookings.\n- `schedule:write`: Change clocks, the week and the log; generate a day.\n- `playout:read`: Read playout's status and zone, the logger, and the track library.\n- `library:write`: Add tracks to the library and delete them.\n- `reports:read`: Read the play and audience reports.\n- `shows:read`: Read shows, series, episodes and corrections; read a calendar file into proposed shows.\n- `shows:write`: Change shows, series and episodes; put an episode on air; correct one; publish its files; draw cards; make shows from a calendar file.\n- `video:read`: Read the video slate's still and the cameras' thumbnails.\n- `video:write`: Change or remove the video slate's still.\n- `sources:read`: Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key."
       },
       "ingest": {
         "type": "http",
@@ -25003,6 +26315,10 @@
     {
       "name": "phone",
       "description": "The telephone line (17f): its state, number bans and the takedown search. A person's, never an API token's; no number is kept or echoed."
+    },
+    {
+      "name": "rehearsal",
+      "description": "The rehearsal studio (1.3.0): a second desk with no way to the air, for one show at a time. A person's, never an API token's."
     },
     {
       "name": "rtmp",

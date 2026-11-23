@@ -47,6 +47,22 @@ export interface Joined {
   pass_expires_at_ms: number;
 }
 
+/** Where a link leads (1.3): the live studio, or the rehearsal studio, whose desk reaches no air. */
+export type Studio = 'live' | 'rehearsal';
+
+/** The move to the live studio (1.3), sent on a rehearsal link's events when the presenter moves
+ *  everyone: the person's new pass, the show they move for and the airing they stand by for. */
+export interface MoveTo {
+  /** The person's new pass, to the live studio. */
+  pass: string;
+  /** The join page with that pass in its fragment. */
+  link: string;
+  /** The show, by name. */
+  show: string;
+  /** The airing's start, in ms since the Unix epoch. */
+  airing_start_ms: number;
+}
+
 export interface PassInfo {
   kind: 'call' | 'invite';
   role: Role;
@@ -61,6 +77,9 @@ export interface PassInfo {
    *  runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.
    *  Null or absent when it can join. */
   not_now?: string | null;
+  /** Where the link leads (1.3); absent from a station older than that, which is `live`. For a
+   *  rehearsal link `show` is the rehearsed show. */
+  studio?: Studio;
 }
 
 export type Phase = 'joining' | 'waiting' | 'screening' | 'ready' | 'desk_busy' | 'cue' | 'on_air' | 'off_air' | 'ended';
@@ -89,6 +108,12 @@ export interface MeState {
   released?: Released | null;
   /** The presenter answers the phones themselves (the Callers step has no screener): name them, not a producer. */
   presenter_answers?: boolean;
+  /** Where this link leads (1.3). In the rehearsal studio `on_air` means in the rehearsal's mix,
+   *  and `open` and `show_on_air` are never true. Absent from an older station: `live`. */
+  studio?: Studio;
+  /** The move to the live studio, for a rehearsal link whose person was moved. It is sent again
+   *  on every frame after, and again when the stream reconnects. */
+  move?: MoveTo | null;
 }
 
 /** Why the lines closed under a waiting caller. */
@@ -148,6 +173,21 @@ export const passInfo = (pass: string) => fetch('/api/v1/pass', { headers: beare
 export const passToken = (pass: string) => fetch('/api/v1/pass/token', { method: 'POST', headers: bearer(pass) }).then((r) => json<Joined>(r));
 
 export const leave = (pass: string) => fetch('/api/v1/pass/leave', { method: 'POST', headers: bearer(pass) }).then(() => undefined);
+
+/** The first state a pass's events give, or null if none comes in `ms` or the pass is refused:
+ *  how a page that has not joined learns, from a rehearsal link, that its person was moved. */
+export function firstState(pass: string, ms = 4000): Promise<MeState | null> {
+  return new Promise((resolve) => {
+    let stop = () => {};
+    const timer = setTimeout(() => done(null), ms);
+    const done = (s: MeState | null) => {
+      clearTimeout(timer);
+      stop();
+      resolve(s);
+    };
+    stop = followMe(pass, (s) => done(s), () => done(null));
+  });
+}
 
 /** Follow one's own state; reconnects after a second while the page lives. Returns a stop. */
 export function followMe(pass: string, onState: (s: MeState) => void, onGone: (why: string) => void): () => void {

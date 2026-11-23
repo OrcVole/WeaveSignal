@@ -27,6 +27,8 @@
   import Phone from './Phone.svelte';
   import ChatPictures from './ChatPictures.svelte';
   import { sandboxed, type Me } from '../lib/api.ts';
+  import { rehearsal, rehearsalPhase } from '../lib/rehearsal.svelte.ts';
+  import { settingsLine } from '../lib/rehearsalDesk.ts';
   import { account } from '../lib/account.svelte.ts';
   import { studio } from '../lib/studio.svelte.ts';
   import { isAdmin } from '../lib/account.ts';
@@ -426,6 +428,8 @@
   }
 
   const holdRule = $derived(rules?.complaint_hold ?? null);
+  /** The rehearsal studio's read-only line; the sandbox has no station to ask. */
+  const rehearsalLine = $derived(sandboxed() ? null : settingsLine(rehearsalPhase(), rehearsal.view));
   const glyph = (w: Warning) => (w.level === 'serious' ? { id: 'g-fault', cls: 'g-serious', word: 'Serious' } : { id: 'g-degraded', cls: 'g-warning', word: 'Warning' });
 </script>
 
@@ -435,6 +439,11 @@
       <div>
         <h1 id="settings-h">Settings</h1>
         <p class="lede">Station settings. Changes here apply to the whole station.</p>
+        {#if rehearsalLine}
+          <!-- The rehearsal studio (1.3): whether it is on here, and the setting that turns it
+               on. To read: the setting is the installation's. -->
+          <p class="lede fact" data-panel="settings.rehearsal" data-testid="settings-rehearsal"><span data-panel-title>Rehearsal studio</span>: <b>{rehearsalLine.state}</b> {rehearsalLine.rest}</p>
+        {/if}
       </div>
       <!-- The way out (the 1.0.1 test run: "we struggled to get out of the settings section"): the
            tabs above leave Settings too, but nothing on the page said so. -->
@@ -923,6 +932,14 @@
   .lede {
     color: var(--ink-2);
     margin-top: var(--s-1);
+  }
+  .lede.fact {
+    font-size: var(--fs-13);
+    max-width: 52rem;
+    line-height: var(--lh-body);
+  }
+  .lede.fact b {
+    color: var(--ink);
   }
   form {
     display: grid;

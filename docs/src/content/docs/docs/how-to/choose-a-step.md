@@ -3,7 +3,7 @@ title: "Choose how much of the studio a show uses"
 description: "A show runs at one of four steps, Solo, Guests, Callers or Full; each adds one kind of person, and what a step leaves out is switched off while the show is on air. What the studio shows at each step, how to move up a step or see everything for a moment, how the station's step is chosen, and what each step switches off."
 type: howto
 status: draft
-last_verified: 2026-11-11
+last_verified: 2026-11-22
 sidebar:
   order: 7
 ---
@@ -76,9 +76,10 @@ Your tile stays on the stage whether you are on air or off; there is no Not on a
 ![The desk at Solo: Eilidh's tile on air, the guest's empty seat saying Just you on this show, and listeners, the carts and the chat on the right.](../../../../assets/screens/how-to-choose-a-step-solo.png)
 
 Before anyone holds the presenter's seat (no presenter in the room, and no DJ on air after a handover), the stage reads *You are not in the room yet* and offers **Join with my microphone…**: at Solo, and above it to an admin, a producer or the show's presenter, not to a screener.
-It makes your own link, with no name to type and no role to choose, and shows it with **Open in browser** and **Copy link**: open it in a browser on the same computer, press **Join the studio**, and you are on air.
+It makes your own link, with no name to type and no role to choose, and shows it with **Open in browser** and **Copy link**: open it in a browser on the same computer and press **Join the studio**. You join standing by, off air, and go on air when the air is taken back from automation for your show, at the handover, or by your own slot's key (since 1.3).
 Keep that tab open: it carries your voice, and closing it takes you out of the room. To leave on purpose from the desk, press **Leave** on your own tile (two presses).
-While a host in their own studio has the air (1.1), the offer is one quiet line instead, at the head of **Not on air** or, at Solo, in the guest's seat: joining then is for talking to the host or hearing a cue, and it puts you on air beside them.
+While a host in their own studio has the air (1.1), the offer is one quiet line instead, at the head of **Not on air** or, at Solo, in the guest's seat: joining then is for talking to the host or hearing a cue.
+Since 1.3 you join standing by, and a press of your own key puts you on air beside them.
 
 **At Guests**, **Invite someone…** arrives at the head of Not on air, for a guest or a second presenter.
 The next show's DJ is not among the roles: that invitation comes with Full.

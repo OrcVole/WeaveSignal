@@ -76,8 +76,8 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.2.1 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.2.1
+podman build -t registry.station.example/weavesignal-cloudron:1.3.0 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.3.0
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.
@@ -109,7 +109,7 @@ The app writes two files in `/app/data` on its first start; open them with Cloud
 
 | File | Holds |
 |---|---|
-| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `STUN_SERVERS`, `CONSENT_CONTACT`, the consent words (`CONSENT_TEXT`, empty for the default words; from 1.2), `FEED_BUFFER_S`, `VIDEO`, video's encoder (`VIDEO_ENCODER`, `svt`: the app has no GPU; from 1.2), `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
+| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `STUN_SERVERS`, `CONSENT_CONTACT`, the consent words (`CONSENT_TEXT`, empty for the default words; from 1.2), `FEED_BUFFER_S`, `VIDEO`, `REHEARSAL` (from 1.3.0), video's encoder (`VIDEO_ENCODER`, `svt`: the app has no GPU; from 1.2), `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
 | `secrets.env` | made once (`ICECAST_OUT_PASSWORD` is an empty line for you to fill if you send to another Icecast server): `STATION_ID`, LiveKit's key and secret, the listener source password, `CONTROL_ADMIN_TOKEN`, `LISTENERS_PASSWORD`, and the three keys `CHAT_EMAIL_KEY`, `CONTROL_EMAIL_KEY` and `CONTROL_TOKEN_KEY` |
 
 On every start the package writes each service's own settings from these two files and from Cloudron's environment.
@@ -120,6 +120,7 @@ Settings that differ from the Compose bundle:
 - **`FEED_BUFFER_S` is 1.5 s**, against 0.5 s elsewhere: the listener process's cushion of playout's feed. Each second is a second more listener delay; on a quiet server 0.5 s holds.
 - **`MAIL_MODE` is `cloudron`**: sign-in codes go out through Cloudron's mail, or into `/app/data/chat-outbox` as files if the addon gives no mail server. `outbox` and `off` are the other values.
 - **`VIDEO` is `false`**: the desk's video path is off until you turn it on ([Video](#video)).
+- **`REHEARSAL` is `false`** (from 1.3.0): the rehearsal studio, a second desk with no way to the air, is off until you set `REHEARSAL=true` and restart the app. It opens no port, so nothing changes in Cloudron's port settings; it is the first thing the system stops if the app runs short of memory ([The rehearsal studio](/docs/reference/rehearsal-studio/)).
 
 `STATION_ID` is the station's identity for its whole life (ADR-0047).
 `/app/data` is in Cloudron's backups, so the three keys and the database are restored together; restore one without the other and chatters' and staff's accounts are not found, and API tokens are revoked ([The email key](/docs/reference/chat/#the-email-key)).

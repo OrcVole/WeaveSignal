@@ -5,7 +5,8 @@
 // glyph, the episode line and the people. The grid library takes HTML for an event's content,
 // so a different library would differ only in what it draws around it.
 
-import { episodeLine, hm, lengthWords, type Block } from './model.ts';
+import { REHEARSAL, STUDIO, episodeLine, hm, lengthWords, type Block, type Rehearsal } from './model.ts';
+import { columnCaption, rehearsalKind, sessionWords } from './studios.ts';
 
 export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
@@ -43,7 +44,14 @@ export interface BlockContext {
   place?: BlockPlace | null;
   /** The Day view: a lane has room for the words along the line. */
   wide?: boolean;
+  /** The Studios view (1.3.0): a show whose host is in their own studio says so, since the
+   *  column cannot (every show on air is in the one column). */
+  columns?: boolean;
 }
+
+/** `Own studio`, on a show whose host comes in with a show key: the desk's own mark for it. */
+const OWN_STUDIO = 'Own studio';
+const ownStudio = (b: Block, ctx: BlockContext) => !!ctx.columns && b.kind === 'episode' && b.from === 'own';
 
 /** `The Tea Break`, `The Tea Break and Schools Hour`, `A, B and C`. */
 export function namesOf(list: readonly Pick<Block, 'show'>[]): string {
@@ -89,7 +97,7 @@ export function blockAria(b: Block, ctx: BlockContext): string {
   const parts = [b.show, b.prerecorded ? 'pre-recorded' : 'live', when];
   const ep = episodeLine(b);
   if (ep) parts.push(ep);
-  if (b.studio) parts.push(b.studio);
+  if (ownStudio(b, ctx)) parts.push('the host in their own studio');
   if (b.end <= ctx.now) parts.push('aired');
   if (clash) parts.push(clash);
   if (b.moved) parts.push('moved this week');
@@ -196,8 +204,75 @@ function blockInner(b: Block, ctx: BlockContext): string {
   h += `<span class="kind">${b.prerecorded ? `${glyph('g-tape')}Pre-recorded` : `${glyph('g-mic')}Live`}${past ? ' · aired' : ''}</span>`;
   const ep = episodeLine(b);
   if (ep) h += `<span class="ep">${esc(ep)}</span>`;
-  if (b.studio) h += `<span class="ep studio">${esc(b.studio)}</span>`;
+  if (ownStudio(b, ctx)) h += `<span class="kind own" title="The host comes in from their own studio, with the show’s key">${glyph('g-disc')}${OWN_STUDIO}</span>`;
   if (b.hosts.length) h += `<span class="who">${esc(b.hosts.join(', '))}</span>`;
   if (live) h += `<span class="flag onair">${glyph('g-onair')}On air</span>`;
   return h + '</div>';
 }
+
+// ---- the Studios view (1.3.0; rehearsal-mode-build-plan.md section 2) ----
+// The Rehearsal column's blocks are not shows on air and are drawn apart from them: a booking
+// is the show's colour band on a hatched ground, a session a plain one, muted once it is over.
+// Nothing here is a lamp, nothing is red, and no word of it is ON AIR or OPEN (ADR-0062).
+
+/** A place held: a dashed square. A place used: the square with something in it. */
+const HELD = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.6 1.9"/></svg>';
+const USED = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="5" width="4" height="4" rx="1" fill="currentColor"/></svg>';
+
+export interface RehearsalContext {
+  now: number;
+  zone: string;
+  selected: string | null;
+  /** Under an hour on the grid: the time and the name on one line, and no more. */
+  tiny?: boolean;
+  /** An hour or less: no second row of words. */
+  short?: boolean;
+  /** The booking being made, not yet at the station. */
+  draft?: boolean;
+}
+
+/** `13:30–14:00`; a session still open has no end yet. */
+const rehearsalTime = (r: Rehearsal, zone: string) => (r.open ? `${hm(r.start, zone)}–now` : `${hm(r.start, zone)}–${hm(r.end, zone)}`);
+
+export function rehearsalClasses(r: Rehearsal, ctx: RehearsalContext): string[] {
+  const out = ['ev', 'reh', r.kind === 'booking' ? 'booking' : 'session'];
+  if (r.past) out.push('past');
+  if (r.open) out.push('open');
+  if (ctx.draft) out.push('draft');
+  if (ctx.selected === r.id) out.push('sel');
+  if (ctx.short) out.push('short');
+  if (ctx.tiny) out.push('tiny');
+  return out;
+}
+
+/** A block of the Rehearsal column: the time, the show, what it is and who by. One under an
+ *  hour tall has a single line, so what it is stands on that line after the name, and who by
+ *  is left to its tooltip. */
+export function rehearsalHtml(r: Rehearsal, ctx: RehearsalContext): string {
+  const kind = `<span class="kind${ctx.tiny ? ' inl' : ''}">${r.kind === 'booking' ? HELD : USED}${esc(ctx.draft ? 'New booking' : rehearsalKind(r))}</span>`;
+  const by = ctx.draft || !r.by ? '' : `<span class="who">by ${esc(r.by)}</span>`;
+  const head = `<div class="evb wide"><span class="t"><span class="tl"><span class="num">${rehearsalTime(r, ctx.zone)}</span></span></span><b>${esc(r.show || 'No show yet')}</b>`;
+  return ctx.tiny ? `${head}${kind}</div>` : `${head}<div class="rest">${kind}${by}</div></div>`;
+}
+
+/** What a screen reader hears for it. Never "on air": nothing in this column is. */
+export function rehearsalAria(r: Rehearsal, ctx: RehearsalContext): string {
+  if (ctx.draft) return `A new booking of the rehearsal studio${r.show ? ` for ${r.show}` : ''}, ${hm(r.start, ctx.zone)} to ${hm(r.end, ctx.zone)}, not saved yet`;
+  if (r.kind === 'booking') return `${r.show}, the rehearsal studio ${r.past ? 'was booked' : 'booked'}, ${hm(r.start, ctx.zone)} to ${hm(r.end, ctx.zone)}${r.by ? `, by ${r.by}` : ''}`;
+  return `${r.show}, a rehearsal${r.open ? ' under way' : ''}. ${sessionWords(r, ctx.zone)}`;
+}
+
+/** A column's head in the Studios view: its name, what it is, and for the Rehearsal column the
+ *  way to book it without a drag (`book`), or why not (`bookWhy`). */
+export function studioHeadHtml(col: { id: string; name: string }, o: { book?: boolean; bookWhy?: string } = {}): string {
+  const cap = columnCaption(col.id);
+  let h = `<div class="studiohd" data-studio="${esc(col.id)}"><span class="nm"><b>${esc(col.name)}</b>${cap ? `<span class="cap">${esc(cap)}</span>` : ''}</span>`;
+  if (col.id === REHEARSAL) {
+    if (o.book) h += `<button type="button" class="act2 bookbtn" data-book aria-label="Book the rehearsal studio…" title="Hold the rehearsal studio for a show. Or drag across empty time in this column.">Book…</button>`;
+    else if (o.bookWhy) h += `<span class="ro" title="${esc(o.bookWhy)}">${glyph('g-lock')}To read</span>`;
+  }
+  return h + '</div>';
+}
+
+/** Which column a block of the week stands in: everything on air is in the first. */
+export const columnOf = (b: Pick<Block, 'studio'>): string => b.studio ?? STUDIO;

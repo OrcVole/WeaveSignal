@@ -3,7 +3,7 @@ title: "Who hears whom"
 description: "The desk's routes: which voices reach the programme and each person's headphones, and the gate on each route, as built."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-22
 sidebar:
   order: 3
 ---
@@ -29,7 +29,9 @@ A listener (the `listener` role) is not at the desk at all: it has no voice and 
 ## The gates
 
 **On air** passes while the person is on air and not muted.
-Presenters and guests are on air from the moment they join; callers and DJs join off air and are put on air at the desk.
+Guests, and everyone who comes by an invitation, join standing by, off air, and are put on air at the desk: a press of their slot's key, the handover, taking the air back from automation, or the schedule's bring-on (from 1.3; until 1.2 presenters and guests were on air from the moment they joined).
+Callers and DJs join off air and are put on air at the desk; only a presenter whose token was issued directly is on air at join.
+A person moved from the rehearsal studio stands by in the same way, and goes on air with the show's host ([What moves to the live studio](/docs/explanation/what-moves-to-the-live-studio/)).
 
 **Cued** is pre-fade listen: a cued voice reaches presenters' and DJs' headphones, whatever its fader, and never the programme.
 This is how a presenter hears a caller before taking them to air.

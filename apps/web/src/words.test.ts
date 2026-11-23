@@ -76,7 +76,17 @@ describe('what a guest’s, a DJ’s and a presenter’s page says', () => {
   it('a guest or presenter on air, off air', () => {
     expect(say('guest', { phase: 'on_air' }).headline).toBe("You're on air");
     expect(say('presenter', { phase: 'on_air' }).chip.word).toBe('On air');
-    expect(say('guest', { phase: 'off_air' }).headline).toBe("You're off air");
+    // Taken off after being on air is "off air"; before, every invitation arrives standing by (1.3).
+    expect(banner('guest', me({ role: 'guest', phase: 'off_air' }), 'connected', 0, null, '', { wasOnAir: true }).headline).toBe("You're off air");
+    expect(say('guest', { phase: 'off_air' }).headline).toBe('Standing by');
+  });
+  it('a guest or presenter standing by is not on air until the studio or the handover says so', () => {
+    const g = say('guest', { phase: 'off_air' });
+    expect([g.chip.word, g.tone]).toEqual(['Standby', 'wait']);
+    expect(g.detail).toMatch(/not on air until the studio puts you on/);
+    expect(say('presenter', { phase: 'off_air' }).detail).toMatch(/not on air until the handover/);
+    // Nothing on a standing-by page promises the air the moment they join.
+    for (const role of ['guest', 'presenter', 'dj'] as const) expect(say(role, { phase: 'off_air' }).detail).not.toMatch(/as soon as|the moment you join/);
   });
   it('a remote DJ waits for the handover', () => {
     const b = say('dj', { phase: 'off_air' });

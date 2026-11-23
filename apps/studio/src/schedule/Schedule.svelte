@@ -31,6 +31,19 @@
   // beside New show (calendar-files.md section 1). The menu is a dialog, so it owns the keys.
   // The legend gives way before it wraps (issue 28): its words shorten, then leave the glyphs
   // alone, by what the line has room for (`legendFit.ts`).
+  //
+  // Studios as columns (1.3.0, issue 24; rehearsal-mode-build-plan.md section 2). **Studios** in
+  // the toolbar opens one day with a column for each studio the station names
+  // (`calendar.studios`): Studio, which holds everything on air as the Day view draws it, a
+  // show whose host is in their own studio marked *Own studio*; and Rehearsal, with the
+  // rehearsal studio's bookings and its sessions as they happened. It shares the Day view's
+  // strip of days and its arrows. A booking is made with the column's **Book…** or a drag
+  // across its empty time, and opens in the editor column (`rehearsal.booking`), as does a
+  // booking or a session that is pressed; a booking still to come drags and resizes. The view
+  // says what it cannot show: an older station has no columns (the button waits and says why),
+  // a station with its rehearsal studio off has the one column and the line under it says how
+  // it is turned on, and a window with no show of its own reads the column and cannot book.
+  // The week is as it was: it draws nothing of the rehearsal studio. No key is new.
   import { onDestroy, onMount, untrack } from 'svelte';
   import EventCalendarGrid from './calendar/EventCalendarGrid.svelte';
   import EpisodeEditor from './EpisodeEditor.svelte';
@@ -41,12 +54,17 @@
   import CardEditor from './CardEditor.svelte';
   import * as api from '../lib/schedule.ts';
   import { legendFit, type LegendForm } from './legendFit.ts';
-  import { backToShows, closeOpen, keyView, loadWeek, openDay, openRota, openShow, sched, select, setView, showInWeek, step, today, weekBlocks } from '../lib/schedule.svelte.ts';
+  import { NEW_BOOKING, backToShows, beginBooking, closeOpen, keyView, loadWeek, openDay, openRota, openShow, sched, select, setView, showDay, showInWeek, shownRehearsal, step, today, weekBlocks, weekRehearsals } from '../lib/schedule.svelte.ts';
+  import RehearsalBooking from './RehearsalBooking.svelte';
+  import type { GridRehearsal } from './calendar/types.ts';
+  import { NO_SHOW_TO_BOOK, REHEARSAL_OFF, REHEARSAL_OFF_HOW, STUDIOS_OLDER, bookableShows, bookingChange, firstBooking, fromDrag, inTheWayWords, mayBook, offeredShow, refusalOf, stretchWords, studiosState, type Refusal } from './studios.ts';
+  import { bookingClash, changeBooking, deleteBooking, makeBooking, type BookingRequest } from '../lib/api.ts';
+  import { rehearsal } from '../lib/rehearsal.svelte.ts';
   import Rota from './Rota.svelte';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { load as loadRetention } from '../lib/retention.ts';
-  import { dayLength, dayRangeWords, hm, longDayWords, rangeWords, whenWords, zonedString } from './model.ts';
-  import type { Block } from './model.ts';
+  import { dayLength, dayRangeWords, hm, isRehearsalId, longDayWords, rangeWords, whenWords, zonedString } from './model.ts';
+  import type { Block, Rehearsal } from './model.ts';
   import { clashesOf, dayIndex, shownBlock } from './clash.ts';
   import { namesOf } from './blockHtml.ts';
   import { changeRule, putBackIn, skipIn } from './dates.ts';
@@ -86,15 +104,18 @@
     const i = week.days.findIndex((_, k) => k < 7 && Math.round((week.days[k + 1] - week.days[k]) / 3_600_000) !== 24);
     return i < 0 ? '' : `${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][i]}: ${dayLength(week.days, i)}`;
   });
-  /** The Day view's day, 0 (Monday) to 6: the day `anchor` is in. */
+  /** The Day view's day, and the Studios view's, 0 (Monday) to 6: the day `anchor` is in. */
   const dayIdx = $derived(Math.max(0, dayIndex(sched.anchor, week.days)));
   const inDay = $derived(sched.view === 'day');
+  const inStudios = $derived(sched.view === 'studios');
+  /** One day is on screen, not the week: the Day view or the Studios view. */
+  const oneDay = $derived(inDay || inStudios);
   // The editor column shows the selected block only while the grid draws it. The lookup used to
   // run over the whole week in the Day view too, so a block pressed on Monday (an automation
   // block, say) still held the column after Wednesday was opened, with nothing selected in the
   // day on the screen (the operator's 1.0.5 run). Now the column rests on the list of shows
   // there, as it does in a week that does not hold the selection; the selection itself is kept.
-  const selectedBlock = $derived(shownBlock(week.blocks, week.days, sched.selected, inDay ? dayIdx : null));
+  const selectedBlock = $derived(shownBlock(week.blocks, week.days, sched.selected, oneDay ? dayIdx : null));
   const selectedEpisode = $derived(
     selectedBlock?.kind === 'episode' ? sched.episodes.find((e) => `ep:${e.episode.id}` === selectedBlock.id) ?? null : null,
   );
@@ -104,10 +125,164 @@
   const ruleShow = $derived(selectedBlock?.kind === 'rule' ? sched.shows.find((s) => s.slug === selectedBlock.slug) ?? null : null);
   const NOON = 12 * 3_600_000;
 
-  /** Open a day of the week shown, with whatever is selected still selected. */
-  const openDayOf = (i: number) => openDay(week.days[Math.min(6, Math.max(0, i))] + NOON);
+  /** Open a day of the week shown, with whatever is selected still selected: in the Day view,
+   *  or from the Studios view's own strip of days in the Studios view. */
+  const openDayOf = (i: number) => (inStudios ? showDay : openDay)(week.days[Math.min(6, Math.max(0, i))] + NOON);
   /** Open the day a block is on. */
   const openDayAt = (ms: number) => openDay(ms);
+
+  // ---- studios as columns, and the rehearsal studio's bookings (1.3.0) ----
+  /** What the Studios view can show here: nothing at an older station, the one column where
+   *  the rehearsal studio is off, or both. Not known until the station has answered. */
+  const studiosAt = $derived(studiosState(sched.studios, sched.rules !== null));
+  /** The shows this window may book the rehearsal studio for; none, and the column is to read. */
+  const bookable = $derived(bookableShows(account.me, sched.shows));
+  const canBook = $derived(studiosAt === 'both' && bookable.length > 0);
+  const rehearsals = $derived(weekRehearsals(now));
+  const mayChange = (r: Pick<Rehearsal, 'slug'>) => mayBook(account.me, sched.shows.find((s) => s.slug === r.slug));
+  /** The booking being made, as a block of the Rehearsal column. */
+  const draftBlock = $derived.by((): GridRehearsal | null => {
+    const d = sched.booking;
+    if (!d) return null;
+    const s = sched.shows.find((x) => x.slug === d.show);
+    return { id: NEW_BOOKING, ref: '', kind: 'booking', start: d.start, end: d.end, show: s?.name ?? '', slug: d.show, colour: s?.colour_slot ?? null, by: '', open: false, ended: null, past: false, change: 'all', draft: true };
+  });
+  const gridRehearsals = $derived<GridRehearsal[]>([...rehearsals.map((r) => ({ ...r, change: bookingChange(r, now, mayChange(r)) })), ...(draftBlock ? [draftBlock] : [])]);
+  /** What the editor column holds of the Rehearsal column: the booking being made, or a
+   *  booking or a session of the day on screen. */
+  const selectedRehearsal = $derived(gridRehearsals.find((r) => r.id === shownRehearsal(rehearsals, week.days, dayIdx)) ?? null);
+  /** The day on screen has nothing booked and nothing rehearsed. */
+  const dayIsFree = $derived(!rehearsals.some((r) => r.start < week.days[dayIdx + 1] && Math.max(r.end, r.start + 1) > week.days[dayIdx]));
+  /** The line under the Studios view: what it cannot show or do here, or how to begin. */
+  const studiosLine = $derived.by((): { title: string; words: string } | null => {
+    if (!inStudios) return null;
+    if (studiosAt === 'off') return { title: REHEARSAL_OFF, words: REHEARSAL_OFF_HOW };
+    if (studiosAt !== 'both') return null;
+    if (!bookable.length) return { title: 'The Rehearsal column is to read.', words: NO_SHOW_TO_BOOK };
+    if (dayIsFree && !sched.booking) {
+      const gone = week.days[dayIdx + 1] <= now;
+      return { title: `Nothing ${gone ? 'was' : 'is'} booked in the rehearsal studio on ${longDayWords(week.days[dayIdx], sched.zone)}.`, words: gone ? 'The past cannot be booked.' : 'To hold it for a show, press Book…, or drag across the Rehearsal column. It airs nothing.' };
+    }
+    return null;
+  });
+  // A station that turns out to have no columns (another station, an older one) has no Studios view.
+  $effect(() => {
+    if (inStudios && studiosAt === 'older') untrack(() => setView('day', sched.anchor));
+  });
+  // A rehearsal opens and ends without this tab being told. Where this window follows the
+  // rehearsal studio (the Desk tab's store), the week is read again when its session changes.
+  let sessionSeen: string | null | undefined;
+  $effect(() => {
+    const id = rehearsal.view?.session?.id ?? null;
+    if (sessionSeen !== undefined && id !== sessionSeen && live && untrack(() => inStudios)) untrack(() => void reread());
+    sessionSeen = id;
+  });
+
+  /** Book…, or a drag across the Rehearsal column: the booking is drawn and opens in the
+   *  editor column. Nothing is at the station until it is saved. */
+  function book(stretch: { start: number; end: number } | null) {
+    if (!canBook) return;
+    if (closeOpen(now).did === 'unsaved') return;
+    const day = { from: week.days[dayIdx], to: week.days[dayIdx + 1] };
+    const at = stretch ? fromDrag(stretch.start, stretch.end, stationNow()) : firstBooking(day, stationNow(), sched.zone, rehearsals);
+    if (!at) return tell('Not booked.', stretch ? 'That time has gone: a booking starts from now on.' : `${longDayWords(day.from, sched.zone)} has gone: the past cannot be booked.`);
+    beginBooking(offeredShow(bookable, week.blocks, at.end), at.start, at.end);
+  }
+
+  /** The booking being made changed in its editor, or was dragged: the grid follows it, to
+   *  another day if that is where it now is. */
+  function draftChanged(d: { show: string; start: number; end: number }) {
+    sched.booking = d;
+    if (dayIndex(d.start, week.days) !== dayIdx) showInWeek(NEW_BOOKING, d.start);
+  }
+
+  /** Show it, on a booking in the way: it is brought into view, on its own day, and what is
+   *  being typed stays open and selected. */
+  function showInTheWay(id: string, ms: number) {
+    const selected = sched.selected;
+    showInWeek(id, ms);
+    sched.selected = selected;
+  }
+
+  /** Save from the booking's editor. Null when the station took it; else its refusal, for the
+   *  editor to show beside the field it is about. */
+  async function saveBooking(was: Rehearsal | null, request: BookingRequest, patch: Partial<BookingRequest>): Promise<Refusal | null> {
+    try {
+      const made = was ? await changeBooking(was.ref, patch) : await makeBooking(request);
+      const name = made.show_name || sched.shows.find((s) => s.slug === made.show)?.name || 'the show';
+      const id = `reh:${made.id}`;
+      await changed();
+      // The saved booking takes the selection from the one being made, on its own day.
+      select(id);
+      showInWeek(id, made.start_ms);
+      const said = `The rehearsal studio is held for ${name} on ${stretchWords(made.start_ms, made.end_ms, sched.zone)}.`;
+      if (was) {
+        tell('Booking saved.', said, async () => {
+          await changeBooking(was.ref, { show: was.slug, ...(was.start > stationNow() ? { start_ms: was.start } : {}), end_ms: was.end });
+          await changed();
+        });
+      } else {
+        tell('Booked.', said, async () => {
+          await deleteBooking(made.id);
+          if (sched.selected === id) backToShows();
+          await changed();
+        });
+      }
+      return null;
+    } catch (e) {
+      return refusalOf(e, bookingClash(e), sched.zone);
+    }
+  }
+
+  /** Delete booking: the studio is free again, and the line offers the booking back. */
+  async function removeBooking(was: Rehearsal): Promise<Refusal | null> {
+    try {
+      await deleteBooking(was.ref);
+      backToShows();
+      await changed();
+      const back = was.start > stationNow();
+      tell('Booking deleted.', `The rehearsal studio is free on ${stretchWords(was.start, was.end, sched.zone)}.`, back ? async () => {
+        const made = await makeBooking({ show: was.slug, start_ms: was.start, end_ms: was.end });
+        await changed();
+        select(`reh:${made.id}`);
+      } : null);
+      return null;
+    } catch (e) {
+      return refusalOf(e, null, sched.zone);
+    }
+  }
+
+  /** A booking dragged or resized in the Rehearsal column: saved at once, with Undo, as a
+   *  dragged episode is. One under way keeps its start. The booking being made only moves. */
+  async function moveBooking(id: string, start: number, end: number): Promise<string | null> {
+    if (id === NEW_BOOKING) {
+      if (!sched.booking) return 'no booking';
+      const at = fromDrag(start, end, stationNow());
+      if (!at) {
+        tell('Not moved', 'That time has gone: a booking starts from now on.');
+        return 'past';
+      }
+      draftChanged({ ...sched.booking, ...at });
+      return null;
+    }
+    const was = rehearsals.find((r) => r.id === id);
+    if (!was || was.kind !== 'booking') return 'not a booking';
+    const underWay = was.start <= stationNow();
+    try {
+      const made = await changeBooking(was.ref, { ...(underWay ? {} : { start_ms: start }), end_ms: end });
+      await changed();
+      tell('Moved.', `${made.show_name || was.show} has the rehearsal studio on ${stretchWords(made.start_ms, made.end_ms, sched.zone)}.`, async () => {
+        await changeBooking(was.ref, { ...(was.start > stationNow() ? { start_ms: was.start } : {}), end_ms: was.end });
+        await changed();
+      });
+      return null;
+    } catch (e) {
+      const clash = bookingClash(e);
+      const why = clash ? inTheWayWords(clash, sched.zone) : e instanceof Error ? e.message : String(e);
+      tell('Not moved', why);
+      return why;
+    }
+  }
 
   onMount(() => {
     // The week is the default every time the tab opens; the Day view is not remembered.
@@ -140,8 +315,10 @@
     await loadWeek();
   }
 
-  /** A block dragged or resized: the episode's new time, or the reason the control plane refused. */
+  /** A block dragged or resized: the episode's new time, or the reason the control plane
+   *  refused. In the Studios view a booking of the rehearsal studio moves the same way. */
   async function onMove(id: string, start: number, end: number): Promise<string | null> {
+    if (isRehearsalId(id)) return moveBooking(id, start, end);
     const w = sched.episodes.find((e) => `ep:${e.episode.id}` === id);
     if (!w) return 'not an episode';
     const minutes = Math.max(1, Math.round((end - start) / 60_000));
@@ -459,7 +636,7 @@
          own controls and its legend wait with it. -->
     {#if sched.rota}
       <span class="range" data-panel-title>The next twelve hours</span>
-    {:else if inDay}
+    {:else if oneDay}
       <button type="button" class="btn quiet" aria-label="Previous day" title="Previous day (←)" onclick={() => step(-1)}>‹</button>
       <button type="button" class="btn quiet" aria-label="Next day" title="Next day (→)" onclick={() => step(1)}>›</button>
     {:else}
@@ -468,13 +645,19 @@
     {/if}
     {#if !sched.rota}
       <button type="button" class="btn" onclick={() => today(now)}>Today <kbd>T</kbd></button>
-      <span class="range num" data-panel-title>{inDay ? dayRangeWords(week.days[dayIdx], sched.zone) : rangeWords(week.days, sched.zone)}</span>
+      <span class="range num" data-panel-title>{oneDay ? dayRangeWords(week.days[dayIdx], sched.zone) : rangeWords(week.days, sched.zone)}</span>
     {/if}
     <span class="seg" role="group" aria-label="View">
       <button type="button" aria-pressed={!sched.rota && sched.view === 'week'} title="The week (W)" aria-keyshortcuts="W" onclick={() => setView('week')}>Week</button>
       <button type="button" aria-pressed={!sched.rota && inDay} title="One day, with a lane for each show (D)" aria-keyshortcuts="D" onclick={() => keyView('day', now)}>Day</button>
       <button type="button" aria-pressed={sched.rota} title="The next twelve hours: who is down for each show, and whether they are ready (R)" aria-keyshortcuts="R" onclick={openRota}>Rota</button>
-      <button type="button" aria-pressed={sched.view === 'studios'} aria-disabled="true" title="Not in this version: a show has no studio of its own yet" onclick={() => tell('Studios are not in this version.', 'The week will show each studio as a column once a show can be given a studio. Until then every show is in the one studio.')}>Studios</button>
+      <button
+        type="button"
+        aria-pressed={!sched.rota && inStudios}
+        aria-disabled={studiosAt === 'older' ? 'true' : undefined}
+        title={studiosAt === 'older' ? STUDIOS_OLDER : 'One day, a column for each studio: what is on air, and the rehearsal studio beside it'}
+        onclick={() => (studiosAt === 'older' ? tell('No Studios view at this station.', STUDIOS_OLDER) : keyView('studios', now))}>Studios</button
+      >
     </span>
     <span class="tz">{sched.zone}{dst ? ` · ${dst}` : ''}</span>
     {#if sched.zoneSet === false && canChooseZone}
@@ -525,8 +708,13 @@
     <div class="body rota-body"><Rota onweek={() => setView('week')} /></div>
   {/if}
   <div class="body" hidden={sched.rota}>
-    <section class="cal" data-panel={inDay ? 'calendar.day' : 'calendar.week'} aria-label={inDay ? `${longDayWords(week.days[dayIdx], sched.zone)}, one day` : `Week of ${rangeWords(week.days, sched.zone)}`}>
-      <div class="corner" data-panel-title><span class="sr-only">{inDay ? 'Day grid' : 'Week grid'}</span></div>
+    <section
+      class="cal"
+      class:noted={!!studiosLine}
+      data-panel={inStudios ? 'calendar.studios' : inDay ? 'calendar.day' : 'calendar.week'}
+      aria-label={inStudios ? `${longDayWords(week.days[dayIdx], sched.zone)}, a column for each studio` : inDay ? `${longDayWords(week.days[dayIdx], sched.zone)}, one day` : `Week of ${rangeWords(week.days, sched.zone)}`}
+    >
+      <div class="corner" data-panel-title><span class="sr-only">{inStudios ? 'Studios grid' : inDay ? 'Day grid' : 'Week grid'}</span></div>
       <div class="grid-host">
         {#if live}
           <EventCalendarGrid
@@ -539,17 +727,44 @@
             onClear={() => void closeOpen(now)}
             {onMove}
             onOpenDay={openDayOf}
-            view={inDay ? 'day' : 'week'}
+            view={sched.view}
             day={dayIdx}
             reveal={sched.reveal}
+            studios={sched.studios}
+            rehearsals={gridRehearsals}
+            onBook={canBook ? book : undefined}
+            bookWhy={studiosAt === 'both' && !bookable.length ? NO_SHOW_TO_BOOK : ''}
           />
         {:else}
           <div class="empty">The grid is drawn by the calendar library in a window; the tests render the editors.</div>
         {/if}
       </div>
+      {#if studiosLine}
+        <!-- What the Studios view cannot show or do at this station, or how a booking is begun. -->
+        <p class="studios-line" role="note" data-testid="studios-line"><b>{studiosLine.title}</b> {studiosLine.words}</p>
+      {/if}
     </section>
 
-    {#if sched.pane === 'show' && editShow}
+    {#if selectedRehearsal}
+      <aside class="editor" data-panel="rehearsal.booking" aria-label={selectedRehearsal.kind === 'session' ? 'A rehearsal' : 'A booking of the rehearsal studio'}>
+        {#key selectedRehearsal.draft ? NEW_BOOKING : `${selectedRehearsal.id}:${selectedRehearsal.slug}:${selectedRehearsal.start}:${selectedRehearsal.end}`}
+          <RehearsalBooking
+            item={selectedRehearsal}
+            shows={bookable}
+            zone={sched.zone}
+            {now}
+            may={!!selectedRehearsal.draft || mayChange(selectedRehearsal)}
+            taken={rehearsals}
+            blocks={week.blocks}
+            onDraft={draftChanged}
+            onSave={(request, patch) => saveBooking(selectedRehearsal.draft ? null : selectedRehearsal, request, patch)}
+            onDelete={() => removeBooking(selectedRehearsal)}
+            onShows={backToShows}
+            onShowIt={showInTheWay}
+          />
+        {/key}
+      </aside>
+    {:else if sched.pane === 'show' && editShow}
       <aside class="editor" data-panel={sched.showTab === 'dates' ? 'calendar.show-dates' : 'calendar.episode-editor'} aria-label={sched.showTab === 'dates' ? 'The show’s dates' : 'Show editor'}>
         {#key editShow.slug}
           <ShowPane

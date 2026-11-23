@@ -29,7 +29,7 @@
 
 services:
   edge-1:
-    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.2.1}
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.3.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     environment:
@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   relay-1:
-    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.2.1}
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.3.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     environment:
@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
 
   edge-2:
-    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.2.1}
+    image: ${EDGE_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.3.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     environment:
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   relay-2:
-    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.2.1}
+    image: ${RELAY_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.3.0}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     environment:

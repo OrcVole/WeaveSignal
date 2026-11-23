@@ -17,6 +17,8 @@ pub mod planner;
 pub mod playout;
 pub mod post;
 pub mod pull;
+pub mod rehearsal;
+pub mod rehearsal_bookings;
 pub mod retention;
 pub mod rule;
 pub mod ruleplan;

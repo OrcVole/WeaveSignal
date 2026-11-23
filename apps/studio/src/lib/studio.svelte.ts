@@ -34,6 +34,9 @@ const fresh = () => ({
   /** This machine's clock, ticking every 100 ms for the studio clock's tenths. */
   now: Date.now(),
   tab: 'desk' as Tab,
+  /** The Desk tab's studio (1.3.0): the live desk, or the rehearsal desk (`desk.studio`). This
+   *  window's own choice, never remembered; set with `chooseDeskStudio` (rehearsal.svelte.ts). */
+  deskStudio: 'live' as 'live' | 'rehearsal',
   /** Settings is open over the tab (station admin; reached from the frame, not a numbered tab). */
   settings: false,
   /** The screener's selected caller. */

@@ -61,6 +61,7 @@ img.banner { display: block; width: 100%; height: auto; aspect-ratio: 3 / 1; obj
 .state.hollow { background: transparent; }
 .state.hollow-off { border-color: var(--muted); color: var(--muted); }
 .state.hollow-standby { border-color: var(--axis); color: var(--ink-2); }
+.state.hollow-rehearsal { border-color: var(--ink-2); border-style: double; border-width: 3px; color: var(--ink); }
 .state.hollow-critical { border-color: var(--status-critical); color: var(--ink); }
 .state.hollow-serious { border-color: var(--status-serious); color: var(--ink); }
 .state.hollow-warning { border-color: var(--status-warning); color: var(--ink); }

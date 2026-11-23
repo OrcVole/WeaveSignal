@@ -53,6 +53,9 @@ fn a_person_who_rejoins_at_once_under_the_same_identity_is_heard_again() {
         ) == 1)
         .is_some()
     );
+    // A guest arrives standing by (1.3, question 9); the press puts them on. Rejoining within
+    // the leave grace keeps them on.
+    assert!(desk.set_on_air("gregor", true));
     run_for(&desk, Duration::from_secs(3));
     let before = heard(&programme, 1500.0);
     assert!(before > 60.0, "not heard before the drop: {before:.1} dB");

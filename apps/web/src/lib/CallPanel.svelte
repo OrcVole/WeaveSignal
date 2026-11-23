@@ -15,7 +15,9 @@
   const clock = setInterval(() => (now = Date.now()), 500);
   onDestroy(() => clearInterval(clock));
 
-  const b = $derived(banner(call.role, call.me, call.link, now, call.heldUntil, call.joined.name));
+  const b = $derived(banner(call.role, call.me, call.link, now, call.heldUntil, call.joined.name, { studio: call.studio, wasOnAir: call.wasOnAir, moved: call.moved }));
+  // The rehearsal studio reaches no air: its page says what the people in it hear, and nothing of the show.
+  const rehearsing = $derived(call.studio === 'rehearsal');
   const filled = $derived(b.tone === 'onair' || b.tone === 'open' || b.tone === 'cue' || b.tone === 'talk');
   const line = $derived(showLine(call.me));
   const live = $derived(call.me?.show_on_air ?? false);
@@ -57,10 +59,10 @@
     armed = false;
     void call.hangUp();
   }
-  const leaveWord = $derived(call.role === 'caller' ? 'Hang up' : 'Leave the studio');
+  const leaveWord = $derived(call.role === 'caller' ? 'Hang up' : rehearsing ? 'Leave the rehearsal' : 'Leave the studio');
 </script>
 
-<section class="call" aria-labelledby="call-headline" data-role={call.role}>
+<section class="call" aria-labelledby="call-headline" data-role={call.role} data-studio={call.studio}>
   <div class="banner tone-{b.tone}" class:filled role="status" aria-live="polite" aria-atomic="true" data-phase={call.me?.phase ?? 'none'} data-link={call.link}>
     <span class="state {b.chip.cls}"><svg class={b.chip.glyphCls} aria-hidden="true"><use href="#{b.chip.glyph}" /></svg>{b.chip.word}</span>
     <h2 id="call-headline">{b.headline}</h2>
@@ -103,13 +105,17 @@
     <div class="io card">
       <div class="row">
         <span class="caps">You hear</span>
-        <span data-hearing={call.hearing}>{call.hearing ? 'The show and the studio, through this page' : 'Nothing yet'}</span>
+        <span data-hearing={call.hearing}>{call.hearing ? (rehearsing ? 'The people in the rehearsal, through this page' : 'The show and the studio, through this page') : 'Nothing yet'}</span>
       </div>
       <div class="row">
         <span class="caps">Your microphone</span>
         <span class="level" role="img" aria-label={meter?.heard ? 'Your microphone is working' : 'Your microphone has not been heard yet'}><i style:width="{meter?.pct ?? 0}%"></i></span>
       </div>
-      <p class="small">Turn any radio or other player off: this page already plays the show. Headphones stop the show echoing back.</p>
+      {#if rehearsing}
+        <p class="small">Headphones stop the others echoing back. Nothing here reaches the station's listeners.</p>
+      {:else}
+        <p class="small">Turn any radio or other player off: this page already plays the show. Headphones stop the show echoing back.</p>
+      {/if}
     </div>
   {/if}
 
@@ -197,6 +203,12 @@
   }
   .banner.tone-ended {
     border-left-color: var(--muted);
+  }
+  /* The rehearsal studio's band: a double rule in the ink, never ON AIR's red or OPEN's white
+     (ADR-0062), and not the station's accent, which the wizard derives for other uses only. */
+  .banner.tone-rehearsal {
+    border-left-style: double;
+    border-left-color: var(--ink-2);
   }
   .banner.filled {
     border-color: transparent;

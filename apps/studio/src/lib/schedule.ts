@@ -15,10 +15,12 @@ import {
   netFetch,
   type IsoDate,
   type NextOn,
+  type RehearsalBlock,
   type Rule,
   type RuleWords,
   type ScheduleDate,
   type ShowStep,
+  type StudioColumn,
 } from './api.ts';
 import { dataUrl } from './video.ts';
 
@@ -140,6 +142,31 @@ export interface WeekEpisode {
   series: Series;
   episode: Episode;
   resolved: Resolved;
+  /** The studio column it is in (1.3.0): `studio` for every show on air, wherever its host is.
+   *  Absent from an older station. */
+  studio?: string;
+  /** Where its host comes from (1.3.0): `room` at the desk, `own` their own studio with a show
+   *  key (the Studios view's *Own studio* chip), as the rota says. Absent from an older station. */
+  from?: HostFrom;
+}
+
+/** Where a show's host comes from. */
+export type HostFrom = 'room' | 'own';
+
+/** The week as `weekEpisodes` gives it. */
+export interface Week {
+  zone: string;
+  episodes: WeekEpisode[];
+  /** Every rule's unfilled dates in the window; null from a station older than 1.0.4. */
+  dates: ScheduleDate[] | null;
+  /** The station's public address; null none set; undefined from a station older than 1.0.5. */
+  publicUrl: string | null | undefined;
+  /** The Studios view's columns, in order (1.3.0): `studio`, and `rehearsal` when the station
+   *  has a rehearsal studio. Null from a station older than 1.3.0 (it has the one studio). */
+  studios: StudioColumn[] | null;
+  /** The rehearsal studio's bookings, then its sessions, in the window (1.3.0); empty without a
+   *  rehearsal studio and from an older station. */
+  rehearsals: RehearsalBlock[];
 }
 
 export interface ShowView {
@@ -370,11 +397,47 @@ export function inputOf(v: ShowView): ShowInput {
 }
 
 /** The week's episodes and, from a station that stores rules, every rule's unfilled dates in
- *  the window (`dates`; null from an older station). */
-export const weekEpisodes = async (fromMs: number, toMs: number): Promise<{ zone: string; episodes: WeekEpisode[]; dates: ScheduleDate[] | null; publicUrl: string | null | undefined }> => {
-  const w = await get<{ zone: string; episodes: WeekEpisode[]; dates?: unknown; public_url?: unknown }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
-  return { zone: w.zone, episodes: w.episodes.map((e) => ({ ...e, show: asShow(e.show) })), dates: asScheduleDates(w.dates), publicUrl: asPublicUrl(w) };
+ *  the window (`dates`; null from an older station); from 1.3.0 the Studios view's columns and
+ *  the rehearsal studio's blocks. */
+export const weekEpisodes = async (fromMs: number, toMs: number): Promise<Week> => {
+  const w = await get<{ zone: string; episodes: WeekEpisode[]; dates?: unknown; public_url?: unknown; studios?: unknown; rehearsals?: unknown }>(`/api/v1/schedule/episodes?from_ms=${fromMs}&to_ms=${toMs}`);
+  return {
+    zone: w.zone,
+    episodes: w.episodes.map((e) => ({ ...e, show: asShow(e.show) })),
+    dates: asScheduleDates(w.dates),
+    publicUrl: asPublicUrl(w),
+    studios: asStudios(w.studios),
+    rehearsals: asRehearsals(w.rehearsals),
+  };
 };
+
+/** The Studios view's columns from the week's reply: null from a station older than 1.3.0. */
+export function asStudios(raw: unknown): StudioColumn[] | null {
+  if (!Array.isArray(raw)) return null;
+  const cols = raw.filter((c): c is StudioColumn => !!c && typeof c === 'object' && typeof c.id === 'string' && typeof c.name === 'string');
+  return cols.length > 0 ? cols : null;
+}
+
+/** The rehearsal blocks from the week's reply: well-formed ones only; none from an older station. */
+export function asRehearsals(raw: unknown): RehearsalBlock[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (b): b is RehearsalBlock =>
+      !!b &&
+      typeof b === 'object' &&
+      (b.kind === 'booking' || b.kind === 'session') &&
+      typeof b.id === 'string' &&
+      typeof b.show === 'string' &&
+      Number.isFinite(b.start_ms) &&
+      Number.isFinite(b.end_ms) &&
+      b.end_ms >= b.start_ms,
+  );
+}
+
+/** The studio an episode is in: its own word, else `studio` (an older station has only that). */
+export const studioOf = (e: Pick<WeekEpisode, 'studio'>): string => e.studio ?? 'studio';
+/** Where an episode's host comes from: its own word, else the room. */
+export const fromOf = (e: Pick<WeekEpisode, 'from'>): HostFrom => (e.from === 'own' ? 'own' : 'room');
 
 /** The station's public address from the week's reply (`public_url`, 1.0.5): the address, null
  *  when the station has none, and undefined from a station too old to say (it has no calendar

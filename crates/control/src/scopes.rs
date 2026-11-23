@@ -43,7 +43,7 @@ pub const SCOPES: &[(&str, &str)] = &[
     ),
     (
         "schedule:read",
-        "Read the clocks, the week, the log of what is to play, and the episodes airing in a range.",
+        "Read the clocks, the week, the log of what is to play, the episodes airing in a range, and the rehearsal studio's bookings.",
     ),
     (
         "schedule:write",
@@ -125,6 +125,9 @@ pub const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/library/tracks", "playout:read"),
     ("PUT", "/api/v1/library/tracks", "library:write"),
     ("DELETE", "/api/v1/library/tracks/{id}", "library:write"),
+    // The rehearsal studio's bookings (1.3.0): reading them is the schedule's; booking is a
+    // person's (`NEVER` and `NEVER_METHOD`).
+    ("GET", "/api/v1/rehearsal/bookings", "schedule:read"),
     ("GET", "/api/v1/schedule/clocks", "schedule:read"),
     ("PUT", "/api/v1/schedule/clocks/{id}", "schedule:write"),
     ("DELETE", "/api/v1/schedule/clocks/{id}", "schedule:write"),
@@ -329,6 +332,15 @@ pub const NEVER: &[&str] = &[
     "/api/v1/monitor/handover",
     "/api/v1/monitor/end-show",
     "/api/v1/monitor/dump",
+    // The rehearsal studio (1.3.0): who may open and drive it is decided by the show's step's
+    // rule, as a person; a token never reaches it.
+    "/api/v1/rehearsal",
+    "/api/v1/rehearsal/events",
+    "/api/v1/rehearsal/open",
+    "/api/v1/rehearsal/commands",
+    "/api/v1/rehearsal/end",
+    "/api/v1/rehearsal/move",
+    "/api/v1/rehearsal/bookings/{id}",
     // WHIP from a host's OBS (17d): the show key's secret is the bearer, and a token never holds
     // it.
     "/whip/{key}",
@@ -338,7 +350,12 @@ pub const NEVER: &[&str] = &[
 /// A method on a route whose other methods a scope opens, which no scope opens: a token never
 /// reaches it (the gate answers 403). `DELETE /api/v1/shows/{show}` (ADR-0279) is a person's:
 /// the path is scoped for `GET` and `PUT`, and deleting a show takes an admin or a producer.
-pub const NEVER_METHOD: &[(&str, &str)] = &[("DELETE", "/api/v1/shows/{show}")];
+pub const NEVER_METHOD: &[(&str, &str)] = &[
+    ("DELETE", "/api/v1/shows/{show}"),
+    // Booking the rehearsal studio (1.3.0) is a person's, by the show's step's rule; reading the
+    // bookings is `schedule:read`'s.
+    ("POST", "/api/v1/rehearsal/bookings"),
+];
 
 /// The scope a route needs, for a method and the route as registered (`MatchedPath`).
 pub fn scope_for(method: &Method, route: &str) -> Option<&'static str> {
@@ -397,6 +414,11 @@ mod tests {
             ("rota.rs", include_str!("rota.rs")),
             ("whip_route.rs", include_str!("whip_route.rs")),
             ("phone/api.rs", include_str!("phone/api.rs")),
+            ("rehearsal.rs", include_str!("rehearsal.rs")),
+            (
+                "rehearsal_bookings.rs",
+                include_str!("rehearsal_bookings.rs"),
+            ),
         ];
         let mut unplaced = Vec::new();
         let mut seen = 0;

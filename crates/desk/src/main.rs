@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use weavesignal_desk::config::Config;
-use weavesignal_desk::pipeline::{Desk, ErrorScope, Outputs};
+use weavesignal_desk::pipeline::ErrorScope;
 use weavesignal_desk::room::{self, RoomApi};
 
 /// WeaveSignal's desk.
@@ -81,16 +81,12 @@ fn main() -> ExitCode {
 }
 
 fn run(config: Config) -> anyhow::Result<()> {
-    let desk = Desk::new(config, Outputs::ALL)?;
-    if let Some(path) = &desk.config().control.socket {
-        weavesignal_desk::control::listen(desk.clone(), path)?;
-    }
-    // Hosts in their own studios (ADR-0280), from the ingest over loopback.
-    let _sources = weavesignal_desk::sources::Sources::start(
-        &desk,
-        &desk.config().sources,
-        std::env::var(weavesignal_desk::config::SOURCES_PASSWORD_ENV).ok(),
-    );
+    // The outputs and the sources' listener follow `[desk] mode`: a rehearsal desk is built
+    // with no way to the air (1.3).
+    let weavesignal_desk::Launched {
+        desk,
+        sources: _sources,
+    } = weavesignal_desk::launch(config)?;
     let main_loop = glib::MainLoop::new(None, false);
     // The fatal error, with the element it came from, for the last line the desk writes.
     let failed = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
@@ -167,7 +163,7 @@ fn run(config: Config) -> anyhow::Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     let watcher = {
         let c = desk.config();
-        let api = RoomApi::new(&c.api_url(), c.keys(), &c.livekit.room, &c.desk.identity);
+        let api = RoomApi::for_desk(c);
         let desk = desk.clone();
         let stop = stop.clone();
         std::thread::Builder::new()

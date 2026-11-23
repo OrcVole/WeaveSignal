@@ -18,15 +18,22 @@ const SECONDS = Number(process.env.SECONDS ?? 60);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const admin = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
 
-const invite = async (name) => (await (await fetch(`${CONTROL}/api/v1/invites`, { method: 'POST', headers: admin, body: JSON.stringify({ role: 'guest', name }) })).json()).link;
+const invite = async (name) => (await fetch(`${CONTROL}/api/v1/invites`, { method: 'POST', headers: admin, body: JSON.stringify({ role: 'guest', name }) })).json();
+// A guest arrives standing by (1.3, question 9): the desk's press puts them on.
+const press = (identity) => fetch(`${CONTROL}/api/v1/desk/commands`, { method: 'POST', headers: admin, body: JSON.stringify({ op: 'on_air', identity, on: true }) });
 const browser = await chromium.launch({
   args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
 });
-async function onAir(page, link) {
+async function onAir(page, inv) {
+  const link = inv.link;
   await page.goto(/^https?:/.test(link) ? link : `${WEB}${link}`);
   await page.getByRole('button', { name: 'Join the studio' }).click();
   const t0 = Date.now();
-  while ((await page.locator('.banner').getAttribute('data-phase').catch(() => null)) !== 'on_air') {
+  let pressed = false;
+  for (;;) {
+    const p = await page.locator('.banner').getAttribute('data-phase').catch(() => null);
+    if (p === 'on_air') break;
+    if (p === 'off_air' && !pressed) { await press(inv.identity); pressed = true; }
     if (Date.now() - t0 > 20_000) { console.log('a guest never reached on air'); process.exit(1); }
     await sleep(200);
   }

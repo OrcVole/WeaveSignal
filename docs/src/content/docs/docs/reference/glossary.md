@@ -3,7 +3,7 @@ title: "Glossary"
 description: "The studio words WeaveSignal uses, in plain language: the desk, playout, the screener, mix-minus, cue, talkback, carts, the rundown, clocks, the slate, booths, the dump, the lamp states, WHIP, Quadlets and the rest."
 type: reference
 status: draft
-last_verified: 2026-11-04
+last_verified: 2026-11-22
 sidebar:
   order: 0
 ---
@@ -71,6 +71,10 @@ Listeners never hear it.
 *On* puts a source on air (or, in auto mode, opens it to the room only).
 *Muted* cuts it from every mix.
 
+**Standing by.**
+At the desk, heard on cue and by talk, and off air until a press puts the person on.
+From 1.3 every guest, and everyone who comes by an invitation, arrives standing by, under *Not on air* ([Roles](/docs/reference/roles/)).
+
 **The gate.**
 A quiet source is held down automatically so room noise and breathing do not reach the mix; a presenter's gate is set for speech.
 
@@ -78,6 +82,11 @@ A quiet source is held down automatically so room noise and breathing do not rea
 Listeners hear the programme a few seconds (8 s by default) after the room.
 If something must not go out, **Dump** throws that held stretch away, so listeners never hear it; the room carries on.
 The desk shows the delay building after a dump until it is whole again.
+
+**The rehearsal studio, the opening state.**
+From 1.3.0, a second desk with no way to the air, where a show's people try the mix and the carts before they move to the live studio on the links they have.
+Who was in the mix and who was muted when they moved is the *opening state*, applied when the show's host goes on air ([The rehearsal studio](/docs/reference/rehearsal-studio/), [What moves to the live studio](/docs/explanation/what-moves-to-the-live-studio/)).
+In it a person is *in the mix*, never on air.
 
 **A booth.**
 A room of one caller's own, which only the desk joins.

@@ -64,6 +64,11 @@ for (const s of SHOWS) {
   await call('PUT', `/api/v1/shows/${slug}`, { ...input, explicit: false, step: 'full' });
 }
 
+// The rehearsal desk's screens (1.3.0, step R13; tests/screens/rehearsal.mjs): the show that is
+// rehearsed, at Guests so its rehearsal takes guests' links. It has no slot of its own here, so
+// it adds no block to the week the Schedule tab's checks count.
+await call('PUT', '/api/v1/shows/steeped', { name: 'Steeped', colour_slot: 4, layout: 'slate', slot: null, hosts: ['Eilidh Fraser-MacLeod'], tags: ['tea', 'talk'], description: 'An hour of talk over a pot of tea.', explicit: false, step: 'guests' });
+
 // Series 1 of every weekly show, starting two weeks back, drafted to a few weeks ahead; Saturday
 // Night Kettle is in its series 3 of ten, from the first Saturday, as the design has it.
 for (const s of SHOWS) {

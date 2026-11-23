@@ -13,6 +13,11 @@
 # the desk's source are in the figure. The peak is read through one file
 # descriptor after a reset (cgroup v2). Test tones only. The real gate runs on a Cloudron.
 #
+# With REHEARSAL_LOAD=3 (the default; 0 is none) and the rehearsal studio on (test-local.sh's main
+# run turns it on), the rehearsal studio is opened for a show of the gate's own and that many tone
+# publishers rehearse in it for the whole window, through rehearsal invitations, so the rehearsal
+# desk is in the figure beside the live one (1.3; the plan's pass mark: a peak of at most 1,500 MiB).
+#
 # With the app run by `VIDEO=true test-local.sh` and CAMERAS=1, each publisher also sends a
 # 640x360, 20 fps VP8 camera (a moving test picture), as a browser would, so the desk decodes
 # three cameras and encodes AV1 with SVT-AV1 (ADR-0227). The desk's CPU and the app's are read
@@ -22,7 +27,7 @@
 #   deploy/cloudron/memory-gate.sh
 #
 # Settings: LOAD_S=300 LISTENERS=50 CHAT_SOCKETS=1000 HTTP_PORT=27400 LISTEN_PORT=27401 CAMERAS=0
-#   SOURCES=1 SOURCE_ICE_PORT=27405
+#   SOURCES=1 SOURCE_ICE_PORT=27405 REHEARSAL_LOAD=3
 #   CHAT_LOAD=<repository>/target/release/weavesignal-chat-load  (missing: no chat load, said so)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -33,6 +38,7 @@ LISTENERS=${LISTENERS:-50}
 CAMERAS=${CAMERAS:-0}
 CHAT_SOCKETS=${CHAT_SOCKETS:-1000}
 SOURCES=${SOURCES:-1}
+REHEARSAL_LOAD=${REHEARSAL_LOAD:-3}
 SOURCE_ICE_PORT=${SOURCE_ICE_PORT:-27405}
 HTTP_PORT=${HTTP_PORT:-27400}
 LISTEN_PORT=${LISTEN_PORT:-27401}
@@ -90,6 +96,43 @@ for spec in "eilidh:presenter:440" "morag:guest:1000" "fraser:guest:2500"; do
         signaller::room-name=studio >/dev/null
   fi
 done
+# The rehearsal studio (1.3): a show of the gate's own opened in it, and REHEARSAL_LOAD tone
+# publishers through rehearsal invitations, in the rehearsal room for the whole window.
+rehearsing=0
+if (( REHEARSAL_LOAD > 0 )); then
+  ra() { curl -fsS -X "$1" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' "http://127.0.0.1:$HTTP_PORT$2" ${3:+-d "$3"}; }
+  if ra GET /api/v1/rehearsal | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["enabled"] else 1)'; then
+    ra PUT /api/v1/shows/gate-rehearsal '{"name":"Gate Rehearsal","colour_slot":4}' >/dev/null
+    ra PUT /api/v1/shows/gate-rehearsal/step '{"step":"full"}' >/dev/null   # a guest needs a seat
+    lk=$(sec LIVEKIT_API_KEY); ls_=$(sec LIVEKIT_API_SECRET)
+    ra POST /api/v1/rehearsal/open '{"show":"gate-rehearsal"}' >/dev/null
+    for n in $(seq 1 "$REHEARSAL_LOAD"); do
+      pass=$(ra POST /api/v1/invites "{\"role\":\"guest\",\"studio\":\"rehearsal\",\"show\":\"gate-rehearsal\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["pass"])')
+      # A page's token may subscribe, and a publishing sink whose token may subscribe sends no
+      # media (M1): sign the page's claims again, publish-only, with the station's own secret.
+      t=$(curl -fsS -X POST -H "Authorization: Bearer $pass" -H 'Content-Type: application/json' "http://127.0.0.1:$HTTP_PORT/api/v1/pass/token" -d '{}' \
+        | python3 -c '
+import base64, hashlib, hmac, json, sys
+page = json.load(sys.stdin)["token"]
+key, secret = sys.argv[1], sys.argv[2]
+b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
+claims = json.loads(base64.urlsafe_b64decode(page.split(".")[1] + "=" * 3))
+assert claims["iss"] == key, "the page token is not signed by the station key"
+claims["video"]["canSubscribe"] = False
+head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+body = b64(json.dumps(claims).encode())
+sig = b64(hmac.new(secret.encode(), head + b"." + body, hashlib.sha256).digest())
+print((head + b"." + body + b"." + sig).decode())' "$lk" "$ls_")
+      podman run -d --rm --name "$L-rehearse-$n" --network container:$P "$DESK_IMAGE" \
+        gst-launch-1.0 -q audiotestsrc is-live=true wave=sine freq=$((1700 + 33 * n)) volume=0.3 ! audioconvert ! audioresample \
+        ! livekitwebrtcsink signaller::ws-url=ws://127.0.0.1:8002 signaller::auth-token="$t" \
+          signaller::room-name=studio-rehearsal >/dev/null
+    done
+    rehearsing=$REHEARSAL_LOAD
+  else
+    echo "no rehearsal load: the rehearsal studio is off (REHEARSAL=false)" > "$out/rehearsal.txt"
+  fi
+fi
 # CPU over the steady part of the load: the desk's utime+stime from /proc, the app's from the cgroup.
 desk_pid=$(podman exec $P supervisorctl -c /app/code/supervisord.conf pid desk)
 tick=$(getconf CLK_TCK)
@@ -134,6 +177,12 @@ if [[ -n $source_key ]]; then
   curl -fsS -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/sources" \
     | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin)["sources"] if x["key_id"]==sys.argv[1]]; print("host source:", (s[0]["state"], s[0]["way"], s[0]["format"]) if s else "not connected")' "$source_key" > "$out/source.txt"
 fi
+if (( rehearsing > 0 )); then
+  r_pid=$(podman exec $P supervisorctl -c /app/code/supervisord.conf pid desk-rehearsal)
+  curl -fsS -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/rehearsal" \
+    | python3 -c 'import json,sys; v=json.load(sys.stdin); print("rehearsal:", len([p for p in v["people"] if p["present"]]), "present of", sys.argv[1], "at the rehearsal desk")' "$rehearsing" > "$out/rehearsal.txt"
+  podman exec $P sh -c "grep VmRSS /proc/$r_pid/status" | sed 's/^/rehearsal desk /' >> "$out/rehearsal.txt"
+fi
 cpu0_desk=$(desk_cpu); cpu0_app=$(app_cpu); t_cpu0=$(date +%s.%N)
 sleep $((LOAD_S / 2 - 30))
 rss > "$out/rss-mid.txt"
@@ -150,10 +199,15 @@ print(f"cpu over {dt:.0f} s of steady load, cameras {'on' if cams else 'off'}: "
       f"whole app {100 * (a1 - a0) / 1e6 / dt:.0f} % of one core")
 PY
 podman rm -f "$L-eilidh" "$L-morag" "$L-fraser" >/dev/null 2>&1 || true
+if (( rehearsing > 0 )); then
+  podman exec $P sh -c "grep VmRSS /proc/$r_pid/status" | sed 's/^/rehearsal desk at the end /' >> "$out/rehearsal.txt"
+  for n in $(seq 1 "$rehearsing"); do podman rm -f "$L-rehearse-$n" >/dev/null 2>&1 || true; done
+  curl -fsS -X POST -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/rehearsal/end" >/dev/null || true
+fi
 [[ -z $source_key ]] || curl -fsS -X DELETE -H "Authorization: Bearer $admin" "http://127.0.0.1:$HTTP_PORT/api/v1/shows/gate-source/keys/$source_key" >/dev/null || true
 wait $sampler || true
 { grep '^oom_kill ' "$cg/memory.events"; rss; } > "$out/after.txt"
 peak=$(tail -1 "$out/samples.tsv" | cut -f3)
 echo "loaded peak ${peak} MiB of $((limit / 1048576)) MiB ($((100 * peak * 1048576 / limit)) %); chat load runs: $(grep -c '^# weavesignal-chat load test' "$out/chat-load.txt" 2>/dev/null || echo 0) (enabled: $chat_runs)"
-cat "$out/idle.txt" "$out/cpu.txt" "$out/source.txt" 2>/dev/null; tail -3 "$out/samples.tsv"; cat "$out/rss-mid.txt" "$out/after.txt"
+cat "$out/idle.txt" "$out/cpu.txt" "$out/source.txt" "$out/rehearsal.txt" 2>/dev/null; tail -3 "$out/samples.tsv"; cat "$out/rss-mid.txt" "$out/after.txt"
 ls -la "$out"/l1.opus "$out/l$LISTENERS.opus" 2>/dev/null; wc -c < "$out/sse.txt"

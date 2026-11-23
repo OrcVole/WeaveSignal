@@ -282,6 +282,18 @@ impl Person {
         Self::launch(room, &in_room, identity, 0.0, &token, None)
     }
 
+    /// A person joining `in_room` with a token made by the caller: a moved person's, whose token
+    /// carries `weavesignal.standby_until` (the rehearsal studio, 1.3).
+    pub fn join_with_token(
+        room: &Room,
+        in_room: &str,
+        identity: &str,
+        freq: f64,
+        token: &str,
+    ) -> Person {
+        Self::launch(room, in_room, identity, freq, token, None)
+    }
+
     /// `freq` 0: digital silence rather than a tone.
     fn launch(
         room: &Room,

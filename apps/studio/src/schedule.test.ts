@@ -285,6 +285,36 @@ describe('the week', () => {
     const rude: Block = { ...snk, show: '<b>x</b>' };
     expect(blockHtml(rude, ctx)).toContain('&lt;b&gt;x&lt;/b&gt;');
   });
+
+  // Studios as columns (1.3.0; rehearsal-mode-build-plan.md section 2.2): the station says
+  // which column an episode is in and where its host comes from.
+  it('takes an episode’s studio and where its host comes from as the station sends them', () => {
+    const own: WeekEpisode = { ...episode(DRIVE, 99, at(22, 16)), studio: 'studio', from: 'own' };
+    const room: WeekEpisode = { ...episode(SNK, 7, at(24, 20)), studio: 'studio', from: 'room' };
+    const [a, b] = episodeBlocks([own, room], ZONE, NOW);
+    expect([a.studio, a.from, b.studio, b.from]).toEqual(['studio', 'own', 'studio', 'room']);
+    // A station older than 1.3.0 sends neither: it has the one studio, and its hosts are in the room.
+    const [old] = episodeBlocks([episode(SNK, 7, at(24, 20))], ZONE, NOW);
+    expect([old.studio, old.from]).toEqual(['studio', 'room']);
+    // A dotted date and automation are on air too, so they are in the same column.
+    const { rules, auto } = week([date(SNK, '2026-10-24', 20)]);
+    expect([...rules, ...auto].every((x) => x.studio === 'studio')).toBe(true);
+  });
+
+  it('says Own studio on the block in the Studios view only: the week is as it was', () => {
+    const [own] = episodeBlocks([{ ...episode(SNK, 7, at(24, 20)), studio: 'studio', from: 'own' }], ZONE, NOW);
+    const ctx = { now: NOW, zone: ZONE, selected: null };
+    // The week never printed a studio, and still does not: every show there is in the one.
+    expect(blockHtml(own, ctx)).not.toMatch(/studio/i);
+    expect(blockAria(own, ctx)).toBe('Saturday Night Kettle, live, 20:00 to 23:00, S3 Ep 7');
+    const cols = { ...ctx, columns: true, wide: true };
+    expect(blockHtml(own, cols)).toContain('<use href="#g-disc"/></svg>Own studio</span>');
+    expect(blockAria(own, cols)).toBe('Saturday Night Kettle, live, 20:00 to 23:00, S3 Ep 7, the host in their own studio');
+    // A host in the room carries no mark: it is the usual case.
+    const [room] = episodeBlocks([{ ...episode(SNK, 7, at(24, 20)), studio: 'studio', from: 'room' }], ZONE, NOW);
+    expect(blockHtml(room, cols)).not.toContain('Own studio');
+    expect(blockAria(room, cols)).not.toContain('own studio');
+  });
 });
 
 describe('the editor', () => {

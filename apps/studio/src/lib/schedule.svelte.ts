@@ -5,14 +5,17 @@
 // schedule tab) and the tests reach it.
 
 import * as api from './schedule.ts';
-import { noteStationVersion, speaksRules, stationVersion, type ScheduleDate } from './api.ts';
+import { noteStationVersion, speaksRules, stationVersion, type RehearsalBlock, type ScheduleDate, type StudioColumn } from './api.ts';
 import {
   automationBlocks,
   dateBlocks,
   episodeBlocks,
+  isRehearsalId,
   markConflicts,
+  rehearsalBlocks,
   weekOf,
   type Block,
+  type Rehearsal,
 } from '../schedule/model.ts';
 import { dayIndex, shownBlock } from '../schedule/clash.ts';
 import type { Clock, Show, WeekEpisode, WeekHour } from './schedule.ts';
@@ -40,6 +43,12 @@ const fresh = () => ({
    *  (Subscribe…, ADR-0281): null when the station has none, undefined until the week says and
    *  from a station older than 1.0.5, which has no calendar files. */
   publicUrl: undefined as string | null | undefined,
+  /** The Studios view's columns (1.3.0): Studio, and Rehearsal when the station has a rehearsal
+   *  studio. Null from an older station, which has the one studio. */
+  studios: null as StudioColumn[] | null,
+  /** The rehearsal studio's bookings and sessions in the window fetched (1.3.0): the Rehearsal
+   *  column's blocks (`rehearsal.ts` reads them). Empty without a rehearsal studio. */
+  rehearsals: [] as RehearsalBlock[],
   /** Whether the station stores rules (1.0.4 or later, from `/health`); null until it says.
    *  An older one keeps a weekly time only, and is never sent `rule` or `draft_first`. */
   rules: null as boolean | null,
@@ -58,9 +67,13 @@ const fresh = () => ({
   editShow: null as string | null,
   /** Which of the show pane's two tabs is open; it opens at Dates (week-clashes.md section 3). */
   showTab: 'dates' as ShowTab,
-  /** The week, or one day of it with a lane for each clashing show. In the Day view `anchor`
-   *  is a moment in the day shown. The week is the default every time the tab opens. */
+  /** The week; one day of it with a lane for each clashing show; or one day with a column for
+   *  each studio (1.3.0). In the Day and Studios views `anchor` is a moment in the day shown.
+   *  The week is the default every time the tab opens. */
   view: 'week' as ScheduleView,
+  /** The booking of the rehearsal studio being made in the Studios view, not yet at the
+   *  station: its show's slug and its times (epoch ms). Selected as `NEW_BOOKING`. */
+  booking: null as { show: string; start: number; end: number } | null,
   /** The rota is shown in the calendar's place (1.2): the coming twelve hours as a list. Week
    *  and Day leave it; it is not remembered when the tab closes. */
   rota: false,
@@ -85,12 +98,25 @@ export function weekBlocks(now: number): { days: number[]; blocks: Block[] } {
   return { days, blocks: [...auto, ...rules, ...eps] };
 }
 
+/** The selection's id for the booking being made (`sched.booking`). */
+export const NEW_BOOKING = 'reh:new';
+
+/** The Rehearsal column's blocks for the Studios view: the bookings and sessions the station
+ *  sent with the week. They are never among `weekBlocks`: nothing of the rehearsal studio is
+ *  on air, so the week does not draw it and no show clashes with it. */
+export function weekRehearsals(now: number): Rehearsal[] {
+  return rehearsalBlocks(sched.rehearsals, now);
+}
+
 const NOON = 12 * 3_600_000;
 
-/** `←` `→` on the tab: a week. In the Day view the day shown stays the same weekday. */
+/** The Day view and the Studios view show one day; the week shows seven. */
+const oneDay = () => sched.view !== 'week';
+
+/** `←` `→` on the tab: a week. In the Day and Studios views the day shown stays the same weekday. */
 export function moveWeek(delta: number): void {
   const { days } = weekOf(sched.anchor, sched.zone);
-  if (sched.view === 'day') {
+  if (oneDay()) {
     const i = Math.max(0, days.findIndex((d, k) => k < 7 && sched.anchor >= d && sched.anchor < days[k + 1]));
     const there = weekOf(days[0] + delta * 7 * 24 * 3_600_000 + NOON, sched.zone).days;
     sched.anchor = there[i] + NOON;
@@ -98,14 +124,15 @@ export function moveWeek(delta: number): void {
   sched.version++;
 }
 
-/** The Day view's day, a step either way; the week is read again only when the day leaves it. */
+/** The Day view's day, or the Studios view's, a step either way; the week is read again only
+ *  when the day leaves it. */
 export function moveDay(delta: number): void {
-  openDay(dayStart(sched.anchor) + delta * 24 * 3_600_000 + NOON);
+  showDay(dayStart(sched.anchor) + delta * 24 * 3_600_000 + NOON);
 }
 
-/** The toolbar's arrows: a week in the Week view, a day in the Day view. */
+/** The toolbar's arrows: a week in the Week view, a day in the Day and Studios views. */
 export function step(delta: number): void {
-  if (sched.view === 'day') moveDay(delta);
+  if (oneDay()) moveDay(delta);
   else moveWeek(delta);
 }
 
@@ -117,23 +144,51 @@ function dayStart(ms: number): number {
 /** Show the moment's day or week, reading the week again only when it is another one. */
 function goTo(ms: number): void {
   const before = weekOf(sched.anchor, sched.zone).days[0];
-  sched.anchor = sched.view === 'day' ? dayStart(ms) + NOON : ms;
+  sched.anchor = oneDay() ? dayStart(ms) + NOON : ms;
   if (weekOf(sched.anchor, sched.zone).days[0] !== before) sched.version++;
+}
+
+/** What is selected in the Rehearsal column, and the booking being made, are the Studios
+ *  view's alone: another view does not draw them, so they go when it is left. */
+function leaveStudios(): void {
+  sched.booking = null;
+  if (isRehearsalId(sched.selected)) sched.selected = null;
 }
 
 /** Open one day in the Day view: the day that holds `ms`. */
 export function openDay(ms: number): void {
   sched.rota = false;
+  if (sched.view === 'studios') leaveStudios();
   sched.view = 'day';
   goTo(ms);
 }
 
-/** Week, or Day on the day the caller chose (week-clashes.md: the selected block's day; else
- *  today, when today is in the week shown; else the week's Monday). The selection is kept. */
-export function setView(view: 'week' | 'day', dayMs: number | null = null): void {
+/** Open one day in the Studios view (1.3.0): a column for each studio. The week is read again
+ *  on the way in: a rehearsal opens and ends without this tab being told. */
+export function openStudios(ms: number): void {
+  sched.rota = false;
+  const fresh = sched.view !== 'studios';
+  sched.view = 'studios';
+  const read = sched.version;
+  goTo(ms);
+  if (fresh && sched.version === read) sched.version++;
+}
+
+/** Another day in the view that is open, Day or Studios (the strip of days, the arrows). */
+export function showDay(ms: number): void {
+  if (sched.view === 'studios') openStudios(ms);
+  else openDay(ms);
+}
+
+/** Week; or Day or Studios on the day the caller chose (week-clashes.md: the selected block's
+ *  day; else today, when today is in the week shown; else the week's Monday). The selection is
+ *  kept, but for one in the Rehearsal column, which only the Studios view draws. */
+export function setView(view: ScheduleView, dayMs: number | null = null): void {
   if (view === 'day') openDay(dayMs ?? sched.anchor);
+  else if (view === 'studios') openStudios(dayMs ?? sched.anchor);
   else {
     sched.rota = false;
+    if (sched.view === 'studios') leaveStudios();
     sched.view = 'week';
   }
 }
@@ -144,13 +199,15 @@ export function openRota(): void {
   sched.rota = true;
 }
 
-/** `D` and `W` on the tab (ADR-0283), and the toolbar's **Day** and **Week**: Day opens on the
- *  selected block's day wherever in the week it is, the open day or not. */
-export function keyView(view: 'week' | 'day', now: number): void {
+/** `D` and `W` on the tab (ADR-0283), and the toolbar's **Day**, **Week** and **Studios**: Day
+ *  and Studios open on the selected block's day wherever in the week it is, the open day or
+ *  not. Between Day and Studios the day shown stays. */
+export function keyView(view: ScheduleView, now: number): void {
   if (view === 'week') return setView('week');
   const { days, blocks } = weekBlocks(now);
   const selected = blocks.find((b) => b.id === sched.selected) ?? null;
-  setView('day', dayToOpen(selected?.start ?? null, now, days));
+  if (!selected && oneDay() && sched.view !== view) return setView(view, sched.anchor);
+  setView(view, dayToOpen(selected?.start ?? null, now, days));
 }
 
 /** The day Day opens on when nobody named one. */
@@ -167,8 +224,31 @@ export function today(now: number): void {
 
 export function select(id: string | null): void {
   sched.selected = id;
+  // The booking being made is held only while it is the selection.
+  if (id !== NEW_BOOKING) sched.booking = null;
+  if (isRehearsalId(id)) return void (sched.pane = 'episode');
   if (id && sched.pane !== 'card') sched.pane = id.startsWith('auto:') ? 'log' : 'episode';
   if (id && sched.pane === 'card' && id.startsWith('auto:')) sched.pane = 'log';
+}
+
+/** Begin a booking of the rehearsal studio in the Studios view (Book…, or a drag across the
+ *  Rehearsal column): it is drawn there and opens in the editor column, and nothing is at the
+ *  station until it is saved. */
+export function beginBooking(show: string, start: number, end: number): void {
+  sched.pane = 'episode';
+  sched.editShow = null;
+  sched.selected = NEW_BOOKING;
+  sched.booking = { show, start, end };
+}
+
+/** What is selected in the Rehearsal column while the Studios view draws it: the booking being
+ *  made, or a booking or session of the day shown. Null in any other view. */
+export function shownRehearsal(list: readonly Rehearsal[], days: readonly number[], day: number): string | null {
+  const id = sched.selected;
+  if (sched.view !== 'studios' || !isRehearsalId(id)) return null;
+  if (id === NEW_BOOKING) return sched.booking ? id : null;
+  const r = list.find((x) => x.id === id);
+  return r && r.start < days[day + 1] && Math.max(r.end, r.start + 1) > days[day] ? id : null;
 }
 
 /** A show's own pane, at its Dates unless Details is asked for. */
@@ -183,6 +263,7 @@ export function backToShows(): void {
   sched.pane = 'episode';
   sched.editShow = null;
   sched.selected = null;
+  sched.booking = null;
 }
 
 // ---- Esc, and a press on the grid where no block is ----
@@ -202,14 +283,16 @@ export type Closed = { did: 'nothing' } | { did: 'unsaved'; what: string } | { d
 
 let refusals = 0;
 /** `Esc` on the tab, and a press on the grid where no block is: as **‹ Shows**, it closes what
- *  the editor column holds and clears the selection, so the list of shows is back. `Esc` is
+ *  the editor column holds (a booking of the rehearsal studio too) and clears the selection,
+ *  so the list of shows is back. `Esc` is
  *  never destructive (keymap.md), and after a first `Esc` has left a text field a second one
  *  follows by habit: so while an editor holds changes that are not saved nothing closes, and
  *  the tab says why. A selection the grid does not draw (another week, or another day in the
  *  Day view) holds nothing open, and is left as it is. */
 export function closeOpen(now: number): Closed {
   const { days, blocks } = weekBlocks(now);
-  const block = shownBlock(blocks, days, sched.selected, sched.view === 'day' ? Math.max(0, dayIndex(sched.anchor, days)) : null);
+  const day = Math.max(0, dayIndex(sched.anchor, days));
+  const block = shownBlock(blocks, days, sched.selected, oneDay() ? day : null)?.id ?? shownRehearsal(weekRehearsals(now), days, day);
   const show = sched.pane === 'show' && sched.shows.some((s) => s.slug === sched.editShow) ? sched.editShow : null;
   if (!block && !show) return { did: 'nothing' };
   const [what] = unsaved.values();
@@ -218,7 +301,7 @@ export function closeOpen(now: number): Closed {
     return { did: 'unsaved', what };
   }
   backToShows();
-  return { did: 'closed', block: block?.id ?? null, show };
+  return { did: 'closed', block, show };
 }
 
 let reveals = 0;
@@ -290,6 +373,8 @@ export async function loadWeek(): Promise<void> {
       noteStationVersion(v);
       sched.dates = week.dates;
       sched.publicUrl = week.publicUrl;
+      sched.studios = week.studios;
+      sched.rehearsals = week.rehearsals;
       sched.zone = week.zone || settings?.time_zone || sched.zone;
       sched.zoneSet = chosen?.set ?? sched.zoneSet;
       sched.episodes = week.episodes;

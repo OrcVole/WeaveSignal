@@ -23,13 +23,33 @@ import {
 import * as api from './api.ts';
 import { CAMERA_PUBLISH, backoff, cameraCapture, connectOptions, limitSubscribers, offersCamera, rejoinUntil, shouldHear, shouldSee, voiceCapture } from './rules.ts';
 import { cameraProblem, micProblem } from './mic.ts';
+import { MOVE_RETRY_MS, adoptInBrowser, type Moved } from './move.ts';
 import type { CameraHandover } from './camera-preview.svelte.ts';
 import * as store from './store.ts';
 import { installStationIce } from './turn.ts';
 import type { Link } from './words.ts';
 
+/** What a call is told besides its pass. */
+export interface CallOptions {
+  /** Where the link leads (1.3). A rehearsal link joins the rehearsal room and, when the presenter
+   *  moves everyone, moves on to the live studio. */
+  studio?: api.Studio;
+  /** The rehearsal this person was moved from, when the page learned it before joining. */
+  moved?: Moved | null;
+  /** Called with the new pass when a move swaps it in; by default the page's own fragment is
+   *  swapped (`history.replaceState`). */
+  onPass?: (pass: string) => void;
+}
+
 export class Call {
   link = $state<Link>('idle');
+  /** Where this call is: the rehearsal studio until a move, then the live studio. */
+  studio = $state<api.Studio>('live');
+  /** Whether they have been on air in the live studio since they joined. `off_air` alone cannot
+   *  tell "standing by" (every invitation arrives so) from "taken off". */
+  wasOnAir = $state(false);
+  /** The rehearsal they were moved from, until they are on air. */
+  moved = $state<Moved | null>(null);
   me = $state<api.MeState | null>(null);
   /** The studio's sound (our mix-minus) is arriving. */
   hearing = $state(false);
@@ -58,15 +78,23 @@ export class Call {
   #stopMe: (() => void) | null = null;
   #audio: HTMLMediaElement[] = [];
   #leaving = false;
+  /** A move is under way: a second `move` frame is ignored (the server sends it on every frame). */
+  #moving = false;
+  /** Counts the passes this call has followed; a loop or a state frame of an older one stops. */
+  #gen = 0;
+  #onPass: (pass: string) => void;
   #heartbeat: ReturnType<typeof setInterval> | undefined;
 
   /** The camera the join page already showed the person (ADR-0171), taken at start. */
   #handover: CameraHandover | null;
 
-  constructor(joined: api.Joined, relay = false, camera: CameraHandover | null = null) {
+  constructor(joined: api.Joined, relay = false, camera: CameraHandover | null = null, opts: CallOptions = {}) {
     this.joined = joined;
     this.relay = relay;
     this.#handover = camera;
+    this.studio = opts.studio ?? 'live';
+    this.moved = opts.moved ?? null;
+    this.#onPass = opts.onPass ?? adoptInBrowser;
   }
 
   get role(): api.Role {
@@ -77,17 +105,7 @@ export class Call {
   async start(): Promise<void> {
     // Again after a refused microphone (Try again): the refusal's sentence goes with it.
     this.problem = null;
-    this.#stopMe = api.followMe(
-      this.joined.pass,
-      (s) => {
-        this.me = s;
-        if (s.phase === 'ended') void this.#end();
-      },
-      (why) => {
-        this.problem = why;
-        void this.#end();
-      },
-    );
+    this.#watch();
     this.link = 'connecting';
     try {
       this.#track = await createLocalAudioTrack(voiceCapture());
@@ -108,6 +126,69 @@ export class Call {
         if (await this.#connect()) return;
       }
       this.problem = 'This page could not reach the studio. Check your connection and try again.';
+      this.link = 'lost';
+    }
+  }
+
+  /** Follow our own state on the current pass; frames of an older pass are dropped. */
+  #watch(): void {
+    const gen = this.#gen;
+    this.#stopMe?.();
+    this.#stopMe = api.followMe(
+      this.joined.pass,
+      (s) => {
+        if (gen === this.#gen) this.#state(s);
+      },
+      (why) => {
+        if (gen !== this.#gen) return;
+        this.problem = why;
+        void this.#end();
+      },
+    );
+  }
+
+  #state(s: api.MeState): void {
+    this.me = s;
+    if (s.studio) this.studio = s.studio;
+    if (s.studio !== 'rehearsal' && s.phase === 'on_air') this.wasOnAir = true;
+    // The presenter moved everyone (1.3): the server offers each page its live pass, and offers it
+    // again on every frame and after every reconnection, so only the first one moves the page.
+    if (s.studio === 'rehearsal' && s.move && !this.#moving) {
+      void this.#moveToLive(s.move);
+      return;
+    }
+    if (s.phase === 'ended' && !this.#moving) void this.#end();
+  }
+
+  /**
+   * Move from the rehearsal room to the live room, keeping the microphone. In this order:
+   * the fragment takes the live pass first (a reload now lands in the live studio), the old
+   * stream and anything the old pass was retrying stop, the stream follows the new pass, then
+   * the room is left with the tracks kept and the live room joined as a rejoin does: a token
+   * for the new pass, the microphone (a fresh one only if it ended) and the camera, which the
+   * rehearsal had none of. Nothing here puts anyone on air: the live desk keeps them standing by.
+   */
+  async #moveToLive(move: api.MoveTo): Promise<void> {
+    this.#moving = true;
+    const gen = ++this.#gen;
+    this.#onPass(move.pass);
+    this.#stopMe?.();
+    this.#stopMe = null;
+    this.me = null;
+    this.problem = null;
+    this.link = 'moving';
+    this.moved = { show: move.show, airing_start_ms: move.airing_start_ms };
+    this.joined = { ...this.joined, pass: move.pass };
+    this.#watch();
+    await this.#drop(true);
+    this.heldUntil = Date.now() + MOVE_RETRY_MS;
+    const ok = await this.#rejoin();
+    if (gen !== this.#gen) return;
+    this.#moving = false;
+    if (ok) {
+      this.studio = 'live';
+      this.heldUntil = null;
+    } else if ((this.link as Link) !== 'ended') {
       this.link = 'lost';
     }
   }
@@ -321,36 +402,52 @@ export class Call {
 
   async #afterRemoval(): Promise<void> {
     // Give the state stream a moment to say "ended"; if it does not, it was a link fault.
+    const gen = this.#gen;
     await new Promise((r) => setTimeout(r, 2500));
-    if ((this.link as Link) !== 'ended') await this.#lost();
+    if (gen === this.#gen && (this.link as Link) !== 'ended') await this.#lost();
   }
 
   async #lost(): Promise<void> {
+    const gen = this.#gen;
     this.link = 'reconnecting';
     this.heldUntil = rejoinUntil(this.role, Date.now(), this.joined.pass_expires_at_ms);
-    if (!(await this.#rejoin()) && (this.link as Link) !== 'ended') this.link = 'lost';
+    // A move that came meanwhile took over (its own rejoin carries on); this one stands down.
+    if (!(await this.#rejoin()) && gen === this.#gen && (this.link as Link) !== 'ended') this.link = 'lost';
   }
 
   /** New room tokens for the same identity until the held place or the pass runs out. */
   async #rejoin(): Promise<boolean> {
+    const gen = this.#gen;
     const until = this.heldUntil ?? rejoinUntil(this.role, Date.now(), this.joined.pass_expires_at_ms);
     this.heldUntil = until;
-    for (let n = 0; Date.now() < until && !this.#leaving; n++) {
+    for (let n = 0; Date.now() < until && !this.#leaving && gen === this.#gen; n++) {
       await new Promise((r) => setTimeout(r, n === 0 ? 300 : backoff(n - 1)));
+      if (gen !== this.#gen) return false;
       try {
-        this.joined = await api.passToken(this.joined.pass);
+        const fresh = await api.passToken(this.joined.pass);
+        if (gen !== this.#gen) return false;
+        this.joined = fresh;
       } catch (e) {
+        if (gen !== this.#gen) return false;
         if (e instanceof api.ApiError && (e.status === 410 || e.status === 401)) {
           this.problem = e.message;
           await this.#end();
           return false;
         }
+        // A refusal that stays (the show's step has switched this seat off, a closed rehearsal)
+        // is said on the page, not left as "Reconnecting" or "Moving" for ever.
+        if (e instanceof api.ApiError && e.status === 409) this.problem = e.message;
         continue;
       }
       await this.#drop(true);
       await this.#freshMic();
-      if (this.#camera) await this.#takeCamera();
-      if (await this.#connect()) return true;
+      // A move takes the camera it did not have in the rehearsal room (which sends none).
+      if (this.#camera || this.#moving) await this.#takeCamera();
+      if (gen !== this.#gen) return false;
+      if (await this.#connect()) {
+        this.problem = null;
+        return true;
+      }
     }
     return false;
   }

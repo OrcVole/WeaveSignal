@@ -86,6 +86,23 @@ impl Switches {
         }
     }
 
+    /// Standing by: at the desk, heard on cue and by talk, but off air until a press.
+    pub fn standing_by() -> Self {
+        Switches::default()
+    }
+
+    /// The switches of someone the live desk sees for the first time (1.3): standing by if they
+    /// are a guest (the operator's answer to question 9) or their token's standing-by time
+    /// (`weavesignal.standby_until`, ms since the Unix epoch) is still ahead at `now_ms`; their
+    /// role's default otherwise. This only ever takes someone off air, never puts them on.
+    pub fn arriving(role: Role, standby_until_ms: Option<u64>, now_ms: u64) -> Self {
+        if weavesignal_proto::arrives_standing_by(role, standby_until_ms, now_ms) {
+            Switches::standing_by()
+        } else {
+            Switches::at_join(role)
+        }
+    }
+
     /// Whether a voice passes `gate` onto the bus owned by `owner` (`None`: the programme).
     pub fn passes(&self, gate: Gate, owner: Option<&str>) -> bool {
         let private = self.talk_to.is_some();
@@ -186,6 +203,37 @@ pub fn gate_to_bus(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arriving_stands_guests_and_moved_people_by_and_never_puts_anyone_on() {
+        let now = 1_700_000_000_000;
+        // A presenter: the time ahead stands them by; past or absent, their role's default.
+        assert_eq!(
+            Switches::arriving(Role::Presenter, Some(now + 60_000), now),
+            Switches::standing_by()
+        );
+        assert_eq!(
+            Switches::arriving(Role::Presenter, Some(now - 1), now),
+            Switches::at_join(Role::Presenter)
+        );
+        assert_eq!(
+            Switches::arriving(Role::Presenter, None, now),
+            Switches::at_join(Role::Presenter)
+        );
+        assert!(Switches::arriving(Role::Presenter, None, now).on_air);
+        // Every guest stands by, with or without the attribute (question 9).
+        for t in [None, Some(now - 1), Some(now + 1)] {
+            assert!(!Switches::arriving(Role::Guest, t, now).on_air);
+        }
+        // Nobody off air at joining is put on by it.
+        for role in Role::ALL {
+            for t in [None, Some(0), Some(now + 1), Some(u64::MAX)] {
+                let a = Switches::arriving(role, t, now);
+                assert!(!a.on_air || Switches::at_join(role).on_air, "{role}");
+                assert!(!a.mute && !a.cue && !a.talk && a.talk_to.is_none());
+            }
+        }
+    }
 
     fn mm(identity: &str, role: Role) -> Dest<'_> {
         Dest::MixMinus { identity, role }

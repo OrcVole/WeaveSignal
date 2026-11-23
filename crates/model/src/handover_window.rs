@@ -214,6 +214,10 @@ pub struct WindowView {
     pub from: Origin,
     /// When the incoming host was given their heads-up for this airing (once an airing).
     pub heads_up_ms: Option<i64>,
+    /// The show is in the rehearsal studio now (1.3): the post line says "… rehearsing". Its
+    /// people are moved to the live studio by a press there, never by the window.
+    #[serde(default)]
+    pub rehearsing: bool,
     /// The host the show under way still waits for, once the window has moved on to the next
     /// show (1.2.1): the desk then names both, the late one first. `null` when nobody is late,
     /// and while the window is still about the show under way (the post's own reading says it).
@@ -484,6 +488,7 @@ pub fn for_post(f: &PostFacts<'_>) -> AtPost {
         host: host.clone(),
         from,
         heads_up_ms: told,
+        rehearsing: false,
         // Only once the next show's window has opened: before that the desk draws no window.
         late: under_way
             .filter(|_| w.state != State::Quiet)

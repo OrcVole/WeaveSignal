@@ -3,7 +3,7 @@ title: "Prepare your show while another is on air"
 description: "A studio window is Live or Preparing. A preparing window shows the live desk but cannot change what is on air, so the next DJ can set up their own show while someone else's is on air: who starts preparing, what stays open and what is off, and how to switch to Live when the desk is yours."
 type: howto
 status: draft
-last_verified: 2026-11-12
+last_verified: 2026-11-22
 sidebar:
   order: 5
 ---
@@ -49,7 +49,7 @@ What stays open, in a preparing window:
 | **Settings** | **Your show**: your on-air name, the takedown contact, your links and the usual time ([Set up your show](/docs/how-to/set-up-your-show/)) |
 | **The step** | how much of the studio your show uses, in the show editor ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)) |
 | **The live desk, to follow** | the lamp, who is on air, the clock and the rundown, the listener count, the chat to read |
-| **Invitations** | **Invite someone…** still makes a link. It brings the person into the live room, and an invitation with the role presenter puts them on air as they join, so agree it with whoever is on air |
+| **Invitations** | **Invite someone…** still makes a link. It brings the person into the live room, standing by under **Not on air** (since 1.3, everyone invited arrives off air), so agree it with whoever is on air. To try things first with nobody on air, rehearse instead ([Rehearse before your show](/docs/how-to/rehearse-before-your-show/)) |
 | **The chat** | moderating on the Screener tab works as usual |
 | **The cart banks** | `⌃F1` to `⌃F5` still turn the wall to another bank in your window. The wall shows the station's banks and your show's own; your show's are yours to set up (below) |
 
@@ -62,15 +62,16 @@ What is off:
 - **On the Screener tab**: Talk, a caller's notes, **Send to desk**, **To queue** and **Drop**. The queue is there to read.
 - **The keys of all of these** do nothing, on every tab: `1` to `6`, the cue, talk and mute rows, `F1` to `F7`, `Del Del`, `⌃D ⌃D`, `⇧⏎`, `⌃⇧E`, `⌃T`.
   The band under the top bar deepens for a moment to answer the press.
-- At Solo, if nobody is presenting in the room, the desk does not offer **Join with my microphone…**: that link joins on air.
+- At Solo, if nobody is presenting in the room, the desk does not offer **Join with my microphone…**: that link joins the live room.
 
 The band is on the Desk, Screener and Carts tabs.
 The Schedule tab and Settings have none, because nothing on them is off.
 
-Two things Prepare mode does not give you (they belong to a rehearsal studio, which is designed next):
+What Prepare mode does not give you is a private room: you cannot try your microphone with your guests or hear a mix of your own in it.
+For that there is the rehearsal studio, a second desk with no way to the air ([Rehearse before your show](/docs/how-to/rehearse-before-your-show/); from 1.3.0, on a station that has turned it on).
+The echo test on the join page is also yours to use ([Get ready to present](/docs/how-to/get-ready/)).
 
-- **There is no private room.** You cannot try your microphone with your guests or hear a mix of your own; the echo test on the join page is yours to use ([Get ready to present](/docs/how-to/get-ready/)).
-One thing it does give you: **your show's own cart banks** (from 1.0.2).
+Prepare mode does give you **your show's own cart banks** (from 1.0.2).
 A preparing window's cart wall is the station's banks and your show's own, and the live window's is the station's and the show on air's, so the dog woofs you set up in your bank 2 never land in the bank 2 the show on air is firing from ([Cart wall](/docs/reference/surfaces/carts/#a-cart-wall-per-show)).
 Your show's carts fire once your show holds the air and your window is live.
 The station's banks are still shared: a cart you change in one of them changes for the show on air too.

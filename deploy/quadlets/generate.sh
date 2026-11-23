@@ -51,6 +51,8 @@ files=(-f compose.yaml)
 grep -q '^PUBLIC_DOMAIN=.' "$env_file" && files+=(-f public.yaml)
 # The telephone line (17f) adds Valkey and LiveKit's SIP service: phone.yaml.
 grep -q '^PHONE=true' "$env_file" && files+=(-f phone.yaml)
+# The rehearsal studio (1.3) adds the rehearsal desk: rehearsal.yaml, one more unit.
+grep -qx 'REHEARSAL=true' "$env_file" && files+=(-f rehearsal.yaml)
 # A GPU for the desk (17e) adds gpu.yaml, as weavesignal.sh does: GPU=nvidia with video on. The
 # card reaches the desk's unit as AddDevice= with its CDI name.
 grep -qx 'GPU=nvidia' "$env_file" && grep -qx 'VIDEO=true' "$env_file" && files+=(-f gpu.yaml)
@@ -189,6 +191,10 @@ for service, s in sorted(c["services"].items()):
         size = (log.get("options") or {}).get("max-size")
         if size:
             lines.append(f"LogOpt=max-size={size}")
+    if service == "desk-rehearsal" and s.get("oom_score_adj"):
+        # The rehearsal desk is the kernel's first choice to stop under memory pressure (1.3),
+        # never the live desk; Podman raises its score (raising needs no privilege).
+        lines.append(f"PodmanArgs=--oom-score-adj={int(s['oom_score_adj'])}")
     if s.get("command"):
         lines.append("Exec=" + " ".join(shlex.quote(a) for a in s["command"]))
     restart = s.get("restart", "no")

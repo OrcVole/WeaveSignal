@@ -27,6 +27,7 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 - [Start on the count-in](/docs/how-to/count-in/): the count-in, and taking turns with remote guests.
 - [When the lamp says PLAYOUT DOWN](/docs/how-to/playout-down/): what it means, and what to do.
 - [Set up your show](/docs/how-to/set-up-your-show/): a DJ's on-air name, takedown contact, show and usual time, kept as defaults.
+- [Rehearse before your show](/docs/how-to/rehearse-before-your-show/): the rehearsal studio, with your guests and carts and nothing reaching the air, then one press to the live studio (from 1.3.0).
 - [Echo and headphones](/docs/explanation/echo-and-headphones/): why presenters and guests wear headphones.
 
 ## Screeners and station staff
@@ -59,3 +60,4 @@ What 1.0.0 does and leaves out is [What release one does, and what it leaves out
 - [Control plane routes](/docs/reference/control-api/) and the [API reference](/docs/reference/api/), generated from the code.
 - [Packages and install files](/docs/reference/packages/) and [licences](/docs/reference/licence/).
 - [What the lamp means](/docs/explanation/on-air/): ON AIR, OPEN, AUTO and PLAYOUT DOWN.
+- [The rehearsal studio](/docs/reference/rehearsal-studio/) and [what moves to the live studio](/docs/explanation/what-moves-to-the-live-studio/) (from 1.3.0).

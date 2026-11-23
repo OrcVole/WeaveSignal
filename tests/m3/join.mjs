@@ -290,9 +290,12 @@ const gone = await until((v) => !v.callers.some((c) => c.identity === id), 8000)
 const reuse = pass ? await fetch(`${WEB}/api/v1/pass/token`, { method: 'POST', headers: { Authorization: `Bearer ${pass}` } }) : { status: 0 };
 check('out of the queue, and her pass buys no new token', gone.ms !== null && reuse.status === 410, `pass ${reuse.status}`);
 
-// ---- an invited guest (on air at once) and a remote DJ (waits for the handover) ----
+// ---- an invited guest and a remote DJ: both arrive standing by, off air (a guest stands by until
+// a press since 1.3, the operator's answer to question 9; in 1.2 a guest went on air at once). The
+// guest's page says "Standing by"; it said "You're off air" before the page could tell standing by
+// from taken off. A real rehearsal join and move need a rehearsal desk this stack does not run. ----
 for (const [role, nameOf, want, wantHead] of [
-  ['guest', 'Gregor Stewart', 'on_air', "You're on air"],
+  ['guest', 'Gregor Stewart', 'off_air', 'Standing by'],
   ['dj', 'Finlay Grant', 'off_air', 'Waiting for the handover'],
 ]) {
   const inv = await (await post('/api/v1/invites', { role, name: nameOf })).json();
@@ -306,6 +309,14 @@ for (const [role, nameOf, want, wantHead] of [
   const h = await headline(g).catch(() => '');
   check(`an invited ${role === 'dj' ? 'remote DJ' : role} joins: "${wantHead}"`, ms !== null && h === wantHead, `${ms} ms · ${h}`);
   await shot(g, `join-390-${role}-${want}`);
+  if (role === 'guest') {
+    // The presenter's press puts the guest on air.
+    await desk({ op: 'on_air', identity: inv.identity, on: true });
+    const on = await waitPhase(g, 'on_air', 10_000);
+    const oh = await headline(g).catch(() => '');
+    check('the press puts the invited guest on air: "You\'re on air"', on !== null && oh === "You're on air", `${on} ms · ${oh}`);
+    await shot(g, 'join-390-guest-on_air');
+  }
   await g.getByRole('button', { name: 'Leave the studio' }).tap();
   await g.getByRole('button', { name: /Press again/ }).tap();
   await gctx.close();

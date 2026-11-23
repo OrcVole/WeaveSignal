@@ -3,8 +3,10 @@
 <script lang="ts">
   // The join page for people the station invites: a guest, a remote DJ, or a presenter in a
   // browser. The invite is a pass in the link's fragment (`/join/#rsp1...`), which the browser
-  // never sends to a server. The page says before joining whether they go on air at once (a
-  // guest or presenter) or wait for the handover (a DJ), checks the microphone, then joins.
+  // never sends to a server. Every invitation arrives standing by (1.3): the page says before
+  // joining that nobody is on air until the studio puts them on or the handover, checks the
+  // microphone, then joins. A link to the rehearsal studio says who hears it there, and moves the
+  // person to the live studio, standing by, when the presenter moves everyone.
   import { onDestroy, onMount } from 'svelte';
   import Glyphs from '../../studio/src/lib/Glyphs.svelte';
   import BrandMark from './lib/BrandMark.svelte';
@@ -14,12 +16,20 @@
   import CameraCheck from './lib/CameraCheck.svelte';
   import MicCheck from './lib/MicCheck.svelte';
   import { CameraPreview } from './lib/camera-preview.svelte.ts';
+  import { AS, caps, heading, joinWord, lasts, movedHere, what } from './lib/join-words.ts';
+  import { adoptInBrowser, type Moved } from './lib/move.ts';
   import { wantsCameraPreview } from './lib/rules.ts';
   import { useStationIce } from './lib/turn.ts';
 
-  const pass = (globalThis.location?.hash ?? '').replace(/^#/, '').trim();
+  // The pass changes once: when a rehearsal link finds it was moved before the person joined.
+  const fromLink = (globalThis.location?.hash ?? '').replace(/^#/, '').trim();
+  let pass = $state(fromLink);
+  /** The rehearsal this page was moved from, when it learned so before the person joined. */
+  let moved = $state<Moved | null>(null);
   let info = $state<api.PassInfo | null>(null);
-  let problem = $state<string | null>(pass ? null : 'This page needs the link the station sent you. Open that link, all of it, on this device.');
+  const studio = $derived(info?.studio ?? 'live');
+  // The link's own pass, read once: a page without one says so.
+  let problem = $state<string | null>(fromLink ? null : 'This page needs the link the station sent you. Open that link, all of it, on this device.');
   let call = $state<Call | null>(null);
   let joining = $state(false);
   let relay = $state(false);
@@ -43,9 +53,24 @@
     await prepare();
   });
 
+  /** A rehearsal link opened after its rehearsal moved to the live studio: its events carry the
+   *  person's live pass if they were moved. Take it, swap it into the link, and read the live
+   *  pass's own facts, so the page opens as the standing-by invitation it has become. */
+  async function followMove() {
+    if (!info || info.studio !== 'rehearsal' || !info.not_now || info.ended) return;
+    const s = await api.firstState(pass).catch(() => null);
+    if (!s?.move) return;
+    adoptInBrowser(s.move.pass);
+    pass = s.move.pass;
+    moved = { show: s.move.show, airing_start_ms: s.move.airing_start_ms };
+    info = await api.passInfo(pass);
+    if (info.ended) problem = 'The studio has ended this invitation. Ask the station for a new link.';
+  }
+
   /** Once the pass can join: the camera's preview, where the station has video on. Not while the
    *  show's step keeps the seat off (ADR-0271): nobody is asked for a camera they cannot use yet. */
   async function prepare() {
+    await followMove().catch(() => {});
     if (info && !info.ended && !info.not_now && !previewing) {
       checkingVideo = true;
       // The player's public figures say whether video is on; unknown means no preview.
@@ -59,13 +84,6 @@
   }
   onDestroy(() => preview.stop());
 
-  const as: Record<string, string> = { guest: 'as a guest', dj: 'as a remote DJ', presenter: 'to present' };
-  const what: Record<string, string> = {
-    guest: "You're on air as soon as you join, so join when you're ready to talk. The studio can take you off.",
-    presenter: "You're on air as soon as you join. Your page says so in red.",
-    dj: "You join off air and hear the show. You go on air when the presenter hands over to you; your page says when.",
-  };
-  const until = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // The show on air may run at a step that has switched this seat off (ADR-0271): the page says
   // so in the station's sentence, and the link stays good for later, so it can look again.
@@ -90,7 +108,7 @@
       const joined = await api.passToken(pass);
       const { Call } = await import('./lib/call.svelte.ts');
       useStationIce(info?.relay);
-      call = new Call(joined, relay, previewing ? preview.handOver() : null);
+      call = new Call(joined, relay, previewing ? preview.handOver() : null, { studio, moved });
       void call.start();
     } catch (e) {
       problem = e instanceof Error ? e.message : String(e);
@@ -109,17 +127,18 @@
 
   <main class="main" aria-label="Join the studio">
     {#if call && info}
-      <h1 class="sr-only">{info.station}: {info.name || 'you'} {as[info.role] ?? ''}</h1>
+      <h1 class="sr-only">{studio === 'rehearsal' ? 'Rehearsal studio, ' : ''}{info.station}: {info.name || 'you'} {AS[info.role] ?? ''}</h1>
       <CallPanel {call} relayPort={info.relay.turn_tls_port} />
     {:else}
       <section class="card" aria-labelledby="join-h">
         {#if info}
-          <span class="caps">Invitation</span>
-          <h1 id="join-h">Join {info.show || info.station} {as[info.role] ?? ''}</h1>
+          <span class="caps">{caps(studio)}</span>
+          <h1 id="join-h">{heading(info.show || info.station, info.role, studio)}</h1>
           {#if info.name}<p>Joining as <b>{info.name}</b></p>{/if}
+          {#if moved && !info.not_now}<p class="small moved" role="status">{movedHere(moved, Date.now())}</p>{/if}
           <!-- What joining does is said once the seat is open: not beside "Not just now". -->
-          {#if !info.not_now}<p class="small">{what[info.role] ?? ''}</p>{/if}
-          <p class="small">This link works until {until(info.expires_at_ms)}, and only for you: don't share it.</p>
+          {#if !info.not_now}<p class="small">{what(info.role, studio)}</p>{/if}
+          <p class="small">{lasts(info.expires_at_ms, studio)}</p>
         {:else if !problem}
           <h1 id="join-h">Opening your invitation…</h1>
         {:else}
@@ -143,7 +162,7 @@
             <input type="checkbox" bind:checked={relay} />
             <span class="relay">Connect through the station's relay <span class="small">(for networks and browsers that block calls; port {info.relay.turn_tls_port})</span></span>
           </label>
-          <button type="button" class="btn primary big wide" disabled={joining || checkingVideo || preview.starting} onclick={join}>{joining ? 'Joining…' : 'Join the studio'}</button>
+          <button type="button" class="btn primary big wide" disabled={joining || checkingVideo || preview.starting} onclick={join}>{joining ? 'Joining…' : joinWord(studio)}</button>
         </section>
       {/if}
     {/if}

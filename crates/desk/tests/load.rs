@@ -12,6 +12,8 @@
 //! (`producer`, as the staging driver did, or `listener`). `WEAVESIGNAL_LOAD_CARTS` (2 by
 //! default) carts are then fired at each step, a bed and one-shots decoded from FLAC as the
 //! cart wall plays them (ADR-0117), and the CPU measured again with them sounding.
+//! `WEAVESIGNAL_LOAD_MODE=rehearsal` measures a rehearsal desk (1.3) instead: its own room,
+//! its returns and carts only, and guests where a live desk would have callers.
 
 mod stack;
 
@@ -22,7 +24,7 @@ use gstreamer::prelude::*;
 use stack::{Person, Room, flac, linked, run_for, wait_for};
 use weavesignal_desk::carts::{CartMode, Fire};
 use weavesignal_desk::census::{census, cpu_by_thread_kind, cpu_share, thread_names, threads};
-use weavesignal_desk::pipeline::{Desk, Outputs};
+use weavesignal_desk::pipeline::Desk;
 use weavesignal_desk::room::{self, RoomApi};
 use weavesignal_proto::Role;
 
@@ -61,19 +63,25 @@ fn what_the_desk_costs_per_person() {
             (flac(&cart_dir, 2500.0 + 300.0 * i as f64, secs), mode)
         })
         .collect();
-    let room = Room::fresh("m1-load");
-    let desk = Desk::new(
-        room.config(&format!(
-            "[room]\npoll_ms = 300\nleave_grace_ms = 1000\n\n[carts]\ndir = \"{}\"\n",
-            cart_dir.display()
-        )),
-        Outputs::ALL,
-    )
-    .unwrap();
+    let rehearsal = std::env::var("WEAVESIGNAL_LOAD_MODE").is_ok_and(|m| m == "rehearsal");
+    let mut room = Room::fresh("m1-load");
+    let mode = if rehearsal {
+        room.name = weavesignal_proto::rehearsal_room(&room.name);
+        "\n[desk]\nmode = \"rehearsal\"\nidentity = \"desk-rehearsal\"\n"
+    } else {
+        ""
+    };
+    let config = room.config(&format!(
+        "[room]\npoll_ms = 300\nleave_grace_ms = 1000\n\n[carts]\ndir = \"{}\"\n{mode}",
+        cart_dir.display()
+    ));
+    let outputs = config.desk.mode.outputs();
+    let desk = Desk::new(config, outputs).unwrap();
+    println!("desk mode: {}", desk.desk_mode().as_str());
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let watcher = {
         let c = desk.config();
-        let api = RoomApi::new(&c.api_url(), c.keys(), &c.livekit.room, &c.desk.identity);
+        let api = RoomApi::for_desk(c);
         let (desk, stop) = (desk.clone(), stop.clone());
         std::thread::spawn(move || room::watch(desk, api, stop))
     };
@@ -86,7 +94,8 @@ fn what_the_desk_costs_per_person() {
             .map(|i| {
                 let role = match i {
                     0 => Role::Presenter,
-                    i if i % 4 == 3 => Role::Caller,
+                    // No booths in the rehearsal studio: a guest where a caller would be.
+                    i if i % 4 == 3 && !rehearsal => Role::Caller,
                     _ => Role::Guest,
                 };
                 (format!("s{step}-p{i:02}"), role, 400.0 + 150.0 * i as f64)
@@ -105,7 +114,8 @@ fn what_the_desk_costs_per_person() {
             linked(&desk, &names)
         );
         for (id, role, _) in &cast {
-            if *role == Role::Caller {
+            // Callers wait off air, and guests arrive standing by at a live desk (1.3).
+            if matches!(*role, Role::Caller | Role::Guest) {
                 desk.set_on_air(id, true);
             }
         }
@@ -116,7 +126,7 @@ fn what_the_desk_costs_per_person() {
                 &weavesignal_proto::room_for(&room.name, *target_role, target),
                 &format!("s{step}-mon{m:02}"),
                 monitor_role,
-                &format!("desk-mm-{}", names[m % n]),
+                &format!("{}-mm-{}", desk.config().desk.identity, names[m % n]),
             ));
         }
         run_for(&desk, Duration::from_secs(8));
@@ -138,6 +148,7 @@ fn what_the_desk_costs_per_person() {
             "people": n,
             "monitors": monitors,
             "monitor_role": monitor_role.as_str(),
+            "desk_mode": desk.desk_mode().as_str(),
             "at_desk": desk.status().len(),
             "cpu_pct": (cpu * 100.0).round(),
             "threads": threads(),

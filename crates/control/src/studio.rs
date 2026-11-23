@@ -1972,6 +1972,8 @@ mod tests {
             video: None,
             kit: None,
             phone: None,
+            desk_mode: None,
+            started_ms: None,
         }
     }
 

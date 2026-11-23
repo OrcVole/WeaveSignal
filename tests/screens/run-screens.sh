@@ -16,6 +16,16 @@
 #   tests/screens/run-screens.sh
 #   CARTS_PACK=$PWD/assets/carts-demo tests/screens/run-screens.sh   # the default cart pack as the
 #                                     # station's banks, for tests/carts/drive-pack.mjs
+#
+# The station has a rehearsal studio (1.3.0), so the Schedule tab's Studios view has its two
+# columns and the bookings' routes answer; no rehearsal desk listens on its socket, which the
+# bookings do not need. REHEARSAL=false leaves the studio off: the one column, and the line
+# that says how it is turned on.
+#
+#   STUDIOS_DAY=1 tests/screens/run-screens.sh   # also the Studios view's own day (seed-studios.mjs:
+#                                     # two shows on air around now, bookings, a session as it
+#                                     # happened), for tests/screens/drive-studios.mjs. Not seeded
+#                                     # otherwise: its shows would stand in drive.mjs's week.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -26,6 +36,7 @@ STUDIO_PORT=${STUDIO_PORT:-26420}
 PG_PORT=${PG_PORT:-26432}
 PG_IMAGE=${PG_IMAGE:-docker.io/library/postgres:18}
 ADMIN_TOKEN=screens-admin-test-only
+REHEARSAL=${REHEARSAL:-true}
 
 taken() { ss -H -ln "$1" "sport = :$2" | grep -q .; }
 for p in "$CONTROL_PORT" "$STUDIO_PORT" "$PG_PORT"; do taken -t "$p" && { echo "port $p/tcp is in use; set another" >&2; exit 1; }; done
@@ -69,6 +80,9 @@ cards_dir = "$run/cards"
 episodes_dir = "$run/episodes"
 [studio]
 show = "The Morning Kettle"
+[rehearsal]
+enabled = $REHEARSAL
+socket = "$run/sock/desk-rehearsal.sock"
 [log]
 format = "pretty"
 filter = "info"
@@ -96,6 +110,12 @@ CONTROL="http://127.0.0.1:$CONTROL_PORT" ADMIN_TOKEN=$ADMIN_TOKEN SEED_SQL="$run
 # The seed's episodes placed on dates other than the ones they were drafted for (the aired weeks
 # before today) take those dates as their rule dates too, which no route sets (seed.mjs).
 if [ -s "$run/seed.sql" ]; then podman exec -i "$prefix-pg" psql -q -v ON_ERROR_STOP=1 -U postgres -d weavesignal < "$run/seed.sql"; fi
+# The Studios view's day (1.3.0), when asked for: shows on air around now, the rehearsal
+# studio's bookings, and a session as it happened, which no route makes in the past.
+if [ "$REHEARSAL" = true ] && [ "${STUDIOS_DAY:-0}" = 1 ]; then
+  CONTROL="http://127.0.0.1:$CONTROL_PORT" ADMIN_TOKEN=$ADMIN_TOKEN SEED_SQL="$run/seed-studios.sql" node "$root/tests/screens/seed-studios.mjs"
+  if [ -s "$run/seed-studios.sql" ]; then podman exec -i "$prefix-pg" psql -q -v ON_ERROR_STOP=1 -U postgres -d weavesignal < "$run/seed-studios.sql"; fi
+fi
 
 # The interface, with /api passed to the control plane and the bearer added by the server.
 (

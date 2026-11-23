@@ -7,11 +7,12 @@ import { FieldError } from './lib/api.ts';
 import { DJ_COMES_WITH_FULL, INVITE_ROLES, OWN_LINK, inviteProblem, inviteUrl, joinsLine, lasts, lastsLine, nameProblem, rolesAt } from './lib/invite.ts';
 
 describe('the invitation dialog', () => {
-  it('offers the DJ first, and says of each role whether it joins on air', () => {
+  it('offers the DJ first, and says of every role that it joins off air (1.3: everyone invited stands by)', () => {
     expect(INVITE_ROLES.map((r) => r.role)).toEqual(['dj', 'guest', 'presenter']);
     expect(INVITE_ROLES[0].what).toMatch(/off air/);
-    expect(INVITE_ROLES[1].what).toMatch(/On air the moment they join/);
-    expect(INVITE_ROLES[2].what).toMatch(/On air the moment they join/);
+    expect(INVITE_ROLES[1].what).toBe('Joins off air, standing by under Not on air, until you put them on.');
+    expect(INVITE_ROLES[2].what).toMatch(/^Joins standing by, as a presenter of this show\./);
+    for (const r of INVITE_ROLES) expect(r.what).not.toMatch(/the moment/i);
   });
 
   it('asks for a name of 120 characters at most', () => {
@@ -36,7 +37,7 @@ describe('the invitation dialog', () => {
 
   it('says where they arrive, by role', () => {
     expect(joinsLine({ role: 'dj', name: 'Finlay Grant', identity: 'dj-1' })).toMatch(/^Finlay opens it .* off air, under Not on air\.$/);
-    expect(joinsLine({ role: 'guest', name: 'Gregor Stewart', identity: 'guest-1' })).toMatch(/on air the moment they join\.$/);
+    expect(joinsLine({ role: 'guest', name: 'Gregor Stewart', identity: 'guest-1' })).toMatch(/They arrive standing by, off air, under Not on air, until you put them on\.$/);
   });
 
   it('puts a refusal in words, never a bare status', () => {
@@ -69,7 +70,7 @@ describe('the invitation dialog', () => {
   it('words the Solo DJ’s own link as the design does', () => {
     expect(OWN_LINK.button).toBe('Join with my microphone…');
     expect(OWN_LINK.title).toBe('Your microphone link');
-    expect(OWN_LINK.lede).toBe('Open it in a browser on this computer and press Join the studio. You are on air the moment you join. Keep that tab open: it carries your voice.');
+    expect(OWN_LINK.lede).toBe('Open it in a browser on this computer and press Join the studio. You join off air, standing by: your own On key puts you on air. Keep that tab open: it carries your voice.');
     expect(OWN_LINK.open).toBe('Open in browser');
   });
 });

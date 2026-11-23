@@ -2,12 +2,21 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.3.0]
+
+- **A rehearsal studio**: a second desk that has no way to the air mixes a room of its own for one show at a time. A presenter, producer or admin opens it, invites guests with rehearsal invitations and rehearses with the desk's keys and the show's carts; nothing said there reaches listeners, recordings, webhooks or the chat. **One press moves the people to the live studio** on the links they already have, standing by.
+- **Behaviour change: every guest now arrives standing by at the live desk** (under *Not on air*) until a press puts them on, so a guest's first test words no longer reach the air.
+- **Studios as columns in the Schedule tab**, with optional bookings that hold the studio for a show; a booking never overlaps another.
+- **New setting `REHEARSAL`**, off by default (`/app/data/weavesignal.env`); it adds the rehearsal desk and opens no port. **Migration 0070** (`rehearsal_session`, `rehearsal_booking`). Video and hosts' own studios are off in the rehearsal desk.
+
 [1.2.1]
 
 - **The phone line answers**: the station makes its own SIP trunk and dispatch rule and checks them every 30 seconds (1.2.0 refused every call).
-- **A show can be made on a station with no public address**; the bridge panel says *On air* while a source is; Opus inside MPEG-TS is refused by name within a second.
+- **You can make a show on a station that has no public web address.**
+- **The bridge panel now says *On air* while a host's source is on air**, where it said *Standing by*.
+- **Opus sound inside an MPEG-TS stream is refused straight away**, with a message that names the problem, where it used to stand by in silence.
 - **An SRT or Icecast pull no longer freezes under a burst of sound**, and an SRT pull from a libsrt listener is heard.
-- **Fifty new default carts**, **Add and Edit a cart**, a **Default pack** action; the Screener's columns keep the Room on screen at larger text sizes; a phone caller who has left is no longer promised their place back; the consent switch says why it cannot be pressed; Bridge is explained in plain words.
+- **Fifty new default carts**, **Add and Edit a cart**, a **Default pack** action. A station that was installed earlier keeps the carts it has: to get the fifty, go to the Carts tab and press **Default pack…**; the Screener's columns keep the Room on screen at larger text sizes; a phone caller who has left is no longer promised their place back; the consent switch says why it cannot be pressed; Bridge is explained in plain words.
 - Settings offers a graphics card hint (steps, no switch on upgrade); a Cloudron app still has no GPU.
 
 [1.2.0]

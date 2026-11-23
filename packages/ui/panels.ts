@@ -33,7 +33,7 @@ export const DESK_B: readonly PanelInfo[] = [
   { name: 'desk.step-note', what: 'The guest’s empty seat, at Solo: why the desk is quiet, and the way up a step (ADR-0271).' },
   { name: 'desk.next', what: 'At Solo, the next show’s source in the guest’s empty seat (ADR-0280): its state, its meter, Cue, and when the schedule brings it on. It has no On key.' },
   { name: 'desk.waiting', what: 'Not on air: the sources that are cued or standing by, with the move rule, and Invite someone…, which makes an invitation. It arrives at the Guests step.' },
-  { name: 'desk.invite', what: 'The invitation dialog: a name and a role (a DJ joins off air; a guest or a presenter on air), then the link to send, Copy, and how long it lasts. At Solo it is the DJ’s own microphone link, with Open in browser.' },
+  { name: 'desk.invite', what: 'The invitation dialog: a name and a role (everyone invited joins off air, standing by, since 1.3), where the link leads when the rehearsal studio is open, then the link to send, Copy, and how long it lasts. At Solo it is the DJ’s own microphone link, with Open in browser.' },
   { name: 'desk.audience', what: "In the right panel. Listeners now on the station's stream, by mount, and what they hear (the desk, the dump, the fallback); or why they cannot be counted." },
   { name: 'desk.callers', what: 'Callers, at the Callers step: who is waiting on the phone lines, what about and for how long; take the next caller to strip 4 (P, ADR-0275).' },
   { name: 'desk.picture', what: 'In the right panel. The programme picture: the camera on air or the slate, switched with F7 (ADR-0010).' },
@@ -200,7 +200,30 @@ export const RTMP_OUT: readonly PanelInfo[] = [
   { name: 'settings.rtmp.remove', what: "Removing an RTMP destination, confirmed: its stream key is deleted with it." },
 ];
 
-const BY_NAME = new Map([...DESK_B, ...SCREENER, ...CARTS, ...CALENDAR, ...STUDIO, ...SETTINGS, ...ACCOUNT, ...SHOW_SETUP, ...UPDATES, ...SANDBOX, ...RTMP_OUT].map((p) => [p.name, p]));
+/** The rehearsal studio (1.3.0; rehearsal-mode-build-plan.md, screens 1 to 5 and 9): the Desk
+ *  tab's choice of studio, the rehearsal desk and its move, and the read-only line in Settings.
+ *  Nothing here reaches the air, so no line here says ON AIR or OPEN of it (ADR-0062). */
+export const REHEARSAL: readonly PanelInfo[] = [
+  { name: 'desk.studio', what: 'At the head of the Desk tab’s left column, on both desks: the tab’s studio, Live studio or Rehearsal studio. Off at this station it cannot be chosen and says which setting turns it on; a mark says a rehearsal is open, or that the rehearsal desk is not answering.' },
+  { name: 'rehearsal.stage', what: 'The rehearsal desk’s stage: the people in the rehearsal’s mix, as tiles, under the REHEARSAL lamp. Nothing here reaches listeners. With no session it offers Open the rehearsal studio for…, with a choice of show.' },
+  { name: 'rehearsal.lamp', what: 'The REHEARSAL lamp: hollow and dashed, never red and never ON AIR or OPEN. The rehearsal desk has no way to the air.' },
+  { name: 'rehearsal.tile.1', what: 'Strip 1 of the rehearsal desk as a tile: name, In the mix or Not in the mix, the meter, and Mix, Cue, Talk and Mute on the live desk’s keys. No End pass: a rehearsal link ends with its session.' },
+  { name: 'rehearsal.tile.2', what: 'Rehearsal strip 2.' },
+  { name: 'rehearsal.tile.3', what: 'Rehearsal strip 3.' },
+  { name: 'rehearsal.tile.4', what: 'Rehearsal strip 4.' },
+  { name: 'rehearsal.tile.5', what: 'Rehearsal strip 5.' },
+  { name: 'rehearsal.tile.6', what: 'Rehearsal strip 6.' },
+  { name: 'rehearsal.waiting', what: 'Not in the mix: the people in the rehearsal studio the others do not hear, and Invite someone…, which makes a link to the rehearsal and never to the air.' },
+  { name: 'rehearsal.clock', what: 'In the left panel. The studio clock, and the rehearsed show’s handover window: when it is on air, and that moving is a press (On air at 14:05: move by then).' },
+  { name: 'rehearsal.session', what: 'In the left panel. The rehearsal: the show, who opened it and when, how many are here, Move to the live studio… and End rehearsal. Another show’s rehearsal says whose it is and cannot be driven.' },
+  { name: 'rehearsal.carts', what: 'In the right panel. The rehearsed show’s cart bank, F1 to F6, played into the rehearsal only; a play here is never in the music report.' },
+  { name: 'rehearsal.toast', what: 'The slot under the carts for what the station answered: a refusal in its own words, or a note of this window’s own.' },
+  { name: 'rehearsal.status', what: 'The rehearsal studio’s health in one line: whether its desk answers, how many are in its room, and that there is no way to the air from here.' },
+  { name: 'rehearsal.move', what: 'The move dialog: who moves to the live studio, each with what the handover does with them (on, on and muted, or standing by). Nobody goes on air until the handover. ⏎ moves, Esc stays.' },
+  { name: 'settings.rehearsal', what: 'In Settings, to read: whether the rehearsal studio is on at this station, and the installation’s setting that turns it on (REHEARSAL).' },
+];
+
+const BY_NAME = new Map([...REHEARSAL, ...DESK_B, ...SCREENER, ...CARTS, ...CALENDAR, ...STUDIO, ...SETTINGS, ...ACCOUNT, ...SHOW_SETUP, ...UPDATES, ...SANDBOX, ...RTMP_OUT].map((p) => [p.name, p]));
 
 /** Every registered name with its line, for the name plates. */
 export const PANELS: Readonly<Record<string, string>> = Object.fromEntries([...BY_NAME].map(([k, v]) => [k, v.what]));

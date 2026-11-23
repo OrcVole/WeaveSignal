@@ -21,6 +21,10 @@
   import Glyphs from './lib/Glyphs.svelte';
   import Mark from './lib/Mark.svelte';
   import DeskB from './desk/DeskB.svelte';
+  import RehearsalDesk from './desk/RehearsalDesk.svelte';
+  import { startRehearsal } from './lib/rehearsal.svelte.ts';
+  import { routeKey } from './lib/rehearsalDesk.ts';
+  import { onBeforeStudioSwitch, releaseRehearsalTalk, runRehearsal, settleMoved, tellLiveKey } from './lib/rehearsalDesk.svelte.ts';
   import Screener from './screener/Screener.svelte';
   import CartWall from './carts/CartWall.svelte';
   import Settings from './settings/Settings.svelte';
@@ -133,6 +137,21 @@
     };
     const out = keys.down(input(e), ctx, Date.now());
     if (!out.handled) return;
+    // The Desk tab shows the rehearsal desk (1.3): its strips' keys and F1 to F6 go to the
+    // rehearsal desk by its own route, and every other key that changes the air does nothing,
+    // not even arm. Decided before the step's gate and the preparing window's rule, which are
+    // about the live desk: a preparing window drives a rehearsal, at the rehearsed show's step.
+    if (out.action && !studio.settings) {
+      const route = routeKey(out.action, studio.tab, studio.deskStudio);
+      if (route !== 'live') {
+        e.preventDefault();
+        keys.disarm();
+        studio.armed = null;
+        if (route === 'rehearsal') void runRehearsal(out.action);
+        else tellLiveKey();
+        return;
+      }
+    }
     // A part the show's step keeps off: its key does nothing (not even arm), and the first
     // press in a session says so. Still the keymap's key, so the browser does not take it
     // (⌃D would bookmark, ⌃T open a tab). Checked before anything else acts on the key, so
@@ -185,7 +204,12 @@
   function onKeyup(e: KeyboardEvent) {
     const out = keys.up({ code: e.code });
     if (out.handled) e.preventDefault();
-    if (out.action) void run(out.action);
+    if (!out.action) return;
+    // A held Talk let go: it closes the talk it opened, at whichever desk that was. The
+    // rehearsal desk keeps its own list of what is held, so letting go there is always safe,
+    // whatever the tab shows by now.
+    if (out.action.type === 'talk' && !out.action.held) void runRehearsal(out.action);
+    if (routeKey(out.action, studio.tab, studio.deskStudio) === 'live') void run(out.action);
   }
 
   /** A held key whose key-up went to another window would stay open: let everything go. The
@@ -193,7 +217,7 @@
   function letGo(): Promise<void> {
     const sent = keys.releaseAll().map((a) => run(a));
     studio.armed = null;
-    return Promise.all(sent).then(() => {});
+    return Promise.all([...sent, releaseRehearsalTalk()]).then(() => {});
   }
 
   // The start's default (ADR-0276) is settled once, when the station has said who this is, which
@@ -211,7 +235,11 @@
   });
 
   /** The band under the frame: on the tabs that drive the air, while this window is preparing. */
-  const prepBand = $derived(preparing() && !studio.settings && studio.tab !== 'schedule' ? prepareBand(onAir()) : null);
+  // Not over the rehearsal desk: the band speaks of the live desk, and a preparing window drives
+  // a rehearsal as a live one does.
+  const atRehearsal = $derived(studio.tab === 'desk' && studio.deskStudio === 'rehearsal' && !studio.settings);
+  const prepBand = $derived(preparing() && !studio.settings && studio.tab !== 'schedule' && !atRehearsal ? prepareBand(onAir()) : null);
+
   /** A key or a button met a control the window has switched off: the band answers for a moment. */
   const nudged = $derived(studio.now - prepare.nudgedAt < 1200);
   /** One row for the frame, two for the sandbox's guide, one for each band, then the surface. */
@@ -278,12 +306,18 @@
       studio.link = s;
       studio.linkWhy = why ?? '';
     });
+    // The rehearsal studio (1.3): read once, then followed. A station older than 1.3.0 has
+    // none, and the Desk tab then offers no choice of studio. The sandbox has no station.
+    const stopRehearsal = sandboxed() ? () => {} : startRehearsal();
     // The feature's panels are merged until packages/ui/panels.ts lists them (ADR-0070).
     const names = installPanelNames(document, PANELS);
     const stopZoom = installZoom();
     // One look at the update feed a little after the app opens (packaged only); it installs nothing.
     const stopUpdateCheck = installUpdateCheck();
     onBeforePreparing(letGo);
+    // The Desk tab's studio (1.3): every held key is let go at the desk it was opened on before
+    // the tab shows the other.
+    onBeforeStudioSwitch(letGo);
     // Leaving the station (ADR-0285): every held key is let go first, then the event stream is
     // closed, before any store is emptied or the Rust side is told.
     onBeforeLeave(letGo);
@@ -293,6 +327,7 @@
       if (studio.armed && studio.now - studio.armed.at > ARM_MS) studio.armed = null;
       if (studio.note && studio.note.until < studio.now) studio.note = null;
       if (studio.offNote && studio.offNote.until < studio.now) studio.offNote = null;
+      settleMoved(studio.now);
     }, 100);
     const hidden = () => {
       if (document.hidden) void letGo();
@@ -300,10 +335,12 @@
     document.addEventListener('visibilitychange', hidden);
     return () => {
       stop();
+      stopRehearsal();
       names.destroy();
       stopZoom();
       stopUpdateCheck();
       onBeforePreparing(null);
+      onBeforeStudioSwitch(null);
       onBeforeLeave(null);
       offLeave();
       clearInterval(tick);
@@ -436,7 +473,7 @@
   {#if studio.settings}
     <Settings />
   {:else if studio.tab === 'desk'}
-    <DeskB />
+    {#if studio.deskStudio === 'rehearsal'}<RehearsalDesk />{:else}<DeskB />{/if}
   {:else if studio.tab === 'carts'}
     <CartWall />
   {:else if studio.tab === 'schedule'}

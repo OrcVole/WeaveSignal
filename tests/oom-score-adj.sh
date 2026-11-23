@@ -13,5 +13,10 @@ if [ -z "${WEAVESIGNAL_OOM_SCORE_ADJ:-}" ]; then
     ''|*[!0-9]*|0) ;;
     *) export WEAVESIGNAL_OOM_SCORE_ADJ=$session_oom ;;
   esac
+  # The rehearsal desk (1.3) runs at 500, or the session's own when that is higher.
+  case $session_oom in
+    ''|*[!0-9]*) ;;
+    *) [ "$session_oom" -le 500 ] || export WEAVESIGNAL_REHEARSAL_OOM_SCORE_ADJ=$session_oom ;;
+  esac
   unset session_oom
 fi

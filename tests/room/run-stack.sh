@@ -25,6 +25,15 @@
 #                 tests/room/browser-camera.mjs on the host (needs PLAYWRIGHT_CORE)
 # WEAVESIGNAL_ROOM_VIDEO=1 runs any of them with video on and a camera beside each voice (the
 # room's figures with video on); WEAVESIGNAL_DESK_GPU=1 hands the desk's container the GPU.
+#   TEST=rehearsal  the rehearsal studio's canary (1.3): a live desk and a rehearsal desk, each the
+#                 real binary in a process of its own; 1,733 Hz in the rehearsal room never reaches
+#                 the mount, the rehearsal desk owns no listening port, moved people stand by
+#                 until a press; the rehearsal desk's cost at rest and with six (a release build);
+#                 tests/rehearsal.rs. TEST=load with WEAVESIGNAL_LOAD_MODE=rehearsal measures a
+#                 rehearsal desk instead of a live one. TEST=rehearsal also runs the move through
+#                 the real control plane (built in the desk image) on a throwaway PostgreSQL 18
+#                 (PG_PORT, loopback) and its own CONTROL_PORT: rehearsal links, Move to the live
+#                 studio, the pages' live passes, standing by, and the digit with the opening.
 #   TEST=playout  playout, then the desk, killed and restarted; tests/playout.rs. When the
 #                 test writes run/restart-playout, this script stops the playout container,
 #                 waits 5 s, starts it again and writes run/playout-restarted.
@@ -43,10 +52,17 @@ LISTENERS_PORT=${LISTENERS_PORT:-18010}
 # Playout's programme to the listener process, which holds the mount (listeners.liq).
 FEED_PORT=${FEED_PORT:-18015}
 DESK_FEED_PORT=${DESK_FEED_PORT:-18017}
+# The live desk's hosts' sources listener in TEST=rehearsal (the rehearsal desk must hold none).
+SOURCES_PORT=${SOURCES_PORT:-18018}
+# TEST=rehearsal's control plane and its database (the move, R9).
+CONTROL_PORT=${CONTROL_PORT:-18310}
+PG_PORT=${PG_PORT:-18433}
+PG_IMAGE=${PG_IMAGE:-docker.io/library/postgres:18}
 ROOM_SECONDS=${ROOM_SECONDS:-80}
 TEST=${TEST:-room}
 [ "$TEST" = load ] && RELEASE=${RELEASE-1}
-case $TEST in room|playout|churn|contain|empty|load|dump|listen|cameras|rejoin|quiet|feed|browsercam) ;; *) echo "TEST must be room, playout, churn, contain, empty, load, dump, listen, cameras, rejoin, quiet, feed or browsercam" >&2; exit 2 ;; esac
+[ "$TEST" = rehearsal ] && RELEASE=${RELEASE-1}
+case $TEST in room|playout|churn|contain|empty|load|dump|listen|cameras|rejoin|quiet|feed|browsercam|rehearsal) ;; *) echo "TEST must be room, playout, churn, contain, empty, load, dump, listen, cameras, rejoin, quiet, feed, browsercam or rehearsal" >&2; exit 2 ;; esac
 if [ "$TEST" = browsercam ]; then
   : "${PLAYWRIGHT_CORE:?TEST=browsercam needs PLAYWRIGHT_CORE: an installed playwright-core with its Chromium}"
   WEAVESIGNAL_ROOM_VIDEO=1
@@ -60,7 +76,10 @@ SOURCE_PASSWORD=room-test-only
 prefix=${PREFIX:-${WEAVESIGNAL_TEST_PREFIX:-weavesignal-m1}-room}
 
 taken() { ss -H -ln "$1" "sport = :$2" | grep -q .; }
-for p in "$LK_PORT" "$LISTENERS_PORT" "$FEED_PORT"; do taken -t "$p" && { echo "port $p/tcp is in use; set another" >&2; exit 1; }; done
+for p in "$LK_PORT" "$LISTENERS_PORT" "$FEED_PORT" "$SOURCES_PORT"; do taken -t "$p" && { echo "port $p/tcp is in use; set another" >&2; exit 1; }; done
+if [ "$TEST" = rehearsal ]; then
+  for p in "$CONTROL_PORT" "$PG_PORT"; do taken -t "$p" && { echo "port $p/tcp is in use; set another" >&2; exit 1; }; done
+fi
 for p in "$LK_UDP_PORT" "$SRT_PORT"; do taken -u "$p" && { echo "port $p/udp is in use; set another" >&2; exit 1; }; done
 
 mkdir -p "$run"
@@ -112,7 +131,7 @@ cleanup() {
   [ -n "${restarter:-}" ] && kill "$restarter" 2>/dev/null
   if [ -n "${browser:-}" ]; then kill "$browser" 2>/dev/null || true; fi
   rm -f "$run/restart-playout" "$run/playout-restarted"
-  for c in livekit playout listeners; do
+  for c in livekit playout listeners pg; do
     podman logs "$prefix-$c" > "$run/$c.log" 2>&1 || true
     podman rm -f "$prefix-$c" >/dev/null 2>&1 || true
   done
@@ -127,6 +146,14 @@ liq=("${common[@]}" -v "$root/playout:/p:ro" -v "$run:/r:ro" -e WEAVESIGNAL_PLAY
      -e "WEAVESIGNAL_LISTENERS_SOURCE_PASSWORD=$SOURCE_PASSWORD" --entrypoint /usr/bin/liquidsoap "$LIQ_IMAGE")
 podman run -d --name "$prefix-listeners" "${liq[@]}" /p/listeners.liq >/dev/null
 podman run -d --name "$prefix-playout" "${liq[@]}" /p/weavesignal.liq >/dev/null
+if [ "$TEST" = rehearsal ]; then
+  podman run -d --name "$prefix-pg" -p "127.0.0.1:$PG_PORT:5432" -e POSTGRES_PASSWORD=test-only \
+    -e POSTGRES_DB=weavesignal "$PG_IMAGE" >/dev/null
+  for i in $(seq 1 60); do
+    podman exec "$prefix-pg" pg_isready -h 127.0.0.1 -U postgres -d weavesignal >/dev/null 2>&1 && break
+    sleep 0.5; [ "$i" = 60 ] && { echo "PostgreSQL did not come up" >&2; exit 1; }
+  done
+fi
 
 for i in $(seq 1 60); do
   curl -fs "http://127.0.0.1:$LK_PORT" >/dev/null 2>&1 && taken -t "$LISTENERS_PORT" && break
@@ -158,11 +185,18 @@ fi
 
 gpu=()
 [ "${WEAVESIGNAL_DESK_GPU:-}" = 1 ] && gpu=(--device nvidia.com/gpu=all)
+# TEST=rehearsal's control plane, built in the desk image into the same target directory.
+if [ "$TEST" = rehearsal ]; then
+  podman run --rm "${common[@]}" -v "$root:/work" -v "$HOME/.cargo/registry:/root/.cargo/registry" -w /work \
+    -e CARGO_TARGET_DIR=/work/target/container -e "CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}" \
+    "$DESK_IMAGE" cargo build --release -q -p weavesignal-control
+fi
 podman run --rm "${common[@]}" "${gpu[@]}" -v "$root:/work" -v "$HOME/.cargo/registry:/root/.cargo/registry" -w /work \
-  -e CARGO_TARGET_DIR=/work/target/container \
+  -e CARGO_TARGET_DIR=/work/target/container -e "CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}" \
   -e "WEAVESIGNAL_ROOM_LIVEKIT_URL=ws://127.0.0.1:$LK_PORT" \
   -e "WEAVESIGNAL_ROOM_API_KEY=$API_KEY" -e "WEAVESIGNAL_ROOM_API_SECRET=$API_SECRET" \
   -e "WEAVESIGNAL_ROOM_SRT_PORT=$SRT_PORT" \
+  -e "WEAVESIGNAL_ROOM_SOURCES_PORT=$SOURCES_PORT" -e "WEAVESIGNAL_LOAD_MODE=${WEAVESIGNAL_LOAD_MODE:-live}" \
   -e "WEAVESIGNAL_ROOM_DESK_FEED_PORT=$DESK_FEED_PORT" -e "WEAVESIGNAL_PLAYOUT_FEED_PASSWORD=$SOURCE_PASSWORD" \
   -e "WEAVESIGNAL_ROOM_LISTENER_URL=http://127.0.0.1:$LISTENERS_PORT/programme.opus" \
   -e "WEAVESIGNAL_ROOM_OPUS_KBPS=${OPUS_RATE:-96}" \
@@ -175,6 +209,9 @@ podman run --rm "${common[@]}" "${gpu[@]}" -v "$root:/work" -v "$HOME/.cargo/reg
   -e "WEAVESIGNAL_ROOM_REPORT=/work/tests/room/run/report-$TEST${WEAVESIGNAL_ROOM_VIDEO:+-video}.json" \
   -e "WEAVESIGNAL_ROOM_VIDEO=${WEAVESIGNAL_ROOM_VIDEO:-}" \
   -e WEAVESIGNAL_STACK_DIR=/work/tests/room/run \
+  -e "WEAVESIGNAL_ROOM_CONTROL_PORT=$CONTROL_PORT" \
+  -e "WEAVESIGNAL_ROOM_DATABASE_URL=postgres://postgres:test-only@127.0.0.1:$PG_PORT/weavesignal" \
+  -e WEAVESIGNAL_CONTROL_BIN=/work/target/container/release/weavesignal-control \
   -e RUST_LOG="${RUST_LOG:-weavesignal_desk=info}" \
   ${GST_DEBUG:+-e "GST_DEBUG=$GST_DEBUG"} \
   "$DESK_IMAGE" cargo test ${RELEASE:+--release} -p weavesignal-desk --test "$TEST" -- --ignored --nocapture --test-threads=1

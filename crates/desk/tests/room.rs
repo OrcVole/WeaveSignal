@@ -526,6 +526,7 @@ poll_ms = 300
     let mut lis: Option<(gst::Pipeline, Tap)> = None;
     let mut next_try = at(25.0);
     let mut caller_sent = false;
+    let mut guest_pressed = false;
     let mut guest_gone = false;
     let mut sent_guest_2: Option<Tap> = None;
     let mut participant_errors = Vec::new();
@@ -549,6 +550,20 @@ poll_ms = 300
             if let Some(msg) = first_error(p) {
                 panic!("test participants error: {}", describe(&msg));
             }
+        }
+        // A guest arrives standing by (1.3, question 9): the desk finds them off air, and a
+        // press puts them on, as the presenter's On key does.
+        if !guest_pressed && let Some(g) = desk.person("gregor") {
+            assert!(
+                !g.switches.on_air,
+                "the guest went on air on arriving; a guest arrives standing by"
+            );
+            assert!(desk.set_on_air("gregor", true));
+            guest_pressed = true;
+            println!(
+                "[{:6.1}] the guest arrived standing by; put on air",
+                t0.elapsed().as_secs_f64()
+            );
         }
         if !caller_sent && Instant::now() >= at(CALLER_TO_AIR_S) {
             assert!(

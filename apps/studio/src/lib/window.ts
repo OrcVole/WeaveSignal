@@ -158,7 +158,9 @@ export function windowRows(post: PostView | null | undefined, now: number): Wind
       what,
       show: w.show,
       from: fromWords(w.from),
-      note: held ? `held${post.held_by ? ` by ${post.held_by}` : ''}: a press only` : told,
+      // The show is in the rehearsal studio now (1.3): the window says so. Its people are moved
+      // to the live studio by a press there, never by the window.
+      note: [held ? `held${post.held_by ? ` by ${post.held_by}` : ''}: a press only` : told, w.rehearsing ? 'rehearsing' : null].filter(Boolean).join(' · ') || null,
       readiness: held ? (mine ? ofPost(post.state) : null) : ofWindow(w),
     }),
   );
