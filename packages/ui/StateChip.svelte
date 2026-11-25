@@ -33,6 +33,9 @@
     /** A sentence more, under the word's own: what the surface can add to the approved one (the
      *  AUTO lamp says what automation plays). It does not replace the word's sentence. */
     more?: string;
+    /** A tip of the surface's own in place of the word's, for the one place where the word's
+     *  sentence would be untrue (a lone cart is ON AIR; the word's tip speaks of a room). */
+    tip?: string;
     /** What the tip must stay clear of besides the chip: an element round it, whose control the
      *  tip would otherwise cover (the button under the master lamp). The tip goes under it, or
      *  over it when there is no room below. */
@@ -40,9 +43,9 @@
     class?: string;
     [attr: string]: unknown;
   }
-  let { chip, word, sm = false, lamp = false, focusable = true, hoverable = true, more, clear = null, class: extra = '', ...rest }: Props = $props();
+  let { chip, word, sm = false, lamp = false, focusable = true, hoverable = true, more, tip: ownTip, clear = null, class: extra = '', ...rest }: Props = $props();
 
-  const tip = $derived(tipFor(chip));
+  const tip = $derived(ownTip ?? tipFor(chip));
   const uid = $props.id();
   const tipId = $derived(`st-tip-${uid}`);
   const shown = $derived(word ?? chip.word);

@@ -15,6 +15,7 @@
 import type { EndShowResult, Source, View } from './api.ts';
 import { firstName } from './format.ts';
 import { endsTo } from './post.ts';
+import { showName } from './showName.ts';
 
 export type AirAsk = 'end' | 'auto' | 'live';
 
@@ -141,7 +142,7 @@ export function airPlan(ask: AirAsk, v: View): AirPlan {
     if (!v.desk.reachable) lines.unshift('The desk is not answering, so nobody can be taken off air from here.');
     return {
       title: 'End the show?',
-      lede: v.show.title ? `${v.show.title} ends for listeners.` : 'The show ends for listeners.',
+      lede: showName(v) ? `${showName(v)} ends for listeners.` : 'The show ends for listeners.',
       lines,
       confirm: 'End show',
       keep: 'Keep going',

@@ -182,6 +182,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(crate::rehearsal::routes())
         // Its bookings (1.3.0, R14): first come, with optional bookings.
         .merge(crate::rehearsal_bookings::routes())
+        // Keyed shows (1.3.2): listener keys, families, the leak report and a show's access rule;
+        // and the listener's redeem, renew and lost-key routes.
+        .merge(crate::access_keys::routes())
+        .merge(crate::access_listen::routes())
+        .merge(crate::access_serve::routes())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -3176,6 +3181,186 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Keyed shows (1.3.2): while a keyed show's window is open, and for the HLS lag after, the
+    /// public `/hls/` serves no playlist and no segment written then; a token for the show
+    /// opens its keyed path (sound only for a sound token), never for another show, never once
+    /// the key is revoked, and never with a bad token.
+    #[tokio::test]
+    async fn a_keyed_show_holds_the_public_hls_back_and_its_token_opens_its_own_path_only() {
+        use crate::access_token::{Claims, TokenMedia};
+        let dir = std::env::temp_dir().join(format!("weavesignal-hls-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("v0")).unwrap();
+        std::fs::create_dir_all(dir.join("audio")).unwrap();
+        for f in ["live.m3u8", "audio.m3u8", "v0/index.m3u8"] {
+            std::fs::write(dir.join(f), "#EXTM3U\n").unwrap();
+        }
+        std::fs::write(dir.join("v0/seg00001.m4s"), b"moof").unwrap();
+        std::fs::write(dir.join("audio/seg00001.m4s"), b"moof").unwrap();
+        let (_, base) = join_app(
+            JoinConfig {
+                hls_dir: dir.clone(),
+                ..JoinConfig::default()
+            },
+            false,
+        )
+        .await;
+        let key = crate::apikey::ApiKey::parse("keyed-hls-test-keyed-hls-test-keyed-hls").unwrap();
+        let api = Arc::new(
+            crate::api::Api::new(
+                None,
+                base.station.id,
+                Some(key.clone()),
+                crate::api::ApiConfig::default(),
+                false,
+            )
+            .with_keys(crate::config::KeysConfig::default()),
+        );
+        let state = Arc::new(AppState {
+            station: base.station.clone(),
+            db: None,
+            room: None,
+            admin_token: Some(ADMIN.into()),
+            staff: Arc::new(crate::staff::Staff::new(None).with_api(api)),
+            hub: base.hub.clone(),
+            join: base.join.clone(),
+            video: Default::default(),
+            joins: Default::default(),
+            turn_tls_port: 5349,
+            steering: Default::default(),
+        });
+        let app = router(state.clone());
+        let rt = &state.staff.api.access;
+        let (a, b) = (uuid::Uuid::from_u128(0xa), uuid::Uuid::from_u128(0xb));
+        let now = crate::hub::now_ms() as i64;
+        rt.live.set_windows(
+            vec![crate::keyed::Window {
+                show: a,
+                start_ms: now - 10_000,
+                end_ms: now + 60_000,
+            }],
+            now,
+        );
+        let mint = |show: uuid::Uuid, media: TokenMedia, key_id: &str| {
+            rt.signer(&key).mint(&Claims {
+                key: key_id.into(),
+                show: show.to_string(),
+                media,
+                nbf: now / 1000 - 20,
+                exp: now / 1000 + 600,
+                device: None,
+            })
+        };
+        let get = |uri: String| {
+            let app = app.clone();
+            async move {
+                let res = app
+                    .oneshot(Request::get(&uri).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let cache = res
+                    .headers()
+                    .get(header::CACHE_CONTROL)
+                    .map(|v| v.to_str().unwrap().to_owned());
+                (res.status(), cache)
+            }
+        };
+        // The public HLS: held back, the playlists and the segments alike.
+        for f in [
+            "live.m3u8",
+            "audio.m3u8",
+            "v0/index.m3u8",
+            "v0/seg00001.m4s",
+            "audio/seg00001.m4s",
+        ] {
+            assert_eq!(
+                get(format!("/hls/{f}")).await.0,
+                StatusCode::FORBIDDEN,
+                "{f}"
+            );
+        }
+        // The show's own path, with a token for both: everything, privately.
+        let both = mint(a, TokenMedia::Both, "k-both");
+        for f in [
+            "live.m3u8",
+            "audio.m3u8",
+            "v0/index.m3u8",
+            "v0/seg00001.m4s",
+            "audio/seg00001.m4s",
+        ] {
+            let (code, cache) = get(format!("/hls/k/{a}/{both}/{f}")).await;
+            assert_eq!(code, StatusCode::OK, "{f}");
+            assert!(cache.unwrap().starts_with("private"), "{f}");
+        }
+        // A sound token: the audio rendition only.
+        let sound = mint(a, TokenMedia::Sound, "k-sound");
+        assert_eq!(
+            get(format!("/hls/k/{a}/{sound}/audio/seg00001.m4s"))
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get(format!("/hls/k/{a}/{sound}/v0/seg00001.m4s")).await.0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            get(format!("/hls/k/{a}/{sound}/live.m3u8")).await.0,
+            StatusCode::FORBIDDEN
+        );
+        // Another show's token, on its own path or on this one: nothing of this show.
+        let other = mint(b, TokenMedia::Both, "k-other");
+        assert_eq!(
+            get(format!("/hls/k/{b}/{other}/v0/seg00001.m4s")).await.0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            get(format!("/hls/k/{a}/{other}/v0/seg00001.m4s")).await.0,
+            StatusCode::FORBIDDEN
+        );
+        // Not a token, or another station's.
+        let foreign = crate::access_token::P256Signer::from_secret(&[3; 32]);
+        let foreign = crate::access_token::TokenSigner::mint(
+            &foreign,
+            &Claims {
+                key: "k".into(),
+                show: a.to_string(),
+                media: TokenMedia::Both,
+                nbf: now / 1000 - 20,
+                exp: now / 1000 + 600,
+                device: None,
+            },
+        );
+        for t in ["nonsense", foreign.as_str()] {
+            assert_eq!(
+                get(format!("/hls/k/{a}/{t}/live.m3u8")).await.0,
+                StatusCode::FORBIDDEN,
+                "{t}"
+            );
+        }
+        // Revoked: refused at once, whatever the token's life.
+        rt.live.set_revoked(vec!["k-both".into()]);
+        assert_eq!(
+            get(format!("/hls/k/{a}/{both}/live.m3u8")).await.0,
+            StatusCode::FORBIDDEN
+        );
+        // Hours after the window: the public HLS is back, and the files written now are public.
+        rt.live.set_windows(
+            vec![crate::keyed::Window {
+                show: a,
+                start_ms: now - 7_200_000,
+                end_ms: now - 3_600_000,
+            }],
+            now,
+        );
+        assert_eq!(get("/hls/live.m3u8".into()).await.0, StatusCode::OK);
+        assert_eq!(get("/hls/v0/seg00001.m4s".into()).await.0, StatusCode::OK);
+        assert_eq!(
+            get(format!("/hls/k/{a}/{sound}/audio.m3u8")).await.0,
+            StatusCode::OK
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn the_multivariant_playlists_name_the_steering_route_while_it_has_edges() {
         let dir = std::env::temp_dir().join(format!("weavesignal-hls-{}", uuid::Uuid::new_v4()));
@@ -4633,6 +4818,76 @@ mod tests {
         // From Guests on, any member of staff may make one.
         at_step(&state, Step::Guests, Some(me));
         let (code, body) = ask(&theirs, serde_json::json!({"for_me": true})).await;
+        assert_eq!(code, StatusCode::CREATED, "{body}");
+    }
+
+    /// 1.3.2: the studio offers a presenter their own microphone link from a window that is
+    /// preparing a show too. The station refuses it nowhere: making the link is not changing what
+    /// is on air (`Need::Staff`), and using it joins the room at the show on air's step. Only the
+    /// Solo rule (the show on air's presenter, nobody else) can say no.
+    #[tokio::test]
+    async fn a_preparing_window_may_make_the_presenters_own_microphone_link() {
+        let (app, state) = join_app(JoinConfig::default(), true).await;
+        let me = uuid::Uuid::new_v4();
+        let stranger = uuid::Uuid::new_v4();
+        let mine = state
+            .staff
+            .signed_in_as_for_test(weavesignal_model::staff::Role::Presenter, me);
+        let theirs = state
+            .staff
+            .signed_in_as_for_test(weavesignal_model::staff::Role::Presenter, stranger);
+        at_step(&state, Step::Solo, Some(me));
+        for who in [&mine, &theirs] {
+            let (code, body) = put_json_as(
+                &app,
+                "/api/v1/sessions/me/mode",
+                who,
+                serde_json::json!({"preparing": true}),
+            )
+            .await;
+            assert_eq!(code, StatusCode::OK, "{body}");
+        }
+        // The show's presenter, preparing: the link is made, and it joins.
+        let (code, inv) = post_json(
+            app.clone(),
+            "/api/v1/invites",
+            Some(&mine),
+            serde_json::json!({"for_me": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CREATED, "{inv}");
+        assert_eq!(inv["identity"], crate::steps::own_identity(me));
+        let (code, body) = post_json(
+            app.clone(),
+            "/api/v1/pass/token",
+            Some(inv["pass"].as_str().unwrap()),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CREATED, "{body}");
+        // Another presenter preparing their own show while this one runs at Solo: the Solo rule
+        // still says no, in its own words, and preparing is not the reason.
+        let (code, body) = post_json(
+            app.clone(),
+            "/api/v1/invites",
+            Some(&theirs),
+            serde_json::json!({"for_me": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::FORBIDDEN, "{body}");
+        assert!(
+            body["error"].as_str().unwrap_or_default().contains("Solo"),
+            "{body}"
+        );
+        // From Guests on, a preparing window may make it too.
+        at_step(&state, Step::Guests, Some(me));
+        let (code, body) = post_json(
+            app.clone(),
+            "/api/v1/invites",
+            Some(&theirs),
+            serde_json::json!({"for_me": true}),
+        )
+        .await;
         assert_eq!(code, StatusCode::CREATED, "{body}");
     }
 

@@ -273,3 +273,14 @@ export function refusalOf(e: unknown, clash: RehearsalBlock | null, zone: string
 export function sharesWith(taken: readonly Rehearsal[], start: number, end: number, except: string | null = null): Rehearsal | null {
   return taken.find((t) => t.kind === 'booking' && t.id !== except && t.start < end && start < t.end) ?? null;
 }
+
+// ---- the way to the rehearsal desk (1.3.2) ----
+
+/** Why *Go to the rehearsal desk*, on an open session's pane, cannot go there from this window
+ *  now; null when it can. `choice` is the Desk tab's own studio choice (`studioChoice`), so the
+ *  button and that control never disagree: where Rehearsal studio can be chosen, the button goes. */
+export function rehearsalDeskWhy(choice: { shown: boolean; can: boolean; why: string }): string | null {
+  if (choice.can) return null;
+  if (!choice.shown) return 'This window has not read the rehearsal studio from the station yet. Try again in a moment.';
+  return choice.why || 'The rehearsal studio cannot be chosen from this window now.';
+}

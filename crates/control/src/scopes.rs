@@ -72,6 +72,10 @@ pub const SCOPES: &[(&str, &str)] = &[
     ),
     ("video:write", "Change or remove the video slate's still."),
     (
+        "keys:manage",
+        "Make, read, change, extend, pause, resume, revoke and replace listener keys; read their text, devices and log; issue and export key families; read the leak report and a show's access rule. Not erasing a key and not changing which shows are keyed: those are a person's.",
+    ),
+    (
         "sources:read",
         "Read the hosts' own studios connected or due (ADR-0280): their state, way in, format and level; and the rota of the coming hours, who is down for each show and whether they are ready. Never a key.",
     ),
@@ -193,11 +197,43 @@ pub const TABLE: &[(&str, &str, &str)] = &[
         "shows:write",
     ),
     ("POST", "/api/v1/schedule/rule/preview", "shows:read"),
+    ("GET", "/api/v1/schedule/rule/now", "shows:read"),
     // Calendar files (ADR-0281): reading a file writes nothing; making its shows is making shows.
     ("POST", "/api/v1/schedule/import/preview", "shows:read"),
     ("POST", "/api/v1/schedule/import", "shows:write"),
     ("POST", "/api/v1/cards/preview", "shows:write"),
     ("POST", "/api/v1/cards/words", "shows:write"),
+    // Keyed shows (1.3.2): the key manager's routes. Erasing a key and setting a show's rule are
+    // `NEVER_METHOD`: a person's.
+    ("GET", "/api/v1/listener-keys", "keys:manage"),
+    ("POST", "/api/v1/listener-keys", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/find", "keys:manage"),
+    ("GET", "/api/v1/listener-keys/leaks", "keys:manage"),
+    ("GET", "/api/v1/listener-keys/signing", "keys:manage"),
+    ("GET", "/api/v1/listener-keys/families", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/families", "keys:manage"),
+    ("GET", "/api/v1/listener-keys/families/{id}", "keys:manage"),
+    (
+        "GET",
+        "/api/v1/listener-keys/families/{id}/export",
+        "keys:manage",
+    ),
+    ("GET", "/api/v1/listener-keys/{id}", "keys:manage"),
+    ("PATCH", "/api/v1/listener-keys/{id}", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/{id}/extend", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/{id}/pause", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/{id}/resume", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/{id}/revoke", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/{id}/replace", "keys:manage"),
+    ("POST", "/api/v1/listener-keys/{id}/text", "keys:manage"),
+    ("GET", "/api/v1/listener-keys/{id}/log", "keys:manage"),
+    ("GET", "/api/v1/listener-keys/{id}/devices", "keys:manage"),
+    (
+        "DELETE",
+        "/api/v1/listener-keys/{id}/devices/{device}",
+        "keys:manage",
+    ),
+    ("GET", "/api/v1/shows/{show}/access", "keys:manage"),
     ("GET", "/api/v1/sources", "sources:read"),
     ("GET", "/api/v1/rota", "sources:read"),
 ];
@@ -342,6 +378,19 @@ pub const NEVER: &[&str] = &[
     "/api/v1/rehearsal/remove",
     "/api/v1/rehearsal/move",
     "/api/v1/rehearsal/bookings/{id}",
+    // Keyed shows, the listener's side (1.3.2): the key's text or token is the credential, and a
+    // token never holds either.
+    "/api/v1/keyed/redeem",
+    "/api/v1/keyed/renew",
+    "/api/v1/keyed/devices",
+    "/api/v1/keyed/devices/end",
+    "/api/v1/keyed/lost",
+    "/api/v1/public/keyed-shows",
+    // And what a token in the path opens, and the revoked list edges read (no bearer).
+    "/api/v1/keyed/revoked",
+    "/hls/k/{show}/{token}/{*path}",
+    "/hls/k/{show}/{token}/{path}",
+    "/listen/k/{show}/{token}/{mount}",
     // WHIP from a host's OBS (17d): the show key's secret is the bearer, and a token never holds
     // it.
     "/whip/{key}",
@@ -356,6 +405,10 @@ pub const NEVER_METHOD: &[(&str, &str)] = &[
     // Booking the rehearsal studio (1.3.0) is a person's, by the show's step's rule; reading the
     // bookings is `schedule:read`'s.
     ("POST", "/api/v1/rehearsal/bookings"),
+    // Keyed shows (1.3.2): erasing a key (personal data, ADR-0122) is an admin's, and which
+    // shows are keyed is a person's decision; a shop's token makes keys, it does not decide that.
+    ("DELETE", "/api/v1/listener-keys/{id}"),
+    ("PUT", "/api/v1/shows/{show}/access"),
 ];
 
 /// The scope a route needs, for a method and the route as registered (`MatchedPath`).
@@ -416,6 +469,9 @@ mod tests {
             ("whip_route.rs", include_str!("whip_route.rs")),
             ("phone/api.rs", include_str!("phone/api.rs")),
             ("rehearsal.rs", include_str!("rehearsal.rs")),
+            ("access_keys.rs", include_str!("access_keys.rs")),
+            ("access_listen.rs", include_str!("access_listen.rs")),
+            ("access_serve.rs", include_str!("access_serve.rs")),
             (
                 "rehearsal_bookings.rs",
                 include_str!("rehearsal_bookings.rs"),

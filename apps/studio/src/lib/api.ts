@@ -184,6 +184,20 @@ export interface View {
   /** Listeners hear the default loop WeaveSignal ships, because the station has no fallback files
    *  of its own yet (ADR-0130). Absent from a control plane too old to report it. */
   default_fallback?: boolean;
+  /** A keyed show's window is open now (1.3.2): which show, whether playout keeps it from the
+   *  public (false is the alarm), and what the public hears meanwhile, as playout says
+   *  (`slate_file`, `fallback`, `default_loop`, `silence`, `listener_fallback`, or null). Absent
+   *  or null while no keyed show's window is open. */
+  keyed?: {
+    show: string;
+    kept: boolean;
+    /** Playout itself answered the station's last look (1.3.2). False while playout does not
+     *  answer: `kept` and `public_hears` are then what the listener process does by design, not
+     *  what playout said, and the desk words them as not confirmed. Absent from a station that
+     *  does not say, which is read as confirmed. */
+    confirmed?: boolean;
+    public_hears: string | null;
+  } | null;
   /** Who is listening and what carries them (ADR-0046, ADR-0017); absent from a control plane
    *  too old to report it. */
   audience?: AudienceView;
@@ -1624,6 +1638,12 @@ export async function stationVersion(): Promise<string | null> {
 
 /** The next dates a rule makes, its sentence and its clashes. It writes nothing. */
 export const previewRule = async (req: RulePreviewRequest) => asPreview(await call<unknown>('POST', '/api/v1/schedule/rule/preview', req));
+
+/** The rule of a show that starts now (1.3.2; `GET /api/v1/schedule/rule/now`): once, from the
+ *  station's next whole minute, for `minutes` (15 to 480; an hour when left out), on the station's
+ *  own clock and zone. Saved as any rule. Absent from a station older than 1.3.2 (404). */
+export const ruleNow = (minutes?: number) =>
+  call<{ rule: Rule; starts_at_ms: number; date: IsoDate; time: string; minutes: number; zone: string }>('GET', `/api/v1/schedule/rule/now${minutes ? `?minutes=${minutes}` : ''}`);
 
 /** A show saved, with the first episode drafted when `draft_first` was asked. */
 export interface ShowSaved extends ShowView {

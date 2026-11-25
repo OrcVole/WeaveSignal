@@ -40,7 +40,9 @@ import {
   stretchWords,
   studiosState,
   type Refusal,
+  rehearsalDeskWhy,
 } from './schedule/studios.ts';
+import { REHEARSAL_OFF_WHY, studioChoice } from './lib/rehearsalDesk.ts';
 import { FieldError, bookingClash, type Me, type RehearsalBlock, type StudioColumn } from './lib/api.ts';
 import type { Show } from './lib/schedule.ts';
 import { account } from './lib/account.svelte.ts';
@@ -702,6 +704,41 @@ describe('the booking editor', () => {
     expect(text(open)).toContain('Opened by Finlay at 11:58, and still open.');
     expect(text(open)).toContain('open the Desk tab and choose the rehearsal studio there');
     for (const body of [was, open]) expect(body).not.toMatch(/<input|<select|type="submit"|Delete booking/);
+  });
+
+  it('a session under way has one thing to do: Go to the rehearsal desk (1.3.2)', () => {
+    const body = render(RehearsalBooking, { props: { ...base, item: openNow, onDesk: () => {} } }).body;
+    expect(body).toMatch(/<button type="button" class="btn primary" data-testid="to-rehearsal-desk" aria-describedby="to-desk-note"[^>]*>Go to the rehearsal desk<\/button>/);
+    expect(body).not.toMatch(/data-testid="to-rehearsal-desk"[^>]*(aria-disabled|disabled)/);
+    expect(text(body)).toContain('Its desk is where you take part, and where everyone is moved to the live studio.');
+    expect(text(body)).toContain('Opens the Desk tab on the rehearsal studio. Live studio, at the head of that tab, is the way back to the live desk.');
+    // The button says it; the paragraph no longer sends the person to find the control.
+    expect(text(body)).not.toContain('open the Desk tab and choose the rehearsal studio there');
+    // Still nothing to edit, and nothing that airs.
+    expect(body).not.toMatch(/<input|<select|type="submit"|Delete booking/);
+    expect(body.match(/class="btn primary/g)).toHaveLength(1);
+  });
+
+  it('says why when the rehearsal desk cannot be gone to, and keeps the button in reach of the keyboard', () => {
+    const why = 'The rehearsal studio is off at this station. An admin turns it on in the installation’s settings: REHEARSAL=true.';
+    const body = render(RehearsalBooking, { props: { ...base, item: openNow, onDesk: () => {}, deskWhy: why } }).body;
+    expect(body).toMatch(/data-testid="to-rehearsal-desk" aria-disabled="true" aria-describedby="to-desk-note"/);
+    expect(body).not.toMatch(/data-testid="to-rehearsal-desk"[^>]* disabled/);
+    expect(body).toContain(`<p class="caption" id="to-desk-note">${why}</p>`);
+  });
+
+  it('is offered for a session under way only: not one that has happened, and not a booking', () => {
+    for (const item of [rehearsed, booking]) expect(render(RehearsalBooking, { props: { ...base, item, onDesk: () => {} } }).body).not.toContain('to-rehearsal-desk');
+  });
+
+  it('goes where the Desk tab’s own choice goes, and nowhere it does not', () => {
+    expect(rehearsalDeskWhy(studioChoice('open', null))).toBeNull();
+    expect(rehearsalDeskWhy(studioChoice('closed', null))).toBeNull();
+    // A desk that is not answering can be gone to: its screen says what is wrong.
+    expect(rehearsalDeskWhy(studioChoice('desk-down', null))).toBeNull();
+    expect(rehearsalDeskWhy(studioChoice('off', null))).toBe(REHEARSAL_OFF_WHY);
+    expect(rehearsalDeskWhy(studioChoice('unknown', null))).toBe('This window has not read the rehearsal studio from the station yet. Try again in a moment.');
+    expect(rehearsalDeskWhy(studioChoice('absent', null))).toContain('has not read the rehearsal studio');
   });
 
   it('in no state is it a lamp, red, ON AIR or OPEN', () => {

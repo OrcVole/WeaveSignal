@@ -77,7 +77,7 @@
   import { HANDOVER_KEY, handoverButton, handoverStep } from '../lib/handover.ts';
   import Invite from './Invite.svelte';
   import PlayerLink from '../lib/PlayerLink.svelte';
-  import { PLAYER, firstMinute } from '../lib/player.ts';
+  import { CART_ON_AIR_TIP, PLAYER, firstMinute } from '../lib/player.ts';
   import { playerUsed } from '../lib/playerUsed.svelte.ts';
   import { OWN_LINK, airHost, ownLinkBeside } from '../lib/invite.ts';
   import { KEY_NOTE, keyNoteShown, openStaff } from '../lib/keyNote.ts';
@@ -87,6 +87,9 @@
   import { fromRehearsal, fromRehearsalNote, openingLine } from '../lib/rehearsalDesk.ts';
   import { choiceShown, rdesk } from '../lib/rehearsalDesk.svelte.ts';
   import StudioChoice from './StudioChoice.svelte';
+  import { NO_SHOW_WORDS, scheduleRows, showName } from '../lib/showName.ts';
+  import { NOT_CONFIRMED, keyedStanding, publicHearsWords, timeWords } from '../lib/keys.ts';
+  import { keyed as keyedList, loadKeyed } from '../lib/keys.svelte.ts';
 
   const v = $derived(studio.view);
   /** The station's step: what is switched on. */
@@ -128,6 +131,19 @@
   /** A cart is sounding and listeners hear it (1.3.1): with nobody on air the loop is cut for its
    *  whole length, so the panel must not go on saying the loop is on the stream. */
   const cartOnAir = $derived(!prep && heard && cartsOnAir(v?.carts, now).length > 0);
+  /** A keyed show's window is open (keyed shows, 1.3.2): the Playout panel says which, what the
+   *  public hears, and whether the station is keeping it from them, as the control plane last
+   *  found playout (the view's `keyed`). The show's name and rule come from the keyed shows' list,
+   *  read when the window opens. */
+  const keyedView = $derived(v?.keyed ?? null);
+  $effect(() => {
+    if (keyedView?.show) void loadKeyed(true);
+  });
+  const keyedNow = $derived.by(() => {
+    if (!keyedView) return null;
+    const row = keyedList.list?.shows.find((s) => s.id === keyedView.show) ?? null;
+    return { ...keyedView, standing: keyedStanding(keyedView), name: row?.name ?? 'The show on now', opens_at_ms: row?.opens_at_ms ?? null };
+  });
   const sources = $derived(v?.sources ?? []);
   // At Solo nothing moves: every tile stays on the stage and the Not on air row is not drawn.
   /** A host's own studio whose link is lost: its place is kept, and its tile stays on the stage. */
@@ -140,21 +156,21 @@
   const onStage = $derived(placed.stage);
   const offStage = $derived(placed.waiting);
   /** The Solo stage offers the DJ their own microphone link until a presenter is in the room. */
-  // Not in a preparing window. Until 1.3 that link joined on air, which is not a preparing
-  // window's to do; since 1.3 it joins standing by, and the gate is kept until the operator
-  // decides otherwise (the R13 report's question on it).
-  const ownLink = $derived(!prep && !!v?.desk.reachable && needsOwnLink(sources, lk, !!v?.step?.may_change, !account.me || account.me.kind === 'staff'));
+  // In a preparing window too (the operator, 2026-11-24): since 1.3 the link joins standing by,
+  // so making it changes nothing on air, and the station makes it for a preparing window as for
+  // a live one. The words then say that this window's keys put nobody on air.
+  const ownLink = $derived(!!v?.desk.reachable && needsOwnLink(sources, lk, !!v?.step?.may_change, !account.me || account.me.kind === 'staff'));
   /** A host in their own studio has the air (on air, or their place kept while their link is
    *  lost): the show is theirs, so the stage does not headline *You are not in the room yet* with
    *  its filled button. The offer is one quiet line beside Invite someone…, with words for this
    *  case; at Solo, which has no Not on air row, the same line takes the guest's seat. */
   const host = $derived(ownLink ? airHost(sources, kept) : null);
-  const ownBeside = $derived(host ? ownLinkBeside(host, v?.mode) : null);
+  const ownBeside = $derived(host ? ownLinkBeside(host, v?.mode, prep) : null);
   /** The stage's headline offer: an empty studio waiting for its presenter. */
   const ownHead = $derived(ownLink && !host);
   /** A window on the station key is offered no microphone link (the key is no account); where the
    *  button would be, the desk says what to do instead (1.3.1, K2). */
-  const keyNote = $derived(!prep && !!v?.desk.reachable && keyNoteShown(account.me, needsOwnLink(sources, lk, !!v?.step?.may_change, true)));
+  const keyNote = $derived(!!v?.desk.reachable && keyNoteShown(account.me, needsOwnLink(sources, lk, !!v?.step?.may_change, true)));
   /** Where a Not on air row is drawn and someone is already here, the note is one line in that
    *  row's head, as the DJ's own link is (design review F2); elsewhere it keeps its place. */
   const keyHead = $derived(keyNote && shown('waiting', lk) && (onStage.length > 0 || offStage.length > 0));
@@ -227,6 +243,10 @@
   const holding = $derived(!!studio.holdAsked);
   /** The rundown's row for the show whose post it is: where it comes from and how it stands. */
   const showRow = $derived(postRow(v, now));
+  /** The show the desk names: the station's setting, else the show the schedule has on air. */
+  const title = $derived(showName(v));
+  /** The schedule's own rows, for a rundown the station has none of. */
+  const schedRows = $derived(scheduleRows(v, hm));
   const postFrom = $derived.by(() => {
     if (!post) return 0;
     const before = rundown.filter((r) => r.ms < post.ms && r.ms <= now).at(-1);
@@ -568,7 +588,7 @@
       <section class="panel" data-panel="desk.rundown" aria-label="Rundown">
         <div class="ph">
           <h2>Coming up</h2>
-          <span class="spacer"></span><span class="small">{v?.show.title || 'No show set'}</span>
+          <span class="spacer"></span><span class="small">{title || NO_SHOW_WORDS}</span>
           <!-- The rota (1.2): the coming twelve hours, on the Schedule tab. A way there from where
                the desk says what is next. The sandbox's station has no rota. -->
           {#if !sandboxed()}<button type="button" class="btn sm quiet rota-link" data-testid="desk-rota" title="The next twelve hours: who is down for each show, and whether they are ready. Opens on the Schedule tab." onclick={seeRota}>Rota</button>{/if}
@@ -619,12 +639,16 @@
             </div>
           {:else}
             {#if !showRow}
-              <div class="row"><span class="at num">—</span><span class="what"><b>Nothing scheduled</b><span>nothing in <code>studio.rundown</code></span></span><span></span></div>
+              {#each schedRows as r (r.title + r.at)}
+                <!-- No row of the station's own: the schedule's, the show on air and the next to start. -->
+                <div class="row" class:now={r.now} data-testid="schedule-row"><span class="at num">{r.at}</span><span class="what"><b>{r.title}</b><span>{r.detail}</span></span><span></span></div>
+              {:else}
+                <div class="row"><span class="at num">—</span><span class="what"><b>Nothing scheduled</b></span><span></span></div>
+              {/each}
             {/if}
           {/each}
           {#if showRowAt >= coming.length}{@render scheduleRow()}{/if}
         </div>
-        <div class="small"><span class="proposal">setting</span> rows from <code>studio.rundown</code>; {showRow ? 'the schedule adds the next show’s post' : 'the schedule does not fill this yet'}</div>
       </section>
 
       <section class="panel playout" data-panel="desk.playout" aria-label="Playout">
@@ -647,19 +671,49 @@
             >
           {/if}
         </div>
-        {#if v?.default_fallback && cartOnAir}
-          <div class="plamp" data-testid="cart-on-air">
-            <StateChip chip={CHIP.onAir} />
-            <span class="small">a cart is playing</span>
-          </div>
-        {:else if v?.default_fallback}
-          <div class="plamp" data-testid="default-loop">
-            <StateChip chip={CHIP.defaultLoop} />
-            <span class="small">on the stream</span>
-          </div>
-          <div class="extra warn">
+        {#if v?.default_fallback}
+          {#if cartOnAir}
+            <div class="plamp" data-testid="cart-on-air">
+              <StateChip chip={CHIP.onAir} tip={CART_ON_AIR_TIP} />
+              <span class="small">a cart is playing</span>
+            </div>
+          {:else}
+            <div class="plamp" data-testid="default-loop">
+              <StateChip chip={CHIP.defaultLoop} />
+              <span class="small">on the stream</span>
+            </div>
+          {/if}
+          <!-- The loop's paragraph keeps its room while a cart sounds, so a three-second sting does not move the panel twice (design review F5). -->
+          <div class="extra warn" class:hold={cartOnAir} aria-hidden={cartOnAir ? 'true' : undefined}>
             Listeners hear the loop WeaveSignal ships, because this station has no fallback files of its own. Put some music
             in the station's fallback folder and it takes over within seconds.
+          </div>
+        {/if}
+        {#if keyedNow}
+          <!-- The show on air is kept for people with a key (1.3.2): what the public hears now, by
+               the show's rule. Not a lamp: the lamp says what is on air, this says who may hear it. -->
+          <div class="keyednow" data-panel="desk.keyed" data-testid="keyed-now" data-kept={keyedNow.kept} data-standing={keyedNow.standing}>
+            <div class="plamp">
+              <!-- Not confirmed borrows the dashed shape of NOT CONNECTED: playout is not answering. -->
+              <span class="state sm hollow {keyedNow.standing === 'not-kept' ? 'hollow-warning' : 'hollow-standby'}" class:dashed={keyedNow.standing === 'not-confirmed'}><svg aria-hidden="true"><use href="#g-key" /></svg>Keyed</span>
+              <span class="small"><span data-panel-title>What the public hears now</span>{#if keyedNow.standing === 'not-confirmed'}<b class="unsure">{' '}· {NOT_CONFIRMED.mark}</b>{/if}</span>
+            </div>
+            {#if keyedNow.standing === 'not-confirmed'}
+              <!-- Playout did not answer the last look (1.3.2): neither *kept* nor the alarm is
+                   playout's word, so the panel says what should be so, that it is not confirmed,
+                   and what to do if it stays. A status, not an alert: nothing is known to be wrong. -->
+              <div class="extra" role="status">
+                <b>{keyedNow.name}</b> {NOT_CONFIRMED.body} {NOT_CONFIRMED.act}
+              </div>
+            {:else if keyedNow.standing === 'kept'}
+              <div class="extra">
+                <b>{keyedNow.name}</b> is for people with a key, and the station is keeping it from the public: they hear {publicHearsWords(keyedNow.public_hears)} until it ends, and people with a key hear the show.{#if keyedNow.opens_at_ms != null}{' '}It opens to everyone {timeWords(keyedNow.opens_at_ms, studio.zone)}.{/if}
+              </div>
+            {:else}
+              <div class="extra warn" role="alert">
+                <b>{keyedNow.name}</b> is for people with a key, but playout is not keeping it from the public: everyone hears the show. Restart playout, and see its log.
+              </div>
+            {/if}
           </div>
         {/if}
         <div class="q"><span>Playout's queue and hard posts are not shown here yet.</span></div>
@@ -679,7 +733,7 @@
       <header class="stage-head">
         <AirControl {lamp} />
         <div class="title">
-          <h1 data-panel-title>{v?.show.title || 'No show set'}</h1>
+          <h1 data-panel-title>{title || NO_SHOW_WORDS}</h1>
           {#if sub}
             <div class="sub">{sub}</div>
           {:else if auto && keptSub(kept)}
@@ -688,7 +742,7 @@
           {:else if auto}
             <div class="sub"><b>Automation holds the air</b> · {openCount} open to the room · listeners hear the log, {behind}</div>
           {:else if up}
-            <div class="sub"><b>{openCount} on air</b> · listeners {behind}</div>
+            <div class="sub"><b>{openCount} on air</b>{#if v?.default_fallback && cartOnAir}{' · a cart is playing'}{/if} · listeners {behind}</div>
           {:else}
             <div class="sub"><b>Room alive</b> · {openCount} open to the room · listeners hear nothing of it</div>
           {/if}
@@ -776,7 +830,7 @@
           <!-- Before the DJ has joined (ADR-0274): one button, no name to type and no role to choose. -->
           <div class="empty join" data-testid="own-link">
             <b>You are not in the room yet</b>
-            <span>{auto ? OWN_LINK.stageAuto : OWN_LINK.stage}</span>
+            <span>{auto ? OWN_LINK.stageAuto : prep ? OWN_LINK.stagePrep : OWN_LINK.stage}</span>
             <Invite own />
           </div>
         {/if}
@@ -803,7 +857,7 @@
               {:else}
                 <b>Nobody is in the room yet</b>
                 <span>People appear here when they join: send a guest an invitation{keyNote ? '' : ', or join yourself with your own microphone link'}. Then press their number, 1 to 5, to put them on air.</span>
-                {#if !off('invite')}<Invite />{/if}
+                {#if !keyNote && !off('invite')}<Invite />{/if}
                 {#if keyNote}
                   <!-- The station key has no microphone (K2), and a first minute that suggests the Carts and the player (G12). -->
                   <div class="keynote" data-panel="desk.station-key" data-testid="station-key-note">
@@ -811,6 +865,8 @@
                     <button type="button" class="btn sm" onclick={() => void openStaff()}>{KEY_NOTE.action}</button>
                   </div>
                   <span class="hint" data-testid="first-minute">{firstMinute(behind)}</span>
+                  <!-- After the note and the line, so the keys follow the eye (design review F4). -->
+                  {#if !off('invite')}<Invite />{/if}
                 {/if}
               {/if}
             </div>
@@ -997,7 +1053,7 @@
           {#if pic}
             <div class="pic" aria-label={pic.shot === 'slate' ? 'The slate is on air' : `${shotName} is on air`}>
               {#if pic.shot === 'slate'}
-                <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{v?.show.title}</span><span class="pill">slate</span></div>
+                <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{title}</span><span class="pill">slate</span></div>
               {:else}
                 <div class="slate"><b>{shotName}</b><span>on camera</span><span class="pill">{pic.mode.mode === 'auto' ? 'follows the audio' : 'held'}</span></div>
               {/if}
@@ -1024,7 +1080,7 @@
             <SlateStill on={!!pic.still} off={prep} />
           {:else}
             <div class="pic" aria-label="No programme picture">
-              <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{v?.show.title}</span><span class="pill">{picOff ? 'the slate holds the picture' : 'video off'}</span></div>
+              <div class="slate"><b>{v?.station || 'WeaveSignal'}</b><span>{title}</span><span class="pill">{picOff ? 'the slate holds the picture' : 'video off'}</span></div>
             </div>
             <div class="sw" role="group" aria-label="Picture source">
               <button type="button" class="btn" aria-disabled="true" disabled={prep} title={prepWhy} onclick={() => !picOff && run({ type: 'picture' })}

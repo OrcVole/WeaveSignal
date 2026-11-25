@@ -100,6 +100,26 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
     }
     return right - left >= Math.min(tr.width, 8) && bottom - top >= tr.height / 2;
   };
+  /** The stretch of the window, top to bottom, that the ancestors of a title leave in sight: the
+   *  column it scrolls in. Unbounded where nothing above it cuts off what runs out. */
+  const column = (t: Element): { top: number; bottom: number } => {
+    let top = -Infinity;
+    let bottom = Infinity;
+    const free = (e: Element, cs: CSSStyleDeclaration) => cs.position === 'fixed' || e.matches('dialog:modal');
+    for (let a = free(t, win.getComputedStyle(t)) ? null : t.parentElement; a && a !== doc.documentElement; a = a.parentElement) {
+      const cs = win.getComputedStyle(a);
+      if (cs.overflowY !== 'visible') {
+        const b = a.getBoundingClientRect();
+        top = Math.max(top, b.top);
+        bottom = Math.min(bottom, b.bottom);
+      }
+      if (free(a, cs)) break;
+    }
+    return { top, bottom };
+  };
+  /** The pinned plates placed in this pass (`replace`): a name drawn twice shares one plate, and
+   *  a second title that has no place in sight must not take away the first one's. */
+  let placedNow = new Set<HTMLElement>();
   const plate = (name: string): HTMLElement => {
     let tag = doc.getElementById(id(name));
     if (tag) return tag;
@@ -236,6 +256,23 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
       tag.classList.add('show');
     }
     best ??= resort;
+    // A pinned plate is fixed to the window, not to the column its title scrolls in: one whose
+    // place falls below what the column shows (a header half under the column's foot, its plate
+    // a few pixels lower still) would be drawn over the row under the column. Such a title is
+    // not in view: no plate, and the audit says so. A plate just above the column's top, over
+    // a title at its head, stays.
+    if (pinned(p.getAttribute('data-panel') ?? '')) {
+      const col = column(t);
+      if (best.top + th > col.bottom + 1 || best.top < col.top - th - 6) {
+        if (!placedNow.has(tag)) {
+          tag.classList.remove('show');
+          tag.dataset.away = '1';
+        }
+        return true;
+      }
+      placedNow.add(tag);
+      delete tag.dataset.away;
+    }
     tag.style.left = `${best.left / zs}px`;
     tag.style.top = `${best.top / zs}px`;
     tag.style.maxWidth = `${(best.right - best.left) / zs}px`;
@@ -281,6 +318,7 @@ export function installPanelNames(doc: Document, registry: Readonly<Record<strin
   const replace = () => {
     // The plates with no room by their titles go last, clear of the ones that have.
     const last: [Element, HTMLElement, HTMLElement][] = [];
+    placedNow = new Set();
     for (const tag of doc.querySelectorAll<HTMLElement>('.pn-tag[data-no-room]')) delete tag.dataset.noRoom;
     // Each pinned panel's titles that can be seen. A name drawn twice shares one plate (the
     // lamp, a toast slot), so a name is out of view only when every title under it is.

@@ -17,6 +17,8 @@ When you finish, you will be on air with the presenter, heard by the listeners.
 
 You join off air: listeners do not hear you until the presenter puts you on. The page says when you are on air.
 
+If the show you are invited to is kept for listeners with a key, the page says so under your name, with a small key: *A show for people with a key*. You need no key yourself: you are joining the studio, not listening to the stream. From 1.3.2 the line is about the show your invitation is for, so it is there before the show starts, and it is not there for a guest of a public show while some other show is keyed.
+
 ## Wear headphones
 
 Wear headphones, never speakers, so your speakers do not send the presenter's voice back on air as an echo.

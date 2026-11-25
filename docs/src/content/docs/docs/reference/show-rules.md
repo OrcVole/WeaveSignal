@@ -118,6 +118,13 @@ The change is logged with who made it, and every window is told (*Moira changed 
 The studio app says it on the Desk and on the Schedule tab. The Schedule tab reads the week again, and does not say a change back to the window that made it.
 `POST /api/v1/schedule/rule/preview` with `show` says what a change would do (`change`) without saving it.
 
+## Start now
+
+`GET /api/v1/schedule/rule/now` (1.3.2) answers the rule of a show that starts now: once, on the station's date, from the station's **next whole minute**, for `minutes` (15 to 480, an hour by default), on the station's own clock and zone.
+The New show wizard's **Start now** saves it as any other rule, with `draft_first`, which drafts the date under way: when the minute comes the show is on air by the schedule, within about three seconds, and the station's step then follows the show, so a new station is not left at Full.
+The answer is for the minute it is asked in, so the wizard asks again just before saving; a save up to the show's length late still drafts the date under way.
+It writes nothing, and needs a staff session, the station key or a token with `shows:read`.
+
 ## The preview
 
 `POST /api/v1/schedule/rule/preview` takes a rule and answers its sentence, its next dates (each with its state, times, the clocks changing and its clashes), the last date, and any problem by field.

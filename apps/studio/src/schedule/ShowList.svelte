@@ -6,12 +6,16 @@
   // next date; a row opens that show at its Dates. Under them the two groups that draw nothing
   // in the week (`calendar.unscheduled`: no dates yet, and finished), and the help text. Above
   // twelve shows a field finds one by its name. The rows are one stop for Tab: ↑ ↓, Home and
-  // End move between them, and ⏎ opens the show.
+  // End move between them, and ⏎ opens the show. Each row ends with the tick that makes the
+  // show keyed (KeyedTick, 1.3.2; the operator, 2026-11-25: "pick a show … and tick it"): a
+  // producer's and an admin's, one more stop for Tab on the row that has the focus. Anyone
+  // else sees the word Keyed, with the key, on a show kept for people with a key.
   import type { Show } from '../lib/schedule.ts';
   import Unscheduled from './rule/Unscheduled.svelte';
   import { dateWords } from './rule/form.ts';
   import { unscheduled } from './rule/view.ts';
   import { listRows, showCounts } from './shows.ts';
+  import KeyedTick from '../keys/KeyedTick.svelte';
 
   let {
     shows,
@@ -20,7 +24,10 @@
     onopen,
     ondates,
     ondraft,
+    keyed = undefined,
   }: {
+    /** The shows kept for people with a key now, by path (keyed shows, 1.3.2). */
+    keyed?: ReadonlySet<string>;
     shows: readonly Show[];
     /** The station stores rules; an older one sends no dates for the week. */
     rules?: boolean;
@@ -68,7 +75,7 @@
   {#if rows.length}
     <ul class="showlist" bind:this={list} aria-label="Shows with dates to come">
       {#each rows as s, i (s.slug)}
-        <li>
+        <li class="showitem">
           <button
             type="button"
             class="showrow"
@@ -79,9 +86,11 @@
             onkeydown={(e) => keys(e, i)}
             onclick={() => onopen(s)}
           >
-            <b>{s.name}</b>
+            <b>{s.name}{#if keyed?.has(s.slug)}<span class="sr-only">, keyed</span>{/if}</b>
             <span><span class="num">{s.rule_words?.short ?? ''}</span>{#if next(s)}{s.rule_words?.short ? ' · ' : ''}next {next(s)}{/if}</span>
           </button>
+          <!-- The one control that makes a show keyed (a producer's and an admin's); anyone else sees the mark. -->
+          <KeyedTick slug={s.slug} name={s.name} id="sl-{s.slug}" compact tabindex={s.slug === stop ? 0 : -1} />
         </li>
       {/each}
     </ul>

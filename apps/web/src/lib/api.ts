@@ -11,6 +11,11 @@ export type Role = 'presenter' | 'dj' | 'guest' | 'caller' | 'screener' | 'produ
 export interface PlayerInfo {
   station: string;
   show: string;
+  /** The show on now (1.3.2): the keyed show whose window is open, else the schedule's show on
+   *  air; absent from a station older than 1.3.2. */
+  show_id?: string | null;
+  /** `show_id` is a keyed show whose window is open: the public stream plays the slate. */
+  keyed?: boolean;
   stream_url: string;
   /** Every stream the listener may choose (ADR-0232): Opus first, then each MP3 stream. */
   streams: StreamChoice[];
@@ -79,7 +84,12 @@ export interface PassInfo {
   not_now?: string | null;
   /** Where the link leads (1.3); absent from a station older than that, which is `live`. For a
    *  rehearsal link `show` is the rehearsed show. */
-  studio?: Studio;
+  studio?: Studio;  /** The show the invitation is for (1.3.2): a rehearsal link's rehearsed show, a moved pass's
+   *  show, else the show on now; null between shows. Absent from a station that does not say. */
+  show_id?: string | null;
+  /** That show is a keyed show now (1.3.2): the page says who will hear the person, and that
+   *  they need no key. Absent from a station that does not say. */
+  keyed?: boolean;
 }
 
 export type Phase = 'joining' | 'waiting' | 'screening' | 'ready' | 'desk_busy' | 'cue' | 'on_air' | 'off_air' | 'ended';

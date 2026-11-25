@@ -137,6 +137,10 @@ describe('the Listeners block gives its room back after the first use (design re
     account.me = morag;
     const { body } = render(Settings, { props: { me: morag } });
     expect(body).toContain(PLAYER.sound);
+    expect(body).toContain('about twenty seconds behind the desk (the Desk’s clock shows the figure)');
+    // A window's own address says so when it is copied (design review F7), and the live region stays in the page, empty.
+    expect(PLAYER.copiedOwn).toBe('Copied. This address works on this computer or network only.');
+    expect(body).toContain('class="said small');
   });
 });
 
@@ -151,7 +155,7 @@ describe('the station key has no voice', () => {
     expect(body).not.toContain('sign out (your name');
     expect(body).not.toContain('join yourself with your own microphone link');
     // The first minute (G12): the carts and the player, in a line.
-    expect(body).toContain('open the player and press Listen live, then press a pad on the Carts tab');
+    expect(body).toContain('press Open the player in the Listeners panel, then Listen live on that page');
     expect(body).toContain(firstMinute('about 15 s behind (an estimate)'));
   });
 
@@ -161,7 +165,7 @@ describe('the station key has no voice', () => {
     const { body } = render(DeskB);
     expect(body).toContain('keynote');
     expect(body).toContain(KEY_NOTE.text);
-    expect(body).not.toContain('press Listen live, then press a pad');
+    expect(body).not.toContain('then Listen live on that page');
   });
 
   it('is one quiet line in the Not on air head, with Open Staff, where that row is drawn (design review F2)', () => {
@@ -204,6 +208,16 @@ describe('the station key has no voice', () => {
     expect(keyNoteShown(key, false)).toBe(false);
     expect(keyNoteShown(morag, true)).toBe(false);
     expect(keyNoteShown(null, true)).toBe(false);
+  });
+});
+
+describe('the station key’s second step (design review F2)', () => {
+  it('Staff says which button signs the key out, on a station-key window only', () => {
+    const asKey = render(Staff, { props: { me: key, initial: [] } }).body;
+    expect(asKey).toContain('data-testid="staff-key-steps"');
+    expect(asKey).toContain('press <b>Station key</b>');
+    const me: Me = { kind: 'staff', role: 'admin', account: { id: 'a-shona', username: 'shona', name: 'Shona Campbell', role: 'admin', disabled_ms: null, created_ms: 1 } as Me['account'] };
+    expect(render(Staff, { props: { me, initial: [] } }).body).not.toContain('staff-key-steps');
   });
 });
 

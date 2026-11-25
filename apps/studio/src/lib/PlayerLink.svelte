@@ -54,7 +54,7 @@
     try {
       await navigator.clipboard.writeText(link.url);
       markPlayerUsed();
-      say(PLAYER.copied, true);
+      say(link.own ? PLAYER.copiedOwn : PLAYER.copied, true);
     } catch {
       say(PLAYER.notCopied, false);
       document.getElementById(`${id}-link`)?.focus();
@@ -87,6 +87,7 @@
   .addr { display: flex; gap: var(--s-2); align-items: baseline; flex-wrap: wrap; min-width: 0; margin: 0; }
   .addr code { font-family: var(--font-mono); font-size: var(--fs-13); overflow-wrap: anywhere; }
   .why, .said, .hint { margin: 0; line-height: var(--lh-label); max-width: 60rem; }
-  .said:empty { display: none; }
+  /* Kept in the page when empty, so the live region is there before its words arrive and they are read (design review F7). */
+  .said:empty { height: 0; margin-top: calc(-1 * var(--s-1)); }
   .box { font-family: var(--font-mono); font-size: var(--fs-12); width: 100%; min-width: 0; }
 </style>

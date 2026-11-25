@@ -81,6 +81,9 @@ pub struct Config {
     /// installation turns it on (`REHEARSAL`).
     #[serde(default)]
     pub rehearsal: RehearsalConfig,
+    /// Keyed shows (1.3.2): listener keys, their tokens and their limits.
+    #[serde(default)]
+    pub keys: KeysConfig,
     /// Set from [`DATABASE_URL_ENV`]; never from the file.
     #[serde(skip)]
     pub database_url: Option<String>,
@@ -253,6 +256,173 @@ impl Default for DeskConfig {
             socket: None,
             poll_ms: 250,
         }
+    }
+}
+
+/// The `[keys]` settings (1.3.2): keyed shows. A show is keyed in the studio (its access rule);
+/// these are the installation's figures for how keys work.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct KeysConfig {
+    /// The renewal's deadline, in seconds: a player renews within it (tokens are signed with
+    /// ECDSA P-256 and last their show's window; a revoked or paused key is refused through the
+    /// revoked list at once, and a signed-out device at its next renewal).
+    pub token_ttl_s: u64,
+    /// How often a player renews its token, in seconds (told to the player; less than the
+    /// token's life).
+    pub renew_every_s: u64,
+    /// The leeway, in seconds, the edge gives a token's start and end for its own clock.
+    pub clock_skew_s: u64,
+    /// A device that has not renewed for this long (seconds) no longer counts as holding its
+    /// key, so a closed browser frees its place.
+    pub device_hold_s: u64,
+    /// A device back after this long (seconds) starts a new listen; sooner, it carries on the
+    /// same one (a page reload does not use a listen).
+    pub listen_gap_s: u64,
+    /// A renewal writes the device's last sign of life at most this often, in seconds.
+    pub touch_every_s: u64,
+    /// How long the use records behind the leak report are kept, in days (ADR-0122).
+    pub use_records_days: u32,
+    /// How many days before a key ends the player says so.
+    pub ends_soon_days: u32,
+    /// Redeems and renewals one address may make per minute (0: no limit).
+    pub redeem_per_minute: u32,
+    /// Keys one address may get wrong in ten minutes before it is refused for a while (0: no
+    /// limit).
+    pub failures_per_ten_minutes: u32,
+    /// Lost-key requests one address may make per hour, and one email address (0: no limit).
+    pub lost_per_hour: u32,
+    /// Where a person gets a key, in the station's words: shown beside Enter a key.
+    pub get_a_key_text: String,
+    /// A link for it (a sign-up page, a shop); empty for none.
+    pub get_a_key_url: String,
+    /// The public gate shuts this long before a keyed show's window, in seconds.
+    pub window_lead_s: u64,
+    /// And stays shut this long after it, in seconds, on top of the desk's profanity delay
+    /// (which the control plane adds as the desk reports it).
+    pub window_tail_s: u64,
+    /// How long after a moment the desk's HLS may still write it into a segment, in seconds:
+    /// the public HLS stays held back this long after a keyed window, and a segment written
+    /// within it is served only on its show's keyed path. Not measured on a real desk yet: a
+    /// generous bound, since the error then goes one way only.
+    pub hls_lag_s: u64,
+    /// RTMP out stops this long before a keyed window's lead, in seconds (the control plane
+    /// hands the desk its destinations every few seconds).
+    pub rtmp_lead_s: u64,
+}
+
+impl Default for KeysConfig {
+    fn default() -> Self {
+        Self {
+            token_ttl_s: 120,
+            renew_every_s: 60,
+            clock_skew_s: 5,
+            device_hold_s: 360,
+            listen_gap_s: 600,
+            touch_every_s: 30,
+            use_records_days: 90,
+            ends_soon_days: 7,
+            redeem_per_minute: 120,
+            failures_per_ten_minutes: 20,
+            lost_per_hour: 5,
+            get_a_key_text: String::new(),
+            get_a_key_url: String::new(),
+            window_lead_s: 3,
+            window_tail_s: 5,
+            hls_lag_s: 30,
+            rtmp_lead_s: 15,
+        }
+    }
+}
+
+impl KeysConfig {
+    /// The margins around every keyed window, before the desk's delay is added to the tail.
+    pub fn margins(&self) -> crate::keyed::Margins {
+        let ms = |s: u64| i64::try_from(s.saturating_mul(1000)).unwrap_or(i64::MAX);
+        crate::keyed::Margins {
+            lead_ms: ms(self.window_lead_s),
+            tail_ms: ms(self.window_tail_s),
+            hls_lag_ms: ms(self.hls_lag_s),
+            rtmp_lead_ms: ms(self.rtmp_lead_s),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        let bad = |s: String| Err(ConfigError::Invalid(s));
+        if !(30..=900).contains(&self.token_ttl_s) {
+            return bad(format!(
+                "`keys.token_ttl_s` is {}; a token lives 30 to 900 s",
+                self.token_ttl_s
+            ));
+        }
+        if self.renew_every_s < 10 || self.renew_every_s * 2 > self.token_ttl_s {
+            return bad(format!(
+                "`keys.renew_every_s` is {}; renew at least every {} s (half the token's life) and not faster than every 10 s",
+                self.renew_every_s,
+                self.token_ttl_s / 2
+            ));
+        }
+        if self.clock_skew_s > 60 {
+            return bad(format!(
+                "`keys.clock_skew_s` is {}; allow 0 to 60 s",
+                self.clock_skew_s
+            ));
+        }
+        if self.device_hold_s < self.token_ttl_s || self.device_hold_s > 86_400 {
+            return bad(format!(
+                "`keys.device_hold_s` is {}; a device holds a key for at least a token's life ({} s) and at most a day",
+                self.device_hold_s, self.token_ttl_s
+            ));
+        }
+        if !(60..=86_400).contains(&self.listen_gap_s) {
+            return bad(format!(
+                "`keys.listen_gap_s` is {}; allow 60 to 86400 s",
+                self.listen_gap_s
+            ));
+        }
+        if !(1..=self.renew_every_s).contains(&self.touch_every_s) {
+            return bad(format!(
+                "`keys.touch_every_s` is {}; allow 1 to the renewal's {} s",
+                self.touch_every_s, self.renew_every_s
+            ));
+        }
+        if !(1..=3650).contains(&self.use_records_days) {
+            return bad(format!(
+                "`keys.use_records_days` is {}; keep use records 1 to 3650 days",
+                self.use_records_days
+            ));
+        }
+        if self.ends_soon_days > 365 {
+            return bad(format!(
+                "`keys.ends_soon_days` is {}; allow 0 to 365",
+                self.ends_soon_days
+            ));
+        }
+        if self.get_a_key_text.chars().count() > 500 || self.get_a_key_url.chars().count() > 300 {
+            return bad(
+                "`keys.get_a_key_text` is at most 500 characters and `keys.get_a_key_url` 300"
+                    .into(),
+            );
+        }
+        if !(1..=60).contains(&self.window_lead_s) || !(1..=300).contains(&self.window_tail_s) {
+            return bad(format!(
+                "`keys.window_lead_s` is {} and `keys.window_tail_s` {}; allow 1 to 60 s before and 1 to 300 s after",
+                self.window_lead_s, self.window_tail_s
+            ));
+        }
+        if !(5..=600).contains(&self.hls_lag_s) || !(5..=300).contains(&self.rtmp_lead_s) {
+            return bad(format!(
+                "`keys.hls_lag_s` is {} and `keys.rtmp_lead_s` {}; allow 5 to 600 s and 5 to 300 s",
+                self.hls_lag_s, self.rtmp_lead_s
+            ));
+        }
+        if !self.get_a_key_url.is_empty()
+            && !(self.get_a_key_url.starts_with("https://")
+                || self.get_a_key_url.starts_with("http://"))
+        {
+            return bad("`keys.get_a_key_url` must start with https:// (or http://)".into());
+        }
+        Ok(())
     }
 }
 
@@ -873,6 +1043,7 @@ impl Config {
         self.video.validate()?;
         self.phone.validate()?;
         self.rehearsal.validate(&self.room.desk_identity)?;
+        self.keys.validate()?;
         let max = weavesignal_proto::token::MAX_PARTICIPANT_TTL_S;
         if !(1..=max).contains(&self.room.token_ttl_s) {
             return Err(ConfigError::Invalid(format!(

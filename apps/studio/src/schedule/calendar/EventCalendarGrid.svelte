@@ -44,7 +44,7 @@
   import { foldWeek, tabStretches, type CountTab, type Placed } from '../clash.ts';
   import { remPx } from '../../lib/rem.ts';
 
-  let { blocks, days, zone, now, selected, onSelect, onClear, onMove, onOpenDay, studios = null, rehearsals = [], onBook, bookWhy = '', view = 'week', day = 0, reveal = null }: GridProps = $props();
+  let { blocks, days, zone, now, selected, onSelect, onClear, onMove, onOpenDay, studios = null, rehearsals = [], onBook, bookWhy = '', view = 'week', day = 0, reveal = null, keyed = undefined }: GridProps = $props();
 
   /** The Studios view's columns; a station that names none has the one. */
   const columns = $derived(view === 'studios' ? (studios?.length ? studios : [{ id: STUDIO, name: 'Studio' }]) : []);
@@ -62,7 +62,7 @@
   const px = (from: number, to: number) => ((floating(to, zone).getTime() - floating(from, zone).getTime()) / HOUR_MS) * SLOT * 2;
 
   const todayIndex = $derived(days.findIndex((d, i) => i < 7 && now >= d && now < days[i + 1]));
-  const ctx = $derived({ now, zone, selected });
+  const ctx = $derived({ now, zone, selected, keyed });
 
   // ---- a day's width, in rem ----
   let host = $state<HTMLDivElement>();

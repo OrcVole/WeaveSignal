@@ -532,7 +532,7 @@ describe('the desk before the post', () => {
     expect(text(panel(body, 'desk.clock', '</section>'))).toContain(`Steeped · the post ${hms(at(14, 0))} −8:00`);
     const row = text(panel(body, 'desk.rundown', '</section>'));
     expect(row).toContain(`${hm(at(14, 0))} Steeped Finlay Grant · own studio Standby`);
-    expect(row).toContain('the schedule adds the next show’s post');
+    expect(row).not.toContain('studio.rundown');
     expect(body).toContain('title="Finlay is standing by: Steeped starts as you end."');
     expect(body).not.toContain('data-testid="late-count"');
     expect(body).not.toContain('is-kept');
@@ -553,7 +553,8 @@ describe('the desk before the post', () => {
     expect(text(panel(body, 'desk.clock', '</section>'))).toContain('No hard post ahead');
     expect(body).not.toContain('data-testid="post-row"');
     expect(body).toContain('Nothing scheduled');
-    expect(body).toContain('the schedule does not fill this yet');
+    expect(body).not.toContain('studio.rundown');
+    expect(body).not.toContain('does not fill');
   });
 });
 
@@ -1157,5 +1158,56 @@ describe('the stand-in station’s post (tests/hosts/station.mjs)', () => {
     expect(st.handle('POST', '/api/v1/air/post/hold')[0]).toBe(403);
     // A station older than 1.1 sends no post at all.
     expect('post' in new HostStation({ routes: false }).studioView()).toBe(false);
+  });
+});
+
+describe('the desk names the show on air (1.3.2, G-V1)', () => {
+  const onAir = (over: Partial<View['step']> = {}) =>
+    view(BEFORE, [duncan], undefined, {
+      show: { title: '', rundown: [] },
+      step: { ...NO_SHOW, step: 'solo', show: { slug: 'morning-kettle', name: 'The Morning Kettle' }, on_air: true, ...over },
+    });
+
+  it('takes the heading and the rundown head from the schedule when the station has no show setting', () => {
+    show(onAir());
+    const { body } = render(DeskB);
+    expect(text(panel(body, 'desk.stage', '</header>'))).toContain('The Morning Kettle');
+    expect(body).not.toContain('No show set');
+    expect(body).not.toContain('No show on air');
+    expect(text(panel(body, 'desk.rundown', '</section>'))).toContain('The Morning Kettle');
+  });
+
+  it('prints no developer text in the rundown, and gives it the schedule’s own rows: the show on air and the next to start', () => {
+    show(onAir({ next: { slug: 'steeped', name: 'Steeped', start_ms: at(14, 0), step: 'guests' } }));
+    const rundown = text(panel(render(DeskB).body, 'desk.rundown', '</section>'));
+    expect(rundown).toContain('now The Morning Kettle on air by the schedule');
+    expect(rundown).toContain(`${hm(at(14, 0))} Steeped next by the schedule`);
+    expect(rundown).not.toContain('Nothing scheduled');
+    expect(rundown).not.toContain('studio.rundown');
+    expect(rundown).not.toContain('does not fill');
+  });
+
+  it('says Nothing scheduled only when the schedule has nothing on air or coming, and names the day of a show far off', () => {
+    show(view(BEFORE, [duncan], undefined, { show: { title: '', rundown: [] } }));
+    const none = text(panel(render(DeskB).body, 'desk.rundown', '</section>'));
+    expect(none).toContain('Nothing scheduled');
+    expect(none).not.toContain('studio.rundown');
+    const far = at(13, 52) + 30 * 3600_000;
+    show(view(BEFORE, [duncan], undefined, { show: { title: '', rundown: [] }, step: { ...NO_SHOW, step: 'solo', next: { slug: 'steeped', name: 'Steeped', start_ms: far, step: 'guests' } } }));
+    const rows = text(panel(render(DeskB).body, 'desk.rundown', '</section>'));
+    expect(rows).toMatch(/Steeped next by the schedule · (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/);
+  });
+
+  it('says no show is on air, not that none is set, when the schedule has none on air', () => {
+    show(onAir({ on_air: false }));
+    const { body } = render(DeskB);
+    expect(text(panel(body, 'desk.stage', '</header>'))).toContain('No show on air');
+    expect(body).not.toContain('No show set');
+  });
+
+  it('keeps the station’s own setting first, and the End show dialog names the show on air', () => {
+    show(view(BEFORE, [duncan], undefined, { show: { title: 'The Long Lunch', rundown: [] }, step: { ...NO_SHOW, step: 'solo', show: { slug: 'morning-kettle', name: 'The Morning Kettle' }, on_air: true } }));
+    expect(text(panel(render(DeskB).body, 'desk.stage', '</header>'))).toContain('The Long Lunch');
+    expect(airPlan('end', onAir()).lede).toBe('The Morning Kettle ends for listeners.');
   });
 });

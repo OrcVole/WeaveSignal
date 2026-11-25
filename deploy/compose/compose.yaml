@@ -94,7 +94,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
@@ -145,7 +145,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
@@ -196,7 +196,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
@@ -233,7 +233,7 @@ services:
   # SOURCE_WHIP_PORT, its offers passed on by the control plane to INGEST_WHIP_PORT on loopback,
   # and its one ICE candidate LiveKit's address (LIVEKIT_NODE_IP, which weavesignal.sh sets).
   ingest:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-ingest", "run"]
@@ -325,7 +325,7 @@ configs:
       {
         "station_id": "${STATION_ID:?set STATION_ID in .env}",
         "srt": { "host": "127.0.0.1", "port": ${SRT_INGEST_PORT:-7313} },
-        "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": ${LISTENERS_PORT:-7312}, "mount": "programme.opus", "feed_port": ${PLAYOUT_FEED_PORT:-7315}, "feed_buffer_s": ${FEED_BUFFER_S:-0.5}, "directory": ${DIRECTORY_LISTING:-false}, "bitrate": ${OPUS_BITRATE:-96}, "compat": { "enabled": ${COMPAT_STREAM:-false}, "mount": "${COMPAT_MOUNT:-programme.mp3}", "bitrate": ${COMPAT_BITRATE:-128} }, "compat_high": { "enabled": ${COMPAT_HIGH_STREAM:-false}, "mount": "${COMPAT_HIGH_MOUNT:-programme-high.mp3}", "bitrate": ${COMPAT_HIGH_BITRATE:-320} }, "control_socket": "/run/weavesignal-listeners/listeners.sock" },
+        "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": ${LISTENERS_PORT:-7312}, "mount": "programme.opus", "feed_port": ${PLAYOUT_FEED_PORT:-7315}, "feed_buffer_s": ${FEED_BUFFER_S:-0.5}, "directory": ${DIRECTORY_LISTING:-false}, "bitrate": ${OPUS_BITRATE:-96}, "compat": { "enabled": ${COMPAT_STREAM:-false}, "mount": "${COMPAT_MOUNT:-programme.mp3}", "bitrate": ${COMPAT_BITRATE:-128} }, "compat_high": { "enabled": ${COMPAT_HIGH_STREAM:-false}, "mount": "${COMPAT_HIGH_MOUNT:-programme-high.mp3}", "bitrate": ${COMPAT_HIGH_BITRATE:-320} }, "keyed": { "enabled": ${KEYED_SHOWS:-true}, "mount": "programme-keyed.opus", "compat_mount": "programme-keyed.mp3" }, "control_socket": "/run/weavesignal-listeners/listeners.sock" },
         "desk_feed": { "host": "127.0.0.1", "port": ${DESK_FEED_PORT:-7317}, "enabled": ${VIDEO:-false} },
         "control_socket": "/run/weavesignal-playout/playout.sock",
         "carts": { "dir": "/var/lib/weavesignal/carts" },
@@ -333,7 +333,8 @@ configs:
         "fallback": { "dir": "/var/lib/weavesignal/fallback", "default_file": "/opt/weavesignal/assets/default-loop/default-loop.flac" },
         "processing": { "enabled": ${PROCESSING:-true}, "target_lufs": ${PROCESSING_TARGET_LUFS:--16}, "max_gain_db": ${PROCESSING_MAX_GAIN_DB:-6} },
         "icecast_out": { "enabled": ${ICECAST_OUT:-false}, "host": "${ICECAST_OUT_HOST:-}", "port": ${ICECAST_OUT_PORT:-8005}, "mount": "${ICECAST_OUT_MOUNT:-/}", "user": "${ICECAST_OUT_USER:-source}", "tls": ${ICECAST_OUT_TLS:-false}, "bitrate": ${ICECAST_OUT_BITRATE:-128}, "name": "WeaveSignal" },
-        "logger": { "dir": "/var/lib/weavesignal/recordings/logger" }
+        "logger": { "dir": "/var/lib/weavesignal/recordings/logger" },
+        "keyed": { "enabled": ${KEYED_SHOWS:-true}, "window_file": "/run/weavesignal-playout/keyed-window", "lead_s": 0.2, "hold_s": 0.2 }
       }
 
   desk:

@@ -100,9 +100,10 @@ describe('a change of station', () => {
     const { prepare } = await import('./lib/prepare.svelte.ts');
     const { setup } = await import('./lib/wizard.svelte.ts');
     const { ruleDialog } = await import('./schedule/rule/dialog.svelte.ts');
+    const { ks, keyed, keysUi } = await import('./lib/keys.svelte.ts');
     await import('./lib/actions.ts');
     const { resetStores, registered } = await import('./lib/reset.ts');
-    const stores = { studio, account, sched, chat, prepare, setup, ruleDialog };
+    const stores = { studio, account, sched, chat, prepare, setup, ruleDialog, ks, keyed, keysUi };
     // `now` is the clock, which a reset reads afresh.
     const snap = () => JSON.parse(JSON.stringify({ ...stores, studio: { ...studio, now: 0 }, sched: { ...sched, anchor: 0 } }));
     const fresh = snap();
@@ -137,6 +138,10 @@ describe('a change of station', () => {
     Object.assign(prepare, { menu: true, pick: 'live', busy: true, problem: 'x', settled: true, nudgedAt: 5 });
     Object.assign(setup, { open: true, shows: [{ slug: 'steeped' }], loaded: true, error: 'x' });
     ruleDialog.open = { slug: 'steeped' } as never;
+    // Listener keys (1.3.2): one station's keys, families and keyed shows are never another's.
+    Object.assign(ks, { ready: 'ok', view: 'leaks', keys: [{ id: 'key-0001', label: 'Isla Fraser' }], total: 1, all: 1, families: [{ id: 'fam-1', label: 'Autumn patrons' }], selected: 'key-0001', one: { id: 'key-0001' }, devices: [], log: [], leaks: { generated_ms: 1, entries: [] }, leaksFamily: 'fam-1', note: 'Isla Fraser’s key is made.', filter: { q: 'isla', state: 'active', kind: '', family: 'fam-1', show: '' } });
+    Object.assign(keyed, { list: { shows: [{ id: 's1', slug: 'friday-supporters', name: 'Friday Supporters’ Hour', now: 'key' }], get_a_key_text: '', get_a_key_url: '' }, state: 'ok', at: 5 });
+    Object.assign(keysUi, { make: 2, search: 1 });
     expect(snap()).not.toEqual(fresh);
 
     resetStores();
@@ -162,7 +167,12 @@ describe('a change of station', () => {
     expect(chat.me).toBeNull();
     expect(setup.shows).toEqual([]);
     expect(ruleDialog.open).toBeNull();
-    expect(registered().resets.sort()).toEqual(['account', 'actions', 'api', 'chat', 'prepare', 'rule dialog', 'rule notice', 'schedule', 'studio', 'wizard']);
+    expect(ks.keys).toEqual([]);
+    expect(ks.selected).toBeNull();
+    expect(ks.leaks).toBeNull();
+    expect(ks.ready).toBe('loading');
+    expect(keyed.list).toBeNull();
+    expect(registered().resets.sort()).toEqual(['account', 'actions', 'api', 'chat', 'keys', 'prepare', 'rule dialog', 'rule notice', 'schedule', 'studio', 'wizard']);
   });
 
   it('forgets what is kept beside the stores: held talk keys, the station’s version, saves this window marked, fetched pictures', async () => {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.3.1:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.3.2:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -362,6 +362,13 @@ export const groups: Group[] = [
         href: '/docs/explanation/architecture/#two-latencies',
         link: 'Two latencies',
       },
+      {
+        id: 'keyed-shows',
+        name: 'Shows only people with a key can hear',
+        what: 'A show advertised to everyone and heard or watched only with a key: one for a person, a group or a program, for sound, picture or both, with a start and an end, limits on devices and listens, and pause, extend, replace or revoke later; one key a person in a family, with a leak report. Everyone else hears the station\'s slate meanwhile. A key keeps a whole show, and its holders hear it about 13 seconds behind.',
+        href: '/docs/how-to/keep-a-show-for-people-with-a-key/',
+        link: 'Keep a show for people with a key',
+      },
     ],
   },
   {
@@ -534,14 +541,6 @@ export const next: Planned[] = [
     today: 'In 1.2 the station takes only a host\'s sound; viewers see the desk\'s own picture, encoded on the station\'s card (Compose and the Quadlets) or its CPU.',
     href: '/docs/reference/desk-video/#a-hosts-own-picture',
     link: 'A host\'s own picture',
-  },
-  {
-    id: 'keyed-shows',
-    name: 'Keyed shows',
-    what: 'Shows that are advertised in public but heard or watched only with a key: keys for one person or a group, with an opening and closing time, limits on devices or listens, and a way to extend, pause, replace or end them later.',
-    today: 'A Cloudron station has one shared stream password for the whole station, which radio apps can use and the web player cannot. There is no key for one listener or one show.',
-    href: '/docs/reference/settings/',
-    link: 'Settings',
   },
   {
     id: 'presenter-kit',

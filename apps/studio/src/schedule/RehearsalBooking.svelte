@@ -43,6 +43,8 @@
     onDelete,
     onShows,
     onShowIt,
+    onDesk,
+    deskWhy = null,
   }: {
     /** What is selected in the Rehearsal column; `draft` is the booking being made. */
     item: Rehearsal & { draft?: boolean };
@@ -68,7 +70,24 @@
     onShows: () => void;
     /** Show it: bring the booking in the way into view, on its own day. */
     onShowIt?: (id: string, ms: number) => void;
+    /** Go to the rehearsal desk (1.3.2), on the pane of a session that is open: the Desk tab,
+     *  showing the rehearsal studio. Left out, the pane only says where the desk is. */
+    onDesk?: () => void | Promise<void>;
+    /** Why the rehearsal desk cannot be gone to from this window now, or null when it can. */
+    deskWhy?: string | null;
   } = $props();
+
+  /** Go to the rehearsal desk: held keys are let go on the way, so the press may take a moment. */
+  let going = $state(false);
+  async function toDesk() {
+    if (!onDesk || deskWhy || going) return;
+    going = true;
+    try {
+      await onDesk();
+    } finally {
+      going = false;
+    }
+  }
 
   const isNew = $derived(!!item.draft);
   const change = $derived(isNew ? 'all' : bookingChange(item, now, may));
@@ -230,7 +249,11 @@
       {/if}
       <div class="nothing flat">
         {#if item.kind === 'session' && item.open}
-          <p>The rehearsal studio is open for <b>{item.show}</b>. Nothing in it reaches the air. To take part, or to move everyone to the live studio, open the <b>Desk</b> tab and choose the rehearsal studio there.</p>
+          {#if onDesk}
+            <p>The rehearsal studio is open for <b>{item.show}</b>. Nothing in it reaches the air. Its desk is where you take part, and where everyone is moved to the live studio.</p>
+          {:else}
+            <p>The rehearsal studio is open for <b>{item.show}</b>. Nothing in it reaches the air. To take part, or to move everyone to the live studio, open the <b>Desk</b> tab and choose the rehearsal studio there.</p>
+          {/if}
         {:else if item.kind === 'session'}
           <p>This is the rehearsal studio as it was used. Nothing in it reached the air.</p>
         {:else}
@@ -267,7 +290,14 @@
   </div>
 
   <div class="foot">
-    {#if readOnly}
+    {#if readOnly && item.kind === 'session' && item.open && onDesk}
+      <!-- The one thing to do with a rehearsal under way: go to it. The Desk tab opens on the
+           rehearsal studio; nothing is opened, moved or put on air by going there. -->
+      <div class="r">
+        <button type="button" class="btn primary" data-testid="to-rehearsal-desk" aria-disabled={deskWhy ? 'true' : undefined} aria-describedby="to-desk-note" disabled={going} aria-busy={going || undefined} onclick={toDesk}>Go to the rehearsal desk</button>
+      </div>
+      <p class="caption" id="to-desk-note">{deskWhy ?? 'Opens the Desk tab on the rehearsal studio. Live studio, at the head of that tab, is the way back to the live desk.'}</p>
+    {:else if readOnly}
       <p class="caption">{item.kind === 'session' ? 'Sessions are drawn as they happened: they are not edited.' : 'Only a booking still to come, or under way, can be changed.'}</p>
     {:else}
       <div class="r">

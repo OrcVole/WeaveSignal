@@ -29,6 +29,7 @@ Not drawn on the tab: the app’s top bar, `studio.frame`, is above every tab.
 | the zone | the station's time zone, and its clock change if one falls this week |
 | **Choose the time zone…** | shown to an admin until someone has chosen the station's zone; opens Settings |
 | **New show** | opens New show (`calendar.new-show`) |
+| **New keyed show** | from 1.3.2, for an admin or a producer on a station with keyed shows: New show with **Keyed show** ticked ([Keep a show for people with a key](/docs/how-to/keep-a-show-for-people-with-a-key/)). In a 1,440 px window the legend gives it the room and is drawn as its glyphs alone, each with its words in a tooltip |
 | **Import a calendar…** | for an admin or a producer: reads an `.ics` file into new shows (`calendar.import`) |
 | **Subscribe…** | the link to the schedule's calendar file (`calendar.subscribe`) |
 | the legend | Live, automation, a date from the show's rule, conflict (its tooltip says how a clash is drawn), aired |
@@ -132,6 +133,7 @@ Every other pane of the column begins its crumbs with **‹ Shows**, which close
 `Esc` does the same from anywhere on the tab, once no text field, menu or dialog has the key; it closes nothing while the column holds changes that are not saved, and the tab says so.
 So does a press on the grid where no block is. There is little of that, because automation fills every gap in time and a press on those hours opens their log: only the narrow gap beside a day's blocks, and in a wide window the plane beside the Day view's column.
 The rows are one stop for `Tab`: `↑` `↓`, `Home` and `End` move between them, and `⏎` opens the show.
+From 1.3.2 each row ends with the tick **Keyed show**, for an admin or a producer: ticked, the show is kept for people with a key from that moment, and what the tick did is said under the row; unticking a keyed show asks first. `Tab` from the row in focus reaches its tick. Anyone else sees the word **Keyed**, with the key, on a keyed show.
 
 ## `calendar.show-dates`
 
@@ -173,8 +175,10 @@ The rows are one stop for `Tab`: `↑` `↓`, `Home` and `End` move between them
 **New show** opens a dialog in three parts (ADR-0278; [Schedule a new show](/docs/how-to/schedule-the-week/)):
 
 1. **The show**: its name, its colour and its step. On a station of 1.1, an admin or a producer is also asked **Comes from** (a field of `calendar.new-show`, with no panel of its own): **The station's room** (picked) or **The host's own studio**. A show's source follows from its keys and the show does not exist yet, so the pick is only an intention: when the show is made, **Done** says it comes from the host's own studio once a key is made, with **Set up a host…**, which opens the same setup as the show editor's (SRT offered for a show at Callers or Full, Icecast otherwise). New show stays open while the key's details are shown, and then says the host has a key.
-2. **When it airs**: `calendar.rule`, below. With a block selected, the date and time start from that block.
-3. **Done**: the show is made and its first episode drafted; **Draft all 10** drafts the rest of a rule with an end, and **Open episode 1** selects it.
+2. **When it airs**: `calendar.rule`, below. With a block selected, the date and time start from that block. Over the questions, from 1.3.2, is **Start now**: one press makes the show to start at the station's next whole minute, once, for the length the two times make (15 minutes to 8 hours, else an hour). The station gives the rule when the button is pressed (`GET /api/v1/schedule/rule/now`), and the studio asks it for a preview before saving: another show at that minute is said once, with **Start now anyway** and **Not now**, and a clash the station refuses is said in its sentence. It is not the dialog's main button: **Make the show** keeps that, and `⏎`. Not offered at a station older than 1.0.4, which keeps a weekly time only.
+3. **Done**: the show is made and its first episode drafted (for a show started now, its first line says when it starts, in the station's time); **Draft all 10** drafts the rest of a rule with an end, and **Open episode 1** selects it.
+
+From 1.3.2 the first part also has the tick **Keyed show**, for an admin or a producer on a station with keyed shows; **New keyed show** in the toolbar opens the dialog with it ticked, and its heading says so. The show's access rule is set the moment the show is made, whichever way it is made (with dates, with none, or **Start now**), and **Done** says what became of it: *It is kept for people with a key*, with **Make a key…**; or *It is not kept for people with a key: everyone can hear it*, with the reason and **Who can listen…**, where the station would not key it.
 
 **No dates yet** makes the show without a rule; it is then listed under *No dates yet* (`calendar.unscheduled`) with **Give it dates…**.
 
@@ -241,6 +245,7 @@ At the foot of the list of shows (`calendar.shows`): the shows that draw nothing
 ![The episode editor for Saturday Night Kettle: its path, date and time, and each field marked as inherited or set here.](../../../../../assets/screens/reference-calendar-episode-editor.png)
 
 The selected episode: its path (**‹ Shows** › the show › series › episode), its date and a TONIGHT, ON AIR or AIRED chip, and a level switch (Episode, Series n, Show). **Show**, and the show's name in the path, open the show's pane at its Dates (`calendar.show-dates`).
+From 1.3.2 the first thing under the head, on an episode and on a date not drafted yet, is who can listen: the tick **Keyed show** (the show's, for an admin or a producer), the rule in words (*This show is kept for people with a key. Every episode …, this one too*), and **Who can listen…**. On an aired episode it says that a key keeps the whole show, not one episode. A show's pane has the same tick under its name, on both its tabs.
 The same column, under the same name, holds a dashed rule date's **Draft this episode**, **Skip this date** and **All its dates**, and the show editor (the show pane's **Details**). With nothing open the column is the list of shows (`calendar.shows`).
 Every field carries one of three markers:
 

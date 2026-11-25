@@ -164,6 +164,7 @@ It shows one day with a column for each studio: **Studio**, where every show on 
 - **While a booking holds the studio**, **Open** for another show is refused, with the show and the time.
 - **Rights**: whoever may change a show's step may book for it.
   Anyone else sees the column read-only.
+- **A rehearsal under way** is a block in the **Rehearsal** column that runs to now. Select it and its pane says who opened it and when, with **Go to the rehearsal desk** (from 1.3.2): the Desk tab opens on the rehearsal studio, as choosing **Rehearsal studio** at the head of that tab does. Going there opens, moves and airs nothing; **Live studio** is the way back. Where the rehearsal studio cannot be chosen from this window, the button says why.
 
 ![The booking editor for a new booking: the show, the day and the times, with Discard and Book the studio.](../../../../assets/screens/how-to-rehearse-booking-new.png)
 

@@ -44,7 +44,16 @@ let json.parse (data :
     library : {dir : string}?,
     fallback : {dir : string, default_file : string?}?,
     processing : {enabled : bool, target_lufs : float?, max_gain_db : float?}?,
-    programme : {mode : string?, dead_air_s : float?, dead_air_db : float?}?
+    programme : {mode : string?, dead_air_s : float?, dead_air_db : float?}?,
+    keyed :
+      {
+        enabled : bool,
+        window : bool?,
+        window_file : string?,
+        slate : string?,
+        lead_s : float?,
+        hold_s : float?
+      }?
   }
 ) = file.contents(data_path)
 
@@ -178,10 +187,11 @@ autodj = amplify(id="autodj_gain", override="liq_amplify", 1., autodj_queue)
 # gave it, in the library (a track) or the cart directory (a cart).
 def autodj_push(arg) =
   words = string.split(separator=" ", string.trim(arg))
+  keyed_word = if list.length(words) == 6 then list.nth(words, 5) else "" end
   if
-    list.length(words) != 5
+    list.length(words) != 5 and not (list.length(words) == 6 and keyed_word == "keyed")
   then
-    "error usage: push <item> <track|cart> <id> <file> <gain dB>"
+    "error usage: push <item> <track|cart> <id> <file> <gain dB> [keyed]"
   else
     item = list.nth(words, 0)
     kind = list.nth(words, 1)
@@ -219,7 +229,9 @@ def autodj_push(arg) =
         request.create(
           "annotate:weavesignal_item=\"#{item}\",weavesignal_kind=\"#{kind}\",weavesignal_id=\"#{
             uid
-          }\",liq_amplify=\"#{gain} dB\":#{dir}/#{name}"
+          }\",weavesignal_keyed=\"#{if keyed_word == "keyed" then "1" else "0" end}\",liq_amplify=\"#{
+            gain
+          } dB\":#{dir}/#{name}"
         )
       )
       "ok #{list.length(autodj_items())}"
@@ -249,7 +261,7 @@ def autodj_clear(_) =
   "ok"
 end
 
-server.register(namespace="autodj", usage="push <item> <track|cart> <id> <file> <gain dB>", description="Queue a log item.", "push", autodj_push)
+server.register(namespace="autodj", usage="push <item> <track|cart> <id> <file> <gain dB> [keyed]", description="Queue a log item.", "push", autodj_push)
 server.register(namespace="autodj", usage="status", description="The current and queued log items, as JSON.", "status", autodj_status)
 server.register(namespace="autodj", usage="skip", description="End the current item.", "skip", autodj_skip)
 server.register(namespace="autodj", usage="clear", description="Empty the queue.", "clear", autodj_clear)
@@ -409,6 +421,267 @@ def playout_restart(_) =
 end
 server.register(namespace="playout", usage="restart", description="Shut playout down; its supervisor starts it again.", "restart", playout_restart)
 
+# ---- Keyed shows (1.3.2; spike on branch p132-keyed-spike, PLAN 19a) ----
+# A keyed show is heard only with a key, so the public must not hear one sample of it. The
+# decision is made here, on playout's own clock, where the programme is chosen, not in the
+# listener process: there the feed arrives up to its buffer late (0.5 s, at most 10 s), so a
+# switch there on the schedule would go back to the public feed while the end of a keyed show
+# was still in that buffer.
+#
+# Two feeds go to the listener process: `feed` is the public programme, which is the slate while
+# the gate is shut, and `feed_keyed` is the programme as it plays. The gate is shut while
+#   - the control plane holds the window open (`keyed.window on`; the data's `keyed.window` at
+#     start, so a playout that restarts mid-show starts shut), or
+#   - automation plays an item pushed with `keyed`, or will start one within `lead_s`
+#     (the queue knows its next request before it starts), so an item that starts early,
+#     because the one before it was short, is still covered;
+# and it stays shut for `hold_s` after both end, counted in frames, not on the wall clock (the
+# queue moves on to its next request a frame or so before the last samples of the one before
+# have played: 15 ms measured; and a wall-clock hold would run out while a loaded host stalls
+# the clock between two frames).
+# The control plane's rules, so that the gate never opens on keyed content: open the window at
+# least `lead_s` before any change into a keyed show (`programme.mode live` for a keyed live
+# show), close it only after the content has left it, and never push a keyed item into an empty
+# queue while the window is closed.
+#
+# The gate is a mix of the programme and the slate with gains of 0 and 1 (`amplify`), never a
+# `switch`: a switch that leaves a source ends that source's track (automation skipped the
+# rest of a keyed item for everyone), and `add`'s own weights scale the shared frame in place
+# (the keyed feed went silent). `override=null`: automation's items carry `liq_amplify`, which
+# would otherwise replace the gate's 0.
+keyed_cfg =
+  data.keyed ?? {
+    enabled = false,
+    window = null,
+    window_file = null,
+    slate = null,
+    lead_s = null,
+    hold_s = null
+  }
+# Where the window stands at start: the data's `window`, or the control plane's own record of it
+# (`window_file`, a file it writes beside this socket before each `keyed.window`, holding `on` or
+# `off`), so a playout that restarts in the middle of a keyed show starts shut (1.3.2).
+keyed_window_file = keyed_cfg.window_file ?? ""
+keyed_window_at_start =
+  (keyed_cfg.window ?? false)
+or
+  (
+    keyed_window_file != ""
+  and
+    file.exists(keyed_window_file)
+  and
+    string.trim(file.contents(keyed_window_file)) == "on"
+  )
+keyed_window = ref(keyed_window_at_start)
+keyed_lead = keyed_cfg.lead_s ?? 0.2
+keyed_hold = keyed_cfg.hold_s ?? 0.2
+# At least one frame, so a hold of 0 still covers the frame in which a keyed item ends.
+keyed_hold_frames =
+  max(1, int_of_float(ceil(keyed_hold / settings.frame.duration())))
+keyed_held = ref(if keyed_window() then keyed_hold_frames else 0 end)
+keyed_shut = ref(keyed_window())
+keyed_item = ref(false)
+
+def keyed_request(r) =
+  m = request.metadata(r)
+  m["weavesignal_keyed"] == "1"
+end
+def keyed_item_now() =
+  if
+    on_air() != "automation"
+  then
+    false
+  else
+    current = null.case(autodj_queue.current(), fun () -> false, keyed_request)
+    rem = autodj_queue.remaining()
+    pending = autodj_queue.queue()
+    current
+    or
+      (
+        rem >= 0.
+      and
+        rem < keyed_lead
+      and
+        list.length(pending) > 0
+      and
+        keyed_request(list.hd(pending))
+      )
+  end
+end
+# Once per frame, before the programme makes it: both gains below read the same answer.
+def keyed_update() =
+  item = keyed_item_now()
+  keyed_item := item
+  window = keyed_window()
+  # Shut for this frame if keyed now or held over from a keyed frame; then the hold runs down
+  # one frame, so a hold of n frames covers the n frames after the last keyed one.
+  shut = window or item or keyed_held() > 0
+  if
+    window or item
+  then
+    keyed_held := keyed_hold_frames
+  elsif
+    keyed_held() > 0
+  then
+    keyed_held := keyed_held() - 1
+  end
+  if
+    shut != keyed_shut()
+  then
+    keyed_shut := shut
+    emit("keyed", name=(if shut then "shut" else "open" end))
+  end
+end
+
+# What the public hears while the gate is shut, for `keyed.status` (the desk's Playout panel):
+# the slate's child on air now, set as each is selected.
+keyed_slate_kind = ref("silence")
+def keyed_gate(programme) =
+  slate_file = keyed_cfg.slate ?? ""
+  # The station's slate file (`keyed.slate`); else its fallback files (a playlist of its own, so
+  # the slate does not move the fallback's place); else the default loop; else silence. Every
+  # one is a child of one fallback, tried at every frame, as the programme's are above: one that
+  # has nothing to play (a fallback folder with no file that plays, which is what a new station
+  # has) lets the next through. It used to pick one by what existed, and an empty fallback
+  # folder, which every Cloudron install makes, gave the public digital silence for a whole
+  # keyed show (the test station, 2026-11-25).
+  def slate_child(name, s) =
+    s.{
+      track_sensitive = {false},
+      on_select =
+        fun (sw) ->
+          begin
+            keyed_slate_kind := name
+            sw.starting
+          end
+    }
+  end
+  slate_children =
+    list.flatten(
+      [
+        if
+          slate_file != "" and file.exists(slate_file)
+        then
+          [
+            slate_child(
+              "slate_file",
+              (single(id="keyed_slate_file", fallible=true, slate_file) : source)
+            )
+          ]
+        else
+          []
+        end,
+        if
+          fallback_dir != "" and file.is_directory(fallback_dir)
+        then
+          [
+            slate_child(
+              "fallback",
+              (
+                playlist(
+                  id="keyed_slate_files",
+                  mode="randomize",
+                  reload_mode="watch",
+                  fallback_dir
+                )
+              :
+                source
+              )
+            )
+          ]
+        else
+          []
+        end,
+        if
+          default_file != "" and file.exists(default_file)
+        then
+          [
+            slate_child(
+              "default_loop",
+              (single(id="keyed_slate_loop", fallible=true, default_file) : source)
+            )
+          ]
+        else
+          []
+        end,
+        [slate_child("silence", (blank(id="keyed_slate_silence") : source))]
+      ]
+    )
+  keyed_slate = fallback(id="keyed_slate", slate_children)
+  ignore(programme.on_frame(before=true, synchronous=true, keyed_update))
+  add(
+    id="keyed_gate",
+    normalize=false,
+    [
+      amplify(
+        id="keyed_gate_programme", override=null, {if keyed_shut() then 0. else 1. end}, programme
+      ),
+      amplify(
+        id="keyed_gate_slate", override=null, {if keyed_shut() then 1. else 0. end}, keyed_slate
+      )
+    ]
+  )
+end
+keyed_programme = programme
+programme = if keyed_cfg.enabled then keyed_gate(programme) else programme end
+
+def keyed_window_command(arg) =
+  a = string.trim(arg)
+  if
+    not keyed_cfg.enabled
+  then
+    "error keyed shows are off in the data"
+  elsif
+    a == "on"
+  then
+    keyed_window := true
+    "ok on"
+  elsif
+    a == "off"
+  then
+    keyed_window := false
+    "ok off"
+  else
+    "error window takes on or off"
+  end
+end
+# `keyed.mute <seconds>`: the keyed feed silent for that long, counted in frames (at most 60 s).
+# The control plane sends it at a change of keyed show, so the first show's listeners, who are
+# dropped a moment later, never hear the next one's start through the listener process's buffer
+# (the spike's question 6; 1.3.2).
+keyed_mute_frames = ref(0)
+def keyed_mute_command(arg) =
+  s = float_of_string(default=-1., string.trim(arg))
+  if
+    not keyed_cfg.enabled
+  then
+    "error keyed shows are off in the data"
+  elsif
+    s < 0. or s > 60.
+  then
+    "error mute takes 0 to 60 seconds"
+  else
+    keyed_mute_frames := int_of_float(ceil(s / settings.frame.duration()))
+    "ok muted #{s}"
+  end
+end
+def keyed_status(_) =
+  json.stringify(
+    compact=true,
+    {
+      enabled=keyed_cfg.enabled,
+      window=keyed_window(),
+      item=keyed_item(),
+      shut=keyed_shut(),
+      muted=keyed_mute_frames() > 0,
+      slate=keyed_slate_kind()
+    }
+  )
+end
+server.register(namespace="keyed", usage="mute <seconds>", description="Silence the keyed feed for a while (a change of keyed show).", "mute", keyed_mute_command)
+server.register(namespace="keyed", usage="window <on|off>", description="Hold the public gate shut (a keyed show's window).", "window", keyed_window_command)
+server.register(namespace="keyed", usage="status", description="The keyed gate, as JSON.", "status", keyed_status)
+
 # To the listener process: PCM in WAV over loopback (1.5 Mbit/s), so the listener stream is
 # encoded once. Not Ogg FLAC: FLAC codes digital silence in a few bytes, so with nothing on air
 # Ogg pages arrived about every 10 s and the listener process's buffer ran dry and overflowed
@@ -418,6 +691,19 @@ server.register(namespace="playout", usage="restart", description="Shut playout 
 # dropping the mount and every listener with it (the third fault; it also caused the EPIPE on
 # each SRT reconnect). Titles reach the control plane over the socket instead.
 programme = source.drop.metadata_track_marks(programme)
+# The video's sound gets the programme as it plays, keyed shows included: HLS is one ladder, and
+# the control plane serves a keyed show's segments only on its keyed path (1.3.2 spike).
+keyed_out = source.drop.metadata_track_marks(keyed_programme)
+# The keyed feed alone carries the mute (the video's sound does not).
+def keyed_mute_tick() =
+  if keyed_mute_frames() > 0 then keyed_mute_frames := keyed_mute_frames() - 1 end
+end
+keyed_feed =
+  amplify(
+    id="keyed_feed_mute", override=null, {if keyed_mute_frames() > 0 then 0. else 1. end}, keyed_out
+  )
+ignore(keyed_feed.on_frame(before=false, synchronous=true, keyed_mute_tick))
+to_desk_programme = if keyed_cfg.enabled then keyed_out else programme end
 output.icecast(
   id="to-listener-process",
   %wav(stereo = true, samplerate = 48000, header = true),
@@ -428,6 +714,23 @@ output.icecast(
   mount="feed",
   programme
 )
+
+# The keyed feed: the programme as it plays, keyed shows included, for the listener process's
+# keyed mounts only. Off unless the data says `keyed.enabled`.
+if
+  keyed_cfg.enabled
+then
+  output.icecast(
+    id="to-listener-process-keyed",
+    %wav(stereo = true, samplerate = 48000, header = true),
+    format="audio/wav",
+    host=data.listeners.host,
+    port=data.listeners.feed_port,
+    password=password,
+    mount="feed_keyed",
+    keyed_feed
+  )
+end
 
 # Playout's output back to the desk (ADR-0172), when the station has video: the video stream's
 # sound is the desk's own programme while someone is live, and this while nobody is, so viewers
@@ -460,7 +763,7 @@ null.case(
         send_icy_metadata=false,
         timeout=1.,
         connection_timeout=1.,
-        programme
+        to_desk_programme
       )
     end
 )

@@ -11,6 +11,7 @@ sidebar:
 Three things the desk shows come from the control plane's settings (ADR-0102): the show's heading, the rundown and the callers banned before.
 The [Schedule tab](/docs/reference/surfaces/calendar/) and the chat's moderation log do not fill them yet ([planned](/docs/reference/release-one-status/#not-in-release-one)), so they are settings.
 The schedule does choose the slate's picture for the show on air ([Video in the desk](/docs/reference/desk-video/#the-slates-picture)).
+From 1.3.2 the schedule also names the show on air on the desk's heading and on the join and player pages; the `show` setting is what they say between shows.
 
 ## Set them
 
@@ -50,7 +51,7 @@ The desk now heads the stage with the show, lists what is coming up and back-tim
 
 | Key | What it does |
 |---|---|
-| `show` | heads the stage (`desk.stage`), the rundown and the screener's status line; empty, they say *No show set* |
+| `show` | heads the stage (`desk.stage`), the rundown and the screener's status line; empty, they name the show the schedule has on air, or say *No show on air* |
 | `[[studio.rundown]]` | one row each in `desk.rundown`, at its time: `at` as `HH:MM` or `HH:MM:SS`, today; `title`, and `detail` under it |
 | `hard_post = true` | the clock (`desk.clock`) back-times to the first such row ahead |
 | `key` | the cart key the row needs, shown beside it; `⇧⏎` marks the row as the DJ handover, and while a DJ is in the room it carries the handover button ([Hand over to the next DJ](/docs/how-to/hand-over-to-the-next-dj/)) |

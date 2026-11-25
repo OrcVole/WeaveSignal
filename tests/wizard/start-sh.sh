@@ -117,10 +117,10 @@ sed -n '/location ~ \^\/api\/v1\/branding/,/}/p' <<<"$public" | grep -q 'limit_e
 pass "the public domain passes the three branding routes, for reading only"
 # Calendar files (ADR-0281) and the read-only JSON for a station's own website (ADR-0282), for
 # reading only, and nothing else under /api/v1/public/.
-grep -q 'location ~ \^/api/v1/public/(station|schedule|episodes|schedule\\.ics|shows/\[a-z0-9-\]+\\.ics)\$ {' <<<"$public" || fail "the public domain does not pass the calendar files and the public JSON routes"
+grep -q 'location ~ \^/api/v1/public/(station|schedule|episodes|keyed-shows|schedule\\.ics|shows/\[a-z0-9-\]+\\.ics)\$ {' <<<"$public" || fail "the public domain does not pass the calendar files and the public JSON routes"
 sed -n '/location ~ \^\/api\/v1\/public\//,/}/p' <<<"$public" | grep -q 'limit_except GET { deny all; }' || fail "the public domain lets the public routes be written"
-re='^/api/v1/public/(station|schedule|episodes|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
-for p in /api/v1/public/station /api/v1/public/schedule /api/v1/public/episodes /api/v1/public/schedule.ics /api/v1/public/shows/the-late-kettle.ics; do [[ $p =~ $re ]] || fail "$p is not passed"; done
+re='^/api/v1/public/(station|schedule|episodes|keyed-shows|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
+for p in /api/v1/public/station /api/v1/public/schedule /api/v1/public/episodes /api/v1/public/keyed-shows /api/v1/public/schedule.ics /api/v1/public/shows/the-late-kettle.ics; do [[ $p =~ $re ]] || fail "$p is not passed"; done
 for p in /api/v1/public/shows/x /api/v1/public/shows/a/b.ics /api/v1/public/scheduleXics /api/v1/public/stations /api/v1/schedule/import; do [[ $p =~ $re ]] && fail "$p is passed on the public domain"; done
 pass "the public domain passes the calendar files and the three public JSON routes, for reading only, and nothing else of /api/v1/public/"
 grep -q 'location ~ \^/setup(/|\$) { return 404; }' <<<"$public" || fail "the public domain serves the setup page"
@@ -130,6 +130,15 @@ re='^/api/v1/branding(/icon|/banner)?$'
 for p in /api/v1/branding /api/v1/branding/icon /api/v1/branding/banner; do [[ $p =~ $re ]] || fail "$p is not passed"; done
 for p in /api/v1/branding/accent /api/v1/setup /api/v1/setup/finish /api/v1/branding/icon/x /api/v1/brandingx; do [[ $p =~ $re ]] && fail "$p is passed on the public domain"; done
 pass "nothing but the three branding routes matches"
+# Keyed shows (1.3.2): the listener's redeem, renew, devices and lost-key routes and the revoked
+# list are passed on the public domain (the key or nothing is the credential), and the rest of
+# /api/v1/keyed/ is not; keyed streams go to the control plane, which checks their token.
+grep -q 'keyed/(redeem|renew|devices|devices/end|lost|revoked))\$'"'" "$start" || fail "the public domain does not pass the keyed shows' listener routes"
+re="$(sed -n "s/^control_public='\(.*\)'\$/\1/p" "$start")"
+for p in /api/v1/keyed/redeem /api/v1/keyed/renew /api/v1/keyed/devices /api/v1/keyed/devices/end /api/v1/keyed/lost /api/v1/keyed/revoked; do [[ $p =~ $re ]] || fail "$p is not passed"; done
+for p in /api/v1/keyed /api/v1/keyed/redeemx /api/v1/listener-keys /api/v1/listener-keys/leaks /api/v1/keyed/lost/x /api/v1/listen/redeem; do [[ $p =~ $re ]] && fail "$p is passed on the public domain"; done
+grep -q 'location ^~ /listen/k/ {' <<<"$public" || fail "the public domain does not send keyed streams to the control plane"
+pass "the keyed shows' listener routes are passed, and nothing else near them"
 # The monitor link's routes (ADR-0280): passed without Cloudron's login, the bearer being the
 # link's own secret, with the client's address and the host restated (a location that sets one
 # proxy_set_header sends none of the server's).

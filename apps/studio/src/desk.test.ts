@@ -356,7 +356,10 @@ describe('a cart sounding while the default loop is the fallback (1.3.1)', () =>
     expect(body).toContain('data-testid="cart-on-air"');
     expect(body).toContain('a cart is playing');
     expect(body).not.toContain('data-testid="default-loop"');
-    expect(body).not.toContain('no fallback files of its own');
+    // The loop's paragraph is hidden, not gone: the panel keeps its height while the cart sounds.
+    expect(body).toContain('class="extra warn hold" aria-hidden="true"');
+    expect(body).toContain('Listeners hear this cart now.');
+    expect(body).toMatch(/class="sub"><b>\d+ on air<\/b>.{0,20}· a cart is playing.*· listeners/);
   });
   it('goes back to Default loop for a cue (headphones only), a cart that has ended, nothing sounding and automation holding the air', () => {
     for (const v of [

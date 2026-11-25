@@ -96,7 +96,7 @@ export const CALENDAR: readonly PanelInfo[] = [
   { name: 'calendar.card-editor', what: 'The card: Poster or Slate, the live preview drawn by the control plane, the alt text, a refused field named.' },
   { name: 'calendar.show-still', what: "The show's own slate picture (ADR-0200): the preview, choose or replace a PNG or JPEG, remove; the slate shows it while the show is on air, else the station's." },
   { name: 'calendar.show-step', what: 'The show’s step, with what each one adds: Solo, Guests, Callers or Full. Whatever a step leaves out is switched off while the show is on air (ADR-0271).' },
-  { name: 'calendar.new-show', what: 'New show in three parts: the show, when it airs, done (ADR-0278). A dialog over the Schedule tab.' },
+  { name: 'calendar.new-show', what: 'New show in three parts: the show, when it airs, done (ADR-0278). A dialog over the Schedule tab. Part 2 opens with Start now: the show starts at the station’s next whole minute, once.' },
   { name: 'calendar.rule', what: 'When a show airs: the first date and times, how it repeats, when it ends. Part 2 of New show, part 3 of the DJ’s setup, and a dialog of its own.' },
   { name: 'calendar.rule.summary', what: 'The rule said back as one sentence, and the last date when it ends. In the preview.' },
   { name: 'calendar.rule.preview', what: 'The next dates in small months and as rows, with clashes, and a date skipped or moved: ↑ ↓ move along the rows, S skips or puts back, M moves.' },
@@ -111,7 +111,7 @@ export const CALENDAR: readonly PanelInfo[] = [
 ];
 
 export const STUDIO: readonly PanelInfo[] = [
-  { name: 'studio.frame', what: "The top bar: the show's step, the tabs with their keys, the app's version, the link to the station, the theme." },
+  { name: 'studio.frame', what: "The top bar: the show's step, the tabs with their keys, the app's version (green with a tick while up to date, red with an arrow while behind), the link to the station, the theme." },
   { name: 'studio.step', what: 'The show’s step as four pips and a word, the way to change it, and Show everything (ADR-0271).' },
   { name: 'studio.step.menu', what: 'The four steps for the show named, what changes now, and the confirm: ↑ ↓ move, ⏎ confirms, Esc keeps the step.' },
   { name: 'studio.step.banner', what: 'Says the whole studio is shown for now and that the show’s step still holds; Back to the step (ADR-0274).' },
@@ -226,7 +226,31 @@ export const REHEARSAL: readonly PanelInfo[] = [
   { name: 'settings.rehearsal', what: 'In Settings, to read: whether the rehearsal studio is on at this station, and the installation’s setting that turns it on (REHEARSAL).' },
 ];
 
-const BY_NAME = new Map([...REHEARSAL, ...DESK_B, ...SCREENER, ...CARTS, ...CALENDAR, ...STUDIO, ...SETTINGS, ...ACCOUNT, ...SHOW_SETUP, ...UPDATES, ...SANDBOX, ...RTMP_OUT].map((p) => [p.name, p]));
+/** Keyed shows (1.3.2; keyed-shows.md sections 3 to 5): the Keys tab for listener keys, and the
+ *  key beside a show. A key is never a lamp: no line here says ON AIR of one. A listener key is
+ *  not a show key (`settings.hosts`). */
+export const KEYS: readonly PanelInfo[] = [
+  { name: 'keys.toolbar', what: 'The Keys tab’s toolbar: the three views (Keys, Families, Leak report), the search and filters of the list, Find a key…, Make many… and Make a key… (N). A producer’s and an admin’s tab, ⌃6.' },
+  { name: 'keys.list', what: 'Listener keys, newest first: who each is for, what it opens, when it works, its limits, its use and where it stands (Works, Ends soon, Not started, Ended, Used up, Paused, Replaced, Revoked). A name opens the key’s page. Never a key’s text.' },
+  { name: 'keys.families', what: 'Key families: keys issued together, one a person, with how many each has issued, See its keys, its Leak report and Export CSV (every key with its link; the station notes on each key that its text went out). The desktop app asks where the file goes.' },
+  { name: 'keys.leaks', what: 'The leak report, for every key or one family: the key most likely passed on first, with the signs in words (addresses and devices beyond what is usual, a burst of new addresses), the counts, and Export CSV. A hint, not a verdict; an address is never shown.' },
+  { name: 'keys.key', what: 'One key’s own page: where it stands, what it opens, its window and limits, its use, the devices that hold it with Sign out, and its change log; Send…, Change…, Extend, Pause… or Resume, Replace…, Revoke… and, for an admin, Erase….' },
+  { name: 'keys.about', what: 'With no key chosen: what a key does and does not do, and the shows that need a key with what the public hears meanwhile.' },
+  { name: 'keys.unready', what: 'In place of the Keys tab when it cannot be shown: no sign-in, an account that may not manage keys, a station older than 1.3.2, or keys not set up, with the station’s own sentence and Try again.' },
+  { name: 'keys.make', what: 'Make a key: who it is for, its kind (personal, group, machine), an email address, the shows it opens, sound or picture, its window in station time, its limits, a note and a family. The common case is already chosen.' },
+  { name: 'keys.make-many', what: 'Make many keys as a family: its name, a pasted list of people (a name a line, with an email address and a note) or a number of keys without names with a word in front, and what every key in the family is.' },
+  { name: 'keys.made-many', what: 'The keys just made in a family, with Save as CSV (the desktop app asks where the file goes) and Copy as CSV: a row a key, with its link, for a mail merge or a ticket platform.' },
+  { name: 'keys.send', what: 'Send a key: its link, the key itself to read out or print, a QR code of the link, the email address kept with it, and a message ready to send that can be changed first. The station notes who looks at a key’s text.' },
+  { name: 'keys.change', what: 'Change a key in place: who it is for, its email address, the shows it opens, sound or picture, its window and its limits. Its text stays the same, so nothing needs sending again.' },
+  { name: 'keys.ask', what: 'Asked before a key is paused, revoked, replaced or erased: what it does, what the holder will see, and a reason for the log.' },
+  { name: 'keys.extend', what: 'Extend a key to a date, in station time.' },
+  { name: 'keys.keep-show', what: 'Make a show keyed: the station’s shows, who can listen to each, and on each the tick Keyed show, which keeps it for people with a key from that moment; New keyed show… for one that does not exist yet. Step 1 of the three (keep a show, make a key, send it), from the Keys tab and from Make a key.' },
+  { name: 'keys.find', what: 'Find a key: paste a key found somewhere, or the link that carries it, and the station says whose it was and which family issued it.' },
+  { name: 'calendar.show-access', what: 'In the show editor, right under the name: who can listen. Everyone, or people with a key; when it opens to everyone; and what the public hears meanwhile (an announcement with its line, the fallback music, or a teaser). A producer’s and an admin’s to change.' },
+  { name: 'desk.keyed', what: 'In the Playout panel, while the show on air is kept for key holders: what the public hears now by the show’s rule, and that key holders hear the show. Not confirmed, with a dashed chip, while playout does not answer the station.' },
+];
+
+const BY_NAME = new Map([...KEYS, ...REHEARSAL, ...DESK_B, ...SCREENER, ...CARTS, ...CALENDAR, ...STUDIO, ...SETTINGS, ...ACCOUNT, ...SHOW_SETUP, ...UPDATES, ...SANDBOX, ...RTMP_OUT].map((p) => [p.name, p]));
 
 /** Every registered name with its line, for the name plates. */
 export const PANELS: Readonly<Record<string, string>> = Object.fromEntries([...BY_NAME].map(([k, v]) => [k, v.what]));

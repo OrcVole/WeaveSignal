@@ -6,9 +6,15 @@
   // theme toggle (Dark, Light or Night; dark by default, never the system's; ADR-0065,
   // ADR-0270), over the surface of the tab. One keyboard handler for every surface, from the
   // keymap (ADR-0063); the key of a part the step hides does nothing, and says so once.
+  // The Keys tab (⌃6; keyed shows, 1.3.2) is a producer's and an admin's: it is drawn for them
+  // alone, at every step, and never in the sandbox, which has no station to keep keys.
   //
   // The frame's spare room, between the tabs and who is signed in, says the studio app's version
   // (the operator, 2026-11-17), and the station's beside it when the two differ (lib/version.ts).
+  // Its ink says where the app stands (1.3.2): green with a tick while it is up to date, red with
+  // an arrow while it is behind; the word is in the label and the sentence in the tooltip. The
+  // glyph stands before the v, not in its place (`✓ v1.3.2`; the operator, 2026-11-25), and the
+  // v is never given up for room: a longer version (`1.3.10`) gives up the gap after the glyph.
   // It is words in the frame's own quiet ink, not a control, and it takes only room nobody else
   // wants: the name goes first, then the number, before it would push anything to a second row.
   //
@@ -17,7 +23,7 @@
   // Carts). A preparing window's keys change nothing on air; the band answers instead.
   import { setupState, stationZone } from './lib/schedule.ts';
   import { dialogLets, escTaken, settingsEscape } from './lib/dialogKeys.ts';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Glyphs from './lib/Glyphs.svelte';
   import Mark from './lib/Mark.svelte';
   import DeskB from './desk/DeskB.svelte';
@@ -37,9 +43,11 @@
   import CloseAsk from './lib/CloseAsk.svelte';
   import ShowWizard from './settings/ShowWizard.svelte';
   import Schedule from './schedule/Schedule.svelte';
+  import Keys from './keys/Keys.svelte';
+  import { mayManageKeys } from './lib/keys.ts';
   import Tip from '../../../packages/ui/Tip.svelte';
   import { APP_VERSION } from './appVersion.ts';
-  import { rereadNow, versionLabel } from './lib/version.ts';
+  import { STANDING_WORD, rereadNow, versionLabel } from './lib/version.ts';
   import { base, follow, noteStation, packaged, sandboxed, savedStation, stationVersion } from './lib/api.ts';
   import { onLeave } from './lib/reset.ts';
   import { hereRow, onBeforeLeave, settleArrival, stations } from './lib/stations.svelte.ts';
@@ -69,11 +77,14 @@
     { tab: 'screener', n: 2, label: 'Screener', built: true },
     { tab: 'carts', n: 3, label: 'Carts', built: true },
     { tab: 'schedule', n: 5, label: 'Schedule', built: true },
+    { tab: 'keys', n: 6, label: 'Keys', built: true },
   ];
+  /** Whether this window has the Keys tab: a producer's and an admin's, on a real station. */
+  const keysTab = $derived(!sandboxed() && mayManageKeys(account.me));
   /** The station's step: what is switched on. */
   const step = $derived(stationStep(studio.view));
   /** The tabs this window draws: the step's, or all of them while everything is shown. */
-  const tabs = $derived(TABS.filter((t) => tabShown(t.tab, look())));
+  const tabs = $derived(TABS.filter((t) => tabShown(t.tab, look()) && (t.tab !== 'keys' || keysTab)));
 
   const keys = new KeyEngine();
 
@@ -170,6 +181,13 @@
     // (⌃D would bookmark, ⌃T open a tab). Checked before anything else acts on the key, so
     // ⌃2 at Solo does not close Settings.
     if (out.action) {
+      // ⌃6 where the Keys tab is not drawn (a presenter's or a screener's window, the sandbox):
+      // the key does nothing, and says why. Still the keymap's key, so the browser does not take it.
+      if (out.action.type === 'tab' && out.action.tab === 'keys' && !keysTab) {
+        e.preventDefault();
+        if (!sandboxed()) say('warning', 'Keys are a producer’s or an admin’s', 'Listener keys hold names and the means to listen, so this account has no Keys tab.', 6000);
+        return;
+      }
       const g = gate(out.action, step, look(), studio.view);
       if (!g.allow) {
         e.preventDefault();
@@ -251,17 +269,27 @@
   // Not over the rehearsal desk: the band speaks of the live desk, and a preparing window drives
   // a rehearsal as a live one does.
   const atRehearsal = $derived(studio.tab === 'desk' && studio.deskStudio === 'rehearsal' && !studio.settings);
-  const prepBand = $derived(preparing() && !studio.settings && studio.tab !== 'schedule' && !atRehearsal ? prepareBand(onAir()) : null);
+  // Nor over the Schedule and the Keys tabs, which change nothing on air.
+  const prepBand = $derived(preparing() && !studio.settings && studio.tab !== 'schedule' && studio.tab !== 'keys' && !atRehearsal ? prepareBand(onAir()) : null);
 
   /** New sounds are available (1.3.1): asked once after sign-in, for an admin or a producer, and
-   *  drawn on the Desk and Carts tabs, where Default pack… is one press away, until dismissed. */
-  const packBand = $derived(packNotice.shown && !studio.settings && !atRehearsal && (studio.tab === 'desk' || studio.tab === 'carts'));
+   *  drawn on the Carts tab, and on the Desk only while nobody is on air (the band costs the desk
+   *  33 px it needs then), where Default pack… is one press away, until dismissed. */
+  const packBand = $derived(
+    packNotice.shown && !studio.settings && !atRehearsal && (studio.tab === 'carts' || (studio.tab === 'desk' && !studio.view?.sources?.some((s) => s.on_air))),
+  );
   $effect(() => {
     if (account.loaded && account.me && studio.view) void checkPackNotice();
   });
-  /** Default pack…: the notice is answered by going there, so it does not come back for this pack. */
-  async function openPack() {
+  let notNowEl = $state<HTMLButtonElement | null>(null);
+  /** Not now: the notice goes, and the focus goes to the selected tab, since the button that held it is gone. */
+  async function notNow() {
     dismissPackNotice();
+    await tick();
+    document.querySelector<HTMLElement>('nav.tabs [aria-current="page"]')?.focus();
+  }
+  /** Default pack…: the notice stays until the load has finished or Not now is pressed. */
+  async function openPack() {
     studio.settings = false;
     await run({ type: 'tab', tab: 'carts' });
     cartEditor.pack = studio.bank;
@@ -272,8 +300,14 @@
   /** One row for the frame, two for the sandbox's guide, one for each band, then the surface. */
   const rows = $derived(`${'auto '.repeat(1 + (sandboxed() ? 2 : 0) + (studio.showAll ? 1 : 0) + (prepBand ? 1 : 0) + (packBand ? 1 : 0))}minmax(0, 1fr)`);
 
-  /** The frame's version: the app's own, and the station's beside it when they differ. */
-  const ver = $derived(versionLabel(APP_VERSION, studio.stationVersion));
+  /** The frame's version: the app's own, the station's beside it when they differ, and where the
+   *  app stands (up to date, or behind the station or the update feed). */
+  const ver = $derived(versionLabel(APP_VERSION, studio.stationVersion, updateNag()));
+  /** The glyph that goes with the ink; none while the standing is not known or the app is ahead. */
+  const verGlyph = $derived(ver.standing === 'current' ? 'g-check' : ver.standing === 'behind' ? 'g-behind' : null);
+  /** How long the app's version is written, 5 (`1.3.2`) to 7 (`1.10.10`) characters: the room the
+   *  narrowest form asks for goes by it (the styles below), since a width cannot be asked of the words. */
+  const verLen = $derived(Math.min(7, Math.max(5, ver.app.length)));
   let verEl = $state<HTMLElement | null>(null);
 
   // The station's version is read once at the start (in the packaged app with the arrival below,
@@ -426,8 +460,8 @@
          word has, so it takes a tab stop. -->
     <span class="spacer">
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <span bind:this={verEl} class="ver st-trigger" class:differs={!!ver.station} data-testid="app-version" aria-describedby="ver-tip" tabindex="0"
-        ><span class="name">WeaveSignal&nbsp;</span><span class="v">v</span>{ver.app}{#if ver.station}<span class="stn">{' '}· station {ver.station}</span><span class="neq">{' '}≠ {ver.stationShort}</span>{/if}</span
+      <span bind:this={verEl} class="ver st-trigger" class:differs={!!ver.station} class:cue={!!verGlyph} data-standing={ver.standing} data-len={verLen} data-testid="app-version" aria-describedby="ver-tip" tabindex="0"
+        >{#if verGlyph}<svg class="vg" aria-hidden="true"><use href="#{verGlyph}" /></svg>{/if}<span class="name">WeaveSignal&nbsp;</span><span class="v">v</span>{ver.app}{#if ver.station}<span class="stn">{' '}· station {ver.station}</span><span class="neq">{' '}≠ {ver.stationShort}</span>{/if}{#if STANDING_WORD[ver.standing]}<span class="sr-only">, {STANDING_WORD[ver.standing]}</span>{/if}</span
       >
     </span>
     <Tip id="ver-tip" anchor={verEl} delay={0}>
@@ -502,7 +536,8 @@
     <div class="allbar packbar" data-panel="studio.pack.notice">
       <button type="button" class="btn" aria-haspopup="dialog" onclick={() => void openPack()}>{PACK_NOTICE.action}</button>
       <span class="say" role="status"><b data-panel-title>{PACK_NOTICE.lead(packNotice.count)}</b> {PACK_NOTICE.rest}</span>
-      <button type="button" class="btn quiet" title={PACK_NOTICE.dismissWhy} onclick={dismissPackNotice}>{PACK_NOTICE.dismiss}</button>
+      <button type="button" class="btn quiet" bind:this={notNowEl} aria-describedby="pack-dismiss-tip" onclick={notNow}>{PACK_NOTICE.dismiss}</button>
+      <Tip id="pack-dismiss-tip" anchor={notNowEl}>{PACK_NOTICE.dismissWhy}</Tip>
     </div>
   {/if}
 
@@ -514,6 +549,8 @@
     <CartWall />
   {:else if studio.tab === 'schedule'}
     <Schedule />
+  {:else if studio.tab === 'keys'}
+    <Keys />
   {:else}
     <Screener />
   {/if}
@@ -608,6 +645,13 @@
     border-bottom-color: var(--accent);
     font-weight: 600;
   }
+  /* A sixth tab (Keys, 1.3.2) took the room the app's version had at 1,440 px: in a frame that
+     narrow the tabs stand a little closer, and the version keeps its place. */
+  @container (max-width: 1600px) {
+    .tab {
+      padding: 0 var(--s-2);
+    }
+  }
   .settings-tab {
     margin-left: var(--s-2);
     border-left: 1px solid var(--hairline);
@@ -636,8 +680,26 @@
        from 6 rem      1.1.0 ≠ 1.0.5
        from 8.75 rem   v1.1.0 · station 1.0.5
        from 13.25 rem  WeaveSignal 1.1.0 · station 1.0.5
-     At 1,440 px a member of staff's frame leaves about 110 px, so they read v1.1.0. The widths
-     hold a version as long as 1.10.10. */
+     Up to date or behind (1.3.2), the version carries its glyph before the v (the operator,
+     2026-11-25: "a tick then v1.3.1"; the glyph had stood in the v's place to save room), and
+     always all three: the tick, the v, the number (the operator, 2026-11-25, of ✓1.3.10: "we
+     want to see the tick, the v for version and then the version number"). A version of five
+     characters fits the 3.5 rem it was given. A longer one asks for more, by its length
+     (`data-len`): until it has the room for the 4 px after the glyph it gives up that gap, to
+     1 px, and never its v; in less room than that it is not drawn:
+       from 3.5 rem    ✓ v1.3.2            ↑ v1.3.1          (50.6 px)
+       from 3.5 rem    ✓v1.3.10                               (55.1 px; ✓ v1.3.10, 58.1 px, from 4 rem)
+       from 4 rem      ✓v1.10.10                              (62.5 px; ✓ v1.10.10, 65.5 px, from 4.5 rem)
+       from 8.5 rem                         ↑ v1.3.1 ≠ 1.3.2
+       from 10.25 rem  ✓ WeaveSignal v1.3.2 ↑ WeaveSignal v1.3.1 (the update feed's offer)
+       from 11.5 rem                        ↑ v1.3.1 · station 1.3.2
+       from 17.25 rem                       ↑ WeaveSignal v1.3.1 · station 1.3.2
+     At 1,440 px an admin's or a producer's frame leaves 65 px (measured in Chromium with the
+     Keys tab and a station named Kettle FM; a longer station name leaves less), so they read
+     ✓ v1.3.2, ✓ v1.3.10 with its gap, and ✓v1.10.10 without. At 1,280 px their frame is two rows
+     and leaves 105 px. The widths are this machine's `system-ui` (Noto Sans): a wider face has
+     less to spare in the forms without the gap. The wider forms are measured for a version as
+     long as 1.10.10. */
   .ver {
     display: none;
     max-width: 100%;
@@ -657,46 +719,115 @@
     color: var(--ink);
     font-weight: 600;
   }
+  /* Where the app stands, in the ink (1.3.2). The status colours are borders and glyphs, not
+     text (design system section 2: good is 2.94:1 on the light frame, critical 3.31:1 on the
+     dark one), so the words take each colour stepped towards the theme's ink, 65 to 35 in
+     OKLab: at least 5.0:1 on `--surface-2` in Dark, Light and Night (good 6.26, 5.36, 7.12;
+     critical 5.03, 6.86, 5.67). The glyph keeps the same ink, so the pair reads as one word. */
+  .ver[data-standing='current'] {
+    --ver-ink: color-mix(in oklab, var(--status-good) 65%, var(--ink));
+  }
+  .ver[data-standing='behind'] {
+    --ver-ink: color-mix(in oklab, var(--status-critical) 65%, var(--ink));
+  }
+  /* The ink is the glyph's and the app's own number's. The name beside it stays the frame's
+     quiet ink and the station's version its own (as a difference always was), so a wide bar
+     does not carry a whole line of red. */
+  .ver.cue {
+    color: var(--ver-ink);
+    font-weight: 600;
+  }
+  .ver.cue .name {
+    color: var(--ink-2);
+    font-weight: 400;
+  }
+  /* 10 px, and a 4 px gap before the v. A longer version without the room for that gap keeps
+     1 px of it (the glyph's own box leaves the tick's tip another half pixel short of the v),
+     and never drops its v. */
+  .ver .vg {
+    width: 10px;
+    height: 10px;
+    margin-right: var(--s-1);
+    vertical-align: -1px;
+  }
   @container (min-width: 3.5rem) {
     .ver {
       display: block;
     }
   }
+  /* ✓ v1.3.10 is 58 px: its gap from 4 rem. ✓v1.10.10 is 62.5 px: not drawn in less. */
+  @container (max-width: 3.99rem) {
+    .ver.cue[data-len='6'] .vg {
+      margin-right: 1px;
+    }
+    .ver.cue[data-len='7'] {
+      display: none;
+    }
+  }
+  /* ✓ v1.10.10 is 65.5 px: its gap from 4.5 rem. */
+  @container (max-width: 4.49rem) {
+    .ver.cue[data-len='7'] .vg {
+      margin-right: 1px;
+    }
+  }
   @container (min-width: 6rem) {
-    .ver.differs {
+    .ver.differs:not(.cue) {
       color: inherit;
       font-weight: inherit;
     }
-    .ver.differs .neq {
+    .ver.differs:not(.cue) .neq {
       display: inline;
     }
-    .ver.differs .v {
+    .ver.differs:not(.cue) .v {
       display: none;
     }
   }
   @container (min-width: 8.25rem) {
-    .ver:not(.differs) .name {
+    .ver:not(.differs):not(.cue) .name {
       display: inline;
     }
-    .ver:not(.differs) .v {
+    .ver:not(.differs):not(.cue) .v {
       display: none;
     }
   }
   @container (min-width: 8.75rem) {
-    .ver.differs .stn,
-    .ver.differs .v {
+    .ver.differs:not(.cue) .stn,
+    .ver.differs:not(.cue) .v {
       display: inline;
     }
-    .ver.differs .neq {
+    .ver.differs:not(.cue) .neq {
+      display: none;
+    }
+  }
+  @container (min-width: 8.5rem) {
+    .ver.differs.cue .neq {
+      display: inline;
+    }
+  }
+  @container (min-width: 10.25rem) {
+    .ver.cue:not(.differs) .name {
+      display: inline;
+    }
+  }
+  @container (min-width: 11.5rem) {
+    .ver.differs.cue .stn {
+      display: inline;
+    }
+    .ver.differs.cue .neq {
       display: none;
     }
   }
   @container (min-width: 13.25rem) {
-    .ver.differs .name {
+    .ver.differs:not(.cue) .name {
       display: inline;
     }
-    .ver.differs .v {
+    .ver.differs:not(.cue) .v {
       display: none;
+    }
+  }
+  @container (min-width: 17.25rem) {
+    .ver.differs.cue .name {
+      display: inline;
     }
   }
   .update-nag {

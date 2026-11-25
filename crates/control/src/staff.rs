@@ -199,6 +199,11 @@ impl Staff {
     }
 
     /// Turn the emailed code on (or leave it off, with `None`).
+    /// How mail goes out, when it does (staff codes, and a lost key's email).
+    pub fn mailer(&self) -> Option<&Mailer> {
+        self.mailer.as_ref()
+    }
+
     pub fn with_mailer(mut self, mailer: Option<Mailer>) -> Self {
         self.mailer = mailer;
         self

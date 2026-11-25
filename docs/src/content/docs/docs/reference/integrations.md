@@ -68,8 +68,9 @@ A refused field is named in the answer: `{"error": "…", "field": "scopes"}`.
 | `playout:read` | `GET /playout`, `/playout/zone`, `/logger`, `/library/tracks` |
 | `library:write` | `PUT /library/tracks` (an upload); `DELETE /library/tracks/{id}` |
 | `reports:read` | `GET /reports/plays`, `/reports/audience` |
-| `shows:read` | `GET /shows`, a show, a series, an episode's corrections; `POST /schedule/rule/preview` and `POST /schedule/import/preview` (they write nothing) |
+| `shows:read` | `GET /shows`, a show, a series, an episode's corrections; `POST /schedule/rule/preview`, `GET /schedule/rule/now` and `POST /schedule/import/preview` (they write nothing) |
 | `shows:write` | changing shows, series and episodes, and when they air (`PUT /shows/{show}/rule`, `PUT /shows/{show}/series/{series}/rule`); putting an episode on air; corrections; publishing files; drawing cards; `POST /cards/preview` and `/cards/words`; making shows from a calendar file (`POST /schedule/import`) |
+| `keys:manage` | from 1.3.2, keyed shows: make, read, change, extend, pause, resume, revoke and replace listener keys (`/listener-keys`); read a key's text, devices and log; issue and export key families; read the leak report and a show's access rule. Not erasing a key and not choosing which shows are keyed: those are a person's ([Keyed shows](/docs/reference/keyed-shows/)) |
 | `video:read` | `GET /video/still`, `/video/still/image`, `/video/thumbs`; `GET /shows/{show}/still`, `/shows/{show}/still/image` |
 | `video:write` | `PUT` and `DELETE /video/still`; `PUT` and `DELETE /shows/{show}/still` |
 
@@ -91,7 +92,7 @@ They follow the station's listing setting ([The public pages](/docs/reference/pu
 
 | Route | Answers |
 |---|---|
-| `GET /api/v1/now-playing` | `on_air` (`desk`, `automation`, `fallback`, `silence`, `unknown`), `now` (`kind`, `title`, `artist`, `album`, `started_at_ms`), and `next` (two items; left out for a US statutory webcaster) |
+| `GET /api/v1/now-playing` | `on_air` (`desk`, `automation`, `fallback`, `silence`, `unknown`), `now` (`kind`, `title`, `artist`, `album`, `started_at_ms`), and `next` (two items; left out, with `up_next_shown` false, for a US statutory webcaster and while a keyed show is on). While a keyed show's window is open (1.3.2) `now` names only the show: `kind` `show`, its name as `title`, and no artist or album, so the tracks of a show for people with a key are not given away |
 | `GET /api/v1/now-playing/events` | the same as server-sent events: a `now_playing` event at once, then one per change; a keep-alive every 15 s |
 | `GET /api/v1/public/station` | `station`, `show` (the title on now), `stream_url`, `live` (the show is on air), `call_in_open`, `video` (`live` and `audio` HLS addresses, or null), `zone` |
 | `GET /api/v1/public/schedule?days=7` | the episodes airing from now for `days` (1 to 14), in air order: `show` (`slug`, `name`), `series`, `number`, `aired`, `title`, `description`, `kind`, `air_at` (with the station's offset), `air_at_ms`, `minutes`, `hosts`, `guests`, `tags`, `explicit`, `image`. Under `zone`, with `from_ms` and `to_ms` |
@@ -113,6 +114,8 @@ An event is a JSON object: `id` (unique; the same on every retry), `type`, `at_m
 | `on_air.changed` | the source on air changes | `on_air`, `previous`, `live` (the desk is on air) |
 | `episode.started` | a scheduled episode's air time arrives | `show` (`slug`, `name`), `series`, `episode` (`id`, `number`, `title`, `air_at_ms`, `minutes`, `kind`) |
 | `episode.ended` | its length has run out | as `episode.started` |
+| `key.first_used` | from 1.3.2: a listener key is used for the first time | `key` (its id), `label` (what staff called it), `family`, `kind`. Never the key's text or an email address |
+| `key.ended` | a listener key ends: its window passes (a sweep every five minutes), or it is revoked or replaced | as `key.first_used`, and `reason`: `expired`, `revoked` or `replaced`. Sent once; a key extended after it ended may end again |
 | `caller.queued` | a caller joins the screener's queue | `identity` (the call's, not the person's), `ordinal`, `queue` (callers waiting). Never their name, topic or consent: a caller agrees to be live and kept, not to have what they typed sent elsewhere; an integration that needs the name reads `GET /api/v1/studio` with a `studio:read` token |
 
 `episode.started` and `episode.ended` follow the schedule: the air time, and the length the episode has, or its rule's, or an hour.

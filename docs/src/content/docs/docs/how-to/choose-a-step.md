@@ -170,7 +170,7 @@ Their tile stays, with End pass or Drop, until they leave; nobody new can join i
 The same check applies to room tokens made by hand (`POST /api/v1/room/tokens`) for a guest, a remote DJ, a screener or a caller, unless that person is in the room already.
 
 **The Solo DJ's own link.**
-A presenter's invitation for the signed-in account is allowed at every step, for the show's presenter, so a DJ at Solo can put their own microphone on: `POST /api/v1/invites` with `{"for_me": true}`.
+A presenter's invitation for the signed-in account is allowed at every step, for the show's presenter, so a DJ at Solo can put their own microphone on: `POST /api/v1/invites` with `{"for_me": true}`. A window that is preparing a show may make it too (1.3.2): making a link does not change what is on air. At Solo, only the show on air's presenter may; another presenter is refused (`403`) with the Solo rule's words, preparing or not.
 It needs a staff session (the station key has no account to make it for), and while the show runs at Solo only the account named as the show's presenter may make it (403 otherwise; a show that names no presenter account lets any account).
 The invitation's identity is the account's own, so the same link can be made again.
 

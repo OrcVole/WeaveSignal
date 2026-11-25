@@ -102,7 +102,7 @@ The player page plays `live.m3u8` with hls.js (loaded only when play is pressed)
 
 | The browser | Plays |
 |---|---|
-| decodes AV1 and Opus in fMP4 | the picture, with **Audio only** to switch to `audio.m3u8` and back; the switch resumes at the same instant by the segments' program date-time |
+| decodes AV1 and Opus in fMP4 | the picture: the button says **Listen or watch live** (**Listen live** wherever there is sound alone), with **Audio only** to switch to `audio.m3u8` and back; the switch resumes at the same instant by the segments' program date-time |
 | decodes Opus in fMP4 but not AV1 (older Apple devices) | the sound from `audio.m3u8`, and says why (ADR-0024) |
 | has no Media Source or no Opus in fMP4 | the station's Icecast stream, as with video off (ADR-0026) |
 

@@ -74,6 +74,19 @@ dialog.wz .rulepart select { width: auto; flex: 0 1 auto; }
 /* New show: First on and from came from the block selected in the week, and say so */
 dialog.wz .seeded { margin: 2px 0; padding: var(--s-1) var(--s-2); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink-2); text-wrap: pretty; }
 dialog.wz .seeded b { color: var(--ink); }
+/* Start now (New show, part 2; 1.3.2): one quiet row over the questions, the button at its end.
+   Not the primary button: Make the show keeps that, and ⏎. When another show has the time the
+   row asks once, in the warning's hollow shape, before anything is saved. */
+dialog.wz .startnow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s-1) var(--s-3); padding: var(--s-2) var(--s-3); border: 1px solid var(--hairline); border-left: 3px solid var(--accent); border-radius: var(--r-2); background: var(--surface-2); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink-2); }
+dialog.wz .startnow p { margin: 0; text-wrap: pretty; }
+dialog.wz .startnow p b { color: var(--ink); }
+dialog.wz .startnow .btn { background: var(--surface); white-space: nowrap; }
+dialog.wz .startnow .btns { display: inline-flex; gap: var(--s-2); }
+dialog.wz .startnow.asks { border-left-color: var(--status-warning); }
+dialog.wz .startnow.asks p { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-2); }
+dialog.wz .startnow.asks p svg { width: 14px; height: 14px; margin-top: 3px; }
+dialog.wz .startnow .err { grid-column: 1 / -1; }
+@container studio (max-width: 48rem) { dialog.wz .startnow { grid-template-columns: minmax(0, 1fr); } dialog.wz .startnow .btn { justify-self: start; } }
 dialog.wz .seeded .act2 { background: var(--surface); margin: 2px 0 2px var(--s-1); vertical-align: middle; }
 dialog.wz .seeded .act2:hover { background: var(--surface-3); }
 
@@ -309,3 +322,10 @@ dialog.wz .timefield .steps button { background: var(--plane); border-color: var
 dialog.wz .timefield .steps button:hover { background: var(--surface-2); }
 dialog.wz .timefield .steps button:last-child { border-top-right-radius: var(--r-2); border-bottom-right-radius: var(--r-2); }
 dialog.wz .t label { font-weight: inherit; }
+
+/* New show's tick for a keyed show (1.3.2), and what Done says became of it */
+dialog.wz .keyedtick label { padding: 0 var(--s-2) 0 var(--s-1); min-height: 2rem; }
+dialog.wz .keyedtick input[type='checkbox'] { width: 1rem; height: 1rem; min-height: 0; padding: 0; margin: 0; flex: none; }
+dialog.wz .done li .kg { width: 12px; height: 12px; margin-right: var(--s-1); vertical-align: -1px; color: var(--ink-2); }
+dialog.wz .done li.warn { list-style: none; margin-left: -1.25rem; border: 1.5px solid var(--status-warning); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); color: var(--ink); }
+dialog.wz .done li.warn > svg { width: 14px; height: 14px; margin-right: var(--s-1); vertical-align: -2px; }

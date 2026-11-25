@@ -62,7 +62,7 @@ What is off:
 - **On the Screener tab**: Talk, a caller's notes, **Send to desk**, **To queue** and **Drop**. The queue is there to read.
 - **The keys of all of these** do nothing, on every tab: `1` to `6`, the cue, talk and mute rows, `F1` to `F7`, `Del Del`, `⌃D ⌃D`, `⇧⏎`, `⌃⇧E`, `⌃T`.
   The band under the top bar deepens for a moment to answer the press.
-- At Solo, if nobody is presenting in the room, the desk does not offer **Join with my microphone…**: that link joins the live room.
+- **Join with my microphone…** is offered in a preparing window too (from 1.3.2; before that it was hidden there). The link joins the room standing by, as every link does since 1.3, so making it and joining change nothing on air. The window's keys still put nobody on air, and the words beside the button say so: switch the window to Live when the desk is yours. While a show runs at Solo, the station makes the link only for that show's presenter. Anyone else preparing is told so: whose show has the room, and that their own link is made once their show is on air or that show moves up a step.
 
 The band is on the Desk, Screener and Carts tabs.
 The Schedule tab and Settings have none, because nothing on them is off.

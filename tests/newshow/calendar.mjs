@@ -785,6 +785,7 @@ if (run('plates')) {
       await d.page.locator('.desk .cols').evaluate((el) => el.scrollTo(0, 0));
       await sleep(600);
       const atTop = await platesNow(d.page);
+      await shot(d.page, '36-plates-desk-one-column-toast-top');
       check('…and with the page back at its top the toast keeps its plate, over no control, while the chat glance is out of sight', atTop.toast && !atTop.chat && atTop.outside.length === 0 && over(atTop).length === 0, JSON.stringify({ plates: [atTop.chat, atTop.toast], outside: atTop.outside, over: over(atTop) }));
     } else log('SKIP one column: this window is three columns at this text size; the default 1,440 × 900 run covers it');
     await d.ctx.close();

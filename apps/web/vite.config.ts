@@ -44,6 +44,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         player: here('index.html'),
+        // The same player at `/listen/`, where a listener key's link leads (`/listen/#key=…`,
+        // keyed shows, 1.3.2).
+        listen: here('listen/index.html'),
         join: here('join/index.html'),
         echo: here('echo-test/index.html'),
         // The station's setup page (ADR-0237): an admin's, behind the station key.

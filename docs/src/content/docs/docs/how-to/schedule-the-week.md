@@ -41,6 +41,16 @@ Change the zone later only if you must. Shows' rules and clock hours are stored 
 
 The other dates appear on the grid as dashed *Not drafted* blocks. **No dates yet** in step 7 makes the show without a rule, to give it dates later.
 
+### Start a show now
+
+For a first show, or one that should be on air in a minute (from 1.3.2):
+
+1. Select **New show**, give it a **Name** and its step, then **Next: when it airs**.
+2. At the head of **When it airs**, select **Start now**. The station makes the show to start at its next whole minute, once, and drafts its first episode. It runs for the length the times **from** and **until** make, an hour unless you changed them (15 minutes to 8 hours; anything else is an hour).
+3. **Done** says when it starts, in the station's time. When that minute comes, the step at the top of the studio becomes the show's. **ON AIR** is the lamp, not the schedule: it lights when listeners can hear someone, which is the **On** key's doing, not the clock's.
+
+If another show is on the schedule at that minute, **Start now** says which and what a clash costs, and waits for **Start now anyway** or **Not now**; nothing is made until you choose. A presenter, whom the station does not let schedule over another show, is told so instead. The minute is the station's own, on its clock and in its zone, so a computer whose clock is wrong still starts the show on time. Give the show more dates later from its pane: **When it airs**, **Change…**.
+
 Hosts, a description, the card layout and the presenter's details are in the show editor; a series and its episodes inherit them until set lower down (ADR-0055).
 
 A show made by mistake, or a test show, can be removed again while none of its episodes has aired: [Delete a show](/docs/how-to/delete-a-show/).

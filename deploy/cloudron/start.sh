@@ -475,7 +475,7 @@ cat > "$run/playout.json" <<JSON
 {
   "station_id": "$STATION_ID",
   "srt": { "host": "127.0.0.1", "port": $SRT_INGEST_PORT },
-  "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": $LISTENERS_PORT, "mount": "$LISTENERS_MOUNT", "feed_port": $PLAYOUT_FEED_PORT, "feed_buffer_s": $FEED_BUFFER_S, "directory": $DIRECTORY_LISTING, "bitrate": $OPUS_BITRATE, "compat": { "enabled": $COMPAT_STREAM, "mount": "$COMPAT_MOUNT", "bitrate": $COMPAT_BITRATE }, "compat_high": { "enabled": $COMPAT_HIGH_STREAM, "mount": "$COMPAT_HIGH_MOUNT", "bitrate": $COMPAT_HIGH_BITRATE }, "control_socket": "$run/listeners.sock" },
+  "listeners": { "bind": "127.0.0.1", "host": "127.0.0.1", "port": $LISTENERS_PORT, "mount": "$LISTENERS_MOUNT", "feed_port": $PLAYOUT_FEED_PORT, "feed_buffer_s": $FEED_BUFFER_S, "directory": $DIRECTORY_LISTING, "bitrate": $OPUS_BITRATE, "compat": { "enabled": $COMPAT_STREAM, "mount": "$COMPAT_MOUNT", "bitrate": $COMPAT_BITRATE }, "compat_high": { "enabled": $COMPAT_HIGH_STREAM, "mount": "$COMPAT_HIGH_MOUNT", "bitrate": $COMPAT_HIGH_BITRATE }, "keyed": { "enabled": true, "mount": "programme-keyed.opus", "compat_mount": "programme-keyed.mp3" }, "control_socket": "$run/listeners.sock" },
   "desk_feed": { "host": "127.0.0.1", "port": $DESK_FEED_PORT, "enabled": $VIDEO },
   "control_socket": "$run/playout.sock",
   "carts": { "dir": "$data/carts" },
@@ -483,7 +483,8 @@ cat > "$run/playout.json" <<JSON
   "fallback": { "dir": "$data/fallback", "default_file": "/app/code/default-loop/default-loop.flac" },
   "processing": { "enabled": $PROCESSING, "target_lufs": $(float "$PROCESSING_TARGET_LUFS"), "max_gain_db": $(float "$PROCESSING_MAX_GAIN_DB") },
   "icecast_out": { "enabled": $ICECAST_OUT, "host": "$ICECAST_OUT_HOST", "port": $ICECAST_OUT_PORT, "mount": "$ICECAST_OUT_MOUNT", "user": "$ICECAST_OUT_USER", "tls": $ICECAST_OUT_TLS, "bitrate": $ICECAST_OUT_BITRATE, "name": "WeaveSignal" },
-  "logger": { "dir": "$data/recordings/logger" }
+  "logger": { "dir": "$data/recordings/logger" },
+  "keyed": { "enabled": true, "window_file": "$run/keyed-window", "lead_s": 0.2, "hold_s": 0.2 }
 }
 JSON
 
@@ -807,7 +808,9 @@ chat_public='^/api/v1/chat/(info|socket|signin/start|signin/finish|guest|notices
 # The control plane's public routes for the pages (crates/control/src/public.rs, now playing).
 # The station's look (ADR-0237) is read by every public page: the three branding routes, GET only
 # (their PUT and DELETE are an admin's, on the app's own domain).
-control_public='^/api/v1/(station|player|call-in|call-in/challenge|pass|pass/token|pass/events|pass/leave|now-playing|now-playing/events|steering)$'
+# Keyed shows (1.3.2): the listener's redeem, renew, devices and lost-key routes (the key is the
+# credential: crates/control/src/access_listen.rs), and the revoked list edges read.
+control_public='^/api/v1/(station|player|call-in|call-in/challenge|pass|pass/token|pass/events|pass/leave|now-playing|now-playing/events|steering|keyed/(redeem|renew|devices|devices/end|lost|revoked))$'
 branding_public='^/api/v1/branding(/icon|/banner)?$'
 # WHIP from a host's OBS (17d): the show key's secret is the bearer, so it needs no login; the
 # control plane passes the offer on to the ingest. POST an offer, DELETE a session, OPTIONS.
@@ -817,7 +820,7 @@ whip_public='^/whip/[a-z2-7]+(/[0-9a-zA-Z]+)?$'
 monitor_public='^/api/v1/monitor(/(token|events|go|not-yet|cue|handover|end-show|dump))?$'
 # Calendar files (ADR-0281): the schedule and each show's, for a person's own calendar; and the
 # read-only JSON for a station's own website (ADR-0282, crates/control/src/open.rs). GET only.
-calendar_public='^/api/v1/public/(station|schedule|episodes|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
+calendar_public='^/api/v1/public/(station|schedule|episodes|keyed-shows|schedule\.ics|shows/[a-z0-9-]+\.ics)$'
 # The listener stream's mounts: the Opus one, and each MP3 one the station turns on
 # (ADR-0002, ADR-0232). Each read only, behind the stream's password when it has one, without ICY.
 stream_location() {
@@ -1091,10 +1094,25 @@ $stream_locations
             proxy_pass http://127.0.0.1:$CONTROL_PORT;
         }
         # The desk's HLS (M5): the control plane serves it only while the desk has video on.
+        # A keyed show's (/hls/k/<show>/<token>/..., 1.3.2) goes the same way: the control plane
+        # checks the token in the path.
         location /hls/ {
             limit_except GET { deny all; }
             proxy_pass http://127.0.0.1:$CONTROL_PORT;
             proxy_buffering off;
+        }
+        # A keyed show's stream (1.3.2): the control plane checks the token in the path and
+        # carries the stream, so it can end it when the key is revoked or the show ends.
+        location ^~ /listen/k/ {
+            $pub_never
+            limit_except GET { deny all; }
+            proxy_pass http://127.0.0.1:$CONTROL_PORT;
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Host \$host;
+            proxy_set_header Connection "";
+            proxy_set_header Icy-MetaData "";
+            proxy_buffering off;
+            proxy_read_timeout 1d;
         }
         location /api/ { $pub_never return 404; }
         location /assets/ { expires max; try_files \$uri =404; }

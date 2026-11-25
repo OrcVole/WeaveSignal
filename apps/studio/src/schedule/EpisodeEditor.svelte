@@ -13,9 +13,13 @@
   // The date and time are the one field that is not drafted: Move… and Back to the rule are
   // saved as they are pressed, with Undo in the tab's line, as a show's dates are (ADR-0283;
   // `move.ts`). Whatever else is typed here stays in the draft for Save episode.
+  //
+  // Under the head, who can listen (ListenLine; keyed shows, 1.3.2): the rule is the show's, so
+  // the line says which applies and leads to it; an aired episode says a key keeps the whole show.
   import Field from './Field.svelte';
   import SeriesEditor from './SeriesEditor.svelte';
   import ClashBox from './ClashBox.svelte';
+  import ListenLine from './ListenLine.svelte';
   import TimeField from './TimeField.svelte';
   import * as api from '../lib/schedule.ts';
   import type { Correction, CorrectionInput, EpisodeKind, EpisodePatch, WeekEpisode } from '../lib/schedule.ts';
@@ -387,6 +391,8 @@
 {:else}
   <div class="fields">
     {#if block && onShowBlock && onDay}<ClashBox {block} {blocks} {zone} onshow={onShowBlock} onday={onDay} />{/if}
+    <!-- Who can listen is the show's (keyed shows, 1.3.2): said here, with the way to it. -->
+    <ListenLine slug={item.show.slug} show={r.show} {zone} aired={frozen} />
     {#if frozen}
       <div class="frozen-note">
         <svg aria-hidden="true"><use href="#g-lock" /></svg>

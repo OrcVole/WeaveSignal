@@ -52,8 +52,9 @@ export function packNewSounds(view: PackView, cat: Catalogue | null): number {
 }
 
 export const PACK_NOTICE = {
-  lead: (n: number): string => `${n.toLocaleString('en-GB')} new ${n === 1 ? 'sound is' : 'sounds are'} available:`,
-  rest: 'Load them with Default pack… on the Carts tab; every cart of your own stays.',
+  /** The notice cannot know the sounds are new: a station may have deleted some it did not want. It says what it counted. */
+  lead: (n: number): string => `The default pack has ${n.toLocaleString('en-GB')} ${n === 1 ? 'sound' : 'sounds'} this station does not have.`,
+  rest: 'Default pack… adds them and keeps every cart of your own.',
   action: 'Default pack…',
   dismiss: 'Not now',
   dismissWhy: 'Hides this until WeaveSignal ships a different pack. It is remembered on this computer.',

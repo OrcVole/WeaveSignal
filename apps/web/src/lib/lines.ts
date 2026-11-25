@@ -28,7 +28,7 @@ export function closedLine(whyNot: string | null, chatOpen: boolean): string {
  *  serves): the browser gives a page the microphone only over HTTPS or on localhost, so a call
  *  cannot start there and the player says so instead of letting the microphone check fail. */
 export const NEEDS_HTTPS =
-  "Calling in needs a secure page, and this address is not one: your browser only gives a page the microphone over HTTPS. Open the station's public address to speak; here you can listen.";
+  "You can listen here. To call the studio, open the station's public address: a browser only allows a microphone on an HTTPS page, and this one is plain HTTP.";
 
 /** Whether the page cannot have a microphone for want of a secure context. `undefined` (a
  *  browser or a test that does not say) counts as secure, so only a page the browser itself

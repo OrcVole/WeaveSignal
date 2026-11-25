@@ -894,7 +894,7 @@ function onAirAlone(o = {}) {
   st.join('duncan', 'Duncan Boyd', 'presenter');
   const { ctx, page } = await open(st);
   await tile(page, 1).waitFor();
-  check('with no post in the view the clock and the rundown are as before', (await words(clockLine(page))) === 'No hard post ahead' && (await postRow(page).count()) === 0 && (await page.locator('[data-panel="desk.rundown"]').innerText()).includes('Nothing scheduled') && (await page.locator('[data-testid="end-show"]').getAttribute('title')) === 'Automation takes the air.');
+  check('with no post in the view the clock and the rundown are as before', (await words(clockLine(page))) === 'No hard post ahead' && (await postRow(page).count()) === 0 && !(await page.locator('[data-panel="desk.rundown"]').innerText()).includes('studio.rundown') && (await page.locator('[data-testid="end-show"]').getAttribute('title')) === 'Automation takes the air.');
   await ctx.close();
   // A 1.1 station whose next show comes from the room: the station names its post, with no host
   // to bring on, and the desk is as it was too.

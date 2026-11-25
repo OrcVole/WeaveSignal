@@ -664,7 +664,10 @@ pub(crate) struct Api;
 
 /// What the desk is sent: each destination with its key opened. A key that cannot be opened
 /// (the token key changed) leaves its destination out, and says so.
-fn desk_request(key: &ApiKey, all: &[RtmpDestination]) -> (String, serde_json::Value) {
+///
+/// `held` (1.3.2): a keyed show's window is near or open, so every destination is sent turned
+/// off (the platforms are public); they come back on by themselves after it.
+fn desk_request(key: &ApiKey, all: &[RtmpDestination], held: bool) -> (String, serde_json::Value) {
     let mut list = Vec::new();
     for d in all {
         // Left out; `sync` says so when it sends the set, not on every comparison.
@@ -676,7 +679,7 @@ fn desk_request(key: &ApiKey, all: &[RtmpDestination]) -> (String, serde_json::V
             "url": d.url,
             "key": k,
             "profile": d.profile,
-            "enabled": d.enabled,
+            "enabled": d.enabled && !held,
         }));
     }
     let body = serde_json::to_vec(&list).expect("JSON");
@@ -709,7 +712,13 @@ pub async fn sync(state: &AppState) {
             return;
         }
     };
-    let (set, request) = desk_request(key, &all);
+    let held = state
+        .staff
+        .api
+        .access
+        .live
+        .rtmp_held(crate::hub::now_ms() as i64);
+    let (set, request) = desk_request(key, &all, held);
     let has = video.rtmp.as_ref().and_then(|r| r.set.clone());
     if has.as_deref() == Some(set.as_str()) {
         return;
@@ -849,20 +858,26 @@ mod tests {
                 key_sealed: s,
             }
         };
-        let (a, req) = desk_request(&k, &[d(true, "k1")]);
-        let (b, _) = desk_request(&k, &[d(true, "k1")]);
+        let (a, req) = desk_request(&k, &[d(true, "k1")], false);
+        let (b, _) = desk_request(&k, &[d(true, "k1")], false);
         assert_eq!(
             a, b,
             "the same destinations, the same set (whatever the nonce)"
         );
-        assert_ne!(a, desk_request(&k, &[d(false, "k1")]).0);
-        assert_ne!(a, desk_request(&k, &[d(true, "k2")]).0);
+        assert_ne!(a, desk_request(&k, &[d(false, "k1")], false).0);
+        assert_ne!(a, desk_request(&k, &[d(true, "k2")], false).0);
+        // A keyed show's window (1.3.2): every destination goes to the desk turned off, as a
+        // set of its own, so it is sent again; and back on after.
+        let (held, req_held) = desk_request(&k, &[d(true, "k1")], true);
+        assert_ne!(a, held);
+        assert_eq!(req_held["destinations"][0]["enabled"], false);
+        assert_eq!(held, desk_request(&k, &[d(false, "k1")], false).0);
         assert!(!a.contains("k1"));
         assert_eq!(req["op"], "rtmp");
         assert_eq!(req["destinations"][0]["key"], "k1");
         // Under another key nothing opens, and nothing is sent.
         let other = ApiKey::parse("ffffffffffffffffffffffffffffffff").unwrap();
-        let (_, req) = desk_request(&other, &[d(true, "k1")]);
+        let (_, req) = desk_request(&other, &[d(true, "k1")], false);
         assert_eq!(req["destinations"].as_array().unwrap().len(), 0);
     }
 }

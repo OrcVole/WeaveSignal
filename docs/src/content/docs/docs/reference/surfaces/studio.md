@@ -28,6 +28,10 @@ The station's name, the show's step, the tabs with their keys, Settings, the app
   It is the number **Settings › Updates** shows.
   It takes only the bar's spare room: in a bar with none it is not drawn, and it never moves a control or adds a row.
   When the station runs another version, the station's is said beside it (**v1.1.0 · station 1.0.5**, or **1.1.0 ≠ 1.0.5** in less room); a test build of the same release (`1.1.0-test.4`) is not a difference.
+  From 1.3.2 its ink says where the app stands. **Green with a tick** is up to date: the station runs the same release and no update is offered. **Red with an arrow** is behind: the update feed offers a newer app, or the station runs a newer release than the app. Neither, in the bar's own ink, means the station's version is not known yet or the app is the newer of the two, which asks nothing of the app.
+  The glyph stands before the **v** (**✓ v1.3.2**, and **✓ WeaveSignal v1.3.2** where the bar has the room), and the version keeps its place in an admin's or a producer's 1,440 px window, which leaves it about 65 px.
+  It is always the glyph, the **v** and the number, in that order. A version written longer than five characters (**1.3.10**) needs a little more room: until the bar has it, the version gives up the gap after the glyph (**✓v1.3.10**), never its **v**, and in less room than that it is not drawn. At 1,440 px **✓ v1.3.10** has its gap; at 1,280 px an admin's or a producer's bar takes a second row and leaves about 105 px.
+  The colour is never the only sign: the glyph is drawn with it, a screen reader hears *up to date* or *behind* after the number, and the tooltip closes with the same in a sentence. Behind is not a fault, and a station is never refused on its version.
   Point at it, or reach it with `Tab`, and its tooltip gives both versions in full and, when they differ, which way and what follows ([Work with several stations](/docs/how-to/work-with-several-stations/)).
 - **Who is signed in**: the member of staff, or the station key ([Add staff and sign in](/docs/how-to/add-staff/)).
   Beside the Live or Preparing control, in a window at most 1,600 px wide, the name stands without the role, which is in its tooltip and its dialog.
@@ -126,7 +130,7 @@ Not drawn in the sandbox.
 
 ## `studio.pack.notice`
 
-A band under the top bar, from 1.3.1, on the Desk and Carts tabs, for an admin, a producer or the station key: *50 new sounds are available: Load them with Default pack… on the Carts tab; every cart of your own stays.*
+A band under the top bar, from 1.3.1, on the Carts tab, and on the Desk while nobody is on air, for an admin, a producer or the station key: *The default pack has 50 sounds this station does not have. Default pack… adds them and keeps every cart of your own.* It goes when you press **Not now** or a load has finished.
 A station loads the sounds WeaveSignal ships once, when it first starts, so one installed before a later release never gets that release's sounds unless someone loads them ([Add your own cart](/docs/how-to/add-your-own-cart/#load-the-default-pack-again)).
 The number is the pack's sounds a load would add: one counts unless a default cart of the same name is already on the station's carts, or its key holds a cart of your own.
 **Default pack…** takes you to the Carts tab with that dialog open, and the band goes.

@@ -209,6 +209,8 @@ fn api_token_description() -> String {
         (name = "internal", description = "Routes for the station's own processes on the same machine; never reachable through the proxy."),
         (name = "phone", description = "The telephone line (17f): its state, number bans and the takedown search. A person's, never an API token's; no number is kept or echoed."),
         (name = "rehearsal", description = "The rehearsal studio (1.3.0): a second desk with no way to the air, for one show at a time. A person's, never an API token's."),
+        (name = "keys", description = "Keyed shows (1.3.2): listener keys, key families, the leak report and a show's access rule. A producer's or an admin's, or an API token with `keys:manage`; a key's text is shown only where a route says so."),
+        (name = "listen", description = "Keyed shows, the listener's side: entering a key for a signed token, renewing it, the devices that hold a key, and a lost key. No bearer; the key is the credential."),
         (name = "rtmp", description = "RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown."),
     ),
     components(responses(Unauthorized, Forbidden, NotFound, Conflict, Unprocessable, Unavailable, TooManyRequests, ScopeMissing)),
@@ -245,6 +247,9 @@ pub fn document() -> utoipa::openapi::OpenApi {
         crate::phone::api::Api::openapi(),
         crate::rehearsal::Api::openapi(),
         crate::rehearsal_bookings::Api::openapi(),
+        crate::access_keys::Api::openapi(),
+        crate::access_listen::Api::openapi(),
+        crate::access_serve::Api::openapi(),
     ] {
         doc.merge(part);
     }

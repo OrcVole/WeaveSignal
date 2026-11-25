@@ -46,7 +46,7 @@
 # runs its control flow with every command stubbed, touching no card.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-image=${WEAVESIGNAL_SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.1}
+image=${WEAVESIGNAL_SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
 device=${GPU_DEVICE:-nvidia.com/gpu=all}
 cdi_dirs=${WEAVESIGNAL_CDI_DIRS:-/etc/cdi /var/run/cdi}
 rungs="480p20 720p30 1080p30"

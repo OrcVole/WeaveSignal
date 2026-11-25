@@ -110,6 +110,19 @@ export function inviteProblem(e: unknown): string {
   return 'The station did not answer. Check the link to the station, then try again.';
 }
 
+/** A refusal of the presenter's own microphone link. While a show runs at Solo the station makes
+ *  that link for the show's presenter and nobody else (403, in its Solo sentence, which ends
+ *  *ask an admin to name you its presenter, or move the show up a step*). A preparing window
+ *  (offered the link since 1.3.2) is usually someone else getting their own show ready, and
+ *  neither of those is theirs to do: there the refusal says whose show has the room and when
+ *  their own link comes. Everything else is `inviteProblem`'s. */
+export function ownLinkProblem(e: unknown, prep: boolean, onAir: string | null | undefined): string {
+  if (prep && e instanceof FieldError && e.status === 403 && /\bSolo\b/.test(e.message)) {
+    return `${onAir || 'The show on air'} runs at Solo, and while it does only its presenter joins the room. Your own microphone link is made once your show is on air, or when ${onAir || 'that show'} moves up a step.`;
+  }
+  return inviteProblem(e);
+}
+
 /** The identity the station gives a presenter's own microphone link: `presenter-me-` and the
  *  account's id without its hyphens (`crates/control/src/steps.rs`, `own_identity`). */
 export const ownIdentity = (accountId: string) => `presenter-me-${accountId.replaceAll('-', '')}`;
@@ -157,6 +170,10 @@ export const OWN_LINK = {
   /** The same while automation holds the air: you join standing by, and the air stays
    *  automation's until it is taken back, which puts you on with it (the post's rule, ADR-0280). */
   stageAuto: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join standing by while automation holds the air, and Take the air back puts you on air. Keep that tab open: it carries your voice.',
+  /** In a window that is preparing (ADR-0276; offered there since 1.3.2): the link joins standing
+   *  by like any other, and this window's keys put nobody on air, so the way to the air is said. */
+  ledePrep: 'Open it in a browser on this computer and press Join the studio. You join off air, standing by. This window is preparing, so its keys do not put you on air: switch it to Live when you are ready. Keep that tab open: it carries your voice.',
+  stagePrep: 'Your voice reaches the desk from a browser tab on this computer. Open your microphone link and press Join the studio: you join off air, standing by. This window is preparing, so its keys do not put you on air: switch it to Live when you are ready. Keep that tab open: it carries your voice.',
   open: 'Open in browser',
   /** After the link is handed to the browser. */
   opened: 'Opened in your browser. Allow the microphone if it asks, then press Join the studio. Keep that tab open: it carries your voice.',
@@ -189,12 +206,16 @@ export function airHost(sources: readonly Pick<Source, 'role' | 'on_air' | 'name
  *  It says only what the station will do (`plan` in crates/model/src/post.rs). With the host's
  *  link lost there is nobody to talk to. Then, under automation, the air stays automation's
  *  until the host is back; with the desk holding the air, whoever joins and puts themselves on
- *  holds it, and the returning host stands by. */
-export function ownLinkBeside(host: AirHost, mode?: View['mode']): string {
+ *  holds it, and the returning host stands by. `prep`: this window is preparing, so it is not
+ *  its On key that would do that. */
+export function ownLinkBeside(host: AirHost, mode?: View['mode'], prep = false): string {
   const auto = mode === 'auto';
   if (host.lost) {
     const who = host.name || 'the host';
-    return auto ? `You join standing by. Automation holds the air until ${who} is back.` : `You join standing by; your own On key puts you on air. If ${who} reconnects while you are on, they stand by.`;
+    if (auto) return `You join standing by. Automation holds the air until ${who} is back.`;
+    // A preparing window's keys put nobody on air (ADR-0276): the way there is to switch it.
+    if (prep) return `You join standing by. This window is preparing: switch it to Live to put yourself on air. If ${who} reconnects while you are on, they stand by.`;
+    return `You join standing by; your own On key puts you on air. If ${who} reconnects while you are on, they stand by.`;
   }
   const who = host.name || 'the hosts';
   return `Join to talk to ${who} or to hear a cue. You join off air, standing by.`;

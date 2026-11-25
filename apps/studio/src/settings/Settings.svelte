@@ -449,7 +449,7 @@
       <!-- The way out (the 1.0.1 test run: "we struggled to get out of the settings section"): the
            tabs above leave Settings too, but nothing on the page said so. -->
       <button type="button" class="btn back" onclick={() => (studio.settings = false)}
-        >Back to the {studio.tab === 'desk' ? 'desk' : studio.tab} <kbd>⌃{['desk', 'screener', 'carts', 'chat', 'schedule'].indexOf(studio.tab) + 1}</kbd></button
+        >Back to the {studio.tab === 'desk' ? 'desk' : studio.tab} <kbd>⌃{['desk', 'screener', 'carts', 'chat', 'schedule', 'keys'].indexOf(studio.tab) + 1}</kbd></button
       >
     </header>
 

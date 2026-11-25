@@ -292,6 +292,8 @@ pub struct Studio {
     /// The listener stream is playing WeaveSignal's shipped default loop, because the station has
     /// no fallback files of its own yet (ADR-0130).
     default_fallback: bool,
+    /// A keyed show's window is open (1.3.2): which, and whether playout keeps it from the public.
+    keyed: Option<KeyedOnAir>,
     /// The station's step (ADR-0271) and where it comes from.
     step: StepState,
     /// What waits for a moderator in the chat (ADR-0274); `None` until counted.
@@ -319,6 +321,19 @@ const DROP_SETTLE_MS: u64 = 5_000;
 
 // ---- the view the app gets ----
 
+impl View {
+    /// The name of the show on air, for every page that names one (1.3.2): the join and player
+    /// pages, a moved pass's fallback, the desk's slate words. The schedule's show while one is
+    /// on air (as the desk's heading says), else the station's `show.title` setting: between
+    /// shows the page has no show to name, and never names the one that was last on air.
+    pub fn show_name(&self) -> &str {
+        match (&self.step.show, self.step.on_air) {
+            (Some(show), true) if !show.name.trim().is_empty() => &show.name,
+            _ => &self.show.title,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct View {
     pub station: String,
@@ -340,6 +355,10 @@ pub struct View {
     /// Listeners are hearing the default loop WeaveSignal ships, not the station's own fallback
     /// (ADR-0130): the desk's playout panel says so until the station adds fallback files.
     pub default_fallback: bool,
+    /// A keyed show's window is open now (1.3.2): the show, whether playout's public gate is shut
+    /// as it should be, and what the public hears meanwhile. Absent while no keyed show's window
+    /// is open, and on a station without keyed shows.
+    pub keyed: Option<KeyedOnAir>,
     /// Who is listening and what carries them (the desk's `desk.audience`).
     pub audience: AudienceView,
     /// The station's beginner step (ADR-0271): what the studio shows and what is switched off.
@@ -353,6 +372,28 @@ pub struct View {
     /// the post's rule (the grace, the late count), who holds it, a lost link and its place kept.
     /// Absent when there is no handover to show.
     pub post: Option<weavesignal_model::post::PostView>,
+}
+
+/// A keyed show's window, as the desk's Playout panel tells it (1.3.2).
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct KeyedOnAir {
+    /// The keyed show whose window is open (with its margins).
+    pub show: Uuid,
+    /// Playout's public gate is shut, as playout itself answered at the last look (every two
+    /// seconds), or playout is away and the listener process plays its own fallback: either
+    /// way the public stream does not carry the show. False is the studio's alarm: playout
+    /// refused, has keyed shows off, or does not know them.
+    pub kept: bool,
+    /// Playout itself answered at the last look (1.3.2). False while playout does not answer: then
+    /// `kept` and `public_hears` are what the listener process's fallback does by design, not
+    /// something playout said, and the studio words them as "not confirmed". True whenever
+    /// playout answered, whatever it said.
+    pub confirmed: bool,
+    /// What the public stream plays meanwhile, as playout says: `slate_file` (the station's
+    /// `keyed.slate`), `fallback` (its fallback files), `default_loop` (the loop WeaveSignal
+    /// ships) or `silence`; `listener_fallback` while playout is away; `null` when it does not
+    /// say (an older playout script) or the gate is not shut.
+    pub public_hears: Option<String>,
 }
 
 /// How many listeners one mount of the listener process has now.
@@ -782,6 +823,14 @@ impl Studio {
         changed
     }
 
+    /// What the keyed shows' driver found at its last look at playout (1.3.2); true when this
+    /// changed it.
+    pub fn set_keyed(&mut self, keyed: Option<KeyedOnAir>) -> bool {
+        let changed = self.keyed != keyed;
+        self.keyed = keyed;
+        changed
+    }
+
     /// Whether the station has edges or a CDN configured.
     pub fn set_edges(&mut self, on: bool) {
         self.edges = on;
@@ -889,6 +938,11 @@ impl Studio {
     /// on air. Its own cart banks are the live studio's (1.0.2).
     pub fn step_show(&self) -> Option<&StepShow> {
         self.step.view.show.as_ref()
+    }
+
+    /// The id of the schedule's show on air now; `None` between shows.
+    pub fn step_show_on_air(&self) -> Option<Uuid> {
+        self.step.show_id.filter(|_| self.step.view.on_air)
     }
 
     /// The step in force and who presents the show it comes from.
@@ -1716,6 +1770,7 @@ impl Studio {
             // added (ADR-0165), so a dump or a rebuild moves the figure too.
             listener_delay: self.listener_delay(d.delay.as_ref()),
             default_fallback: self.default_fallback,
+            keyed: self.keyed.clone(),
             audience: AudienceView {
                 listeners: self.listeners,
                 by_mount: self.mounts.clone(),
@@ -2672,6 +2727,20 @@ mod tests {
                 reports: 1
             }))
         );
+    }
+
+    #[test]
+    fn the_pages_name_the_show_on_air_by_the_schedule_and_else_the_stations_title() {
+        use crate::steps::{facts_from, test_show};
+        let mut s = Studio::new("The Station Title", Vec::new());
+        let name = |s: &Studio| s.view("", None, None, 0).show_name().to_owned();
+        assert_eq!(name(&s), "The Station Title", "no show has been on air");
+        let kettle = test_show(Step::Solo, None);
+        s.set_step(facts_from(Some(&kettle), true, None));
+        assert_eq!(name(&s), kettle.name, "the schedule's show is on air");
+        // Between shows the last show's name is not the page's: the setting is.
+        s.set_step(facts_from(Some(&kettle), false, None));
+        assert_eq!(name(&s), "The Station Title");
     }
 
     #[test]

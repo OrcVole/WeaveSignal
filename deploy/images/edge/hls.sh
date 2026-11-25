@@ -22,6 +22,16 @@
 #   EDGE_RELAY          optional `host:port` of an audio relay beside this edge; its mounts are
 #                       then served under /listen/, so HTTPS players reach them too
 #   EDGE_WORKERS        nginx worker processes (auto)
+#   EDGE_KEYED_PUBLIC_KEY  keyed shows (1.3.2): the station's ECDSA P-256 public key, base64url
+#                       (87 characters). With it the edge serves /hls/k/<show>/<token>/... (and
+#                       /listen/k/... beside a relay) after checking the token on every request,
+#                       cache hits included (keyed.js), and caches each file once for every
+#                       holder (the token is not part of the cache key). Without it those paths
+#                       answer 404. The key is public: it checks tokens and can make none.
+#   EDGE_KEYED_SKEW     seconds of clock difference allowed either side of a token's times (5)
+#   EDGE_KEYED_REVOKED_URL  optional: the station's list of revoked keys, read every
+#                       EDGE_KEYED_REVOKED_EVERY (30s); a revoked key is refused at once, and its
+#                       streams are ended
 #
 # Nothing here is a secret of the station's: the edge fetches what any viewer may fetch, and
 # drops cookies and credentials both ways. `/health` is the station's health answer fetched
@@ -41,6 +51,10 @@ segment_ttl=${EDGE_SEGMENT_TTL:-60s}
 cache_max=${EDGE_CACHE_MAX:-2g}
 workers=${EDGE_WORKERS:-auto}
 relay=${EDGE_RELAY:-}
+keyed_key=${EDGE_KEYED_PUBLIC_KEY:-}
+keyed_skew=${EDGE_KEYED_SKEW:-5}
+keyed_revoked_url=${EDGE_KEYED_REVOKED_URL:-}
+keyed_every=${EDGE_KEYED_REVOKED_EVERY:-30s}
 
 # Viewers' Cache-Control follows the cache times (issue 6): nginx takes 1s, 60s, 2m, 1h or
 # 1d; the header wants whole seconds. Other nginx forms (ms, 1m30s) are refused.
@@ -83,6 +97,15 @@ for v in "$http_port" "$https_port"; do
   case $v in ''|*[!0-9]*) echo "weavesignal-edge: ports are numbers ($v)" >&2; exit 2 ;; esac
 done
 at() { if [ -n "$bind" ]; then echo "$bind:$1"; else echo "$1"; fi; }
+if [ -n "$keyed_key" ]; then
+  case $keyed_key in
+    *[!A-Za-z0-9_-]*) echo "weavesignal-edge: EDGE_KEYED_PUBLIC_KEY is base64url (87 characters)" >&2; exit 2 ;;
+  esac
+  [ ${#keyed_key} = 87 ] || { echo "weavesignal-edge: EDGE_KEYED_PUBLIC_KEY is 87 characters of base64url" >&2; exit 2; }
+  case $keyed_skew in ''|*[!0-9]*) echo "weavesignal-edge: EDGE_KEYED_SKEW is a number of seconds" >&2; exit 2 ;; esac
+  case $keyed_revoked_url in ''|http://*|https://*) ;; *) echo "weavesignal-edge: EDGE_KEYED_REVOKED_URL is an http(s) address" >&2; exit 2 ;; esac
+  seconds "$keyed_every" >/dev/null || { echo "weavesignal-edge: EDGE_KEYED_REVOKED_EVERY is a whole number of s, m, h or d" >&2; exit 2; }
+fi
 
 plain="listen $(at "$http_port") reuseport;"
 secure=""
@@ -112,6 +135,87 @@ if [ -n "$relay" ]; then
     }"
 fi
 
+# Keyed shows (1.3.2 spike): the check runs as an auth_request, in the access phase, so before
+# the cache is looked at, for every method and every range; the cache key drops the token, so
+# one copy serves every holder and none is ever reachable on a public path (the keyed prefix is
+# its own location, longer than the public one). Keyed answers are `private`: no cache between
+# the edge and the viewer may keep one for someone else.
+keyed_http=""
+keyed_load=""
+keyed_block="location ^~ ${hls_path}k/ { return 404; }
+    location ^~ /listen/k/ { return 404; }"
+if [ -n "$keyed_key" ]; then
+  keyed_load="load_module /usr/lib/nginx/modules/ngx_http_js_module.so;"
+  keyed_http="js_path /usr/local/share/weavesignal-edge;
+  js_import keyed from keyed.js;
+  js_shared_dict_zone zone=keyed_revoked:1m;
+  js_var \$keyed_public_key $keyed_key;
+  js_var \$keyed_skew $keyed_skew;
+  js_var \$keyed_revoked_url $keyed_revoked_url;
+  js_fetch_timeout 5s;
+  map \$uri \$keyed_hls_key { \"~^${hls_path}k/([^/]+)/[^/]+/(.+)\$\" ${hls_path}k/\$1/\$2; default \"\"; }
+  map \$uri \$keyed_listen_mount { \"~^/listen/k/[^/]+/[^/]+/([A-Za-z0-9._-]+)\$\" \$1; default \"\"; }"
+  keyed_common="proxy_pass $origin;
+        proxy_http_version 1.1;
+        proxy_set_header Connection \"\";
+        proxy_set_header Host \$proxy_host;
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_set_header Cookie \"\";
+        proxy_set_header Authorization \"\";
+        proxy_hide_header Set-Cookie;
+        proxy_ignore_headers Cache-Control Expires Set-Cookie;
+        proxy_hide_header Cache-Control;
+        proxy_hide_header Expires;
+        proxy_cache hls;
+        proxy_cache_key \$keyed_hls_key;
+        proxy_cache_lock on; proxy_cache_lock_timeout 3s; proxy_cache_lock_age 3s;
+        proxy_cache_use_stale updating error timeout http_502 http_503 http_504;
+        proxy_cache_background_update on;
+        auth_request /_keyed_check;"
+  keyed_listen="location ^~ /listen/k/ { return 404; }"
+  if [ -n "$relay" ]; then
+    keyed_listen="location ^~ /listen/k/ {
+      auth_request /_keyed_check;
+      js_body_filter keyed.cut;
+      rewrite ^ /\$keyed_listen_mount break;
+      proxy_pass http://$relay;
+      proxy_buffering off;
+      proxy_cache off;
+      proxy_read_timeout 30s;
+      proxy_set_header Icy-MetaData \"\";
+      add_header Cache-Control \"no-store\" always;
+    }"
+  fi
+  periodic=""
+  [ -z "$keyed_revoked_url" ] || periodic="location @keyed_revoked { js_periodic keyed.refresh interval=$keyed_every; }"
+  keyed_block="location = /_keyed_check { internal; js_content keyed.check; }
+    $periodic
+    location ^~ ${hls_path}k/ {
+      $keyed_common
+      add_header X-Cache \$upstream_cache_status always;
+      add_header Access-Control-Allow-Origin \"*\" always;
+      location ~ \.m3u8\$ {
+        $keyed_common
+        proxy_cache_valid 200 $playlist_ttl; proxy_cache_valid 404 1s;
+        add_header Cache-Control \"private, max-age=$playlist_age\" always;
+        add_header X-Cache \$upstream_cache_status always;
+        add_header Access-Control-Allow-Origin \"*\" always;
+      }
+      location ~ \.(m4s|mp4|m4a|ts|vtt)\$ {
+        $keyed_common
+        proxy_cache_valid 200 $segment_ttl; proxy_cache_valid 404 1s;
+        add_header Cache-Control \"private, max-age=$segment_age\" always;
+        add_header X-Cache \$upstream_cache_status always;
+        add_header Access-Control-Allow-Origin \"*\" always;
+      }
+      return 404;
+    }
+    $keyed_listen"
+  echo "weavesignal-edge: keyed shows on (tokens checked with the station's public key)"
+fi
+
 # The edge's /health is the station's own health answer, fetched through the edge (ADR-0160): it
 # fails, quickly, while nginx, the edge's route to the station or the station is down. The
 # answer is the station's (a 2xx while it is well), never cached.
@@ -132,7 +236,8 @@ health_block="location = /health {
     }"
 
 # What the edge serves to viewers: the HLS path, the relay's mounts, nothing else.
-content="    location ^~ $hls_path {
+content="    $keyed_block
+    location ^~ $hls_path {
       proxy_pass $origin;
       proxy_http_version 1.1;
       proxy_set_header Connection \"\";
@@ -201,6 +306,7 @@ fi
 
 cat > /etc/nginx/nginx.conf <<CONF
 # Written by weavesignal-edge at start; edit the environment, not this file.
+$keyed_load
 worker_processes $workers;
 pid /run/nginx/nginx.pid;
 error_log /dev/stderr warn;
@@ -217,6 +323,7 @@ http {
   }
   access_log off;
   proxy_cache_path /var/cache/weavesignal-edge levels=1:2 keys_zone=hls:16m max_size=$cache_max inactive=5m use_temp_path=off;
+  $keyed_http
   $servers
 }
 CONF

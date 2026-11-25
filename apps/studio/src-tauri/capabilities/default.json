@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The studio window: core events, and the station commands main.rs registers (requests to the station go out from Rust with its key, ADR-0121).",
+  "description": "The studio window: core events, and the commands main.rs registers (requests to the station go out from Rust with its key, ADR-0121). The save dialog (tauri-plugin-dialog, 1.3.2) is opened by main.rs's own save_file command from Rust: no dialog:* permission is granted here, so the page cannot open a dialog of its own.",
   "windows": ["main"],
   "permissions": [
     "core:default"

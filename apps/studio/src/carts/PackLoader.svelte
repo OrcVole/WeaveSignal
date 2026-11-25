@@ -9,6 +9,7 @@
   // added or changed stays. The button names it. Panel name `carts.pack` (ADR-0070).
   import { tick, untrack } from 'svelte';
   import { cartEditor } from '../lib/cartEdit.svelte.ts';
+  import { dismissPackNotice, packNotice } from '../lib/packNotice.svelte.ts';
   import { cartProblem, limitsOf, loadPack, loadWords, packPlan, packView, planAsks, planWords, type PackPlan, type PackView } from '../lib/cartEdit.ts';
   import { say, studio } from '../lib/studio.svelte.ts';
   import { dialogKeys } from '../schedule/rule/keys.ts';
@@ -96,6 +97,8 @@
       );
       say('good', 'Loading the default pack', `${started.loading === 1 ? '1 sound goes' : `${started.loading} sounds go`} through the media worker one by one; the strip counts them. Nothing of yours is touched.`, 9000);
       busy = false;
+      // The load is done with: the notice that offered it has nothing left to say.
+      if (packNotice.shown) dismissPackNotice();
       dialogEl?.close();
     } catch (err) {
       problem = cartProblem(err, limitsOf(cat), 'bank');

@@ -12,6 +12,7 @@ import DeskB from './desk/DeskB.svelte';
 import CartWall from './carts/CartWall.svelte';
 import Screener from './screener/Screener.svelte';
 import PrepareControl from './lib/PrepareControl.svelte';
+import { OWN_LINK, ownLinkBeside } from './lib/invite.ts';
 import * as api from './lib/api.ts';
 import { account } from './lib/account.svelte.ts';
 import { run, confirmAir, pressMode } from './lib/actions.ts';
@@ -599,12 +600,33 @@ describe('a preparing window', () => {
     expect(live.some((b) => b.tag.includes(OFF_WHY))).toBe(false);
   });
 
-  it('does not offer the presenter’s own microphone link, which joins on air', () => {
+  it('offers the presenter’s own microphone link too (1.3.2), which joins standing by, and says its keys put nobody on air', () => {
     const solo = view({ ...stepOf(KETTLE), step: 'solo' }, { sources: [], callers: [] });
     studio.view = solo;
-    expect(render(DeskB).body).toContain('data-testid="own-link"');
+    const liveBody = render(DeskB).body;
+    expect(liveBody).toContain('data-testid="own-link"');
+    expect(text(liveBody)).toContain(OWN_LINK.stage);
     as({ ...FINLAY, preparing: true });
-    expect(render(DeskB).body).not.toContain('data-testid="own-link"');
+    const body = render(DeskB).body;
+    expect(body).toContain('data-testid="own-link"');
+    // The same filled button, not switched off: making the link changes nothing on air.
+    expect(body).toMatch(/data-testid="own-link".*?<button[^>]*class="btn primary[^"]*"[^>]*aria-haspopup="dialog"[^>]*>Join with my microphone…<\/button>/s);
+    expect(body.slice(body.indexOf('data-testid="own-link"')).split('</button>')[0]).not.toContain('disabled');
+    expect(text(body)).toContain(OWN_LINK.stagePrep);
+    expect(text(body)).not.toContain('your own On key puts you on air');
+  });
+
+  it('words the link for a preparing window: standing by, and Live is the way to the air', () => {
+    for (const w of [OWN_LINK.stagePrep, OWN_LINK.ledePrep]) {
+      expect(w).toContain('join off air, standing by.');
+      expect(w).toContain('This window is preparing, so its keys do not put you on air: switch it to Live when you are ready.');
+      expect(w).toContain('Keep that tab open: it carries your voice.');
+    }
+    // Beside Invite someone…, while a host's own studio has lost its link: the On key is not this window's.
+    expect(ownLinkBeside({ name: 'Finlay', lost: true }, 'live', true)).toBe('You join standing by. This window is preparing: switch it to Live to put yourself on air. If Finlay reconnects while you are on, they stand by.');
+    // What does not speak of the On key is the same in both windows.
+    expect(ownLinkBeside({ name: 'Finlay', lost: false }, 'live', true)).toBe(ownLinkBeside({ name: 'Finlay', lost: false }, 'live'));
+    expect(ownLinkBeside({ name: 'Finlay', lost: true }, 'auto', true)).toBe(ownLinkBeside({ name: 'Finlay', lost: true }, 'auto'));
   });
 
   it('offers none of a toast’s on-air answers', () => {

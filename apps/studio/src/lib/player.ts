@@ -38,6 +38,8 @@ export const PLAYER = {
   opened: 'The player is open in your browser.',
   notOpened: 'Could not open a browser from here. Copy the link and paste it into your browser.',
   copied: 'Copied. Paste it into a browser.',
+  /** The copy of a window's own address (no public address): it may be a loopback one, which works here only. */
+  copiedOwn: 'Copied. This address works on this computer or network only.',
   notCopied: 'Could not copy from here. The link is selected in its box: copy it from there.',
 };
 
@@ -63,4 +65,8 @@ export function playerLink(o: { publicUrl: string | null | undefined; asked: boo
  *  The player first, because it takes a moment to start and is behind the desk by `behind` (the
  *  desk's own figure, such as *about 21 s behind*): a pad pressed first is heard late. */
 export const firstMinute = (behind: string): string =>
-  `To hear something first: open the player and press Listen live, then press a pad on the Carts tab (⌃3). Listeners are ${behind}, so wait for it. Sound plays in your browser, not in this app.`;
+  `To hear your station: press Open the player in the Listeners panel, then Listen live on that page. Then press a pad on the Carts tab (⌃3) and wait: listeners are ${behind}.`;
+
+/** The ON AIR chip's tooltip beside a cart that listeners hear with nobody live: the chip's own
+ *  sentence speaks of a room, which a lone cart is not (design review F5). */
+export const CART_ON_AIR_TIP = 'Listeners hear this cart now.';

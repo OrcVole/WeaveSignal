@@ -75,6 +75,7 @@ dialog.stepmenu::backdrop { background: var(--scrim); }
 /* the same note where a Not on air row is drawn: one quiet line in its head (the row's `.own`, desk-b.css) and Open Staff before Invite someone… */
 .desk .waiting .wh .keybtn { order: 2; flex: none; min-height: 1.5rem; padding: 0 var(--s-2); font-size: var(--fs-12); text-transform: none; letter-spacing: 0; font-weight: 600; }
 .desk .tiles .empty .keynote { display: flex; gap: var(--s-2); align-items: center; justify-content: center; flex-wrap: wrap; }   /* desk.station-key, inside the empty stage */
+.desk .tiles .empty > .hint[data-testid='first-minute'] { color: var(--ink-2); text-align: center; line-height: var(--lh-body); }   /* --muted was 4.48:1 in the light theme (design review F4) */
 .desk .tiles .empty .keynote .hint { color: var(--ink-2); font-size: var(--fs-13); max-width: 36rem; }
 .desk .tiles .empty.seat.keynote { flex-direction: column; }
 .desk .tiles .empty.seat.next { text-align: left; justify-items: start; align-content: start; gap: var(--s-2); padding: var(--s-4); border-style: dashed; min-width: 0; }

@@ -35,6 +35,14 @@ const SHOW_KEY_LABEL: &[u8] = b"weavesignal-control/show-key-secret/v1";
 const MONITOR_LABEL: &[u8] = b"weavesignal-control/monitor-secret/v1";
 // The phone line (17f): the key a caller's ban key is made under; never in the database.
 const PHONE_BAN_LABEL: &[u8] = b"weavesignal-control/phone-ban-key/v1";
+// Keyed shows (1.3.2): a listener key's text is found by a keyed hash and kept sealed; an email
+// address and a listener's address are kept only as keyed hashes; tokens are signed under a key
+// of their own. Each label makes a different key from the same secret.
+const LISTENER_TEXT_LABEL: &[u8] = b"weavesignal-control/listener-key-text/v1";
+const LISTENER_SEAL_LABEL: &[u8] = b"weavesignal-control/listener-key-seal/v1";
+const LISTENER_EMAIL_LABEL: &[u8] = b"weavesignal-control/listener-key-email/v1";
+const LISTENER_ADDR_LABEL: &[u8] = b"weavesignal-control/listener-key-address/v1";
+const LISTENER_TOKEN_LABEL: &[u8] = b"weavesignal-control/listener-key-token/v1";
 
 /// Base 32 in lower case (RFC 4648's alphabet, no padding): what show keys are written in, so a
 /// key id and a secret survive any software's field and join unambiguously with a hyphen.
@@ -138,6 +146,52 @@ impl ApiKey {
         weavesignal_model::caller_id::BanKeys::new(
             self.mac(PHONE_BAN_LABEL).finalize().into_bytes().into(),
         )
+    }
+
+    /// The keyed hash a listener key's (normalised) text is found by.
+    pub fn listener_text_hash(&self, norm_text: &str) -> [u8; 32] {
+        let mut m = self.mac(LISTENER_TEXT_LABEL);
+        m.update(norm_text.as_bytes());
+        m.finalize().into_bytes().into()
+    }
+
+    /// The key listener keys' text and email addresses are sealed under (ChaCha20-Poly1305).
+    /// Changing the token key leaves them unreadable: staff replace the keys (the hashes that
+    /// find a key by its text change with it too, so no key text works any more).
+    pub fn listener_seal_key(&self) -> [u8; 32] {
+        self.mac(LISTENER_SEAL_LABEL).finalize().into_bytes().into()
+    }
+
+    /// The keyed hash of a listener key's email address (trimmed, lower case): it finds a
+    /// holder's keys for the lost-key request and is not the address.
+    pub fn listener_email_hash(&self, email: &str) -> [u8; 32] {
+        let mut m = self.mac(LISTENER_EMAIL_LABEL);
+        m.update(email.trim().to_lowercase().as_bytes());
+        m.finalize().into_bytes().into()
+    }
+
+    /// A listener's address as a keyed hash, cut to 8 bytes (64 bits): enough to tell addresses
+    /// apart in a leak report and not to turn back into one. Fold an IPv6 address to its /64
+    /// first.
+    pub fn listener_addr_hash(&self, addr: std::net::IpAddr) -> [u8; 8] {
+        let mut m = self.mac(LISTENER_ADDR_LABEL);
+        match addr {
+            std::net::IpAddr::V4(a) => m.update(&a.octets()),
+            std::net::IpAddr::V6(a) => m.update(&a.octets()),
+        }
+        let full = m.finalize().into_bytes();
+        let mut out = [0u8; 8];
+        out.copy_from_slice(&full[..8]);
+        out
+    }
+
+    /// The secret the ECDSA P-256 key that signs keyed shows' tokens is made from (1.3.2): the
+    /// same token key, the same signing key and the same public key at every edge.
+    pub fn listener_token_key(&self) -> [u8; 32] {
+        self.mac(LISTENER_TOKEN_LABEL)
+            .finalize()
+            .into_bytes()
+            .into()
     }
 
     /// The stored form of a monitor link's secret.
@@ -297,6 +351,36 @@ mod tests {
         assert_eq!(s, signature("whsec_x", b"1700000000.{}"));
         assert_ne!(s, delivery_signature("whsec_x", 1_700_000_001, b"{}"));
         assert_ne!(s, signature("whsec_x", b"{}"));
+    }
+
+    #[test]
+    fn listener_key_hashes_are_keyed_and_apart() {
+        let (a, b) = (key(A), key(B));
+        assert_eq!(
+            a.listener_text_hash("KETM7QMP2D4X"),
+            a.listener_text_hash("KETM7QMP2D4X")
+        );
+        assert_ne!(
+            a.listener_text_hash("KETM7QMP2D4X"),
+            b.listener_text_hash("KETM7QMP2D4X")
+        );
+        // The same text under another use's label is another value.
+        assert_ne!(a.listener_text_hash("x"), a.listener_email_hash("x"));
+        assert_ne!(a.listener_text_hash("x"), a.token_hash("x"));
+        // An email is the same whatever its case and edges.
+        assert_eq!(
+            a.listener_email_hash(" Ishbel@Example.org "),
+            a.listener_email_hash("ishbel@example.org")
+        );
+        let (ip1, ip2): (std::net::IpAddr, std::net::IpAddr) = (
+            "203.0.113.7".parse().unwrap(),
+            "203.0.113.8".parse().unwrap(),
+        );
+        assert_eq!(a.listener_addr_hash(ip1), a.listener_addr_hash(ip1));
+        assert_ne!(a.listener_addr_hash(ip1), a.listener_addr_hash(ip2));
+        assert_ne!(a.listener_addr_hash(ip1), b.listener_addr_hash(ip1));
+        assert_ne!(a.listener_seal_key(), a.rtmp_key());
+        assert_ne!(a.listener_seal_key(), a.listener_token_key());
     }
 
     #[test]

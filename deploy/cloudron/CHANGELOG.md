@@ -2,6 +2,15 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.3.2]
+
+- **Keyed shows**: a show advertised to everyone and heard or watched only with a key. Tick **Keyed show** wherever a show is in the studio app (the Schedule's list, a show's pane, New show, **New keyed show**).
+- **The Keys tab** (`⌃6`, a producer's and an admin's): make a key for a person, a group or a program, for sound, picture or both, with a start and an end and limits on devices, listens and people; send it as a link, the key itself or a QR code; change, extend, pause, replace or revoke it later. **Make many** gives each person their own key, with a leak report and **Find a key**.
+- **Everyone else hears the slate** while a keyed show is on: the station's fallback music, or the loop WeaveSignal ships when the fallback folder is empty. The public picture and RTMP out are held back, and now playing names only the show. The player has a key box, **Lost your key?** and **Can't hear the show?**.
+- **Limits:** key holders hear the show about 13 s after playout plays it; a keyed show stays keyed until its slot ends, so an overrun is public; a key keeps a whole show, not one episode; radio apps cannot take a key yet.
+- The desk names the show the schedule has on air, and the player says **Listen or watch live** where the station sends a picture.
+- **Migrations 0071 and 0072** run at the first start. No new setting and no port change: keyed shows are on, and the package keeps its own token key. Update the studio app too: 1.3.1 has no Keys tab.
+
 [1.3.1]
 
 - **Listen on a phone or another computer at home**: the Compose installer's `--lan` mode opens only the player and the stream to one address of your own network. (A Cloudron app is already reachable; this is for Compose.)

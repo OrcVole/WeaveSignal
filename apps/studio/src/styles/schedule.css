@@ -150,6 +150,21 @@
 .schedule .ev .t .cf svg { width: 11px; height: 11px; }
 .schedule .ev .t .rep { font-family: var(--font-ui); display: inline-flex; align-items: center; gap: 2px; flex: none; }
 .schedule .ev .t .rep svg { width: 11px; height: 11px; }
+/* A show kept for people with a key (1.3.2): the key beside the time, in the block's own ink. It stays on a narrow block, where the repeat glyph gives way. */
+.schedule .ev.narrow .t .rep.keyed { display: inline-flex; }
+/* And the word Keyed (the operator's click-through, 2026-11-25): beside the key where the time's line has the room for it
+   (the Day view, or a column whose words have 10.5 rem: a week at 2,560 px), else on a line of its own under the kind,
+   which a block too short for it leaves out whole. Never both. The block's column is the container the width is asked
+   of. The key stands beside the repeat glyph at the row's end, not midway along it. */
+.schedule .ev .evb:not(.wide) .t .tl { margin-right: auto; }
+.schedule .ev .evb:not(.tabb) { container-type: inline-size; }
+.schedule .ev .t .rep.keyed { color: var(--ink-2); }
+.schedule .ev .t .rep.keyed .kw { display: none; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.schedule .ev .evb.wide .t .rep.keyed .kw { display: inline; }
+@container (min-width: 10.5rem) {
+  .schedule .ev:not(.narrow) .t .rep.keyed .kw { display: inline; }
+  .schedule .ev:not(.narrow) .rest .kind.kk { display: none; }
+}
 .schedule .ev b { color: var(--ink); font-weight: 600; font-size: var(--fs-13); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .schedule .ev .kind { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: var(--fs-12); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; color: var(--ink-2); }
 .schedule .ev .kind svg { width: 11px; height: 11px; }
@@ -367,6 +382,23 @@
 .schedule .frozen-note { display: flex; gap: var(--s-2); align-items: flex-start; padding: var(--s-2) var(--s-3); border: 1.5px solid var(--axis); border-radius: var(--r-2); font-size: var(--fs-13); color: var(--ink-2); }
 .schedule .frozen-note svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--muted); }
 .schedule .frozen-note b { color: var(--ink); }
+/* who can listen, on an episode and on a date not drafted yet (1.3.2): the show's rule, in words, and the way to it */
+.schedule .listenline { display: grid; gap: var(--s-2); justify-items: start; padding: var(--s-2) var(--s-3); border: 1px solid var(--axis); border-left: 3px solid var(--axis); border-radius: var(--r-2); font-size: var(--fs-13); line-height: var(--lh-body); color: var(--ink-2); }
+.schedule .listenline[data-listen='key'] { border-left-color: var(--accent); }
+.schedule .listenline > svg { width: 14px; height: 14px; flex: none; margin-top: 3px; color: var(--muted); }
+.schedule .listenline[data-listen='key'] > svg { display: none; }
+.schedule .listenline p { margin: 0; min-width: 0; }
+.schedule .listenline b { color: var(--ink); font-weight: 600; }
+.schedule .listenline .keyedmark { vertical-align: 1px; }
+.schedule .linkish { appearance: none; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.schedule .linkish:hover { text-decoration-thickness: 2px; }
+.schedule .linkish:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: var(--r-1); }
+/* who can listen, at the top of a show's pane: the mark or the plain words, and the button that leads to the choice */
+.schedule .editor .head .listen { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; font-size: var(--fs-13); color: var(--ink-2); margin-top: 2px; }
+.schedule .editor .head .listen .linkish { margin-left: auto; font-size: var(--fs-12); }
+.schedule .editor .head .listen:has(.say .ask, .say .err, .say [role='status']) .lw { display: none; }
+/* Who can listen was jumped to: an outline for a moment, so the eye finds it */
+.schedule .access.jumped { outline: 2px solid var(--accent); outline-offset: 3px; }
 .schedule .field .correct { display: grid; gap: var(--s-2); width: 100%; }
 .schedule .field .correct label { display: grid; gap: var(--s-1); font-size: var(--fs-12); font-weight: 600; color: var(--muted); }
 .schedule .field .correction { display: grid; gap: 2px; width: 100%; padding-top: var(--s-1); font-size: var(--fs-13); color: var(--ink-2); }
@@ -434,6 +466,14 @@
 
 /* calendar.shows: every show with dates to come, by name */
 .schedule .editor .showlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+/* a show's row and, at its end, the tick that makes it keyed (or the mark, for someone who may not); what a press did is under the row */
+.schedule .editor .showitem { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--s-2); background: var(--surface-2); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); border-radius: var(--r-1); }
+.schedule .editor .showitem:has(.showrow:hover) { background: var(--surface-3); }
+.schedule .editor .showitem .showrow { background: transparent; border: 0; border-radius: 0; }
+.schedule .editor .showitem .showrow:hover { background: transparent; }
+.schedule .editor .showitem > .keyedtick label, .schedule .editor .showitem > .keyedmark { margin-right: var(--s-2); }
+.keyedmark { display: inline-flex; align-items: center; gap: 3px; flex: none; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; border: 1px solid var(--axis); border-radius: var(--r-1); padding: 0 var(--s-1); line-height: 1.35; }
+.keyedmark svg { width: 11px; height: 11px; }
 .schedule .editor .showrow { appearance: none; font: inherit; text-align: left; width: 100%; display: grid; gap: 1px; padding: var(--s-1) var(--s-3); min-height: 2.75rem; align-content: center; background: var(--surface-2); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); border-radius: var(--r-1); cursor: pointer; color: var(--ink-2); font-size: var(--fs-12); line-height: var(--lh-label); min-width: 0; }
 .schedule .editor .showrow b { color: var(--ink); font-size: var(--fs-14); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .schedule .editor .showrow > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -480,3 +520,6 @@
 .schedule .editor details.aired summary { cursor: pointer; color: var(--ink-2); font-size: var(--fs-13); }
 .schedule .editor details.aired summary b { color: var(--ink); }
 .schedule .editor details.aired ol { margin-top: var(--s-2); }
+
+/* New keyed show, beside New show: the same dialog with Keyed show ticked */
+.schedule .btn.newkeyed svg { width: 12px; height: 12px; }

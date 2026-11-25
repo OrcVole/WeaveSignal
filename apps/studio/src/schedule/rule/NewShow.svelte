@@ -13,6 +13,20 @@
   // source follows from its keys, and the show does not exist until it is made, so the pick is
   // an intention: Done then offers Set up a host…, which makes the key (the same dialogs as the
   // show editor's) and the show comes from the host's own studio once there is one.
+  //
+  // Part 2 opens with Start now (1.3.2): one press makes the show to start at the station's next
+  // whole minute, once, for the length the two times give. The rule is the station's, asked for
+  // at the press (startNow.ts); another show at that time is said once before anything is saved.
+  //
+  // Part 1 also has the tick, Keyed show (keyed shows, 1.3.2; the operator's click-through of
+  // 2026-11-25: "during standard show creation, there should be a box to tick"), with the look
+  // and words of the one control that makes a show keyed (KeyedTick), for a producer or an
+  // admin on a station that has keyed shows. New keyed show, beside New show, opens this
+  // dialog with it ticked (`forKey`), and the heading says so. The show's
+  // access rule is its own route, so it is set the moment the show is made, whichever way it is
+  // made (with dates, with none, or Start now), and Done says what happened: kept, with the way
+  // to make a key, or not kept and why, since the show then airs to everyone. "Its host has a
+  // key" (above) is the host's show key, another thing: the words here always say listeners.
   import { untrack } from 'svelte';
   import * as api from '../../lib/api.ts';
   import type { IsoDate, RulePreview, ShowSaved, ShowStep } from '../../lib/api.ts';
@@ -26,10 +40,16 @@
   import { dateWords, newForm, newShowInput, remembersWhole, setFirst, type RuleForm } from './form.ts';
   import { dialogKeys } from './keys.ts';
   import { firstState, firstWords, madeInAll, ruleStatus } from './view.ts';
+  import { START_NOW, nowMinutes, ruleNowHere, ruleNowOr, startNowFlow, startedWords, type RuleNow } from './startNow.ts';
+  import { stationNow } from '../../lib/studio.svelte.ts';
   import { account } from '../../lib/account.svelte.ts';
   import { mayMakeFirstKey } from '../../lib/account.ts';
   import { routeAbsent } from '../../lib/hosts.ts';
   import HostKeyFlow from '../../settings/HostKeyFlow.svelte';
+  import { mayManageKeys } from '../../lib/keys.ts';
+  import { KEEP } from '../../lib/keyed.ts';
+  import { keyed as keyedShows, keepShow, loadKeyed } from '../../lib/keys.svelte.ts';
+  import { toKeys, toWhoCanListen } from '../../lib/keyedNav.ts';
 
   let {
     shows,
@@ -48,6 +68,11 @@
     live = true,
     hosts: seedHosts = null,
     comes: firstComes = 'room',
+    started: firstStarted = null,
+    nowAsk: firstNowAsk = null,
+    listeners: seedListeners = null,
+    forKey: firstForKey = false,
+    kept: firstKept = null,
     onMade,
     onOpen,
     onDates,
@@ -77,6 +102,15 @@
     hosts?: boolean | null;
     /** Where the show comes from to start with, a test's. */
     comes?: 'room' | 'push';
+    /** The show was started now, and Start now's question about another show (a test's). */
+    started?: RuleNow | null;
+    nowAsk?: { title: string; body: string } | null;
+    /** Whether the tick for a keyed show is offered, a test's: left out, the station's keyed
+     *  shows and the account decide. */
+    listeners?: boolean | null;
+    /** The tick, and what became of it, to start with (a test's). */
+    forKey?: boolean;
+    kept?: true | string | null;
     /** The show was made: the week is fetched again. */
     onMade: (saved: ShowSaved) => void | Promise<void>;
     /** Open episode 1: the week moves to it and selects it. */
@@ -87,7 +121,7 @@
   } = $props();
 
   const PARTS = ['The show', 'When it airs', 'Done'] as const;
-  const seed = untrack(() => ({ firstPart, firstName, firstForm, firstSaved, at, today, shows, preview, hosts: seedHosts, comes: firstComes }));
+  const seed = untrack(() => ({ firstPart, firstName, firstForm, firstSaved, at, today, shows, preview, hosts: seedHosts, comes: firstComes, started: firstStarted, nowAsk: firstNowAsk, listeners: seedListeners, forKey: firstForKey, kept: firstKept }));
 
   /** The next free bank slot: the first of the twelve no show holds, else round again. */
   function nextFree(all: readonly Show[]): number {
@@ -123,6 +157,27 @@
     );
     return () => (gone = true);
   });
+  /** Keep this show for people with a key: offered to a producer or an admin on a station that
+   *  has keyed shows (1.3.2), never in the sandbox. */
+  const canKeep = $derived(seed.listeners ?? (!api.sandboxed() && account.loaded && mayManageKeys(account.me) && keyedShows.state === 'ok'));
+  $effect(() => {
+    if (seed.listeners === null) void loadKeyed();
+  });
+  /** The tick. */
+  let forKey = $state(seed.forKey);
+  /** What became of it once the show was made: kept, or the reason it was not. */
+  let kept = $state<true | string | null>(seed.kept);
+  /** The show is made: its access rule is set now, on its own route. A refusal leaves the show
+   *  open to everyone, and Done says so with the reason. */
+  async function keepIfAsked(slug: string) {
+    if (!forKey || !canKeep) return;
+    try {
+      await keepShow(slug);
+      kept = true;
+    } catch (e) {
+      kept = e instanceof Error && e.message ? e.message : 'The station did not answer.';
+    }
+  }
   /** The key's dialogs, which Done opens. */
   let flow = $state<HostKeyFlow | null>(null);
   /** A key was made for the new show. */
@@ -158,7 +213,7 @@
   }
   let pst = $state(firstState(seed.preview));
   const status = $derived(ruleStatus(form, pst, rules));
-  let errors = $state<{ name?: string; form?: string }>({});
+  let errors = $state<{ name?: string; form?: string; now?: string }>({});
   let saving = $state(false);
   let saved = $state<ShowSaved | null>(seed.firstSaved);
   /** What the preview said the rule gives in all, kept for Done's *Draft all 10*. */
@@ -211,8 +266,69 @@
 
   function back() {
     errors = {};
+    nowAsk = null;
     part = 1;
     focus('ns-name');
+  }
+
+  // ---- Start now ----
+  /** The show was made to start now: Done says when. */
+  let started = $state<RuleNow | null>(seed.started);
+  /** Another show has the time: said once, and the next press of Start now goes on. */
+  let nowAsk = $state<{ title: string; body: string } | null>(seed.nowAsk);
+  let startingNow = $state(false);
+  const startedLine = $derived(started ? startedWords(started, zone) : null);
+  /** The length Start now gives the show: the form's two times, when they make one it takes. */
+  const nowLen = $derived(nowMinutes(form));
+
+  /** Start now: the show is made to start at the station's next whole minute, once. Another
+   *  show at that time is said first, once; a refusal is the station's own sentence. The press
+   *  itself is `startNowFlow` (startNow.ts): the rule is the station's, made here only for a
+   *  station without the route. */
+  async function startNow() {
+    if (saving || !rules) return;
+    saving = true;
+    startingNow = true;
+    errors = {};
+    try {
+      const slug = freeSlug(name, shows.map((s) => s.slug));
+      const len = nowLen;
+      const done = await startNowFlow<ShowSaved>(
+        {
+          ask: () => ruleNowOr(() => api.ruleNow(len), routeAbsent, () => ruleNowHere(stationNow(), zone, len)),
+          preview: (rule) => api.previewRule({ rule, limit: 1 }),
+          save: (rule) => api.saveShow(slug, newShowInput({ name, colour, step }, rule, rules)),
+        },
+        { anyway: !!nowAsk, zone, minuteTurned: (e) => e instanceof api.FieldError && e.status === 422 && e.field !== 'name' },
+      );
+      if (done.kind === 'held') return void (errors = { now: done.why });
+      if (done.kind === 'clash') {
+        nowAsk = { title: done.title, body: done.body };
+        return focus('ns-now');
+      }
+      const v = done.saved;
+      total = null;
+      nowAsk = null;
+      saved = { ...v, show: sched.asShow(v.show) };
+      // Done says when it starts only where the station drafted the episode that airs then.
+      started = saved.drafted?.episode ? done.now : null;
+      await keepIfAsked(saved.show.slug);
+      part = 3;
+      focus('ns-h');
+      await onMade(saved);
+    } catch (err) {
+      const placed = placeError(err, ['name'] as const);
+      if (placed.field === 'name') {
+        part = 1;
+        errors = { name: placed.message };
+        focus('ns-name');
+      } else {
+        errors = { now: placed.message };
+      }
+    } finally {
+      saving = false;
+      startingNow = false;
+    }
   }
 
   /** Make the show: with its dates and the first episode drafted, or with no dates yet. */
@@ -225,6 +341,7 @@
       total = withDates ? madeInAll(rule, status.answer) : null;
       const v = await api.saveShow(freeSlug(name, shows.map((s) => s.slug)), newShowInput({ name, colour, step }, rule, rules));
       saved = { ...v, show: sched.asShow(v.show) };
+      await keepIfAsked(saved.show.slug);
       part = 3;
       focus('ns-h');
       await onMade(saved);
@@ -292,6 +409,19 @@
     if (saved) onDates?.(saved);
     dialogEl?.close();
   }
+
+  /** Done's Make a key…: the Keys tab, with Make a key open. */
+  function makeListenerKey() {
+    dialogEl?.close();
+    toKeys('make');
+  }
+  /** Done's Who can listen…, after a refusal: the show's own editor, with the choice made and waiting. */
+  function whoCanListen() {
+    if (!saved) return;
+    const slug = saved.show.slug;
+    dialogEl?.close();
+    toWhoCanListen(slug, true);
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -300,7 +430,7 @@
     <p class="crumbs" aria-hidden="true">
       {#each PARTS as p, i (p)}<span class:now={part === i + 1} class:done={part > i + 1}>{i + 1} {p}</span>{/each}
     </p>
-    <h2 id="ns-h" data-panel-title tabindex="-1">New show{#if part === 2 && name.trim()}{' '}<span class="of">· {name.trim()}</span>{/if}</h2>
+    <h2 id="ns-h" data-panel-title tabindex="-1">{forKey && canKeep && part < 3 ? KEEP.fresh : 'New show'}{#if part === 2 && name.trim()}{' '}<span class="of">· {name.trim()}</span>{/if}</h2>
     <p class="small"><span class="sr-only">Part {part} of 3: {PARTS[part - 1]}. </span>
       {#if part === 1}Name it and pick how much of the studio it starts with. The rest can wait.
       {:else if part === 2}Give one date and time, then say whether it comes back.
@@ -342,6 +472,13 @@
           </span>
         </div>
       {/if}
+      {#if canKeep}
+        <div class="field" data-testid="ns-listen">
+          <span class="lab2" id="ns-listen">Who can listen</span>
+          <span class="keyedtick" class:on={forKey}><label><input type="checkbox" bind:checked={forKey} aria-describedby="ns-listen-hint" /><svg aria-hidden="true"><use href="#g-key" /></svg><span class="w">{KEEP.tick}</span></label></span>
+          <span id="ns-listen-hint" class="hint">{KEEP.hint} Left unticked, everyone can listen; the same tick is on the show afterwards.</span>
+        </div>
+      {/if}
       <div class="acts">
         <button type="button" class="btn quiet left" onclick={leave}>Cancel</button>
         <button type="submit" class="btn primary">Next: when it airs</button>
@@ -349,6 +486,22 @@
     </form>
   {:else if part === 2}
     <form onsubmit={(e) => { e.preventDefault(); void make(true); }} novalidate>
+      {#if rules}
+        <!-- Start now (1.3.2): a first show on air within a minute, with one press. -->
+        <div class="startnow" class:asks={!!nowAsk} data-testid="ns-now" role="group" aria-labelledby="ns-now-l">
+          {#if nowAsk}
+            <p id="ns-now-l" role="alert"><svg class="g-warning" aria-hidden="true"><use href="#g-fault" /></svg><span><b>{nowAsk.title}</b> {nowAsk.body}</span></p>
+            <span class="btns">
+              <button type="button" class="btn quiet" onclick={() => { nowAsk = null; focus('ns-now'); }} disabled={saving}>{START_NOW.notNow}</button>
+              <button id="ns-now" type="button" class="btn" onclick={startNow} disabled={saving} aria-busy={startingNow || undefined}>{startingNow ? START_NOW.busy : START_NOW.anyway}</button>
+            </span>
+          {:else}
+            <p><b id="ns-now-l">{START_NOW.lead}</b> <span id="ns-now-what">{START_NOW.what(nowLen)}</span></p>
+            <button id="ns-now" type="button" class="btn" onclick={startNow} disabled={saving} aria-busy={startingNow || undefined} aria-describedby="ns-now-what">{startingNow ? START_NOW.busy : START_NOW.button}</button>
+          {/if}
+          {#if errors.now}<p class="err" role="alert">{errors.now}</p>{/if}
+        </div>
+      {/if}
       <RulePart bind:form bind:state={pst} {zone} {today} {zoneSet} {canChooseZone} {onzone} {rules} {colour} idp="ns" {live} seeded={seededNote} onunseed={unseed} />
       <div class="foot2">
         {#if errors.form}<p class="err" role="alert">{errors.form}</p>{/if}
@@ -363,6 +516,7 @@
     <div class="done">
       <p class="lead"><svg class="g-good" aria-hidden="true"><use href="#g-good" /></svg><span><strong>{saved?.show.name ?? name}</strong> is a show.</span></p>
       <ul>
+        {#if startedLine}<li data-testid="ns-started"><b class="ink">{startedLine.lead}</b> {startedLine.rest}</li>{/if}
         {#if firstEp}
           <li><b class="ink">Episode {firstEp.number} is drafted</b>{firstWhen ? ` for ${firstWhen}` : ''}. Give it a title and guests when you know them.</li>
           {#if madeRule?.repeat.kind === 'once'}
@@ -383,6 +537,11 @@
             {#if keyed}<b class="ink">Its host has a key.</b> {saved.show.name} comes from their own studio; they arrive standing by, and go on air at their time.
             {:else}<b class="ink">It comes from the host’s own studio once a key is made.</b> Until then it is the station’s room. <button type="button" class="btn sm primary hostbtn" onclick={setUpHost}>Set up a host…</button>{/if}
           </li>
+        {/if}
+        {#if kept === true && saved}
+          <li data-testid="ns-kept" data-kept="yes"><svg class="kg" aria-hidden="true"><use href="#g-key" /></svg><b class="ink">It is kept for people with a key.</b> Listeners need a key from you to hear {saved.show.name}; until you give one out, nobody hears it but the studio. <button type="button" class="btn sm primary hostbtn" onclick={makeListenerKey}>Make a key…</button></li>
+        {:else if typeof kept === 'string' && saved}
+          <li data-testid="ns-kept" data-kept="no" class="warn"><svg class="g-warning" aria-hidden="true"><use href="#g-fault" /></svg><span role="alert"><b class="ink">It is not kept for people with a key: everyone can hear it.</b> {kept}</span> <button type="button" class="btn sm hostbtn" onclick={whoCanListen}>Who can listen…</button></li>
         {/if}
         <li>Hosts, a description, the card and the presenter’s details are in the show editor.</li>
       </ul>

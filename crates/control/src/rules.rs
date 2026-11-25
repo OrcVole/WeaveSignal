@@ -10,16 +10,17 @@
 //! | `PUT /api/v1/shows/{show}/rule` | the show's rule alone, with `drafted`: `move` (the default) or `leave`; moves the drafted episodes in the same transaction and replies with what moved |
 //! | `PUT /api/v1/shows/{show}/series/{series}/rule` | the same for one series; `null` follows the show again |
 //! | `POST /api/v1/schedule/rule/preview` | a rule's sentence, its next dates with their clashes and what saving it would do to the episodes; nothing is written |
+//! | `GET /api/v1/schedule/rule/now` | the rule of a show that starts now (1.3.2): once, from the station's next whole minute, for a length; the wizard's "Start now" saves it as any rule |
 //!
 //! The studio works out no dates, writes no sentence and judges no clash: it draws what these
 //! routes answer.
 
 use std::sync::Arc;
 
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{post, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use jiff::civil::{Date, DateTime};
 use jiff::tz::TimeZone;
@@ -43,6 +44,7 @@ pub fn routes() -> Router<Arc<ShowsState>> {
             put(put_series_rule),
         )
         .route("/api/v1/schedule/rule/preview", post(preview))
+        .route("/api/v1/schedule/rule/now", get(rule_now))
 }
 
 /// `rule` must be sent, as a rule or as `null`: leaving it out is a mistake, not a clear.
@@ -397,6 +399,113 @@ pub(crate) fn stub_show(rule: &Rule) -> Show {
         presenter_account: None,
         step: shows::Step::Solo,
     }
+}
+
+/// How long a show that starts now lasts when the studio does not say: an hour, as a rule's
+/// default is.
+const NOW_MINUTES: u16 = 60;
+
+/// The rule of a show that starts now: once, on the station's date of the next whole minute and
+/// from it, for `minutes`. The next minute, not this one, so the show has not started by the time
+/// it is saved; the station's clock and zone, never the studio's. A start that rolls into the
+/// next day (23:59:30) is that day's, at 00:00.
+pub(crate) fn rule_starting_now(now: Timestamp, zone: &TimeZone, minutes: u16) -> Rule {
+    let here = now.to_zoned(zone.clone());
+    let minute = here
+        .with()
+        .second(0)
+        .subsec_nanosecond(0)
+        .build()
+        .and_then(|z| z.checked_add(1.minute()))
+        .unwrap_or(here);
+    Rule {
+        starts_on: Some(minute.date()),
+        start: minute.hour() as u16 * 60 + minute.minute() as u16,
+        minutes: Some(minutes),
+        repeat: weavesignal_model::rule::Repeat::Once,
+        end: weavesignal_model::rule::End::Never,
+        skip: Vec::new(),
+        moves: Vec::new(),
+    }
+}
+
+/// What "start now" is, for the wizard.
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+struct NowQuery {
+    /// How long the show lasts, 15 to 480 minutes; 60 by default.
+    minutes: Option<u16>,
+}
+
+/// A show's rule for starting now, and when that is.
+#[derive(Serialize, utoipa::ToSchema)]
+struct RuleNow {
+    /// The rule to save with the show (`PUT /api/v1/shows/{show}`, with `draft_first`): once, on
+    /// the station's date, from the next whole minute.
+    rule: Rule,
+    /// When the show starts, in epoch milliseconds.
+    starts_at_ms: i64,
+    /// The station's date and the clock of the start (`20:41`), to say in the studio.
+    date: String,
+    time: String,
+    /// How long it lasts, in minutes.
+    minutes: u16,
+    /// The station's zone.
+    zone: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/schedule/rule/now",
+    operation_id = "schedule_rule_now",
+    tag = "schedule",
+    summary = "The rule of a show that starts now",
+    description = "For the New show wizard's Start now (1.3.2): the one-time rule of a show that starts at the station's next whole minute and lasts `minutes` (15 to 480, 60 by default), on the station's own clock and zone, so a studio whose clock is wrong still starts it when it says. Save it as any rule (`PUT /api/v1/shows/{show}` with `draft_first: true`, which drafts the date under way): the show is on air by the schedule when the minute comes, within about three seconds, and the station's step then follows the show. The answer is for the minute it is asked in, so ask again just before saving; a rule saved up to its length late still drafts the date under way. Writes nothing.",
+    params(NowQuery),
+    responses(
+        (status = 200, description = "The rule.", body = RuleNow),
+        (status = 401, response = crate::openapi::Unauthorized),
+        (status = 422, response = crate::openapi::Unprocessable),
+    ),
+    security(("staff_session" = []), ("station_key" = [])),
+)]
+async fn rule_now(
+    State(state): State<Arc<ShowsState>>,
+    headers: HeaderMap,
+    Query(q): Query<NowQuery>,
+) -> Answer {
+    if let Err(r) = crate::staff::check(
+        state.admin_token.as_deref(),
+        &state.staff,
+        &headers,
+        crate::staff::Need::Staff,
+    ) {
+        return Ok(r);
+    }
+    let minutes = q.minutes.unwrap_or(NOW_MINUTES);
+    if !(15..=480).contains(&minutes) {
+        return Err(Fail::Status(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "a show that starts now lasts 15 to 480 minutes".into(),
+        ));
+    }
+    let zone = state.zone();
+    let rule = rule_starting_now(Timestamp::now(), &zone, minutes);
+    let (date, start) = (rule.starts_on.expect("a once rule has a date"), rule.start);
+    let starts_at = date
+        .at((start / 60) as i8, (start % 60) as i8, 0, 0)
+        .to_zoned(zone)
+        .map(|z| z.timestamp().as_millisecond())
+        .unwrap_or_default();
+    Ok(Json(RuleNow {
+        rule,
+        starts_at_ms: starts_at,
+        date: date.to_string(),
+        time: hhmm(start),
+        minutes,
+        zone: state.zone.name(),
+    })
+    .into_response())
 }
 
 fn clock_of(zone: &TimeZone, t: Timestamp) -> (String, String, bool) {
@@ -819,7 +928,7 @@ pub(crate) async fn open_dates(
 }
 
 #[derive(utoipa::OpenApi)]
-#[openapi(paths(put_show_rule, put_series_rule, preview))]
+#[openapi(paths(put_show_rule, put_series_rule, preview, rule_now))]
 pub(crate) struct Api;
 
 #[cfg(test)]
@@ -834,5 +943,56 @@ mod change_tests {
         assert!(!change_token(&"x".repeat(65)));
         assert!(!change_token("has space"));
         assert!(!change_token("<script>"));
+    }
+}
+
+#[cfg(test)]
+mod now_tests {
+    use super::rule_starting_now;
+    use jiff::Timestamp;
+    use jiff::tz::TimeZone;
+    use weavesignal_model::rule::Repeat;
+
+    fn at(utc: &str, zone: &str) -> (String, u16) {
+        let tz = TimeZone::get(zone).unwrap();
+        let now: Timestamp = utc.parse().unwrap();
+        let r = rule_starting_now(now, &tz, 60);
+        assert!(r.problems().is_empty(), "{:?}", r.problems());
+        assert_eq!(r.repeat, Repeat::Once);
+        assert_eq!(r.minutes, Some(60));
+        (r.starts_on.unwrap().to_string(), r.start)
+    }
+
+    #[test]
+    fn a_show_that_starts_now_starts_at_the_next_whole_minute_of_the_stations_clock() {
+        // Mid-minute: the next minute.
+        assert_eq!(
+            at("2027-02-09T20:40:30Z", "Europe/London"),
+            ("2027-02-09".into(), 20 * 60 + 41)
+        );
+        // Exactly on a minute is still the next, so it has not started when it is saved.
+        assert_eq!(
+            at("2027-02-09T20:40:00Z", "UTC"),
+            ("2027-02-09".into(), 20 * 60 + 41)
+        );
+        // The station's zone, not UTC: Glasgow is an hour ahead of it in summer.
+        assert_eq!(
+            at("2027-07-09T20:40:30Z", "Europe/London"),
+            ("2027-07-09".into(), 21 * 60 + 41)
+        );
+    }
+
+    #[test]
+    fn it_rolls_into_the_next_day_and_over_a_clock_change() {
+        assert_eq!(
+            at("2027-02-09T23:59:30Z", "UTC"),
+            ("2027-02-10".into(), 0),
+            "the next minute is the next day's midnight"
+        );
+        // The clocks go forward at 01:00 UTC on 2027-03-28: the minute after 00:59 is 02:00 BST.
+        assert_eq!(
+            at("2027-03-28T00:59:30Z", "Europe/London"),
+            ("2027-03-28".into(), 2 * 60)
+        );
     }
 }

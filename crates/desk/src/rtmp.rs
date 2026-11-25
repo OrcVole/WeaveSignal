@@ -772,8 +772,8 @@ impl Rtmp {
         for d in s.dests.iter_mut() {
             stop_sender(d.sender.take());
         }
-        for slot in 0..2 {
-            if let Some(e) = s.encodes[slot].take() {
+        for encode in s.encodes.iter_mut() {
+            if let Some(e) = encode.take() {
                 let _ = e.pipeline.set_state(gst::State::Null);
                 if e.nvenc {
                     v::release_nvenc();

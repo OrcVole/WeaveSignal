@@ -483,6 +483,12 @@ dependencies = [
 
 [[package]]
 name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
+
+[[package]]
+name = "base16ct"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
@@ -951,6 +957,12 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
@@ -1111,6 +1123,18 @@ name = "crossbeam-utils"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
+
+[[package]]
+name = "crypto-bigint"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
+dependencies = [
+ "generic-array",
+ "rand_core 0.6.4",
+ "subtle",
+ "zeroize",
+]
 
 [[package]]
 name = "crypto-common"
@@ -1317,11 +1341,21 @@ dependencies = [
 
 [[package]]
 name = "der"
+version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
+dependencies = [
+ "const-oid 0.9.6",
+ "zeroize",
+]
+
+[[package]]
+name = "der"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a996a108feb8b427a6e12fcf6af4aa83409b79d72c15337d7741368131ee004"
 dependencies = [
- "const-oid",
+ "const-oid 0.10.2",
  "der_derive",
  "flagset",
  "pem-rfc7468",
@@ -1414,7 +1448,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
- "const-oid",
+ "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
 ]
@@ -1429,14 +1463,14 @@ dependencies = [
  "arrayvec",
  "aws-lc-rs",
  "ccm",
- "der",
+ "der 0.8.3",
  "log",
  "nom 8.0.0",
  "once_cell",
  "pkcs8",
  "rand 0.10.3",
  "rcgen",
- "sec1",
+ "sec1 0.8.1",
  "signature",
  "spki",
  "subtle",
@@ -1605,6 +1639,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "elliptic-curve"
+version = "0.13.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
+dependencies = [
+ "base16ct 0.2.0",
+ "crypto-bigint",
+ "ff",
+ "generic-array",
+ "group",
+ "rand_core 0.6.4",
+ "sec1 0.7.3",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "embed-resource"
 version = "3.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1736,6 +1787,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "ff"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0b50bfb653653f9ca9095b427bed08ab8d75a137839d9ad64eb11810d5b6393"
+dependencies = [
+ "rand_core 0.6.4",
+ "subtle",
 ]
 
 [[package]]
@@ -2126,6 +2187,7 @@ checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
 dependencies = [
  "typenum",
  "version_check",
+ "zeroize",
 ]
 
 [[package]]
@@ -2324,6 +2386,17 @@ dependencies = [
  "glib-sys 0.22.9",
  "libc",
  "system-deps 9.0.1",
+]
+
+[[package]]
+name = "group"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
+dependencies = [
+ "ff",
+ "rand_core 0.6.4",
+ "subtle",
 ]
 
 [[package]]
@@ -4078,6 +4151,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "p256"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
+dependencies = [
+ "elliptic-curve",
+ "primeorder",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4270,7 +4353,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "451913da69c775a56034ea8d9003d27ee8948e12443eae7c038ba100a4f21cb7"
 dependencies = [
- "der",
+ "der 0.8.3",
  "spki",
 ]
 
@@ -4373,6 +4456,15 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
+]
 
 [[package]]
 name = "proc-macro-crate"
@@ -4743,6 +4835,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfd"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "glib-sys 0.18.1",
+ "gobject-sys 0.18.0",
+ "gtk-sys",
+ "js-sys",
+ "libc",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "percent-encoding",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rgb"
 version = "0.8.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4973,12 +5091,25 @@ dependencies = [
 
 [[package]]
 name = "sec1"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3e97a565f76233a6003f9f5c54be1d9c5bdfa3eccfb189469f11ec4901c47dc"
+dependencies = [
+ "base16ct 0.2.0",
+ "der 0.7.10",
+ "generic-array",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "sec1"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d56d437c2f19203ce5f7122e507831de96f3d2d4d3be5af44a0b0a09d8a80e4d"
 dependencies = [
- "base16ct",
- "der",
+ "base16ct 1.0.0",
+ "der 0.8.3",
  "hybrid-array",
  "zeroize",
 ]
@@ -5483,7 +5614,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef958a98b9d5da290cfc78946e9f3e61e1e62a18db0d92cac0b83cc161491a9"
 dependencies = [
  "base64ct",
- "der",
+ "der 0.8.3",
 ]
 
 [[package]]
@@ -6332,6 +6463,48 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-dialog"
+version = "2.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce0fb9c2b6d34a9720627ed930ebc8af26f61e648695aecaeb03d5c33c5896f5"
+dependencies = [
+ "log",
+ "raw-window-handle",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-fs",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
+name = "tauri-plugin-fs"
+version = "2.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d58eb1d4984e535f47a642ffec09a2da6f5c18a12b5902d12126cb7626d628b"
+dependencies = [
+ "anyhow",
+ "dunce",
+ "glob",
+ "log",
+ "objc2-foundation",
+ "percent-encoding",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "tauri",
+ "tauri-plugin",
+ "tauri-utils",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+ "url",
 ]
 
 [[package]]
@@ -7360,7 +7533,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-cards"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "jiff",
  "resvg",
@@ -7372,7 +7545,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-chat"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -7405,7 +7578,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-control"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -7436,6 +7609,7 @@ dependencies = [
  "uuid",
  "weavesignal-cards",
  "weavesignal-feeds",
+ "weavesignal-keyed",
  "weavesignal-media",
  "weavesignal-model",
  "weavesignal-proto",
@@ -7443,7 +7617,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-desk"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -7466,7 +7640,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-feeds"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "jiff",
  "lofty",
@@ -7482,7 +7656,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-ingest"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -7511,8 +7685,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "weavesignal-keyed"
+version = "1.3.2"
+dependencies = [
+ "base64 0.23.1",
+ "p256",
+ "ring",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "weavesignal-media"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "ebur128",
  "flacenc",
@@ -7533,7 +7718,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-mixer"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -7542,7 +7727,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-model"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "argon2",
  "hmac 0.13.0",
@@ -7562,7 +7747,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-proto"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "base64 0.23.1",
  "hmac 0.13.0",
@@ -7575,7 +7760,7 @@ dependencies = [
 
 [[package]]
 name = "weavesignal-studio"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -7590,6 +7775,7 @@ dependencies = [
  "srt-tokio",
  "tauri",
  "tauri-build",
+ "tauri-plugin-dialog",
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
@@ -8242,8 +8428,8 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "105ef4642d9cb137ef83d623d0e4bf08b8adf69e9918ca904a174adb6d3d038b"
 dependencies = [
- "const-oid",
- "der",
+ "const-oid 0.10.2",
+ "der 0.8.3",
  "spki",
 ]
 

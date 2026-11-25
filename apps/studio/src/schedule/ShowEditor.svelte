@@ -22,6 +22,7 @@
   // has aired or is on air now), keeping the show. When it airs also offers Subscribe…
   // (`calendar.subscribe`, ADR-0281): the link to this show's calendar file. Comes from
   // (`calendar.show-source`, ADR-0280) is ShowSource's: the room, or the host's own studio.
+  // Who can listen (`calendar.show-access`, keyed shows, 1.3.2) is ShowAccess's, right under the name.
   import { untrack } from 'svelte';
   import Field from './Field.svelte';
   import ShowStill from './ShowStill.svelte';
@@ -41,6 +42,7 @@
   import { dateWords, ruleOfSlot, shortOfSlot, whenFields } from './rule/form.ts';
   import { unscheduled } from './rule/view.ts';
   import Subscribe from './files/Subscribe.svelte';
+  import ShowAccess from './ShowAccess.svelte';
   import ShowSource from '../settings/ShowSource.svelte';
   import { accountPatch, mayListTeam, namesAnyone, offeredName, ownTeam, presenterChoice, presenterHint, type TeamMember } from './presenter.ts';
 
@@ -306,6 +308,10 @@
   <Field label="Name" marker={draft.name ? 'set' : 'own'} plain hint="Up to three lines on the card at its smallest size; a longer name is refused when saved.">
     <input type="text" value={draft.name} placeholder="The show's name" aria-label="Show name" maxlength="160" oninput={(e) => (draft = { ...draft, name: (e.currentTarget as HTMLInputElement).value })} />
   </Field>
+  <!-- Who can listen (keyed shows, 1.3.2): read and saved through the show's access rule, apart
+       from Save. Right under the name since the operator's click-through of 2026-11-25: far down
+       the form it was not found. -->
+  {#key slug}<ShowAccess {slug} name={stored.name} />{/key}
   <Field
     label="Step"
     marker="set"

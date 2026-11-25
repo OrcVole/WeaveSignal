@@ -2,6 +2,166 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.3.2 (2026-11-25)
+
+Shows advertised to everyone and heard or watched only with a key. Not in 1.3.2: keyed sound
+through edges' relays (edges carry the keyed picture; key holders' sound comes from the station
+itself), a personal stream address for radio apps and smart speakers, a keyed show that overruns
+its slot, and a slate of its own for each show.
+
+- **The way to a keyed show, in the studio app** (the operator's click-through of the test build). One
+  control, the tick **Keyed show** with the key, wherever a show is in sight: each row of the
+  Schedule's list of shows, the top of a show's pane, an episode and a date not drafted yet (a key
+  keeps the whole show, and an aired episode says so), the Keys tab's **Make a show keyed…**, and
+  New show, with **New keyed show** beside it. The dialogs that keep a show, make a key and send it
+  carry the three steps as buttons; the less obvious fields of a key have hints; a keyed show's
+  cards say **Keyed**; **Who can listen** is right under the show's name in its editor.
+- **The player says Listen or watch live** where the station sends a picture, not Watch live.
+- **The version in the studio's frame is a tick, then `v1.3.2`**, the v back beside the glyph,
+  and never given up for room: a longer version in a tight frame reads `✓v1.3.10`, without the
+  gap, where it read `✓1.3.10`.
+- **A key for the picture carries the show's sound** (the operator's answer, 2026-11-25). A
+  `video` key's token opens the keyed streams and the HLS sound beside the picture, as a `both`
+  key's does (it was refused them: a picture with no voice); it is given the `av` claim, so an
+  edge on an older image honours it. The studio's choice reads **Picture, with its sound**.
+- **`/listen/` opened without its key has a box for it.** The page a key's link leads to, opened
+  bare (a link that lost its end, a key read out or printed), says **Listen with a key** and
+  offers the player's own box, open: the key typed or pasted there (or the whole link) is
+  checked and refused in the same words, and when it opens the show on now, the show starts.
+- **The player greets a key's holder with *Welcome* alone**, and its badge says *Your key is on
+  this device*: the name staff gave a key is theirs, and is no longer shown to its holder or kept
+  in their browser.
+- **Shows that need a key.** A show can be set to `key` (`PUT /api/v1/shows/{show}/access`), with
+  the time it opens to everyone by itself (early access) and what the public is to hear meanwhile
+  (kept for a later release: in 1.3.2 every keyed show plays the station's one slate, its slate
+  file, else its fallback music). Setting it is a producer's or an admin's; it is refused (409)
+  while playout has keyed shows off and (503) while playout does not answer.
+- **Listener keys.** A producer or an admin, or an API token with the new `keys:manage` scope,
+  makes keys (`/api/v1/listener-keys`): personal, group or machine, for sound, video or both, for
+  chosen shows, with a window, limits on devices, listens and people, and a state (active,
+  paused, revoked). A key can be changed, extended, paused, resumed, revoked and replaced in
+  place; its text stays the same and every change is logged. Families issue one key per
+  recipient, exported as CSV; `POST …/find` says whose a found key was; the leak report
+  (`GET /api/v1/listener-keys/leaks`) ranks keys by how likely they were passed on, with reasons.
+  `key.first_used` and `key.ended` go to webhooks, never with the key's text.
+- **A key earns a token for one show's window.** `POST /api/v1/keyed/redeem` trades a key's text
+  for a token (`ks1.…`, ECDSA P-256 from the station's token key, so an edge checks it with the
+  public key alone) for the show named, else the keyed show on now, else the next one, with its
+  `show`, `starts_ms`, `expires_ms` and the keyed addresses (`urls`). `POST /api/v1/keyed/renew`
+  re-reads the key about once a minute: a signed-out device, a narrowed key or one with nothing
+  on the schedule (`not_scheduled`) is stopped there; a pause or a revoke stops a listener at
+  once. Limits are checked under the key's row lock; wrong keys and lost-key requests are
+  limited per address. A lost key is emailed when the station's mail is set up, and logged for
+  staff when it is not.
+- **A keyed show is kept from the public.** The control plane shuts playout's public gate on the
+  schedule (a few seconds before an episode to a few after, plus the profanity delay): the public
+  stream plays the slate while a keyed feed carries the show to keyed mounts only the control
+  plane reaches. `/listen/k/<show>/<token>/…` carries a keyed stream and ends it the moment its
+  key is revoked or paused; `/hls/k/<show>/<token>/…` serves the keyed picture; the public `/hls/`
+  is held back and serves no segment that may hold a keyed moment; RTMP out stops for the window;
+  the legal logger records the keyed programme; edges check keyed HLS against the public key and
+  the revoked list (`/api/v1/keyed/revoked`). Key holders, about 13 s behind playout, hear the show
+  to its end before the keyed mounts are dropped. Migration 0072 keeps the times the gate was shut.
+- **The Keys tab in the studio app** (`⌃6`, a producer's and an admin's). Make a key (the common
+  case already chosen), make many from a pasted list or as numbered keys without names, each a
+  family; a key's own page with its use, the devices that hold it and its change log; send (the
+  link, the key to read out, a QR code and a message ready to copy; the station sends nothing
+  itself), change, extend, pause and resume, replace, revoke and, for an admin, erase, each in
+  place; Find a key; the leak report; CSV exports. It says what is so when it cannot show keys,
+  and uses the station's own renewal pace, ends-soon days and device hold. `N` makes a key and `/`
+  searches.
+- **Who can listen, in the show editor**, and a key beside a keyed show on the Schedule. The
+  desk's Playout panel (`desk.keyed`) says, from the studio's view, which keyed show's window is
+  open, what the public hears as playout says it, and whether playout keeps the show from them:
+  when it does not, the line is an alarm.
+- **The player takes a key.** A key's link (`/listen/#key=…`, the key taken out of the address as
+  the page opens) or the key typed into **Enter a key**; a welcome with what the key opens and
+  until when; a quiet badge; the end said in the key's last days; its own words for every
+  way a key does not work (never "token"), with the devices that hold a key and Sign out when it
+  is in use on too many; **Lost your key?**; **Can't hear the show?**. It finds the keyed show on
+  now by id and plays the station's keyed stream or picture from the redeem's `urls`; when a keyed
+  stream stops it asks about the key at once, so a revoked key is said in words, never silence;
+  when the show ends it goes back to the public programme by itself; without a key it plays the
+  public sound while the public picture is held back. The join page tells a guest of a keyed show
+  who hears it.
+- **API additions.** `GET /api/v1/player` carries `show_id` and `keyed`; the studio's view carries
+  `keyed` (`show`, `kept`, `public_hears`); `GET /api/v1/listener-keys/signing` carries
+  `ends_soon_days` and `device_hold_s`, and `POST /api/v1/keyed/devices` `device_hold_s`;
+  `GET /api/v1/public/keyed-shows` carries `on_now`; playout's `keyed.status` says its `slate`.
+- **New `[keys]` settings, and `KEYED_SHOWS` (on) in the Compose bundle.** Migration 0071. A key's
+  text and email are sealed in the database under the station's token key, and tokens are signed
+  with a key made from it: a station with keyed shows sets `WEAVESIGNAL_CONTROL_TOKEN_KEY` itself.
+
+### Small fixes (1.3.2)
+
+- **The desk names the show on air.** With no `studio.show` setting, the stage's heading, the
+  rundown's head, the End show dialog and the screener's line name the show the schedule has on
+  air (the one the top bar's step names), or say *No show on air*; they no longer say *No show
+  set*. The rundown prints no developer sentence; with no rows of its own it shows the show on air
+  and the next to start (with its weekday when it is more than half a day off), and says *Nothing
+  scheduled* only when there is neither.
+- **Design review of 1.3.1's screens.** The pack notice says what it counted, stays until
+  **Not now** or a finished load, and is drawn on the Desk only while nobody is on air; the
+  first-minute line is easier to read and the invitation follows it; the Staff panel says how a
+  station-key window signs out after adding its person; the stage head and the ON AIR chip say
+  *a cart is playing*; **Copy link** says when the address works on this computer only; the
+  player's page on plain HTTP leads with what works and draws no button that cannot.
+
+### Answers of 2026-11-24 (1.3.2, backend)
+
+- **Now playing names only a keyed show.** While a keyed show's window is open
+  `GET /api/v1/now-playing`, its events and the `now_playing.changed` webhook say `now.kind`
+  `show` with the show's name as `title`, no artist or album, and no `next`; the studio's own
+  Playout view keeps the tracks. The docs say a keyed show stays keyed until its slot ends and that
+  a key holder is about 13 s behind playout (accepted, to be shortened later).
+- **The pages name the show on air by the schedule.** The player's, the join page's, a moved pass's
+  fallback and the desk's slate words take the schedule's show, as the desk's heading does; the
+  `[studio] show` setting is what they say between shows.
+- **API additions.** The studio's `keyed` view carries `confirmed` (playout answered at the last
+  look); `POST /api/v1/keyed/lost` answers `{message, mail}` and `GET /api/v1/public/keyed-shows`
+  carries `mail` (the station sends email), the message following it; `GET /api/v1/pass` carries
+  `show_id` and `keyed` (the show the invitation is for and whether it needs a key now);
+  `GET /api/v1/schedule/rule/now` gives the rule of a show that starts at the next whole minute
+  (the New show wizard's Start now). A window preparing a show may make the presenter's own
+  microphone link.
+
+### Upgrading from 1.3.1
+
+- **Migrations 0071 and 0072** (listener keys, and the times the public gate was shut) run by
+  themselves at the first start. Back up first, as for every release.
+- **Cloudron:** nothing to set and no port changes. Keyed shows are on, and the package keeps its
+  own token key.
+- **Compose and `weavesignal.sh`:** run it again with the 1.3.2 image. `KEYED_SHOWS` is on unless
+  `.env` says `false`, and the script keeps the `CONTROL_TOKEN_KEY` it made earlier. **Keep that
+  key once keys exist:** a key's text is sealed under it, and the public key an edge holds comes
+  from it. If it changes, Send can no longer show a key's text (replace the key), and every edge
+  needs the new public key.
+- **Quadlets:** generate the units again from the new checkout, as for every release.
+- **Edges:** before the first keyed show, give each edge the station's public key
+  (`EDGE_KEYED_PUBLIC_KEY`, from `GET /api/v1/listener-keys/signing`) and
+  `EDGE_KEYED_REVOKED_URL`. Never name the keyed mounts in a relay's `RELAY_MOUNTS`.
+- **The studio app:** 1.3.1 has no Keys tab. Update it (it offers the update itself) before you
+  make keys.
+- **Listeners:** with no keyed show on, the streams are as before (the player and the join page now
+  name the show the schedule has on air). While a keyed show is on, the public stream plays the
+  slate, the public picture and RTMP out are held back, and now playing names only the show.
+
+### Known limits of 1.3.2
+
+- **A key holder hears the show about 13 seconds after playout plays it** (the listener mount's
+  burst), and is dropped about 14 seconds after the slot's end. A keyed show straight after
+  another starts its stream up to 14 seconds late.
+- **A key keeps a whole show**, every episode to come; a key for one episode is for a later release.
+- **A keyed show stays keyed until its slot in the schedule ends**, and no longer. If a show
+  overruns, or a source keeps sending after the slot, what follows is public. Slots that do not
+  meet leave a public gap between them: a show set to run from 00:00 to 23:59 each day, with a
+  source that never stops, is public for about 45 seconds each night (worked out from the
+  window's margins on the test station, not heard).
+- Radio apps and smart speakers cannot take a key yet (no personal stream address), and edges'
+  relays do not carry keyed sound.
+- Whichever slate a show names, the public hears the station's one slate: its fallback music,
+  or the loop WeaveSignal ships when the fallback folder is empty.
+
 ## 1.3.1 (2026-11-23)
 
 - **A page that reloads knows whether it is standing by.** A person's own state

@@ -46,6 +46,9 @@ export interface GridProps {
   onBook?: (stretch: { start: number; end: number } | null) => void;
   /** Why this window cannot book, for the Rehearsal column's head. */
   bookWhy?: string;
+  /** The shows kept for people with a key now, by path (keyed shows, 1.3.2): each of their
+   *  blocks carries the key. Absent or empty, none does. */
+  keyed?: ReadonlySet<string>;
   /** The week; one day, a lane for each clashing show; or one day with a column per studio. */
   view?: 'week' | 'day' | 'studios';
   /** The day the Day view and the studios view show, 0 (Monday) to 6. */

@@ -1,7 +1,7 @@
 ---
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-// Every video on the site as a grid of thumbnails (src/data/videos.ts): the two tutorials first,
+// Every video on the site as a grid of thumbnails (src/data/videos.ts): the tutorials first,
 // then the demo show and its moments. A video is listed only when its files are in public/media at
 // build time (the media is uploaded to the site separately, as the demo's is), and each extra link
 // only when its file is there too, so nothing points at a file that is missing. A video plays only
@@ -22,7 +22,7 @@ const inGroup = (kinds: string[]) => listed.filter((v) => kinds.includes(v.kind)
 
 <Site
   title="Videos — WeaveSignal"
-  description="Videos about WeaveSignal: two tutorials that take you from nothing to a station playing a sound, on Linux and on Windows, and the demo show with its moments. With captions and transcripts."
+  description="Videos about WeaveSignal: four tutorials (your first station on Linux, the studio app on Windows, the four views of a show, and a solo show), and the demo show with its moments. With captions and transcripts."
   path="/videos/"
 >
   <div class="wrap page-title">

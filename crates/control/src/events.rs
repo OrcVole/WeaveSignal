@@ -11,6 +11,11 @@
 //! | `episode.started` | a scheduled episode's air time arrives | `show`, `series`, `episode` (id, number, title, `air_at_ms`, `minutes`, `kind`) |
 //! | `episode.ended` | its length has run out | as `episode.started` |
 //! | `caller.queued` | a caller joins the screener's queue | `identity`, `ordinal`, `queue` (callers waiting) |
+//! | `key.first_used` | a listener key (keyed shows, 1.3.2) is used for the first time | `key`, `label`, `family`, `kind` |
+//! | `key.ended` | a listener key ends: its window passes, or it is revoked or replaced | `key`, `label`, `family`, `kind`, `reason` (`expired`, `revoked`, `replaced`) |
+//!
+//! The key events carry the key's id and the label staff gave it, so that a shop or membership
+//! system can find its own record; never the key's text and never an email address.
 //!
 //! `caller.queued` carries no name, topic or consent: a caller agreed to be live and kept in the
 //! archive (ADR-0124's words), not to have what they typed sent to another system. An
@@ -44,6 +49,8 @@ pub const ON_AIR_CHANGED: &str = "on_air.changed";
 pub const EPISODE_STARTED: &str = "episode.started";
 pub const EPISODE_ENDED: &str = "episode.ended";
 pub const CALLER_QUEUED: &str = "caller.queued";
+pub const KEY_FIRST_USED: &str = "key.first_used";
+pub const KEY_ENDED: &str = "key.ended";
 
 /// Every event kind a webhook can ask for.
 pub const KINDS: &[(&str, &str)] = &[
@@ -58,6 +65,14 @@ pub const KINDS: &[(&str, &str)] = &[
     (EPISODE_STARTED, "A scheduled episode's air time arrived."),
     (EPISODE_ENDED, "A scheduled episode's length ran out."),
     (CALLER_QUEUED, "A caller joined the screener's queue."),
+    (
+        KEY_FIRST_USED,
+        "A listener key was used for the first time.",
+    ),
+    (
+        KEY_ENDED,
+        "A listener key ended: its window passed, or it was revoked or replaced.",
+    ),
 ];
 
 pub fn is_kind(name: &str) -> bool {
@@ -360,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn the_kinds_are_the_five_the_adr_names() {
+    fn the_kinds_are_the_five_the_adr_names_and_the_two_for_keys() {
         let names: Vec<_> = KINDS.iter().map(|(k, _)| *k).collect();
         assert_eq!(
             names,
@@ -369,7 +384,10 @@ mod tests {
                 "on_air.changed",
                 "episode.started",
                 "episode.ended",
-                "caller.queued"
+                "caller.queued",
+                // Keyed shows (1.3.2).
+                "key.first_used",
+                "key.ended"
             ]
         );
     }

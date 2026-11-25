@@ -1,9 +1,9 @@
 ---
 title: "Keymap"
-description: "Every key in the studio app, what it does, and which keys only show a note in 1.0.0; from 1.1, ⌃R ⌃R restarts playout and ⌃4 opens the Room."
+description: "Every key in the studio app, what it does, and which keys only show a note in 1.0.0; from 1.1, ⌃R ⌃R restarts playout and ⌃4 opens the Room; from 1.3.2, ⌃6 opens the Keys tab."
 type: reference
 status: draft
-last_verified: 2026-11-17
+last_verified: 2026-11-23
 sidebar:
   order: 4
 ---
@@ -24,7 +24,7 @@ Release 1.1 changes four keys (ADR-0289, issue 9): `⌃R` pressed twice restarts
    Unmodified letters, digits, arrows and `⇧` with a letter fire only on their own tab.
 2. **Text fields own the unmodified keys.**
    While a text field has focus, single keys, `⇧` letters, the function keys and two-press keys never fire, and nor do `⌃D ⌃D` and `⌃F1`–`⌃F5`.
-   `Esc` leaves the field; the other `⌃` chords (`⌃1`–`⌃5`, `⌃T`, `⌃⇧E`, `⌃⏎`) still fire (ADR-0104); `⌃⇧S`, `⌃D ⌃D` and `⌃R ⌃R` do not.
+   `Esc` leaves the field; the other `⌃` chords (`⌃1`–`⌃6`, `⌃T`, `⌃⇧E`, `⌃⏎`) still fire (ADR-0104); `⌃⇧S`, `⌃D ⌃D` and `⌃R ⌃R` do not.
    Settings, the account dialog and the sign-in-ended dialog are forms: only `⌃` chords reach the keymap there, as from a text field.
 3. **Two presses for anything that changes the room or a person's standing.**
    The first press arms the key for 3 s, and its button shows it is armed (*Press again*); the same key again fires it; any other key, or `Esc`, disarms it.
@@ -42,11 +42,12 @@ Release 1.1 changes four keys (ADR-0289, issue 9): `⌃R` pressed twice restarts
 
 | Key | Does | In 1.0.0 |
 |---|---|---|
-| `⌃1` `⌃2` `⌃3` `⌃5` | the Desk, Screener, Carts and Schedule tabs; from Settings, back to that tab | works |
+| `⌃1` `⌃2` `⌃3` `⌃5` | the Desk, Screener, Carts and Schedule tabs; from Settings, back to that tab (a second click on the **Settings** tab, `Esc` and **Back to the desk** leave it too) | works |
 | `⌃4` | the Room: opens the Screener tab with the focus in its Room lane, where the chat is moderated; there is no Chat tab | from 1.1 (a note only before) |
+| `⌃6` | the Keys tab: listener keys for the shows kept for people with a key ([below](#keys-tab)). A producer's and an admin's: in a presenter's or a screener's window the tab is not drawn, and the key says so and does nothing | from 1.3.2 |
 | `⌃T` (held) | on the Screener tab, the screener's talkback to the presenters and DJs; on any other tab, the presenter talks to the screener only | works |
 | `⌃D ⌃D` | drop the caller: on the Screener tab the selected caller; on the Desk tab the caller in slot 4, else the caller on air; on other tabs the caller on air | works |
-| `Esc` | in order: disarm an armed key; leave a text field; dismiss a note in the toast slot; on the Desk tab, decline a caller sent to you (*Not now*, ADR-0098); on the Carts tab, take every cued cart out of the headphones; on the Schedule tab, close what the editor column holds and clear the selection (from 1.0.5; [below](#schedule-tab)); else dismiss the tab's latest notice | works |
+| `Esc` | in order: disarm an armed key; leave a text field; dismiss a note in the toast slot; on the Desk tab, decline a caller sent to you (*Not now*, ADR-0098); on the Carts tab, take every cued cart out of the headphones; on the Schedule tab, close what the editor column holds and clear the selection (from 1.0.5; [below](#schedule-tab)); on Settings, leave for the tab you came from (a field first gives up its focus; from 1.3.1); else dismiss the tab's latest notice | works |
 | `Del Del` | dump the profanity delay: it throws away what the delay holds, so listeners jump to the live programme | works |
 | `F1` to `F6` | fire carts 1 to 6 of the current bank (its top row); again, fade the cart out (ADR-0020) | works |
 | `⌃F1` to `⌃F5` | switch to cart bank 1 to 5: the show's own bank of that number if it has one, else the station's (from 1.0.2); what sounds keeps sounding | works |
@@ -158,6 +159,20 @@ Every key on this tab works in 1.0.0; [Moderate the chat](/docs/how-to/moderate-
 Nothing on the schedule is live, so no key here is two-press; the global keys fire as on every tab, and a text field in the editor owns the unmodified keys.
 `Esc` keeps its order: in a text field the first press leaves the field, an open menu or dialog takes the press for itself, an open **Move…** (an episode's, or a date's in a show's dates) is cancelled by it, and only then does it close the editor column.
 It never throws work away: while the episode, series or show in the column has changes that are not saved, nothing closes, and the tab says *Not closed. The episode has changes that are not saved. Save or discard them first.*
+
+## Keys tab
+
+From 1.3.2, for a producer and an admin ([The Keys tab](/docs/reference/surfaces/keys/)).
+
+| Key | Does |
+|---|---|
+| `N` | **Make a key…**: the dialog, with the common case already chosen |
+| `/` | the focus in the list's search field (from the Families or the Leak report view, the list first) |
+| `Esc` | leaves a text field; a dialog takes it for itself |
+
+Nothing on the tab is live, so no key here is two-press.
+Nothing that ends or interrupts someone's listening has a key: **Pause…**, **Replace…**, **Revoke…** and **Erase…** are buttons, and each asks first.
+A window that is preparing a show uses the tab as a live one does: a key is not the air.
 
 ## Carts tab
 

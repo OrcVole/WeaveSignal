@@ -6,6 +6,7 @@
 // so a different library would differ only in what it draws around it.
 
 import { REHEARSAL, STUDIO, episodeLine, hm, lengthWords, type Block, type Rehearsal } from './model.ts';
+import { KEYED } from '../lib/keyed.ts';
 import { columnCaption, rehearsalKind, sessionWords } from './studios.ts';
 
 export function esc(s: string): string {
@@ -47,7 +48,20 @@ export interface BlockContext {
   /** The Studios view (1.3.0): a show whose host is in their own studio says so, since the
    *  column cannot (every show on air is in the one column). */
   columns?: boolean;
+  /** The shows kept for people with a key now, by path (keyed shows, 1.3.2). */
+  keyed?: ReadonlySet<string>;
 }
+
+/** The show is kept for people with a key: its blocks carry the key beside the time. */
+const isKeyed = (b: Block, ctx: BlockContext) => b.kind !== 'automation' && !!ctx.keyed?.has(b.slug);
+/** The key beside a block's time, on every keyed block: who may listen, not a state of the air.
+ *  The word stands with it wherever the time's line has the room (the Day view, a wide column);
+ *  the styles decide (`.kw`). */
+const keyedMark = () => `<span class="rep keyed" title="${esc(KEYED.tip)}">${glyph('g-key')}<span class="kw">${KEYED.word}</span></span>`;
+/** And the word on a line of its own under the kind, in a column too narrow for it beside the
+ *  time: left out whole, as every line is, where the block is too short (an hour's block keeps
+ *  the key beside its time, and the tooltip). */
+const keyedLine = (b: Block, ctx: BlockContext) => (isKeyed(b, ctx) && !ctx.wide ? `<span class="kind kk" title="${esc(KEYED.tip)}">${glyph('g-key')}${KEYED.word}</span>` : '');
 
 /** `Own studio`, on a show whose host comes in with a show key: the desk's own mark for it. */
 const OWN_STUDIO = 'Own studio';
@@ -90,7 +104,7 @@ export function blockAria(b: Block, ctx: BlockContext): string {
   const clash = b.conflict ? (others.length ? `conflict, clashes with ${namesOf(others)}` : 'conflict') : '';
   const folded = ctx.place?.role === 'tab' ? 'folded: press Enter to bring it forward' : ctx.place?.role === 'under' ? 'partly folded: press Enter to bring it forward' : '';
   if (b.kind === 'rule') {
-    const head = `${b.show}, a date from its rule, ${when}, not drafted yet`;
+    const head = `${b.show}${isKeyed(b, ctx) ? ', keyed, for people with a key' : ''}, a date from its rule, ${when}, not drafted yet`;
     const tail = folded || 'select it to draft the episode or skip the date';
     return clash ? `${head}, ${clash}, ${tail}` : `${head}: ${tail}`;
   }
@@ -98,6 +112,7 @@ export function blockAria(b: Block, ctx: BlockContext): string {
   const ep = episodeLine(b);
   if (ep) parts.push(ep);
   if (ownStudio(b, ctx)) parts.push('the host in their own studio');
+  if (isKeyed(b, ctx)) parts.push('keyed, for people with a key');
   if (b.end <= ctx.now) parts.push('aired');
   if (clash) parts.push(clash);
   if (b.moved) parts.push('moved this week');
@@ -186,6 +201,7 @@ function blockInner(b: Block, ctx: BlockContext): string {
   let h = `<span class="t"><span class="tl">${mark}<span class="num">${time}</span></span>`;
   if (b.kind === 'automation' && ctx.longNight) h += `<span class="rep">${lengthWords(long)}</span>`;
   else if (b.weekly && b.kind !== 'automation') h += `<span class="rep" title="a date from the show’s rule">${glyph('g-repeat')}</span>`;
+  if (isKeyed(b, ctx)) h += keyedMark();
   h += '</span>';
   if (b.kind === 'automation') {
     h += `<b>${esc(b.show)}</b><div class="rest"><span class="kind">${glyph('g-auto')}Automation</span>`;
@@ -196,12 +212,13 @@ function blockInner(b: Block, ctx: BlockContext): string {
   if (b.conflict) h += `<span class="flag">${glyph('g-fault')}Conflict</span>${overLine(b, ctx)}`;
   if (b.kind === 'rule') {
     if (b.moved) h += `<span class="flag moved">${glyph('g-moved')}Moved · ${esc(b.moved)}</span>`;
-    h += `<span class="kind">${glyph('g-repeat')}Not drafted</span><span class="ep">${b.number !== null ? `Ep ${b.number} · ` : ''}Select it to draft or skip</span>`;
+    h += `<span class="kind">${glyph('g-repeat')}Not drafted</span>${keyedLine(b, ctx)}<span class="ep">${b.number !== null ? `Ep ${b.number} · ` : ''}Select it to draft or skip</span>`;
     return h + '</div>';
   }
   if (b.moved) h += `<span class="flag moved">${glyph('g-moved')}Moved · ${esc(b.moved)}</span>`;
   // Live or pre-recorded (ADR-0188; issue 10: every block said Live).
   h += `<span class="kind">${b.prerecorded ? `${glyph('g-tape')}Pre-recorded` : `${glyph('g-mic')}Live`}${past ? ' · aired' : ''}</span>`;
+  h += keyedLine(b, ctx);
   const ep = episodeLine(b);
   if (ep) h += `<span class="ep">${esc(ep)}</span>`;
   if (ownStudio(b, ctx)) h += `<span class="kind own" title="The host comes in from their own studio, with the show’s key">${glyph('g-disc')}${OWN_STUDIO}</span>`;

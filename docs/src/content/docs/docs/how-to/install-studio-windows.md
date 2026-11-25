@@ -13,7 +13,7 @@ It is an NSIS installer and it is not signed (ADR-0076).
 
 ## Download it
 
-Download `WeaveSignal_1.3.1_x64-setup.exe` and the checksum file `SHA256SUMS-1.3.1-windows` from the assets of [release v1.3.1 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.3.1); the updater reads the same files from `https://weavesignal.top/updates/`.
+Download `WeaveSignal_1.3.2_x64-setup.exe` and the checksum file `SHA256SUMS-1.3.2-windows` from the assets of [release v1.3.2 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.3.2); the updater reads the same files from `https://weavesignal.top/updates/`.
 
 Edge holds the installer at first: it says the file *isn't commonly downloaded*. To keep it:
 
@@ -29,7 +29,7 @@ The release lists it in `SHA256SUMS-<version>-windows`.
 In PowerShell, in the folder you saved it to:
 
 ```powershell
-Get-FileHash .\WeaveSignal_1.3.1_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\WeaveSignal_1.3.2_x64-setup.exe -Algorithm SHA256
 ```
 
 The `Hash` it prints must match the line for the installer, letter for letter (case does not matter).
@@ -78,7 +78,7 @@ It shows the desk and sends your keys; you hear the station, and speak into the 
 
 ## Remove it
 
-Open **Settings**, then **Apps**, then **Installed apps**, find **WeaveSignal** (it lists the version, 1.3.1 here), open the **…** menu and choose **Uninstall**, then **Uninstall** again.
+Open **Settings**, then **Apps**, then **Installed apps**, find **WeaveSignal** (it lists the version, 1.3.2 here), open the **…** menu and choose **Uninstall**, then **Uninstall** again.
 The uninstaller opens a window with a box, **Delete the application data**, which is not ticked: tick it to remove the app's saved browser data as well.
 If the app is still open, a message says *WeaveSignal is running! Click OK to kill it*: close the app first, or choose **OK**.
 Without the box ticked, the folder `org.weavesignal.studio` stays in your user's `AppData\Local` (the window's saved data); the program folder, the Start menu entry and the desktop shortcut are gone.

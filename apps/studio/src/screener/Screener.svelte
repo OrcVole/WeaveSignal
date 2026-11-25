@@ -24,6 +24,7 @@
   import { phone, watchPhone } from '../lib/phone.svelte.ts';
   import { WITHHELD_BAN, WITHHELD_WHY, callerName, lineWords, phoneLine } from '../lib/phone.ts';
   import BanNumber from './BanNumber.svelte';
+  import { NO_SHOW_WORDS, showName } from '../lib/showName.ts';
 
   // The chat link starts with the screener and keeps going on the other tabs.
   onMount(startChat);
@@ -172,7 +173,7 @@
 
   const lampChip: Chip = $derived(LAMP[lamp].chip);
   /** The status bar's show and presenter, whole in its tooltip where the bar shortens it. */
-  const showLine = $derived(`${v?.show.title || 'No show set'}${v?.seats.presenter ? ` · ${v.seats.presenter_name || v.seats.presenter}` : ''}`);
+  const showLine = $derived(`${showName(v) || NO_SHOW_WORDS}${v?.seats.presenter ? ` · ${v.seats.presenter_name || v.seats.presenter}` : ''}`);
   const influxArmed = $derived(studio.armed?.what === 'influx');
   const dropArmed = $derived(studio.armed?.what === 'drop');
   /** A phone call that ended keeps no place: a new call from the same number is not matched to

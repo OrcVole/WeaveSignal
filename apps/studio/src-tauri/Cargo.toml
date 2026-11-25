@@ -23,6 +23,12 @@ tauri = { version = "2.12.5", features = [] }
 # root-certificate crates carry ISC and CDLA licences deny.toml does not list; no zip, which only
 # the Tauri 1 update format needs.
 tauri-plugin-updater = { version = "2.14.0", default-features = false, features = ["native-tls", "system-proxy"] }
+# The system's save dialog (1.3.2): the key CSV and the QR picture leave the app as files the
+# person places. Called from Rust only (src/save.rs); the window is granted none of the plugin's
+# own commands. Read from crates.io on 2026-11-24; MIT OR Apache-2.0, as rfd and
+# tauri-plugin-fs, which it brings. GTK's dialog on Linux (the default feature): GTK is already
+# linked through the webview.
+tauri-plugin-dialog = "2.8.4"
 # `generate_context!` embeds the plugins' settings as JSON values.
 serde_json.workspace = true
 serde.workspace = true

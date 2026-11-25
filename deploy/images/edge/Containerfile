@@ -23,9 +23,12 @@ ARG ALPINE=docker.io/library/alpine:3.24
 FROM ${ALPINE} AS hls
 # Alpine 3.24's nginx 1.30 (bench 02 ran 1.30.5); the stable branch, so a rebuild takes its
 # security fixes.
-RUN apk add --no-cache nginx~1.30 \
+# nginx-mod-http-js (njs) checks keyed shows' tokens (keyed.js; 1.3.2): ECDSA P-256 in WebCrypto
+# (its njs 0.9.9 is built without QuickJS and has no Ed25519).
+RUN apk add --no-cache nginx~1.30 nginx-mod-http-js~1.30 \
     && install -d -o nginx -g nginx /var/cache/weavesignal-edge /run/nginx
 COPY hls.sh /usr/local/bin/weavesignal-edge
+COPY keyed.js /usr/local/share/weavesignal-edge/keyed.js
 LABEL org.opencontainers.image.title="weavesignal-edge" \
       org.opencontainers.image.description="WeaveSignal's HLS edge: an nginx pull-through cache" \
       org.opencontainers.image.licenses="AGPL-3.0-only"

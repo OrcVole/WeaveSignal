@@ -45,3 +45,8 @@ __pycache__/
 # test-no-stun and test-pull
 /tests/no-stun/run/
 /tests/pull/run/
+/tests/keyed/run/
+/tests/keyed/run-edge/
+/tests/keyed/last-*.log
+/tests/keyed/run-stack/
+/tests/keyed/run-slate/

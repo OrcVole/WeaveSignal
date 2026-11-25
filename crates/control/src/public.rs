@@ -387,6 +387,13 @@ pub(crate) async fn record_station_consent(
 pub struct PlayerInfo {
     pub station: String,
     pub show: String,
+    /// The show on now (1.3.2): the keyed show whose window is open, else the schedule's show on
+    /// air; `null` between shows. The player finds a keyed show by this id, never by `show`.
+    pub show_id: Option<uuid::Uuid>,
+    /// `show_id` is a keyed show whose window is open now (with its margins): the public stream
+    /// plays the station's slate and the public picture is held back, so the player shows the
+    /// lock, and plays the keyed stream for a key that opens the show.
+    pub keyed: bool,
     /// The listener stream through the proxy; empty when not set up.
     pub stream_url: String,
     /// Every stream the listener may choose (ADR-0232): the Opus one at `stream_url` first,
@@ -527,9 +534,38 @@ pub async fn player(State(state): State<Arc<AppState>>) -> Json<PlayerInfo> {
     );
     let why_not = call_in_closed(&state);
     let Words { text, version, .. } = words(&state).await;
+    // The keyed windows are kept fresh by the keyed shows' driver; the windows are not read here
+    // (a show is looked up below only when a keyed window's margins hold a show the schedule does
+    // not name).
+    let keyed_now = state
+        .staff
+        .api
+        .access
+        .live
+        .active(crate::hub::now_ms() as i64)
+        .first()
+        .copied();
+    // The show's name comes from the schedule (1.3.2), and names the show `show_id` does: a
+    // keyed window's margins can hold a show the schedule does not yet (or no longer) name.
+    let on_air = state.hub.read_studio(|s| s.step_show_on_air());
+    let show_id = keyed_now.or(on_air);
+    let show = match show_id {
+        Some(id) if Some(id) != on_air => match state.db.as_ref() {
+            Some(pool) => weavesignal_model::shows::get_show_by_id(pool, id)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| s.name)
+                .unwrap_or_else(|| view.show_name().to_owned()),
+            None => view.show_name().to_owned(),
+        },
+        _ => view.show_name().to_owned(),
+    };
     Json(PlayerInfo {
         station: state.station_name(),
-        show: view.show.title.clone(),
+        show,
+        show_id,
+        keyed: keyed_now.is_some(),
         stream_url: state.join.stream_url.clone(),
         streams: streams(&state.join),
         presenter: facts.presenter,
@@ -558,7 +594,7 @@ pub async fn player(State(state): State<Arc<AppState>>) -> Json<PlayerInfo> {
 }
 
 /// Whether the desk is writing HLS now.
-fn video_on(state: &AppState) -> bool {
+pub(crate) fn video_on(state: &AppState) -> bool {
     state
         .hub
         .desk_status()
@@ -587,34 +623,29 @@ pub async fn hls_file(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(path): axum::extract::Path<String>,
 ) -> Response {
-    let parts: Vec<&str> = path.split('/').collect();
-    let safe = !path.is_empty()
-        && path.len() <= 96
-        && parts.len() <= 2
-        && parts.iter().all(|c| {
-            !c.is_empty()
-                && !c.starts_with('.')
-                && c.chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
-        });
-    let kind = match path.rsplit_once('.').map(|(_, e)| e) {
-        Some("m3u8") => Some(("application/vnd.apple.mpegurl", "no-cache")),
-        Some("m4s") | Some("mp4") if path.starts_with("audio/") => {
-            Some(("audio/mp4", "public, max-age=30"))
-        }
-        Some("m4s") | Some("mp4") => Some(("video/mp4", "public, max-age=30")),
-        _ => None,
-    };
-    let (Some((mime, cache)), true) = (kind, safe) else {
+    let Some((mime, cache)) = hls_kind(&path) else {
         return problem(StatusCode::NOT_FOUND, "no such file".to_owned());
     };
     if !video_on(&state) {
         return problem(StatusCode::NOT_FOUND, "video is off".to_owned());
     }
-    let file = state.join.hls_dir.join(&path);
-    let read = tokio::task::spawn_blocking(move || std::fs::read(file)).await;
-    match read {
-        Ok(Ok(bytes)) => {
+    let parts: Vec<&str> = path.split('/').collect();
+    // Keyed shows (1.3.2): the public HLS is held back while a keyed show's window is open and
+    // for the HLS lag after (its playlists say so, and the player shows the lock and plays the
+    // public sound), and no segment that may hold a keyed moment is served, whatever a playlist
+    // says.
+    let live = &state.staff.api.access.live;
+    if let Some(pool) = state.db.as_ref() {
+        live.refresh(pool, state.station.id).await;
+    }
+    if mime.ends_with("mpegurl") && live.public_hls_held(crate::hub::now_ms() as i64) {
+        return keyed_now();
+    }
+    match read_hls(&state, &path).await {
+        Some((_, written)) if live.classify(written) != weavesignal_keyed::Segment::Public => {
+            keyed_now()
+        }
+        Some((bytes, _)) => {
             // The desk's top-level playlists are the multivariant ones; they get the
             // steering line while steering has edges (ADR-0159).
             let bytes = match state.steering.playlist_line() {
@@ -629,8 +660,65 @@ pub async fn hls_file(
             )
                 .into_response()
         }
-        _ => problem(StatusCode::NOT_FOUND, "no such file".to_owned()),
+        None => problem(StatusCode::NOT_FOUND, "no such file".to_owned()),
     }
+}
+
+/// The public HLS's refusal while a keyed show holds it back.
+fn keyed_now() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(serde_json::json!({
+            "error": "A keyed show is on: its picture is for key holders. The public stream plays meanwhile.",
+            "code": "keyed",
+        })),
+    )
+        .into_response()
+}
+
+/// A desk HLS file's type and public caching, or `None` for a name the desk does not write
+/// (letters, digits, `-`, `_`, `.`; at most two levels; no part starting with a dot).
+pub(crate) fn hls_kind(path: &str) -> Option<(&'static str, &'static str)> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let safe = !path.is_empty()
+        && path.len() <= 96
+        && parts.len() <= 2
+        && parts.iter().all(|c| {
+            !c.is_empty()
+                && !c.starts_with('.')
+                && c.chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+        });
+    if !safe {
+        return None;
+    }
+    match path.rsplit_once('.').map(|(_, e)| e) {
+        Some("m3u8") => Some(("application/vnd.apple.mpegurl", "no-cache")),
+        Some("m4s") | Some("mp4") if path.starts_with("audio/") => {
+            Some(("audio/mp4", "public, max-age=30"))
+        }
+        Some("m4s") | Some("mp4") => Some(("video/mp4", "public, max-age=30")),
+        _ => None,
+    }
+}
+
+/// A desk HLS file's bytes and when it was last written (Unix ms), for a path [`hls_kind`]
+/// accepted.
+pub(crate) async fn read_hls(state: &AppState, path: &str) -> Option<(Vec<u8>, i64)> {
+    let file = state.join.hls_dir.join(path);
+    tokio::task::spawn_blocking(move || {
+        let written = std::fs::metadata(&file)
+            .and_then(|m| m.modified())
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_millis() as i64;
+        std::fs::read(&file).ok().map(|b| (b, written))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// A multivariant playlist with the steering line as its second line, after `#EXTM3U`. Any
@@ -1069,6 +1157,14 @@ pub struct PassInfo {
     pub name: String,
     pub station: String,
     pub show: String,
+    /// The show the invitation is for (1.3.2): a rehearsal link's rehearsed show, a moved pass's
+    /// show, else the show on now by the schedule (a keyed window's show first), as the
+    /// player's `show_id` says; `null` between shows. The join page finds the show's keyed
+    /// line by this id.
+    pub show_id: Option<uuid::Uuid>,
+    /// That show is a keyed show now: its rule says `key` and it has not opened to everyone. The
+    /// join page says who will hear the guest, and that the guest needs no key.
+    pub keyed: bool,
     pub expires_at_ms: u64,
     pub ended: bool,
     pub relay: RelayInfo,
@@ -1080,6 +1176,49 @@ pub struct PassInfo {
     /// Where the link leads (1.3): `live`, or `rehearsal`, whose desk reaches no air. For a
     /// rehearsal link `show` is the rehearsed show.
     pub studio: Studio,
+}
+
+/// The show a live pass is for (1.3.2): the one a moved pass was made for, else the show on now
+/// (a keyed window's show before the schedule's, as the player's `show_id` has it).
+async fn pass_show(state: &AppState, c: &PassClaims) -> Option<uuid::Uuid> {
+    if let (Some(slug), Some(pool)) = (c.show.as_deref(), state.db.as_ref()) {
+        match weavesignal_model::shows::get_show(pool, state.station.id, slug).await {
+            Ok(Some(show)) => return Some(show.id),
+            Ok(None) => {}
+            Err(e) => tracing::debug!(error = %e, "a moved pass's show could not be read"),
+        }
+    }
+    state
+        .staff
+        .api
+        .access
+        .live
+        .active(crate::hub::now_ms() as i64)
+        .first()
+        .copied()
+        .or_else(|| state.hub.read_studio(|s| s.step_show_on_air()))
+}
+
+/// Whether a show is keyed now: its rule says `key` and it has not opened to everyone.
+async fn show_is_keyed(state: &AppState, show: Option<uuid::Uuid>) -> bool {
+    let (Some(show), Some(pool)) = (show, state.db.as_ref()) else {
+        return false;
+    };
+    match weavesignal_model::listener_keys_db::get_access(pool, state.station.id, show).await {
+        Ok(access) => keyed_by(access.as_ref(), crate::hub::now_ms() as i64),
+        Err(e) => {
+            tracing::debug!(error = %e, "a pass's show: its key rule could not be read");
+            false
+        }
+    }
+}
+
+/// The rule row says `key` now (a show without a row is public).
+fn keyed_by(access: Option<&weavesignal_model::listener_keys_db::Access>, now_ms: i64) -> bool {
+    access.is_some_and(|a| {
+        weavesignal_model::listener_keys::effective(&a.rule, a.opens_at_ms, now_ms)
+            == weavesignal_model::listener_keys::Effective::Key
+    })
 }
 
 /// The seat the step hides from this pass, if it does and the person is not already in the
@@ -1099,7 +1238,7 @@ fn step_refusal(state: &AppState, c: &PassClaims) -> Option<crate::steps::Hidden
     operation_id = "public_pass_info",
     tag = "join",
     summary = "What a pass is",
-    description = "The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.",
+    description = "The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later. `show_id` and `keyed` (1.3.2) say which show the invitation is for and whether that show needs a key now, for the join page's line about who will hear the guest.",
     responses(
         (status = 200, description = "The pass.", body = PassInfo),
         (status = 401, response = crate::openapi::Unauthorized),
@@ -1118,6 +1257,7 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
             Ok(rp) => rp,
             Err(r) => return r,
         };
+        let session_show = rp.session.as_ref().map(|s| s.show_id);
         let not_now = match rp.closed(&c.id) {
             Some(why) => Some(why),
             None => rehearsal_step_refusal(&rp, &c)
@@ -1131,6 +1271,8 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
             name: c.name.clone(),
             station: state.station_name(),
             show: rp.show_name.clone(),
+            show_id: session_show,
+            keyed: show_is_keyed(&state, session_show).await,
             expires_at_ms: c.exp * 1000,
             ended: state.joins.pass_ended(&c),
             relay: RelayInfo {
@@ -1142,17 +1284,20 @@ pub async fn pass_info(State(state): State<Arc<AppState>>, headers: HeaderMap) -
         })
         .into_response();
     }
+    let show_id = pass_show(&state, &c).await;
     Json(PassInfo {
         kind: c.kind,
         role: c.role,
         identity: c.id.clone(),
         name: c.name.clone(),
         station: state.station_name(),
+        show_id,
+        keyed: show_is_keyed(&state, show_id).await,
         // A moved pass names the show it was made for, whatever is on air now (1.3.1).
         show: c
             .show_name
             .clone()
-            .unwrap_or_else(|| state.hub.view().show.title.clone()),
+            .unwrap_or_else(|| state.hub.view().show_name().to_owned()),
         expires_at_ms: c.exp * 1000,
         ended: state.joins.pass_ended(&c),
         relay: RelayInfo {
@@ -1495,7 +1640,7 @@ fn invite_link(public_url: &str, pass: &str) -> String {
     operation_id = "public_invite",
     tag = "join",
     summary = "An invitation link",
-    description = "A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link.",
+    description = "A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link. A window that is preparing a show may make it too (1.3.2): making a link is not changing what is on air.",
     request_body = InviteRequest,
     responses(
         (status = 201, description = "The invitation.", body = Invite),
@@ -1709,6 +1854,28 @@ pub(crate) struct Api;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_passs_show_is_keyed_while_its_rule_says_key_and_it_has_not_opened() {
+        use weavesignal_model::listener_keys_db::Access;
+        let access = |rule: &str, opens: Option<i64>| Access {
+            show_id: uuid::Uuid::from_u128(1),
+            rule: rule.into(),
+            opens_at_ms: opens,
+            slate: "announcement".into(),
+            slate_note: String::new(),
+            updated_ms: 0,
+            updated_by: "test".into(),
+        };
+        assert!(!keyed_by(None, 10), "a show with no rule row is public");
+        assert!(!keyed_by(Some(&access("public", None)), 10));
+        assert!(keyed_by(Some(&access("key", None)), 10));
+        assert!(keyed_by(Some(&access("key", Some(100))), 10));
+        assert!(
+            !keyed_by(Some(&access("key", Some(100))), 100),
+            "opened to everyone"
+        );
+    }
+
     #[test]
     fn an_invitation_link_is_on_the_public_address_when_there_is_one() {
         // Cloudron: the join page is on the public domain, outside the login.

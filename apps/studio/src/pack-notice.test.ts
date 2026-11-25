@@ -72,10 +72,11 @@ describe('the pack’s fingerprint', () => {
 
 describe('the words and who is told', () => {
   it('says how many, with the singular right, and where to go', () => {
-    expect(PACK_NOTICE.lead(50)).toBe('50 new sounds are available:');
-    expect(PACK_NOTICE.lead(1)).toBe('1 new sound is available:');
+    expect(PACK_NOTICE.lead(50)).toBe('The default pack has 50 sounds this station does not have.');
+    expect(PACK_NOTICE.lead(1)).toBe('The default pack has 1 sound this station does not have.');
     expect(PACK_NOTICE.action).toBe('Default pack…');
-    expect(PACK_NOTICE.rest).toContain('Carts');
+    expect(PACK_NOTICE.rest).toContain('Default pack…');
+    expect(PACK_NOTICE.rest).not.toContain('Carts tab');
   });
 
   it('is for an admin, a producer or the station key; not a presenter or a screener', () => {

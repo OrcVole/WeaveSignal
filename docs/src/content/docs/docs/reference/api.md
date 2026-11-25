@@ -461,7 +461,7 @@ Invitations and the pass a guest, a remote DJ, a presenter or a caller joins by.
 
 Needs: staff: any staff session, or the station key.
 
-A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link.
+A link for a guest, a remote DJ or a presenter. A caller joins another way (422). The show on air's step decides which seats can be invited (ADR-0271): below `guests` a guest or a second presenter is refused, below `full` a DJ is, each with 422 and `field` `role`; the pass is checked again when it is used. With `for_me` the invitation is a presenter's for the signed-in account, allowed at every step for the show's presenter (403 for another account at Solo, 422 for the station key); it is the Solo DJ's own microphone link. A window that is preparing a show may make it too (1.3.2): making a link is not changing what is on air.
 
 Request body: [InviteRequest](#schema-inviterequest).
 
@@ -479,7 +479,7 @@ Request body: [InviteRequest](#schema-inviterequest).
 
 Needs: a pass, as the bearer.
 
-The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later.
+The pass is the bearer: from an invitation's link or a call-in. Says who it is for and whether the studio has ended it. `not_now` says why the pass cannot join yet when the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later. `show_id` and `keyed` (1.3.2) say which show the invitation is for and whether that show needs a key now, for the join page's line about who will hear the guest.
 
 | Status | Meaning | Body |
 |---|---|---|
@@ -1617,6 +1617,26 @@ Needs: staff: any staff session, or the station key; or an API token with `sched
 | 500 | The database refused. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+### GET /api/v1/schedule/rule/now
+
+**The rule of a show that starts now**
+
+Needs: staff: any staff session, or the station key; or an API token with `shows:read`.
+
+For the New show wizard's Start now (1.3.2): the one-time rule of a show that starts at the station's next whole minute and lasts `minutes` (15 to 480, 60 by default), on the station's own clock and zone, so a studio whose clock is wrong still starts it when it says. Save it as any rule (`PUT /api/v1/shows/{show}` with `draft_first: true`, which drafts the date under way): the show is on air by the schedule when the minute comes, within about three seconds, and the station's step then follows the show. The answer is for the minute it is asked in, so ask again just before saving; a rule saved up to its length late still drafts the date under way. Writes nothing.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `minutes` | query | integer (int32) | no | How long the show lasts, 15 to 480 minutes; 60 by default. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rule. | [RuleNow](#schema-rulenow) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+
 ### POST /api/v1/schedule/rule/preview
 
 **Preview a rule**
@@ -2505,6 +2525,20 @@ For a station's own website: aired episodes with published files, newest first, 
 |---|---|---|
 | 200 | The episodes. | [PublishedEpisodes](#schema-publishedepisodes) |
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/public/keyed-shows
+
+**The keyed shows**
+
+Needs: nobody (no bearer).
+
+No bearer; open to any website like the other public routes, and limited per address. The shows that need a key (so the schedule and the player can show a lock), when each opens to everyone, what the public hears meanwhile, and where to get a key. It says nothing about who holds a key.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The keyed shows. | [KeyedShowList](#schema-keyedshowlist) |
 | 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
@@ -3947,6 +3981,654 @@ Request body: [RemoveRequest](#schema-removerequest).
 | 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
 | 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
+## Routes: keys
+
+Keyed shows (1.3.2): listener keys, key families, the leak report and a show's access rule. A producer's or an admin's, or an API token with `keys:manage`; a key's text is shown only where a route says so.
+
+### GET /api/v1/listener-keys
+
+**Listener keys**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Keys, newest first, narrowed by family, state, kind, a show it opens, or a part of the label or note. Never a key's text.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `family` | query | string (uuid) | no | Only this family's keys. |
+| `state` | query | [ListenerKeyState](#schema-listenerkeystate) | no | `active`, `paused` or `revoked`. |
+| `kind` | query | [ListenerKeyKind](#schema-listenerkeykind) | no | `personal`, `group` or `machine`. |
+| `show` | query | string | no | Only keys that open this show (id or slug). |
+| `q` | query | string | no | A part of the label or note, case ignored. |
+| `limit` | query | integer (int64) | no | How many, 1 to 500 (default 100). |
+| `offset` | query | integer (int64) | no | How many to skip. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The keys, and how many match. | [ListenerKeyList](#schema-listenerkeylist) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys
+
+**Make a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. `label` names who it is for. `kind` is `personal` (default), `group` or `machine`; `media` `sound`, `video` or `both` (default); `shows` names the shows it opens by id or slug (at most 32), or `all_shows` opens every keyed show (the default when no show is named). `valid_from_ms` and `valid_until_ms` are the window (inclusive, exclusive). Limits: `max_devices` (default 2; null for any), `max_listens`, and for a group key `max_people`. The answer carries the key's text this once; the station keeps it sealed, and the reveal route shows it again. Make the key for a family with `family`.
+
+Request body: [ListenerKeyNew](#schema-listenerkeynew).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The key, its text and its link. | [ListenerKeyMade](#schema-listenerkeymade) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/families
+
+**Key families**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The station's families, newest first, each with how many keys it has issued.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The families. | [ListenerKeyFamilyList](#schema-listenerkeyfamilylist) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/families
+
+**Issue a family of listener keys**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Makes a family and one key per recipient in one go (named `recipients`, or `count` anonymous ones), all from one `template`, so that every copy is its own key and a leak can be traced to the key it came from. At most 1000 keys a call. The answer carries every key's text this once; the family's export and the reveal route give them again. The family's label is unique (409).
+
+Request body: [ListenerKeyFamilyNew](#schema-listenerkeyfamilynew).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 201 | The family and its keys. | [ListenerKeyFamilyMade](#schema-listenerkeyfamilymade) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/families/{id}
+
+**One key family**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The family; list its keys with `GET /api/v1/listener-keys?family=…`.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The family's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The family. | [ListenerKeyFamily](#schema-listenerkeyfamily) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/families/{id}/export
+
+**Export a family's keys as CSV**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. One row per key: `name`, `email`, `note`, `key`, `link`, `state`: for a mail merge or a ticket platform. It holds every key's text, so it is logged on each key (`text_shown`). A cell that could run as a spreadsheet formula is written with a quote in front of it.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The family's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The CSV. | string (`text/csv`) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/find
+
+**Which key is this text?**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. For a key found where it should not be (a post, a forum, a leaked list): whose key it was, and which family issued it. 404 when it is no key of this station.
+
+Request body: [ListenerKeyFind](#schema-listenerkeyfind).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/leaks
+
+**The leak report**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. For each key (of a family, or all): first and last seen, listens, devices, distinct addresses (ever, in 24 hours, in seven days), the most new addresses in one hour (`spike` from 3), and a `score` with its `reasons` for "most likely passed on", sorted highest first. The score is a hint: a phone on mobile data changes address, which is why it sums several signs and says which. An address is never shown, only counted (the station keeps a keyed hash of it for `keys.use_records_days`).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `family` | query | string (uuid) | no | Only this family's keys; left out, every key. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The report. | [ListenerKeyLeakReport](#schema-listenerkeyleakreport) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/signing
+
+**How keyed shows' tokens are signed**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The signing algorithm (`p256`) and the public key an edge checks tokens with (it cannot make them), for `EDGE_KEYED_PUBLIC_KEY`; and the renewal's deadline and pace and the clock leeway. The token's format is in the reference.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The signing facts. | [ListenerKeySigning](#schema-listenerkeysigning) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/{id}
+
+**One listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The key as the list shows it; never its text.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PATCH /api/v1/listener-keys/{id}
+
+**Change a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Only the fields sent change; a window or limit sent as `null` is taken away. The key's text stays the same, so nothing needs sending again: the shows it opens, its window and its limits take effect for the holder at once (within a token's life). A revoked key cannot be changed (409).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+Request body: [ListenerKeyChange](#schema-listenerkeychange).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key as changed. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/listener-keys/{id}
+
+**Erase a listener key**
+
+Needs: an admin: a staff session with the `admin` role, or the station key.
+
+Removes the key and everything kept about it: its log, devices and use records (the person's right to erasure, ADR-0122). Not an undo of a leak: to stop a key working, revoke it; an erased key is gone from the leak report too. Not available to an API token.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 204 | Erased. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/{id}/devices
+
+**The devices that hold a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The browsers and apps that have used the key (the last 200), the live ones first, each with what it called itself, when it was first and last seen and the show it last listened to.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The devices. | [ListenerKeyDevices](#schema-listenerkeydevices) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### DELETE /api/v1/listener-keys/{id}/devices/{device}
+
+**Sign a device out of a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The device is refused at its next renewal (within a token's life) and its place is free at once.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+| `device` | path | string (uuid) | yes | The device's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 204 | Signed out. |  |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/{id}/extend
+
+**Extend a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Send `by_days` (added to the end, or to now if it has ended) or `until_ms`, not both. A key with no end has nothing to extend (422); a revoked key cannot be extended (409). An ended key that is extended works again and may send `key.ended` again later.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+Request body: [ListenerKeyExtend](#schema-listenerkeyextend).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key with its new end. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/listener-keys/{id}/log
+
+**A listener key's change log**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Who changed what and when, newest first (the last 200): made, changed (field names only), extended, paused, resumed, revoked, replaced, text shown, lost-key asked, device signed out. Never a key's text.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The entries. | [ListenerKeyLog](#schema-listenerkeylog) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/{id}/pause
+
+**Pause a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Switches it off for now and keeps it (a late payment): the holder is cut off within a token's life and told it is switched off. Resume brings it back. Pausing a key already paused changes nothing; a revoked key cannot be paused (409).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+Request body: [ListenerKeyReason](#schema-listenerkeyreason). Optionally why.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/{id}/replace
+
+**Replace a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. For a leak, a lost key or a rotation: in one step the key is revoked (reason `replaced`, `key.ended` sent) and a new key with a new text is issued to the same recipient: the same name, note, email, family, shows, window and limits, and the listens already used. Every other key stays alive. A revoked key cannot be replaced (409).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The old key, the new key and its text. | [ListenerKeyReplaced](#schema-listenerkeyreplaced) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/{id}/resume
+
+**Resume a paused listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Brings a paused key back; its holder can listen again at their next renewal. A revoked key cannot be resumed (409).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+Request body: [ListenerKeyReason](#schema-listenerkeyreason). Optionally why.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/{id}/revoke
+
+**Revoke a listener key**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Ends it for good: the holder is cut off within a token's life and told it was ended by the station. Sends `key.ended` to webhooks (once). Revoking a key already revoked changes nothing.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+Request body: [ListenerKeyReason](#schema-listenerkeyreason). Optionally why.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The key. | [ListenerKey](#schema-listenerkey) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/listener-keys/{id}/text
+
+**Show a listener key's text again**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. The key's text, its link and the email kept with it, to send it again to someone who lost it. It is a POST and is logged (`text_shown`, by whom) so that who saw a key is known. 409 when the station's token key changed since the key was made: the text can no longer be read; replace the key.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `id` | path | string (uuid) | yes | The key's id. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The text, its link and the email. | [ListenerKeyText](#schema-listenerkeytext) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | It does not fit the current state (or the desk refused it). | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/shows/{show}/access
+
+**A show's access rule**
+
+Needs: staff: any staff session, or the station key; or an API token with `keys:manage`.
+
+A producer, an admin, or an API token with `keys:manage`. Whether the show is `public` or needs a `key`, when it opens to everyone (`opens_at_ms`), and what the public hears meanwhile (`slate`). A show with no rule set is public.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug. |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rule. | [ShowAccess](#schema-showaccess) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is an API token without the scope this route needs ("This API token does not hold the `…` scope."); or a staff session whose role may not do this. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### PUT /api/v1/shows/{show}/access
+
+**Set a show's access rule**
+
+Needs: staff: any staff session, or the station key.
+
+A producer or an admin (a staff session; never an API token: which shows are keyed is a person's decision). `rule` is `public` or `key`; `opens_at_ms` makes the show public from then on; `slate` is what the public hears meanwhile. Changing the rule changes who may hear the show at once for new listeners.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's slug. |
+
+Request body: [ShowAccessSet](#schema-showaccessset).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The rule as set. | [ShowAccess](#schema-showaccess) |
+| 401 | No bearer, a wrong one, or a staff session that has ended ("Your sign-in has ended. Sign in again."). | [Problem](#schema-problem) |
+| 403 | The bearer is a staff session whose role may not do this: the route is admin only. | [Problem](#schema-problem) |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 409 | `key` on a station whose playout has keyed shows off: nothing would keep the show from the public. |  |
+| 422 | The request is well formed but not acceptable; the sentence names the problem, and `field` the field. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+## Routes: listen
+
+Keyed shows, the listener's side: entering a key for a signed token, renewing it, the devices that hold a key, and a lost key. No bearer; the key is the credential.
+
+### POST /api/v1/keyed/devices
+
+**The devices that hold a key**
+
+Needs: nobody (no bearer).
+
+No bearer: the key is the credential. The browsers and apps that have used it, the live ones first, so a holder who is told the key is in use on its most devices can sign one out. Wrong keys are counted like a redeem's.
+
+Request body: [ListenDevices](#schema-listendevices).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The devices. | [ListenDeviceList](#schema-listendevicelist) |
+| 404 | No such key (`not_recognised`). |  |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/keyed/devices/end
+
+**Sign a device out of a key**
+
+Needs: nobody (no bearer).
+
+No bearer: the key is the credential. The device is refused at its next renewal and its place is free at once. 404 for a key not recognised or a device the key does not have.
+
+Request body: [ListenDeviceEnd](#schema-listendeviceend).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 204 | Signed out. |  |
+| 404 | No such key or device. |  |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/keyed/lost
+
+**Ask for a lost key**
+
+Needs: nobody (no bearer).
+
+No bearer. The station emails the key's link to the address if a key was made with it, and says the same thing whether one matched or not (`202`), so the route cannot be used to find out who has a key. The work is done after the answer, so it takes the same time either way. Limited per address (`keys.lost_per_hour`, 429) and per email address (further requests are answered the same and send nothing). With mail off, nothing is sent and the request is logged on the matching keys (`lost_key_asked`) for staff to send the key themselves.
+
+Request body: [ListenLost](#schema-listenlost).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 202 | Always, within the limits: `{ message, mail }`. `mail` says whether the station sends email (the message follows it: with mail off the request is for staff to answer, and the screen should say so). It is about the station, never about the address, so it is the same whether a key matched or not. | [ListenLostAnswer](#schema-listenlostanswer) |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/keyed/redeem
+
+**Enter a key**
+
+Needs: nobody (no bearer).
+
+No bearer: the key is the credential. `key` is the text as typed or sent (case, dashes and spaces are ignored); `show` the show wanted (id or slug), if any; `device` this browser's id from last time, if it has one. The answer is a signed token for one show's window (`show`: the one named, else the keyed show on now that the key opens, else the next one; from `starts_ms` to `expires_ms`), the keyed addresses with the token in their path (`urls`), the device's id to keep, and what the key is, for the welcome. Renew about every `renew_in_s` seconds: the renewal is the device's place on the key. A refusal carries a `code` and a plain sentence: `not_recognised` (404), `not_yet_valid` (403, with `from_ms`), `ended` (403, `until_ms`), `paused`, `revoked`, `does_not_open_show`, `not_scheduled` (403: none of its shows has a keyed window on the schedule in the next fortnight), `too_many_devices` (409, with the `devices` that hold it), `people_limit`, `listens_used_up` (409). Redeems are limited per address per minute, and wrong keys per address per ten minutes (429).
+
+Request body: [ListenRedeem](#schema-listenredeem).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The token and the key. | [ListenToken](#schema-listentoken) |
+| 403 | The key is known but does not open now: `code` says why. |  |
+| 404 | No such key (`not_recognised`) or no such show. |  |
+| 409 | A limit of the key is reached (`code` says which). |  |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### POST /api/v1/keyed/renew
+
+**Renew a key's token**
+
+Needs: nobody (no bearer).
+
+No bearer: the token is the credential. Trades a token that has not ended for a fresh one for the same show (its window now, or its next), after re-reading the key: a key revoked, paused, ended, signed out or no longer opening the show is refused here (the same `code`s as redeeming, and `device_signed_out`; 403 or 409). A revoked or paused key is also refused at once by the station and its edges, whatever its token's life. A renewal does not count as a listen and never makes a device. A token that has ended is `401` (`token_ended`): redeem the key again. Limited per device.
+
+Request body: [ListenRenew](#schema-listenrenew).
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The fresh token. | [ListenToken](#schema-listentoken) |
+| 401 | The token is not valid or has ended (`token_ended`, `token_invalid`). |  |
+| 403 | The key no longer opens: `code` says why. |  |
+| 409 | A limit of the key is reached. |  |
+| 429 | Too many requests just now: per address on the open routes, per API token elsewhere. `Retry-After` says how many seconds to wait. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /api/v1/keyed/revoked
+
+**Keys revoked or paused lately**
+
+Needs: nobody (no bearer).
+
+No bearer: for edges (`EDGE_KEYED_REVOKED_URL`), which read it every half-minute or so and refuse these keys' tokens at once, and end their streams. `{"revoked": [key ids]}`: every key revoked or paused within two days (longer than any token lasts). Ids only, never a name or a key's text.
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The ids. | any |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
+### GET /hls/k/{show}/{token}/{path}
+
+**A file of a keyed show's HLS**
+
+Needs: nobody (no bearer).
+
+No bearer: the token in the path is the credential (`ks1.…`, from redeeming a key). Checked on every playlist and segment: its signature, its time, the show, and the medium (`audio.m3u8` and `audio/…` need sound, the rest video); a key revoked or paused is refused at once. Serves the public segments and this show's, never another keyed show's (each segment is judged by when it was written against the times the public gate was shut). Answers `Cache-Control: private`. 403 with a `code` when refused; 404 while video is off.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's id, as the token names it |
+| `token` | path | string | yes | The token |
+| `path` | path | string | yes | A playlist or segment, such as `live.m3u8` or `audio/seg1.m4s` |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The file. | [File](#schema-file) (`application/vnd.apple.mpegurl`) |
+| 403 | The token does not open this file now (`code` says why). |  |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+
+### GET /listen/k/{show}/{token}/{mount}
+
+**A keyed show's stream**
+
+Needs: nobody (no bearer).
+
+No bearer: the token in the path is the credential, and it must open sound. `mount` is `programme-keyed.opus` or `programme-keyed.mp3` (when the MP3 stream is on). Only while the show's window is open (with its margins). The stream is the keyed programme from the listener process, carried by the control plane so that it can end it: at once when the key is revoked or paused, when the token ends, and when the show's window closes. 403 with a `code` when refused.
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `show` | path | string | yes | The show's id, as the token names it |
+| `token` | path | string | yes | The token |
+| `mount` | path | string | yes | `programme-keyed.opus` or `programme-keyed.mp3` |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The stream, until it is ended. | any (`audio/ogg`) |
+| 403 | The token does not open this stream now (`code` says why). |  |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
+
 ## Routes: rtmp
 
 RTMP out: the destinations the desk sends the programme's picture and sound to, behind the delay (ADR-0230). Admin only; stream keys are never shown.
@@ -4906,7 +5588,7 @@ The body of `POST /api/v1/monitor/cue`.
 |---|---|---|---|
 | `album` | string | yes |  |
 | `artist` | string | yes |  |
-| `kind` | string | yes | `track`, `cart`, `fallback` or `live`. |
+| `kind` | string | yes | `track`, `cart`, `fallback` or `live`; `show` while a keyed show's window is open (1.3.2), when only the show's name is told, in `title`. |
 | `started_at_ms` | integer (int64) | yes |  |
 | `title` | string | yes |  |
 
@@ -5853,6 +6535,39 @@ A key with what the studio's row shows.
 | `details` | [Details](#schema-details) | yes | The details without the secrets (the ports and the key id). |
 | `last_refusal` | [SourceLogEntry](#schema-sourcelogentry), or null | no |  |
 
+### Schema: KeyedOnAir
+
+A keyed show's window, as the desk's Playout panel tells it (1.3.2).
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `confirmed` | boolean | yes | Playout itself answered at the last look (1.3.2). False while playout does not answer: then `kept` and `public_hears` are what the listener process's fallback does by design, not something playout said, and the studio words them as "not confirmed". True whenever playout answered, whatever it said. |
+| `kept` | boolean | yes | Playout's public gate is shut, as playout itself answered at the last look (every two seconds), or playout is away and the listener process plays its own fallback: either way the public stream does not carry the show. False is the studio's alarm: playout refused, has keyed shows off, or does not know them. |
+| `public_hears` | string, or null | no | What the public stream plays meanwhile, as playout says: `slate_file` (the station's `keyed.slate`), `fallback` (its fallback files), `default_loop` (the loop WeaveSignal ships) or `silence`; `listener_fallback` while playout is away; `null` when it does not say (an older playout script) or the gate is not shut. |
+| `show` | string (uuid) | yes | The keyed show whose window is open (with its margins). |
+
+### Schema: KeyedShowList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `get_a_key_text` | string | yes | Where to get a key, in the station's words (`keys.get_a_key_text`); may be empty. |
+| `get_a_key_url` | string | yes |  |
+| `mail` | boolean | yes | The station sends email (1.3.2), so "Lost your key?" can say it will email the key; with false the player says staff will answer the request. |
+| `on_now` | string (uuid), or null | no | The keyed show whose window is open now (with its margins), if one is: while it is, the public stream plays the slate and the public picture is held back, so the player shows the lock and offers to enter a key. |
+| `shows` | array of [KeyedShowRow](#schema-keyedshowrow) | yes |  |
+
+### Schema: KeyedShowRow
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `id` | string (uuid) | yes |  |
+| `name` | string | yes |  |
+| `now` | string | yes | What the show is now: `key` (only a key opens it) or `public` (it has opened to everyone). |
+| `opens_at_ms` | integer (int64), or null | no | When it opens to everyone, if it does (Unix milliseconds). |
+| `slate` | string | yes | What the public hears while it is keyed: `announcement`, `fallback` or `teaser`. |
+| `slate_note` | string | yes |  |
+| `slug` | string | yes |  |
+
 ### Schema: Kind
 
 The kinds of record a preset sets a period for (ADR-0113's list, recce 27's columns).
@@ -5933,6 +6648,105 @@ A lost link and the place kept for it.
 | `place_kept_until_ms` | integer (int64) | yes | Until when the place is kept for it. |
 | `show` | string, or null | no |  |
 
+### Schema: ListenDeviceEnd
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `device` | string (uuid) | yes |  |
+| `key` | string | yes |  |
+
+### Schema: ListenDeviceList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `device_hold_s` | integer (int64) | yes | A device holds its place on the key while it has renewed within this many seconds: one seen within it is listening now. |
+| `devices` | array of [ListenerKeyDevice](#schema-listenerkeydevice) | yes |  |
+
+### Schema: ListenDevices
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `key` | string | yes |  |
+
+### Schema: ListenKey
+
+What the holder is told about the key: enough for "Welcome. This key opens the Friday supporters' show and 3 more, until 30 Nov."
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `all_shows` | boolean | yes | Opens every keyed show. |
+| `ends_soon` | boolean | yes | The key ends within `keys.ends_soon_days`: say so. |
+| `id` | string (uuid) | yes |  |
+| `kind` | [ListenerKeyKind](#schema-listenerkeykind) | yes |  |
+| `label` | string | yes | The name staff gave it, to find it again. It is theirs: the station's player does not show it to the key's holder, and another player should not either. |
+| `media` | [ListenerKeyMedia](#schema-listenerkeymedia) | yes | `video` opens what `both` does: a key for the picture carries the show's sound. |
+| `shows` | array of [ListenShow](#schema-listenshow) | yes | The shows it opens when it is not `all_shows`. |
+| `valid_from_ms` | integer (int64), or null | no |  |
+| `valid_until_ms` | integer (int64), or null | no |  |
+
+### Schema: ListenLost
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `email` | string | yes | The email address the key was made with. |
+
+### Schema: ListenLostAnswer
+
+What a lost-key request is answered with (`202`), always the same shape.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `mail` | boolean | yes | The station sends email: "we will email it". False: nothing is sent; the request is logged for staff, who send the key themselves. |
+| `message` | string | yes | What to tell the person, in the station's words for whether it sends mail. |
+
+### Schema: ListenRedeem
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `device` | string (uuid), or null | no | The device's id as this browser kept it from last time; left out on a first visit. |
+| `device_label` | string, or null | no | What to call this browser or app; left out, it is worked out from what it says it is. |
+| `key` | string | yes | The key as it was typed or sent: any case, with or without dashes. |
+| `show` | string, or null | no | The show the listener wants (id or slug), if they named one. |
+
+### Schema: ListenRenew
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `token` | string | yes | The token the player holds. |
+
+### Schema: ListenShow
+
+A show a key opens.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `id` | string (uuid) | yes |  |
+| `name` | string | yes |  |
+| `slug` | string | yes |  |
+
+### Schema: ListenToken
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `device` | string (uuid) | yes | The device's id: keep it, and send it with the next redeem. |
+| `expires_ms` | integer (int64) | yes | When it ends (Unix ms): the end of its show's window and margins, or the key's end. |
+| `key` | [ListenKey](#schema-listenkey) | yes |  |
+| `renew_in_s` | integer (int64) | yes | Renew about this often (seconds). |
+| `show` | [ListenShow](#schema-listenshow) | yes | The show it is for. |
+| `starts_ms` | integer (int64) | yes | When it starts (Unix ms): its window's lead. A token for a show later today waits. |
+| `token` | string | yes | The signed token (`ks1.…`, ECDSA P-256): it goes in the path of the keyed addresses (`urls`), never a query. Keep it in memory, not in storage. |
+| `urls` | [ListenUrls](#schema-listenurls) | yes | Its keyed addresses. |
+
+### Schema: ListenUrls
+
+Where the token opens its show: the addresses carry it in their path.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `hls` | string | yes | The keyed HLS the key opens, on the station's HLS address (`join.hls_url`: the station's `/hls`, or an edge's): `audio.m3u8` (the sound alone) for a sound key, `live.m3u8` (picture and sound, with `audio.m3u8` beside it) for a key that has the picture (`video` or `both`: a key for the picture always carries the show's sound). A sound key is refused the picture (`wrong_media`). |
+| `mp3` | string, or null | no | The keyed MP3 stream, when the station has its MP3 stream on. |
+| `opus` | string | yes | The keyed Opus stream at the station: every key opens it, a `video` key too. |
+
 ### Schema: ListenerDelay
 
 The listener delay the surfaces show (ADR-0103, ADR-0165, ADR-0272): the parts that are read live, and the rest as the station's setting. What is read live is the profanity delay (the desk reports it) and what the listener process holds of playout's feed (its own `feed.buffer_length`). What is not: the listener process's mount holds back a fixed stretch before it serves listeners, and each listener's player buffers on top. No marker travels in the stream (a metadata change would chain the Ogg stream and drop the mount, AGENTS.md), so there is no measurement from the desk to a listener's ear; `measured` says whether there is one.
@@ -5960,6 +6774,275 @@ An hour's anonymous totals.
 | `listener_seconds` | integer (int64) | yes |  |
 | `peak` | integer (int32) | yes |  |
 | `sessions` | integer (int32) | yes |  |
+
+### Schema: ListenerKey
+
+A key as staff see it: everything but its text, its sealed email and their hashes.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `all_shows` | boolean | yes | Opens every keyed show. |
+| `created_by` | string | yes |  |
+| `created_ms` | integer (int64) | yes |  |
+| `family_id` | string (uuid), or null | no |  |
+| `first_used_ms` | integer (int64), or null | no |  |
+| `has_email` | boolean | yes | Whether an email address is kept (for the lost-key request and sending the key); the address itself is shown only by a deliberate call. |
+| `id` | string (uuid) | yes |  |
+| `kind` | [ListenerKeyKind](#schema-listenerkeykind) | yes |  |
+| `label` | string | yes | Who it is for: a person's name, a group's, a partner's, or a ticket number. |
+| `last_used_ms` | integer (int64), or null | no |  |
+| `listens_used` | integer (int32) | yes |  |
+| `max_devices` | integer (int32), or null | no | Browsers or apps that may hold it at once; null: any number. |
+| `max_listens` | integer (int32), or null | no | How many times it may start a listen; null: any number. |
+| `max_people` | integer (int32), or null | no | How many different devices may ever use it (a group key's people); null: any number. |
+| `media` | [ListenerKeyMedia](#schema-listenerkeymedia) | yes |  |
+| `note` | string | yes |  |
+| `replaced_by_id` | string (uuid), or null | no |  |
+| `replaces_id` | string (uuid), or null | no | The key this one replaced, and the key that replaced it. |
+| `shows` | array of string (uuid) | yes | The shows it opens when it is not `all_shows` (show ids). |
+| `state` | [ListenerKeyState](#schema-listenerkeystate) | yes |  |
+| `state_reason` | string | yes |  |
+| `updated_ms` | integer (int64) | yes |  |
+| `valid_from_ms` | integer (int64), or null | no | From when the key works (inclusive), as Unix milliseconds; null: already. |
+| `valid_until_ms` | integer (int64), or null | no | Until when (exclusive); null: no end. |
+
+### Schema: ListenerKeyChange
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `all_shows` | boolean, or null | no |  |
+| `email` | string, or null | no | A new email; `null` takes it away. |
+| `label` | string, or null | no |  |
+| `max_devices` | integer (int32), or null | no |  |
+| `max_listens` | integer (int32), or null | no |  |
+| `max_people` | integer (int32), or null | no |  |
+| `media` | [ListenerKeyMedia](#schema-listenerkeymedia), or null | no |  |
+| `note` | string, or null | no |  |
+| `shows` | array of string, or null | no | The shows it opens, by id or slug; replaces the set. |
+| `valid_from_ms` | integer (int64), or null | no |  |
+| `valid_until_ms` | integer (int64), or null | no |  |
+
+### Schema: ListenerKeyDevice
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `ended_ms` | integer (int64), or null | no |  |
+| `first_seen_ms` | integer (int64) | yes |  |
+| `id` | string (uuid) | yes |  |
+| `label` | string | yes | The browser or app, as it named itself. |
+| `last_seen_ms` | integer (int64) | yes |  |
+| `last_show_id` | string (uuid), or null | no | The show it last listened to. |
+
+### Schema: ListenerKeyDevices
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `devices` | array of [ListenerKeyDevice](#schema-listenerkeydevice) | yes |  |
+
+### Schema: ListenerKeyExtend
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `by_days` | integer (int32), or null | no | Days to add to the end (or to now, if it has already ended), 1 to 3650. |
+| `until_ms` | integer (int64), or null | no | Or the new end, as Unix milliseconds. |
+
+### Schema: ListenerKeyFamily
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `created_by` | string | yes |  |
+| `created_ms` | integer (int64) | yes |  |
+| `id` | string (uuid) | yes |  |
+| `keys` | integer (int32) | yes | How many keys it has issued (replaced ones included). |
+| `label` | string | yes |  |
+| `note` | string | yes |  |
+
+### Schema: ListenerKeyFamilyList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `families` | array of [ListenerKeyFamily](#schema-listenerkeyfamily) | yes |  |
+
+### Schema: ListenerKeyFamilyMade
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `family` | [ListenerKeyFamily](#schema-listenerkeyfamily) | yes |  |
+| `keys` | array of [ListenerKeyMade](#schema-listenerkeymade) | yes | The keys, each with its text and link, in the order of the recipients. |
+
+### Schema: ListenerKeyFamilyNew
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `count` | integer (int32), or null | no | ...or this many anonymous keys named `<prefix> 001`, `<prefix> 002`, and so on. |
+| `label` | string | yes | The family's name, unique at the station: "Autumn patrons", "Charity quiz tickets". |
+| `note` | string | no |  |
+| `prefix` | string, or null | no | The anonymous keys' name before the number (default: the family's label). |
+| `recipients` | array of [ListenerKeyRecipient](#schema-listenerkeyrecipient) | no | One key per recipient, named... |
+| `template` | [ListenerKeyTemplate](#schema-listenerkeytemplate) | yes | What every key in the family is: kind, media, shows, window, limits (the same words as making a key; its `label`, `email` and `note` are the recipient's). |
+
+### Schema: ListenerKeyFind
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `text` | string | yes | A key's text as it was found: any case, with or without dashes. |
+
+### Schema: ListenerKeyKind
+
+The kind of key (design section 3.1). Public-by-time is not a key but a show's `opens_at`.
+
+one of `personal`, `group`, `machine`
+
+### Schema: ListenerKeyLeak
+
+One key's row in the leak report.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `addresses` | integer (int32) | yes |  |
+| `addresses_24h` | integer (int32) | yes |  |
+| `addresses_7d` | integer (int32) | yes |  |
+| `devices` | integer (int32) | yes |  |
+| `family` | string, or null | no | The family's label, when it has one. |
+| `first_seen_ms` | integer (int64), or null | no |  |
+| `key` | [ListenerKey](#schema-listenerkey) | yes |  |
+| `last_seen_ms` | integer (int64), or null | no |  |
+| `listens` | integer (int32) | yes |  |
+| `peak_new_addresses_in_an_hour` | integer (int32) | yes |  |
+| `reasons` | array of string | yes |  |
+| `score` | integer (int32) | yes | The "most likely passed on" score (see `listener_keys::leak_score`) and its reasons. |
+| `spike` | boolean | yes | A burst of new addresses: what a key posted in public looks like. |
+
+### Schema: ListenerKeyLeakReport
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `entries` | array of [ListenerKeyLeak](#schema-listenerkeyleak) | yes | Every key, the most likely passed on first (then by addresses seen in the last seven days, then the most recently seen); keys never used are last. |
+| `generated_ms` | integer (int64) | yes |  |
+
+### Schema: ListenerKeyList
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `keys` | array of [ListenerKey](#schema-listenerkey) | yes |  |
+| `total` | integer (int64) | yes | How many keys match, before `limit`. |
+
+### Schema: ListenerKeyLog
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `entries` | array of [ListenerKeyLogEntry](#schema-listenerkeylogentry) | yes |  |
+
+### Schema: ListenerKeyLogEntry
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `action` | string | yes | `created`, `changed`, `extended`, `paused`, `resumed`, `revoked`, `replaced`, `text_shown`, `lost_key_asked`, `device_ended`. |
+| `actor` | string | yes |  |
+| `at_ms` | integer (int64) | yes |  |
+| `detail` | object | yes |  |
+
+### Schema: ListenerKeyMade
+
+What the answer to making a key carries.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `key` | [ListenerKey](#schema-listenerkey) | yes |  |
+| `link` | string | yes | The link that opens the player with the key entered (the key is in the fragment). |
+| `text` | string | yes | The key's text, written `KETM-7QMP-2D4X`: read it out, print it, type it in. |
+
+### Schema: ListenerKeyMedia
+
+What a key opens: the sound alone, or the picture with the sound. A key for the picture (`video`) carries the show's sound with it (the operator, 2026-11-25: a picture with no voice is never what anyone means), so `video` and `both` open the same things; both names are kept, and a key reads back as it was made.
+
+one of `sound`, `video`, `both`
+
+### Schema: ListenerKeyNew
+
+A new key.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `all_shows` | boolean, or null | no | Opens every keyed show. Left out: true when no `shows` are named. |
+| `email` | string, or null | no | The email the lost-key request matches and the key can be sent to; kept sealed. |
+| `family` | string (uuid), or null | no | A family to issue it in. |
+| `kind` | [ListenerKeyKind](#schema-listenerkeykind) | no | `personal` (the default), `group` or `machine`. |
+| `label` | string | yes | Who it is for: a name, a group, a partner, a ticket number (1 to 120 characters). |
+| `max_devices` | integer (int32), or null | no | Browsers or apps at once. Left out: 2 (a machine key: none). `null`: any number. |
+| `max_listens` | integer (int32), or null | no |  |
+| `max_people` | integer (int32), or null | no | A group key's people at most. |
+| `media` | [ListenerKeyMedia](#schema-listenerkeymedia) | no | `sound`, `video` or `both` (the default). |
+| `note` | string | no | A note for staff (up to 500 characters). |
+| `shows` | array of string | no | The shows it opens, by id or slug (at most 32). |
+| `valid_from_ms` | integer (int64), or null | no |  |
+| `valid_until_ms` | integer (int64), or null | no |  |
+
+### Schema: ListenerKeyReason
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `reason` | string | no | Why, for the log and (for a revoked key) the holder's page: at most 200 characters. |
+
+### Schema: ListenerKeyRecipient
+
+One recipient of a family: a name, and optionally an email and a note.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `email` | string, or null | no |  |
+| `label` | string | yes |  |
+| `note` | string | no |  |
+
+### Schema: ListenerKeyReplaced
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `link` | string | yes |  |
+| `new` | [ListenerKey](#schema-listenerkey) | yes | The new key, for the same recipient. |
+| `old` | [ListenerKey](#schema-listenerkey) | yes | The key that was revoked. |
+| `text` | string | yes |  |
+
+### Schema: ListenerKeySigning
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `alg` | string | yes | `p256`: ECDSA P-256 with SHA-256 (the one format; 1.3.2). |
+| `clock_skew_s` | integer (int64) | yes |  |
+| `device_hold_s` | integer (int64) | yes | A device holds its place on a key while it has renewed within this many seconds. |
+| `ends_soon_days` | integer (int32) | yes | A key ends "soon" this many days before its end: the player then says when it ends. |
+| `prefix` | string | yes | The token's prefix: `ks1`. |
+| `public_key` | string, or null | no | The public key an edge checks tokens with (`EDGE_KEYED_PUBLIC_KEY`): 65 bytes, uncompressed, in URL-safe base 64 without padding (87 characters). It checks tokens and can make none. Always present. |
+| `renew_every_s` | integer (int64) | yes | A player renews about this often: a change to a key other than a pause, a revoke or a replace reaches someone already listening within it. |
+| `token_ttl_s` | integer (int64) | yes | The renewal's deadline (a token itself lasts its show's window). |
+
+### Schema: ListenerKeyState
+
+Where a key is in its life. A key that has expired is still `active`: the window decides.
+
+one of `active`, `paused`, `revoked`
+
+### Schema: ListenerKeyTemplate
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `all_shows` | boolean, or null | no |  |
+| `kind` | [ListenerKeyKind](#schema-listenerkeykind) | no |  |
+| `max_devices` | integer (int32), or null | no |  |
+| `max_listens` | integer (int32), or null | no |  |
+| `max_people` | integer (int32), or null | no |  |
+| `media` | [ListenerKeyMedia](#schema-listenerkeymedia) | no |  |
+| `shows` | array of string | no |  |
+| `valid_from_ms` | integer (int64), or null | no |  |
+| `valid_until_ms` | integer (int64), or null | no |  |
+
+### Schema: ListenerKeyText
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `email` | string, or null | no | The email address kept with the key, if any: to send the key to. |
+| `link` | string | yes |  |
+| `text` | string | yes |  |
 
 ### Schema: LogBody
 
@@ -6300,10 +7383,10 @@ What listeners are told is playing.
 
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
-| `next` | array of [NextUp](#schema-nextup), or null | no | What comes next; left out for a US statutory webcaster (17 U.S.C. 114(d)(2)(C)(ii)). |
+| `next` | array of [NextUp](#schema-nextup), or null | no | What comes next; left out for a US statutory webcaster (17 U.S.C. 114(d)(2)(C)(ii)) and while a keyed show's window is open (1.3.2). |
 | `now` | [Current](#schema-current), or null | no |  |
 | `on_air` | string | yes | `desk` (a live show), `automation`, `fallback`, `silence`, or `unknown` while playout is not answering. The default loop WeaveSignal ships (ADR-0130) is told as `fallback`: to a listener it is the station's fallback, and only the studio is told it is the default. |
-| `up_next_shown` | boolean | yes |  |
+| `up_next_shown` | boolean | yes | False when `next` is left out, for either reason. |
 
 ### Schema: OpenDateOut
 
@@ -6444,12 +7527,14 @@ What loading one of the pack's banks into a station bank does.
 | `ended` | boolean | yes |  |
 | `expires_at_ms` | integer (int64) | yes |  |
 | `identity` | string | yes |  |
+| `keyed` | boolean | yes | That show is a keyed show now: its rule says `key` and it has not opened to everyone. The join page says who will hear the guest, and that the guest needs no key. |
 | `kind` | [PassKind](#schema-passkind) | yes |  |
 | `name` | string | yes |  |
 | `not_now` | string, or null | no | Why the pass cannot join the room now, in a sentence for its page, while the show on air runs at a step that has switched its seat off (ADR-0271); the pass stays good for later. For a rehearsal link, while its session is not open, or its show's step has switched the seat off. `None` when it can join. |
 | `relay` | [RelayInfo](#schema-relayinfo) | yes |  |
 | `role` | [Role](#schema-role) | yes |  |
 | `show` | string | yes |  |
+| `show_id` | string (uuid), or null | no | The show the invitation is for (1.3.2): a rehearsal link's rehearsed show, a moved pass's show, else the show on now by the schedule (a keyed window's show first), as the player's `show_id` says; `null` between shows. The join page finds the show's keyed line by this id. |
 | `station` | string | yes |  |
 | `studio` | [Studio](#schema-studio) | yes | Where the link leads (1.3): `live`, or `rehearsal`, whose desk reaches no air. For a rehearsal link `show` is the rehearsed show. |
 
@@ -6625,10 +7710,12 @@ One row of the per-play log.
 | Field | Type | Needed | Meaning |
 |---|---|---|---|
 | `call_in` | [CallInInfo](#schema-callininfo) | yes |  |
+| `keyed` | boolean | yes | `show_id` is a keyed show whose window is open now (with its margins): the public stream plays the station's slate and the public picture is held back, so the player shows the lock, and plays the keyed stream for a key that opens the show. |
 | `presenter` | string | yes |  |
 | `presenter_live` | boolean | yes |  |
 | `relay` | [RelayInfo](#schema-relayinfo) | yes | TURN over TLS, for networks and browsers that block WebRTC's UDP (ADR-0059, ADR-0080). |
 | `show` | string | yes |  |
+| `show_id` | string (uuid), or null | no | The show on now (1.3.2): the keyed show whose window is open, else the schedule's show on air; `null` between shows. The player finds a keyed show by this id, never by `show`. |
 | `show_on_air` | boolean | yes | Listeners hear the show now. |
 | `station` | string | yes |  |
 | `stream_url` | string | yes | The listener stream through the proxy; empty when not set up. |
@@ -7477,6 +8564,19 @@ A rule to set, and what to do with the episodes already drafted for dates to com
 | `drafted` | [Drafted](#schema-drafted) | no | `move` (the default): the drafted episodes still on their old rule dates move to the new rule's dates, in order, keeping their numbers, titles and guests; `leave`: they stay. Aired episodes, and episodes a person moved or made by hand, never move. |
 | `rule` | [Rule](#schema-rule), or null | yes |  |
 
+### Schema: RuleNow
+
+A show's rule for starting now, and when that is.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `date` | string | yes | The station's date and the clock of the start (`20:41`), to say in the studio. |
+| `minutes` | integer (int32) | yes | How long it lasts, in minutes. |
+| `rule` | [Rule](#schema-rule) | yes | The rule to save with the show (`PUT /api/v1/shows/{show}`, with `draft_first`): once, on the station's date, from the next whole minute. |
+| `starts_at_ms` | integer (int64) | yes | When the show starts, in epoch milliseconds. |
+| `time` | string | yes |  |
+| `zone` | string | yes | The station's zone. |
+
 ### Schema: RuleProblem
 
 A refused field: its path in the rule and a sentence for a person.
@@ -7769,6 +8869,29 @@ One answer that the settings file starts and the page may override.
 | `slug` | string | yes |  |
 | `step` | [Step](#schema-step) | no | How much of the studio the show uses (ADR-0271). Shows that existed before steps are `full`; a new show starts at `solo`. |
 | `tags` | array of string | yes |  |
+
+### Schema: ShowAccess
+
+A show's access rule, as kept. A show with no row is public.
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `opens_at_ms` | integer (int64), or null | no | From this moment the show is public whatever the rule says (Unix milliseconds). |
+| `rule` | string | yes | `public` or `key`. |
+| `show_id` | string (uuid) | yes |  |
+| `slate` | string | yes | What the public hears while the show is keyed: `announcement`, `fallback` or `teaser`. |
+| `slate_note` | string | yes | A line the announcement slate shows (a sign-up address, when the public programme returns); empty: the station's default. |
+| `updated_by` | string | yes |  |
+| `updated_ms` | integer (int64) | yes |  |
+
+### Schema: ShowAccessSet
+
+| Field | Type | Needed | Meaning |
+|---|---|---|---|
+| `opens_at_ms` | integer (int64), or null | no | From this moment the show is public whatever the rule says: early access, or the free part of a show (Unix milliseconds); `null` for never. |
+| `rule` | string | yes | `public` or `key`. |
+| `slate` | string | no | What the public hears while the show is keyed: `announcement` (default), `fallback` or `teaser`. |
+| `slate_note` | string | no | A line for the announcement slate: where to get a key, when the public programme returns (at most 500 characters). |
 
 ### Schema: ShowDeleted
 
@@ -8453,6 +9576,7 @@ Where the player finds the HLS: `live` (AV1 with Opus) and `audio` (the same Opu
 | `default_fallback` | boolean | yes | Listeners are hearing the default loop WeaveSignal ships, not the station's own fallback (ADR-0130): the desk's playout panel says so until the station adds fallback files. |
 | `desk` | [DeskView](#schema-deskview) | yes |  |
 | `desk_taking_callers` | boolean | yes | No caller sits declined: the screener's status bar says the desk takes callers. |
+| `keyed` | [KeyedOnAir](#schema-keyedonair), or null | no |  |
 | `listener_delay` | [ListenerDelay](#schema-listenerdelay) | yes | How far behind the studio listeners hear. |
 | `mode` | [StationMode](#schema-stationmode), or null | no |  |
 | `notices` | array of [Notice](#schema-notice) | yes |  |

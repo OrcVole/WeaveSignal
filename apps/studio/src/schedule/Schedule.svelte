@@ -47,6 +47,7 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import EventCalendarGrid from './calendar/EventCalendarGrid.svelte';
   import EpisodeEditor from './EpisodeEditor.svelte';
+  import ListenLine from './ListenLine.svelte';
   import LogEditor from './LogEditor.svelte';
   import ShowPane from './ShowPane.svelte';
   import ShowList from './ShowList.svelte';
@@ -57,11 +58,17 @@
   import { NEW_BOOKING, backToShows, beginBooking, closeOpen, keyView, loadWeek, openDay, openRota, openShow, sched, select, setView, showDay, showInWeek, shownRehearsal, step, today, weekBlocks, weekRehearsals } from '../lib/schedule.svelte.ts';
   import RehearsalBooking from './RehearsalBooking.svelte';
   import type { GridRehearsal } from './calendar/types.ts';
-  import { NO_SHOW_TO_BOOK, REHEARSAL_OFF, REHEARSAL_OFF_HOW, STUDIOS_OLDER, bookableShows, bookingChange, firstBooking, fromDrag, inTheWayWords, mayBook, offeredShow, refusalOf, stretchWords, studiosState, type Refusal } from './studios.ts';
+  import { NO_SHOW_TO_BOOK, REHEARSAL_OFF, REHEARSAL_OFF_HOW, STUDIOS_OLDER, bookableShows, bookingChange, firstBooking, fromDrag, inTheWayWords, mayBook, offeredShow, refusalOf, rehearsalDeskWhy as deskWhyOf, stretchWords, studiosState, type Refusal } from './studios.ts';
   import { bookingClash, changeBooking, deleteBooking, makeBooking, type BookingRequest } from '../lib/api.ts';
-  import { rehearsal } from '../lib/rehearsal.svelte.ts';
+  import { rehearsal, rehearsalPhase } from '../lib/rehearsal.svelte.ts';
+  import { studioChoice } from '../lib/rehearsalDesk.ts';
+  import { switchDeskStudio } from '../lib/rehearsalDesk.svelte.ts';
+  import { run } from '../lib/actions.ts';
   import Rota from './Rota.svelte';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
+  import { accessUi, keyed, loadKeyed } from '../lib/keys.svelte.ts';
+  import { mayManageKeys } from '../lib/keys.ts';
+  import { KEEP, KEYED } from '../lib/keyed.ts';
   import { load as loadRetention } from '../lib/retention.ts';
   import { dayLength, dayRangeWords, hm, isRehearsalId, longDayWords, rangeWords, whenWords, zonedString } from './model.ts';
   import type { Block, Rehearsal } from './model.ts';
@@ -204,6 +211,15 @@
     sched.selected = selected;
   }
 
+  /** Go to the rehearsal desk, from the pane of a session that is open (1.3.2): the Desk tab's
+   *  studio is changed as its own control changes it (held keys let go first), then the tab. */
+  const rehearsalDeskWhy = $derived(deskWhyOf(studioChoice(rehearsalPhase(), rehearsal.view)));
+  async function toRehearsalDesk() {
+    if (rehearsalDeskWhy) return;
+    await switchDeskStudio('rehearsal');
+    await run({ type: 'tab', tab: 'desk' });
+  }
+
   /** Save from the booking's editor. Null when the station took it; else its refusal, for the
    *  editor to show beside the field it is about. */
   async function saveBooking(was: Rehearsal | null, request: BookingRequest, patch: Partial<BookingRequest>): Promise<Refusal | null> {
@@ -290,6 +306,7 @@
     // Nor is the rota, unless the desk's Coming up asked for it on the way in.
     const leave = () => void (sched.rota = false);
     if (!live) return leave;
+    void loadKeyed();
     void refresh();
     void loadRetention()
       .then((v) => (sched.us = v.setting.us_statutory_licence))
@@ -388,19 +405,23 @@
 
   // ---- the guided dialogs ----
   // svelte-ignore state_referenced_locally
-  let newShow = $state<{ at: { date: IsoDate; from: string } | null } | null>(firstDialog === 'new-show' ? { at: null } : null);
+  let newShow = $state<{ at: { date: IsoDate; from: string } | null; keyed?: boolean } | null>(firstDialog === 'new-show' ? { at: null } : null);
   // ---- the toolbar's calendar-files menu (a narrower window's form of the two buttons) ----
   let menuEl = $state<HTMLDialogElement | null>(null);
   /** The form the toolbar's legend has room for: its words, shorter words, or the glyphs alone. */
   let legendForm = $state<LegendForm>('words');
   /** The legend, in full and in short; the full words are each item's tooltip once shortened. */
-  const LEGEND: readonly { glyph: string; full: string; short: string; warn?: boolean; why?: string }[] = [
+  const LEGEND_BASE: readonly { glyph: string; full: string; short: string; warn?: boolean; why?: string }[] = [
     { glyph: 'g-mic', full: 'Live', short: 'Live' },
     { glyph: 'g-auto', full: 'Automation fills the gaps', short: 'Automation' },
     { glyph: 'g-repeat', full: 'A date from the show’s rule', short: 'From the rule' },
     { glyph: 'g-fault', full: 'Conflict', short: 'Conflict', warn: true, why: 'Where shows clash, one is open and the others fold beside it' },
     { glyph: '', full: 'Aired, frozen', short: 'Aired' },
   ];
+  /** The shows kept for people with a key now (keyed shows, 1.3.2), by path: their blocks and
+   *  their rows carry the key, and the legend gains its line only while there is one. */
+  const keyedSlugs = $derived(new Set((keyed.list?.shows ?? []).filter((s) => s.now === 'key').map((s) => s.slug)));
+  const LEGEND = $derived(keyedSlugs.size ? [...LEGEND_BASE.slice(0, 4), { glyph: 'g-key', full: KEYED.legend, short: KEYED.word, why: KEYED.tip }, LEGEND_BASE[4]] : LEGEND_BASE);
   let menuBtn = $state<HTMLButtonElement | null>(null);
   let menuOpen = $state(false);
   const menuItems = () => [...(menuEl?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
@@ -538,10 +559,21 @@
   }
 
   /** New show; with a block selected in the week, its day and hour start First on and from. */
-  function openNewShow() {
+  /** New show; `keyed`: New keyed show, the same dialog with Keyed show ticked. */
+  function openNewShow(keyed = false) {
     const b = selectedBlock;
-    newShow = { at: b ? { date: dateIn(b.start, sched.zone), from: hm(b.start, sched.zone) } : null };
+    newShow = { at: b ? { date: dateIn(b.start, sched.zone), from: hm(b.start, sched.zone) } : null, keyed };
   }
+  /** New keyed show is a producer's and an admin's, on a station that has keyed shows (1.3.2). */
+  const canKey = $derived(live && keyed.state === 'ok' && mayManageKeys(account.me));
+  // The Keys tab asked for New keyed show on the way here.
+  $effect(() => {
+    if (!accessUi.newKeyed) return;
+    untrack(() => {
+      accessUi.newKeyed = false;
+      if (!newShow) openNewShow(true);
+    });
+  });
 
   /** Open episode 1: the week moves to the episode and selects it. */
   function openEpisode(saved: ShowSaved) {
@@ -663,7 +695,8 @@
     {#if sched.zoneSet === false && canChooseZone}
       <button type="button" class="btn" title="Nobody has chosen the station's time zone yet" onclick={() => (studio.settings = true)}>Choose the time zone…</button>
     {/if}
-    <button type="button" class="btn primary" onclick={openNewShow}>New show</button>
+    <button type="button" class="btn primary" onclick={() => openNewShow()}>New show</button>
+    {#if canKey}<button type="button" class="btn newkeyed" aria-haspopup="dialog" title="A new show kept for people with a key: New show, with Keyed show ticked" onclick={() => openNewShow(true)}><svg aria-hidden="true"><use href="#g-key" /></svg>{KEEP.fresh}</button>{/if}
     {#if calendarFiles}
       <!-- Calendar files: two buttons where the window has the room, one menu of the same two where it has not. -->
       {#if canImport}<button type="button" class="btn files-wide" aria-haspopup="dialog" title="Read a calendar file (.ics) into new shows" onclick={() => (importing = true)}>Import a calendar…</button>{/if}
@@ -723,6 +756,7 @@
             zone={sched.zone}
             {now}
             selected={sched.selected}
+            keyed={keyedSlugs}
             onSelect={(id) => select(id)}
             onClear={() => void closeOpen(now)}
             {onMove}
@@ -761,6 +795,8 @@
             onDelete={() => removeBooking(selectedRehearsal)}
             onShows={backToShows}
             onShowIt={showInTheWay}
+            onDesk={toRehearsalDesk}
+            deskWhy={rehearsalDeskWhy}
           />
         {/key}
       </aside>
@@ -831,6 +867,7 @@
         </div>
         <div class="fields">
           <ClashBox block={selectedBlock} blocks={week.blocks} zone={sched.zone} onshow={(id) => select(id)} onday={() => openDayAt(selectedBlock.start)} />
+          <ListenLine slug={ruleShow.slug} show={ruleShow.name} zone={sched.zone} />
           <div class="nothing flat">
             <p>This is where the show’s rule puts {selectedBlock.number !== null ? `episode ${selectedBlock.number}` : 'its next episode'}{#if ruleShow.rule_words?.sentence}: <b>{ruleShow.rule_words.sentence}</b>{:else}.{/if} Nothing is drafted yet, so playout fills the hour with automation until someone drafts it.</p>
             <p><b>Draft it</b> and the episode takes its number and this time from the rule; the title and guests are yours to add. <b>Skip it</b> and the show does not air that day; the rule carries on{#if ruleShow.rule?.end.kind === 'count'}, and since a skipped date does not count, its {ruleShow.rule.end.count} episodes end one date later{/if}.</p>
@@ -853,7 +890,7 @@
         <div class="nothing">
           <p>The week fills from shows. Make the first one:</p>
           <ol>
-            <li><button type="button" class="btn primary" onclick={openNewShow}>New show</button> and give it a name.</li>
+            <li><button type="button" class="btn primary" onclick={() => openNewShow()}>New show</button>{#if canKey}{' '}or <button type="button" class="btn newkeyed" onclick={() => openNewShow(true)}><svg aria-hidden="true"><use href="#g-key" /></svg>{KEEP.fresh}</button>,{/if} and give it a name.</li>
             <li>Say <b>when it airs</b>: one date and time, and whether it comes back.</li>
             <li>Its first episode is drafted for you; the other dates wait here as <b>dotted blocks</b>.</li>
           </ol>
@@ -865,7 +902,7 @@
            (the operator's 1.0.2 run), and a show was reached only through one of its episodes (the
            1.0.5 finding), so the list is where the column rests. -->
       <aside class="editor" data-panel="calendar.shows" aria-label="Shows">
-        <ShowList shows={sched.shows} rules={rulesOn} today={todayIso} onopen={(s) => openShow(s.slug)} ondates={giveDates} ondraft={draftNext} />
+        <ShowList shows={sched.shows} rules={rulesOn} today={todayIso} keyed={keyedSlugs} onopen={(s) => openShow(s.slug)} ondates={giveDates} ondraft={draftNext} />
       </aside>
     {/if}
   </div>
@@ -881,6 +918,7 @@
     onzone={() => (studio.settings = true)}
     rules={rulesOn}
     at={newShow.at}
+    forKey={!!newShow.keyed}
     {live}
     onMade={changed}
     onOpen={openEpisode}

@@ -171,6 +171,8 @@ const AIR: Record<Action['type'], 'air' | 'free' | ((a: never) => boolean)> = {
   view: 'free',
   // the station list (ADR-0287)
   stations: 'free',
+  // The Keys tab's own keys (1.3.2): a listener key is not the air.
+  keys: 'free',
 };
 
 /** Whether an action changes what is on air, so a preparing window must not run it. */

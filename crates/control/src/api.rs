@@ -103,6 +103,8 @@ pub struct Api {
     token_limiter: Limiter,
     streams: Mutex<HashMap<IpAddr, u32>>,
     pub events: Events,
+    /// Keyed shows (1.3.2): the settings, the signer and the limits on guessing a key.
+    pub access: crate::access::Runtime,
 }
 
 impl Api {
@@ -121,6 +123,12 @@ impl Api {
             forwarded_for,
             ..Default::default()
         }
+    }
+
+    /// The `[keys]` settings (keyed shows).
+    pub fn with_keys(mut self, keys: crate::config::KeysConfig) -> Self {
+        self.access = crate::access::Runtime::new(keys);
+        self
     }
 
     pub fn config(&self) -> &ApiConfig {
@@ -222,7 +230,7 @@ impl Api {
     /// The address a request comes from, for the per-address limits: an IPv6 address counts
     /// as its /64, the least a single subscriber is given, so one machine cannot step past the
     /// limit by walking its own prefix.
-    fn peer(&self, headers: &HeaderMap, conn: Option<SocketAddr>) -> Option<IpAddr> {
+    pub(crate) fn peer(&self, headers: &HeaderMap, conn: Option<SocketAddr>) -> Option<IpAddr> {
         crate::public::peer(self.forwarded_for, headers, conn).map(per_subscriber)
     }
 }

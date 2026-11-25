@@ -370,7 +370,7 @@ pub fn me_state(
         talkback: talkback && !ended,
         held_until_ms,
         station: view.station.clone(),
-        show: view.show.title.clone(),
+        show: view.show_name().to_owned(),
         presenter: if view.seats.presenter_name.is_empty() {
             view.seats.presenter.clone().unwrap_or_default()
         } else {

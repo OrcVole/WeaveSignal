@@ -17,8 +17,10 @@
 // Keys are read by their physical position (`KeyboardEvent.code`), as the keymap's rows are
 // the keyboard's rows: `1`–`6` over `Q`–`Y` over `A`–`H` over `Z`–`N`.
 
-export type Tab = 'desk' | 'screener' | 'carts' | 'chat' | 'schedule';
-export const TABS: readonly Tab[] = ['desk', 'screener', 'carts', 'chat', 'schedule'];
+export type Tab = 'desk' | 'screener' | 'carts' | 'chat' | 'schedule' | 'keys';
+/** In the order of their keys, `⌃1` to `⌃6`. `keys` is the Keys tab (keyed shows, 1.3.2):
+ *  listener keys, a producer's and an admin's. */
+export const TABS: readonly Tab[] = ['desk', 'screener', 'carts', 'chat', 'schedule', 'keys'];
 
 /** The two-press actions (rule 4). `end-pass` is armed by its button on a desk tile only: it
  *  has no key, because a key is a change to the keymap and so a new ADR (keymap.md), and the
@@ -121,6 +123,8 @@ export type Action =
   | { type: 'week'; delta: number }
   | { type: 'today' }
   | { type: 'view'; view: 'week' | 'day' | 'rota' }
+  // keys tab (1.3.2): `N` opens Make a key…, `/` puts the focus in the search field
+  | { type: 'keys'; what: 'make' | 'search' }
   // the statement of reasons dialog
   | { type: 'sor-then'; then: SorThen }
   | { type: 'sor-reason'; reason: SorReason }
@@ -267,7 +271,7 @@ export class KeyEngine {
   private resolve(k: KeyInput, ctx: KeyContext, now: number, mod: boolean): Outcome {
     // ---- the global layer: single modifier chords fire everywhere, even in a text field ----
     if (mod && !k.alt) {
-      const digit = /^Digit([1-5])$/.exec(k.code);
+      const digit = /^Digit([1-6])$/.exec(k.code);
       if (digit && !k.shift) return handled({ type: 'tab', tab: TABS[Number(digit[1]) - 1] });
       // ⌃R twice restarts playout, like Del Del dumps: a two-press chord, never from a text
       // field (rule 3). ⌃⇧R (restart the listener process) and ⌃⇧B (a backup stream) are not keys
@@ -318,6 +322,17 @@ export class KeyEngine {
     if (ctx.tab === 'screener') return this.screener(k, now);
     if (ctx.tab === 'carts') return this.carts(k, now);
     if (ctx.tab === 'schedule') return this.schedule(k);
+    if (ctx.tab === 'keys') return this.keysTab(k);
+    return NONE;
+  }
+
+  /** The Keys tab (keyed shows, 1.3.2): `N` opens Make a key…, `/` puts the focus in the search
+   *  field. Nothing here is live, so no key is two-press, and nothing that ends a key has a key:
+   *  pausing, revoking and replacing are buttons that ask first. The global layer still fires. */
+  private keysTab(k: KeyInput): Outcome {
+    if (k.shift) return NONE;
+    if (k.code === 'KeyN') return handled({ type: 'keys', what: 'make' });
+    if (k.code === 'Slash') return handled({ type: 'keys', what: 'search' });
     return NONE;
   }
 

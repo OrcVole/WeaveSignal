@@ -1,0 +1,288 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* SPDX-FileCopyrightText: 2026 The WeaveSignal contributors */
+/* The Keys tab (keyed shows, 1.3.2): listener keys, their families and the leak report, with a
+   key's own page beside them, and the dialogs that make, change and send a key. Built on the
+   design system's tokens and state chips; nothing here is a lamp and nothing is red or filled:
+   a key is never on air. The dialogs (.kdialog) are also the show editor's access dialog's. */
+.keys { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--plane); container-type: inline-size; container-name: keys; }
+.keys .center { grid-row: 1 / -1; display: grid; place-items: center; padding: var(--s-5); }
+
+/* the whole screen refused, in words */
+.keys .unready { max-width: 38rem; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-3); box-shadow: var(--e-1); padding: var(--s-6); display: grid; gap: var(--s-3); justify-items: start; line-height: var(--lh-body); }
+.keys .unready .big { width: 2rem; height: 2rem; color: var(--muted); }
+.keys .unready h2 { font-size: var(--fs-24); }
+.keys .unready p { color: var(--ink-2); }
+.keys .unready .said { color: var(--ink); background: var(--surface-2); border-left: 3px solid var(--status-serious); border-radius: var(--r-1); padding: var(--s-2) var(--s-3); font-size: var(--fs-13); overflow-wrap: anywhere; }
+
+/* toolbar */
+.keys .toolbar { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline); flex-wrap: wrap; row-gap: var(--s-2); }
+.keys .toolbar h1 { font-size: var(--fs-16); font-weight: 600; white-space: nowrap; margin-right: var(--s-2); }
+.keys .toolbar h1 .sub { font-weight: 400; color: var(--muted); font-size: var(--fs-13); }
+.keys .toolbar .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: var(--r-2); overflow: hidden; }
+.keys .toolbar .seg button { appearance: none; border: 0; background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-13); font-weight: 600; padding: 0 var(--s-3); min-height: 2rem; cursor: pointer; border-right: 1px solid var(--axis); display: inline-flex; align-items: center; gap: var(--s-2); white-space: nowrap; }
+.keys .toolbar .seg button:last-child { border-right: 0; }
+.keys .toolbar .seg button[aria-pressed='true'] { background: var(--surface-3); color: var(--ink); }
+.keys .toolbar .seg .dot { min-width: 1.25rem; height: 1.25rem; padding: 0 0.3rem; border-radius: var(--r-pill); border: 1.5px solid var(--status-warning); color: var(--ink); font-size: var(--fs-12); display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.keys .toolbar .btn { min-height: 2rem; }
+.keys .toolbar .spacer { flex: 1; }
+.keys .filters { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; align-self: center; }
+.keys .search { position: relative; display: inline-flex; align-items: center; }
+.keys .search input { width: 14rem; padding-right: 2rem; }
+.keys .search kbd { position: absolute; right: 0.4rem; pointer-events: none; }
+.keys .search input:focus + kbd, .keys .search input:not(:placeholder-shown) + kbd { display: none; }
+.keys input[type='search'], .keys select, .kdialog input[type='text'], .kdialog input[type='datetime-local'], .kdialog select, .kdialog textarea { font: inherit; color: var(--ink); background: var(--plane); border: 1px solid var(--muted); border-radius: var(--r-2); min-height: 2rem; padding: 0 var(--s-2); color-scheme: dark; }
+.kdialog input[type='text'], .kdialog input[type='datetime-local'], .kdialog select { min-height: 2.25rem; }
+.kdialog textarea { padding: var(--s-2); line-height: var(--lh-body); resize: vertical; }
+:root[data-theme='light'] .keys input, :root[data-theme='light'] .keys select, :root[data-theme='light'] .kdialog input, :root[data-theme='light'] .kdialog select, :root[data-theme='light'] .kdialog textarea { color-scheme: light; }
+.keys .pick select { max-width: 12rem; }
+
+/* body: the views, and a key's page beside them */
+.keys .body { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; min-height: 0; }
+.keys .body.with-page { grid-template-columns: minmax(0, 1fr) 30rem; }
+.keys .main { min-width: 0; min-height: 0; overflow: auto; padding: var(--s-4); display: grid; gap: var(--s-3); align-content: start; }
+.keys .noteline { display: flex; align-items: baseline; gap: var(--s-2); color: var(--ink); font-size: var(--fs-14); line-height: var(--lh-body); }
+.keys .noteline svg { width: 12px; height: 12px; flex: none; }
+.keys .callout, .kdialog .callout { display: grid; grid-template-columns: 1.25rem 1fr; gap: var(--s-2); align-items: start; border: 1.5px solid var(--axis); border-left-width: 4px; border-radius: var(--r-2); padding: var(--s-3); background: var(--surface); line-height: var(--lh-body); }
+.keys .callout svg, .kdialog .callout svg { width: 1.25rem; height: 1.25rem; margin-top: 0.1rem; color: var(--ink-2); }
+.keys .callout.serious, .kdialog .callout.serious { border-color: var(--status-serious); }
+.keys .callout .btn, .kdialog .callout .btn { margin-top: var(--s-2); }
+.keys .panel { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-3); box-shadow: var(--e-1); padding: var(--s-4); display: grid; gap: var(--s-3); min-width: 0; align-content: start; }
+.keys .ph { display: flex; align-items: baseline; gap: var(--s-3); flex-wrap: wrap; }
+.keys .ph h2 { font-size: var(--fs-20); }
+.keys .ph .spacer { flex: 1; }
+.keys .ph .btn { align-self: center; }
+.keys .empty { color: var(--ink-2); border: 1px dashed var(--axis); border-radius: var(--r-2); padding: var(--s-4); line-height: var(--lh-body); display: grid; gap: var(--s-3); max-width: 46rem; }
+.keys .empty strong { color: var(--ink); }
+.keys .row, .kdialog .row { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+.keys .summary { line-height: var(--lh-body); color: var(--ink-2); max-width: 60rem; }
+.keys .summary b { color: var(--ink); font-weight: 600; }
+.keys .foot { line-height: var(--lh-body); max-width: 60rem; }
+.keys .foot b { color: var(--ink-2); }
+
+/* tables */
+.keys .table-wrap, .kdialog .table-wrap { overflow-x: auto; }
+.keys table, .kdialog table { width: 100%; border-collapse: collapse; line-height: var(--lh-body); font-size: var(--fs-14); }
+.keys th, .keys td, .kdialog th, .kdialog td { text-align: left; vertical-align: top; padding: var(--s-2) var(--s-3) var(--s-2) 0; border-top: 1px solid var(--hairline); }
+.keys thead th, .kdialog thead th { border-top: 0; font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; padding-top: 0; white-space: nowrap; vertical-align: bottom; }
+.keys thead th .small { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: var(--fs-12); }
+.keys tbody th, .kdialog tbody th { font-weight: 600; }
+.keys tbody tr.off th, .keys tbody tr.off td { color: var(--muted); }
+.keys tbody tr.off .rowbtn { color: var(--ink-2); }
+.keys tbody tr.sel > * { background: var(--surface-2); }
+.keys tbody tr.sel > :first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.keys tbody tr > :first-child { padding-left: var(--s-3); }
+.keys thead tr > :first-child { padding-left: var(--s-3); }
+.keys .small.block { display: block; font-weight: 400; margin-top: 2px; overflow-wrap: anywhere; }
+.keys .rowbtn { appearance: none; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--axis); text-underline-offset: 3px; }
+.keys .rowbtn:hover, .keys .rowbtn[aria-current='true'] { text-decoration-color: var(--accent); }
+.keys td.acts { text-align: right; white-space: nowrap; }
+.keys td.acts .btn + .btn { margin-left: var(--s-1); }
+.keys tr.row-err td { border-top: 0; padding-top: 0; }
+.keys .more { display: flex; justify-content: center; }
+.keys table.leaks .n { text-align: right; white-space: nowrap; }
+.keys table.leaks td.why ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.keys table.leaks .spike { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--status-serious); margin-left: var(--s-1); }
+.keys .linkish { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--ink); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.keys .err, .kdialog .err { color: var(--ink); font-size: var(--fs-13); line-height: var(--lh-body); border-left: 3px solid var(--status-critical); padding-left: var(--s-2); }
+
+/* a key's own page, and what a key does when none is chosen */
+.keys .keypage { border-left: 1px solid var(--hairline); background: var(--surface); min-height: 0; overflow: auto; padding: var(--s-4); display: grid; gap: var(--s-3); align-content: start; line-height: var(--lh-body); }
+.keys .keypage .head { display: flex; align-items: flex-start; gap: var(--s-2); }
+.keys .keypage .who { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.keys .keypage h2 { font-size: var(--fs-20); overflow-wrap: anywhere; }
+.keys .keypage h3 { font-size: var(--fs-12); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; align-items: baseline; gap: var(--s-2); }
+.keys .keypage h3 .small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.keys .keypage .standline { color: var(--ink-2); margin-top: calc(-1 * var(--s-2)); }
+.keys .keypage .standline .why { color: var(--ink); }
+.keys .keypage .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; }
+.keys .keypage .actions .btn { min-height: 2rem; }
+.keys .keypage .actions .ended { flex: 1 1 100%; }
+.keys .leaknote { border: 1.5px solid var(--status-warning); border-left-width: 4px; border-radius: var(--r-2); padding: var(--s-2) var(--s-3); display: grid; gap: var(--s-1); font-size: var(--fs-14); }
+.keys .leaknote ul { margin: 0; padding-left: var(--s-4); }
+/* A Lost your key? request that waits for a person (1.3.2): the same note, in the accent: a thing to do, not a warning. */
+.keys .leaknote.lostnote { border-color: var(--accent); }
+.keys .leaknote.lostnote b { color: var(--ink); }
+.keys .leaknote.lostnote .row { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.keys .leaknote .small b { color: var(--ink-2); }
+.keys .menuwrap { position: relative; display: inline-flex; }
+.keys .kmenu { position: absolute; top: calc(100% + var(--s-1)); left: 0; z-index: 20; min-width: 9rem; padding: var(--s-1); background: var(--surface); border: 1px solid var(--axis); border-radius: var(--r-2); box-shadow: var(--e-3); display: grid; gap: 2px; }
+.keys .kmenu button { appearance: none; font: inherit; font-size: var(--fs-14); font-weight: 600; text-align: left; color: var(--ink); background: transparent; border: 0; border-radius: var(--r-1); padding: var(--s-2) var(--s-3); cursor: pointer; white-space: nowrap; }
+.keys .kmenu button:hover, .keys .kmenu button:focus-visible { background: var(--surface-2); }
+.keys .facts { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); column-gap: var(--s-3); row-gap: var(--s-1); margin: 0; font-size: var(--fs-14); }
+.keys .facts dt { color: var(--muted); }
+.keys .facts dd { margin: 0; overflow-wrap: anywhere; }
+.keys .facts dd b { font-weight: 600; }
+.keys .sect { display: grid; gap: var(--s-2); border-top: 1px solid var(--hairline); padding-top: var(--s-3); }
+.keys .quiet { color: var(--ink-2); font-size: var(--fs-14); }
+.keys .quiet b { color: var(--ink); font-weight: 600; }
+.keys .devices { list-style: none; margin: 0; padding: 0; display: grid; }
+.keys .devices li { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) 0; border-top: 1px solid var(--hairline); font-size: var(--fs-14); }
+.keys .devices li:first-child { border-top: 0; padding-top: 0; }
+.keys .devices li.over { color: var(--muted); }
+.keys .devices .dn { flex: 1; min-width: 0; display: grid; }
+.keys .devices .dn b { font-weight: 600; }
+.keys .log { list-style: none; margin: 0; padding: 0; display: grid; font-size: var(--fs-14); }
+.keys .log li { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); column-gap: var(--s-2); padding: var(--s-1) 0; border-top: 1px solid var(--hairline); }
+.keys .log li:first-child { border-top: 0; }
+.keys .log .when { color: var(--muted); font-size: var(--fs-13); }
+.keys .log .by { grid-column: 2; }
+.keys .about h2 { font-size: var(--fs-20); }
+.keys .about p { color: var(--ink-2); font-size: var(--fs-14); }
+.keys .about h3 { margin-top: var(--s-2); }
+.keys .showlist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); font-size: var(--fs-14); }
+.keys .showlist li { display: grid; grid-template-columns: 1rem 1fr; gap: var(--s-2); align-items: start; }
+.keys .showlist svg { width: 14px; height: 14px; margin-top: 4px; color: var(--ink-2); }
+.keys .showlist b { font-weight: 600; }
+
+/* The page beside the list needs room: under it the page goes below, and the list is first. */
+@container keys (max-width: 68rem) {
+  .keys .body, .keys .body.with-page { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .keys .main { overflow: visible; }
+  .keys .keypage { border-left: 0; border-top: 1px solid var(--hairline); overflow: visible; }
+  .keys .body.with-page .keypage { order: -1; border-top: 0; border-bottom: 1px solid var(--hairline); }
+}
+
+/* the dialogs */
+.kdialog { width: min(40rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); max-height: calc(var(--win-h, 100vh) - 2 * var(--s-4)); overflow-y: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: var(--r-3); box-shadow: var(--e-3); padding: var(--s-5); line-height: var(--lh-body); }
+.kdialog.wide { width: min(68rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); }
+.kdialog.narrow { width: min(32rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); }
+.kdialog::backdrop { background: var(--scrim-strong); }
+.kdialog[open], .kdialog form { display: grid; gap: var(--s-3); }
+.kdialog h2 { font-size: var(--fs-20); }
+.kdialog .lead { color: var(--ink-2); max-width: 48rem; }
+.kdialog .acts { display: flex; gap: var(--s-2); justify-content: flex-end; flex-wrap: wrap; margin-top: var(--s-2); }
+.kdialog .kf { display: grid; gap: var(--s-3); align-content: start; }
+/* In a wide dialog the fields are two columns, read down the first and then the second, so that
+   making a key fits a 900 px window without a scroll. */
+.kdialog .kf.two { display: block; columns: 2; column-gap: var(--s-5); }
+.kdialog .kf.two > * { break-inside: avoid; margin-bottom: var(--s-3); }
+.kdialog .field { display: grid; gap: var(--s-1); min-width: 0; }
+.kdialog .field > label, .kdialog .label, .kdialog legend { font-weight: 600; font-size: var(--fs-14); }
+.kdialog .field > input, .kdialog .field > select, .kdialog .field > textarea { width: 100%; }
+.kdialog .opt { font-weight: 400; color: var(--muted); font-size: var(--fs-13); }
+.kdialog .hint { font-size: var(--fs-13); color: var(--muted); line-height: var(--lh-body); font-weight: 400; }
+.kdialog .small { line-height: var(--lh-body); }
+.kdialog [aria-invalid='true'] { border-color: var(--status-critical); border-width: 2px; }
+.kdialog fieldset { border: 1px solid var(--hairline); border-radius: var(--r-2); padding: var(--s-2) var(--s-3) var(--s-3); display: grid; gap: var(--s-2); min-width: 0; margin: 0; }
+.kdialog fieldset legend { padding: 0 var(--s-1); }
+.kdialog .kinds { gap: var(--s-1); }
+.kdialog .kind { display: grid; grid-template-columns: auto 1fr; gap: var(--s-2); align-items: start; border: 1px solid transparent; border-radius: var(--r-2); padding: var(--s-1) var(--s-2); margin: 0 calc(-1 * var(--s-2)); cursor: pointer; }
+.kdialog .kind.on { border-color: var(--accent); background: var(--surface-2); }
+.kdialog .kind b { font-weight: 600; }
+.kdialog .kind input, .kdialog .opt-row input { margin-top: 0.3rem; accent-color: var(--accent); }
+.kdialog .opt-row { display: grid; grid-template-columns: auto 1fr; gap: var(--s-2); align-items: start; cursor: pointer; }
+.kdialog .shows { display: grid; gap: var(--s-1); padding-left: var(--s-5); }
+.kdialog .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
+.kdialog .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }
+.kdialog .quick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.kdialog .quick .tz { margin-left: auto; }
+.kdialog .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5); align-items: start; }
+.kdialog .tmpl { margin-bottom: var(--s-2); }
+.kdialog .count { font-size: var(--fs-13); color: var(--ink-2); }
+.kdialog .count b { color: var(--ink); }
+.kdialog .problems { margin: 0; padding-left: var(--s-4); font-size: var(--fs-13); color: var(--ink); display: grid; gap: 2px; border-left: 3px solid var(--status-warning); list-style: none; }
+.kdialog .row .grow { flex: 1; min-width: 12rem; }
+.kdialog .row.end { justify-content: flex-end; }
+.kdialog .foot { color: var(--muted); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
+.kdialog .table-wrap.short { border: 1px solid var(--hairline); border-radius: var(--r-2); padding: var(--s-2) var(--s-3); }
+.kdialog td.clip { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.kdialog .found { display: flex; gap: var(--s-3); align-items: center; border: 1.5px solid var(--status-good); border-radius: var(--r-2); padding: var(--s-3); }
+.kdialog .found p { flex: 1; }
+
+/* send a key: the four ways on the left, the message on the right */
+.kdialog .send { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--s-5); align-items: start; }
+.kdialog .ways, .kdialog .msg { display: grid; gap: var(--s-3); align-content: start; }
+.kdialog .ways .row { flex-wrap: nowrap; }
+.kdialog .ways .row input { flex: 1; min-width: 0; font-size: var(--fs-13); }
+.kdialog .code { flex: 1; font-size: var(--fs-24); font-weight: 600; letter-spacing: 0.06em; padding: var(--s-1) var(--s-3); background: var(--plane); border: 1px solid var(--axis); border-radius: var(--r-2); white-space: nowrap; user-select: all; }
+.kdialog .addr { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-13); user-select: all; }
+.kdialog .qr { display: grid; grid-template-columns: 9rem 1fr; gap: var(--s-3); align-items: start; }
+/* Dark on paper in every theme: a reversed code is not read by every scanner. */
+.kdialog .qr-img { width: 9rem; height: 9rem; background: var(--paper); border-radius: var(--r-1); border: 1px solid var(--hairline); }
+.kdialog .qr-img path { fill: var(--still-ground); }
+.kdialog .qr-say { display: grid; gap: var(--s-1); justify-items: start; }
+.kdialog .msg textarea { font-size: var(--fs-13); min-height: 16rem; }
+@container studio (max-width: 60rem) {
+  .kdialog .send, .kdialog .cols { grid-template-columns: minmax(0, 1fr); }
+  .kdialog .kf.two { columns: 1; }
+}
+
+/* ---- the way to a keyed show (the operator's click-through, 2026-11-25) ---- */
+
+/* The three steps, from a show to a key in a listener's hands: a numbered line at the top of the dialogs on the way and of
+   a show's Who can listen. The step it stands at is marked by weight, a filled number and the words "You are here", never
+   by colour alone; the others are buttons where there is somewhere to go. Under 34 rem of room they stand one over the other. */
+.ksteps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr)); gap: var(--s-2); }
+.ksteps li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: var(--s-2); align-items: start; padding: var(--s-2); border: 1px solid var(--hairline); border-radius: var(--r-2); background: var(--surface-2); color: var(--ink-2); min-width: 0; position: relative; }
+.ksteps li.here { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--ink); }
+.ksteps .n { width: 1.375rem; height: 1.375rem; border-radius: var(--r-pill); border: 1.5px solid var(--ink-2); display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-12); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: var(--ink); }
+.ksteps li.here .n { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.ksteps .pic { width: 14px; height: 14px; margin-top: 4px; color: var(--ink-2); }
+.ksteps li.here .pic { color: var(--ink); }
+.ksteps .what { display: grid; gap: 1px; min-width: 0; text-align: left; font: inherit; font-size: var(--fs-13); line-height: var(--lh-label); color: inherit; }
+.ksteps .what .lab { font-weight: 600; color: var(--ink); }
+.ksteps .what .where { font-size: var(--fs-12); color: var(--ink-2); overflow-wrap: anywhere; }
+.ksteps button.what { appearance: none; background: none; border: 0; padding: 0; cursor: pointer; }
+.ksteps button.what .lab { text-decoration: underline; text-decoration-color: var(--axis); text-underline-offset: 3px; }
+.ksteps button.what:hover .lab { text-decoration-color: var(--accent); }
+/* the whole step is the target, not its words alone */
+.ksteps button.what::after { content: ''; position: absolute; inset: 0; border-radius: var(--r-2); }
+.ksteps button.what:focus-visible { outline: none; }
+.ksteps button.what:focus-visible::after { outline: var(--focus-ring); outline-offset: 1px; }
+.ksteps li:has(button.what):hover { background: var(--surface-3); }
+/* in a narrow column (the show editor): one line of numbers and words, no drawings and no second line */
+.ksteps.compact { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-2); }
+.ksteps.compact li { display: inline-flex; align-items: center; gap: var(--s-1); padding: 2px var(--s-2) 2px 2px; border-radius: var(--r-pill); min-height: 1.75rem; }
+.ksteps.compact .pic, .ksteps.compact .where { display: none; }
+.ksteps.compact .what { display: inline; font-size: var(--fs-12); }
+.ksteps.compact button.what::after { border-radius: var(--r-pill); }
+
+/* The one control that makes a show keyed: a tick box, the key, the words Keyed show. What a press did, or the question
+   before a keyed show is opened to everyone, is said beside it (under the row, in a list). Quiet ink: who may listen
+   is not a state of the air. */
+.keyedtick { display: inline-flex; align-items: center; gap: var(--s-1) var(--s-2); flex-wrap: wrap; min-width: 0; font-size: var(--fs-13); line-height: var(--lh-label); color: var(--ink-2); }
+.keyedtick label { display: inline-flex; align-items: center; gap: var(--s-1); cursor: pointer; font-weight: 600; color: var(--ink); border: 1px solid var(--axis); border-radius: var(--r-1); padding: 0 var(--s-2) 0 var(--s-1); min-height: 1.75rem; background: var(--surface-2); white-space: nowrap; flex: none; }
+.keyedtick.on label { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.keyedtick label:hover { background: var(--surface-3); }
+.keyedtick input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); flex: none; }
+.keyedtick label:has(input:focus-visible) { outline: var(--focus-ring); outline-offset: 1px; }
+.keyedtick input:focus-visible { outline: none; }
+.keyedtick label svg { width: 12px; height: 12px; color: var(--ink-2); flex: none; }
+.keyedtick .say { min-width: 0; }
+.keyedtick .say:empty { display: none; }
+.keyedtick .say .err { border-left: 3px solid var(--status-critical); padding-left: var(--s-2); color: var(--ink); display: block; }
+.keyedtick .ask { display: inline-flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; color: var(--ink); }
+.keyedtick.compact { display: contents; }
+.keyedtick.compact .say { grid-column: 1 / -1; padding: 0 var(--s-3) var(--s-1); font-size: var(--fs-13); line-height: var(--lh-body); }
+
+/* a hint beside a field's name: a small ? with the studio's tooltip */
+.hintbtn { appearance: none; font: inherit; font-size: var(--fs-12); font-weight: 700; line-height: 1; width: 1.125rem; height: 1.125rem; padding: 0; margin-left: var(--s-1); border-radius: var(--r-pill); border: 1.5px solid var(--ink-2); background: transparent; color: var(--ink-2); cursor: help; display: inline-flex; align-items: center; justify-content: center; vertical-align: 1px; position: relative; }
+.hintbtn:hover, .hintbtn:focus-visible { color: var(--ink); border-color: var(--ink); }
+.hintbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* a 24 px target round an 18 px mark */
+.hintbtn::after { content: ''; position: absolute; inset: -4px; }
+
+/* Make a show keyed: the station's shows, who can listen to each, and one press */
+/* In a short window (600 px is the least the packaged app goes) the list scrolls, and the dialog's own buttons stay in sight. */
+.kdialog.keepshow { width: min(46rem, calc(var(--win-w, 100vw) - 2 * var(--s-4))); }
+.kdialog.keepshow[open] { display: flex; flex-direction: column; overflow: hidden; }
+.kdialog.keepshow > * { flex: none; }
+.kdialog.keepshow > .keeplist { flex: 1 1 auto; min-height: 5.5rem; overflow-y: auto; display: block; }
+.kdialog.keepshow > .keeplist li + li { margin-top: var(--s-1); }
+.kdialog .keeplist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); align-content: start; }
+.kdialog .keeplist li { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) auto auto; gap: var(--s-1) var(--s-3); align-items: center; padding: var(--s-2) var(--s-3); background: var(--surface-2); border: 1px solid var(--hairline); border-left: 4px solid var(--show-colour, var(--deemph)); border-radius: var(--r-1); min-height: 3rem; }
+.kdialog .keeplist .nm { display: grid; gap: 1px; min-width: 0; }
+.kdialog .keeplist .nm b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kdialog .keeplist .nm .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kdialog .keeplist .keyedtick.compact .say { padding: 0; }
+.kdialog .linkish { appearance: none; background: none; border: 0; padding: 0; font: inherit; font-size: var(--fs-13); font-weight: 600; color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--axis); text-underline-offset: 3px; white-space: nowrap; }
+.kdialog .linkish:hover { text-decoration-color: var(--accent); }
+.kdialog .acts .left { margin-right: auto; }
+.kdialog .btn .kg { width: 12px; height: 12px; }
+@container studio (max-width: 44rem) {
+  .kdialog .keeplist li { grid-template-columns: minmax(0, 1fr) auto; }
+  .kdialog .keeplist .st { grid-column: 1 / -1; grid-row: 2; }
+}
+.kdialog .labrow { display: flex; align-items: center; }
+.kdialog .labrow > label { font-weight: 600; font-size: var(--fs-14); }
+.kdialog legend { display: inline-flex; align-items: center; }

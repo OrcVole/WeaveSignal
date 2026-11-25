@@ -13,6 +13,7 @@ import './styles/rule.css';
 import './styles/files.css';
 import './styles/stations.css';
 import './styles/rehearsal.css';
+import './styles/keys.css';
 import './app.css';
 import App from './App.svelte';
 import { applyTheme, theme } from './lib/theme.svelte.ts';

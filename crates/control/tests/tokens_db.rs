@@ -628,7 +628,8 @@ async fn an_event_reaches_its_webhooks_signed_and_a_failure_is_retried_and_recor
         !shown.contains("whsec_") && !shown.contains("salt"),
         "{shown}"
     );
-    assert_eq!(list["events"].as_array().unwrap().len(), 5);
+    // The five of ADR-0195 and the two for keyed shows (1.3.2).
+    assert_eq!(list["events"].as_array().unwrap().len(), 7);
     let flaky_row = list["webhooks"]
         .as_array()
         .unwrap()

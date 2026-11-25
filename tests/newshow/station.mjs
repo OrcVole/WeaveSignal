@@ -289,6 +289,15 @@ export class Station {
     return out;
   }
 
+  /** The rule of a show that starts now (1.3.2), as the control plane answers it: once, from the
+   *  stand-in's next whole minute on its wall clock. */
+  ruleNow(minutes = 60) {
+    const at = (Math.floor(this.now / 60) + 1) * 60;
+    const w = wall(at * 1000);
+    const start = Math.round((w - D(iso(w))) / 60_000);
+    return { rule: { starts_on: iso(w), start, minutes, repeat: { kind: 'once' }, end: { kind: 'never' }, skip: [], moves: [] }, starts_at_ms: at * 1000, date: iso(w), time: hm(start), minutes, zone: ZONE };
+  }
+
   preview({ rule, show = null, limit = undefined, count = limit ?? 10 }) {
     const problems = [];
     const hints = [];
@@ -432,6 +441,8 @@ export class Station {
     if (p === '/api/v1/shows' && method === 'GET') return [200, this.shows.map((s) => this.show(s))];
     if (p === '/api/v1/schedule/episodes') return [200, this.week(+url.searchParams.get('from_ms'), +url.searchParams.get('to_ms'))];
     if (p === '/api/v1/schedule/rule/preview') return [200, this.preview(body)];
+    // Start now (1.3.2): the rule of a show that starts at the stand-in's next whole minute.
+    if (p === '/api/v1/schedule/rule/now' && method === 'GET') return [200, this.ruleNow(+(url.searchParams.get('minutes') ?? 60))];
     // Calendar files (ADR-0281). A calendar is text: the driver answers a string as `text/calendar`.
     if (p === '/api/v1/schedule/import/preview' && method === 'POST') return this.importPreviewOf(body);
     if (p === '/api/v1/schedule/import' && method === 'POST') return this.importOf(body);

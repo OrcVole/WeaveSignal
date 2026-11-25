@@ -3,6 +3,11 @@
 
 //! WeaveSignal's control plane.
 
+pub mod access;
+pub mod access_keys;
+pub mod access_listen;
+pub mod access_serve;
+pub mod access_token;
 pub mod air_kept;
 pub mod api;
 pub mod apikey;
@@ -15,6 +20,7 @@ pub mod desk;
 pub mod events;
 pub mod hub;
 pub mod join;
+pub mod keyed;
 pub mod kit;
 pub mod mail;
 pub mod mailkey;
@@ -373,18 +379,40 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     if mailer.is_some() {
         tracing::info!("staff sign-in codes by email are on");
     }
-    let api = Arc::new(api::Api::new(
-        db.clone(),
-        station.id,
-        config.api_key.clone(),
-        config.api.clone(),
-        config.join.forwarded_for,
-    ));
+    let api = Arc::new(
+        api::Api::new(
+            db.clone(),
+            station.id,
+            config.api_key.clone(),
+            config.api.clone(),
+            config.join.forwarded_for,
+        )
+        .with_keys(config.keys.clone()),
+    );
     let staff = Arc::new(
         staff::Staff::new(db.clone())
             .with_mailer(mailer)
             .with_api(api),
     );
+    // Keyed shows (1.3.2): the origin carries keyed streams from the listener process on
+    // loopback, and the driver keeps playout's public gate on the schedule.
+    let _ = staff.api.access.listeners_addr.set(SocketAddr::new(
+        config.listen.internal,
+        config.ports.get("listeners"),
+    ));
+    if let (Some(pool), Some(socket)) = (&db, config.playout.socket.as_deref()) {
+        keyed::Driver {
+            station: station.id,
+            db: pool.clone(),
+            playout: playout::PlayoutClient::new(Some(socket)),
+            listeners: playout::PlayoutClient::new(config.playout.listeners_socket.as_deref()),
+            window_file: Some(keyed::window_file(socket)),
+            hub: Arc::downgrade(&hub),
+            live: staff.api.access.live.clone(),
+            base: config.keys.margins(),
+        }
+        .spawn();
+    }
     let restored_tokens = staff.api.restore().await;
     if restored_tokens > 0 {
         tracing::info!(
@@ -412,6 +440,8 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     // delivers to webhooks. Neither is in the hub's path.
     events::spawn_sources(&hub, &staff, db.clone(), station.id);
     webhooks::spawn_worker(staff.clone(), webhooks::BACKOFF.to_vec());
+    // Keyed shows (1.3.2): keys whose window has passed are announced, old use records pruned.
+    access::spawn_sweeper(staff.clone());
     let gate_staff = staff.clone();
     let restored_sessions = staff.restore(station.id).await;
     if restored_sessions > 0 {

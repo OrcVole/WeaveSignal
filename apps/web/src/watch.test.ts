@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 import { describe, expect, it } from 'vitest';
-import { AV1_TYPE, OPUS_TYPE, choose, detect, positionAt } from './lib/watch.ts';
+import { AV1_TYPE, OPUS_TYPE, choose, detect, playLabel, positionAt } from './lib/watch.ts';
 
 const video = { live: '/hls/live.m3u8', audio: '/hls/audio.m3u8' };
 const all = { mse: true, av1: true, opusMp4: true };
@@ -28,6 +28,15 @@ describe('what the player plays', () => {
 
   it('plays the Icecast stream when the station has no video', () => {
     expect(choose(null, '/stream', all, false)).toEqual({ mode: 'icecast', url: '/stream', note: null, canToggle: false });
+  });
+});
+
+describe('the big button', () => {
+  it('says Listen or watch live with the picture, and Listen live for sound alone', () => {
+    expect(playLabel('video')).toBe('Listen or watch live');
+    expect(playLabel('audio')).toBe('Listen live');
+    expect(playLabel('icecast')).toBe('Listen live');
+    expect(playLabel(null)).toBe('Listen live');
   });
 });
 

@@ -137,6 +137,7 @@ A cart that plays under speech, ducked beneath the voice.
 
 **The slate.**
 The picture shown when video is on and nobody is on camera: the station's or the show's still, with now playing.
+For a [keyed show](/docs/explanation/keyed-shows/), the slate is also what the public hears while the show is on: the station's slate file, else its fallback files, else the loop WeaveSignal ships.
 
 **Lower third.**
 A caption over the picture naming who is speaking.

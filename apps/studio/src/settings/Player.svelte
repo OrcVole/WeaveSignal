@@ -18,7 +18,7 @@
       <h2 id="pl-h" data-panel-title>The player</h2>
     </div>
     <p class="help">
-      {PLAYER.sound} The player is the station’s web page: it plays what listeners hear, behind the desk by the figure the Desk shows (about twenty seconds), and takes calls and chat.
+      {PLAYER.sound} The player is the station’s web page: it plays what listeners hear, about twenty seconds behind the desk (the Desk’s clock shows the figure), and takes calls and chat.
     </p>
     <PlayerLink id="pl" detail />
   </section>

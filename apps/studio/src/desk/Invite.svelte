@@ -23,7 +23,8 @@
   // its panel name, so a name typed here never opens a fader. Esc closes it and the browser
   // puts the focus back on the button that opened it.
   import { base, makeInvite, makeOwnInvite, makeOwnRehearsalInvite, makeRehearsalInvite, openInBrowser, sandboxed, type DeskStudio, type Invite, type InviteRole } from '../lib/api.ts';
-  import { DJ_COMES_WITH_FULL, OWN_LINK, WHERE, inviteProblem, inviteUrl, joinsLine, lastsLine, nameProblem, rehearsalJoinsLine, rehearsalRolesAt, rolesAt } from '../lib/invite.ts';
+  import { DJ_COMES_WITH_FULL, OWN_LINK, WHERE, inviteProblem, ownLinkProblem, inviteUrl, joinsLine, lastsLine, nameProblem, rehearsalJoinsLine, rehearsalRolesAt, rolesAt } from '../lib/invite.ts';
+  import { preparing } from '../lib/prepare.svelte.ts';
   import { stationNow, studio } from '../lib/studio.svelte.ts';
   import { stationStep } from '../lib/steps.ts';
   import { rehearsal as rehearsalStore } from '../lib/rehearsal.svelte.ts';
@@ -129,7 +130,8 @@
       dialogEl?.showModal();
       queueMicrotask(() => document.getElementById('inv-open')?.focus());
     } catch (err) {
-      errors = { form: err instanceof Error && err.message === 'No rehearsal is open.' ? err.message : inviteProblem(err) };
+      const step = studio.view?.step;
+      errors = { form: err instanceof Error && err.message === 'No rehearsal is open.' ? err.message : ownLinkProblem(err, !rehearsal && preparing(), step?.on_air ? step.show?.name : null) };
     } finally {
       busy = false;
     }
@@ -173,7 +175,7 @@
   {#if made && own}
     <div class="made">
       <h2 id="inv-h" data-panel-title>{OWN_LINK.title}</h2>
-      <p class="lede">{madeFor.studio === 'rehearsal' ? WHERE.ownLede(madeFor.show) : studio.view?.mode === 'auto' ? OWN_LINK.ledeAuto : OWN_LINK.lede}</p>
+      <p class="lede">{madeFor.studio === 'rehearsal' ? WHERE.ownLede(madeFor.show) : studio.view?.mode === 'auto' ? OWN_LINK.ledeAuto : preparing() ? OWN_LINK.ledePrep : OWN_LINK.lede}</p>
       <div class="link">
         <input id="inv-link" type="text" readonly value={url} aria-label="Your microphone link" onfocus={(e) => e.currentTarget.select()} />
         <button id="inv-open" type="button" class="btn primary" onclick={openLink}>{OWN_LINK.open}</button>

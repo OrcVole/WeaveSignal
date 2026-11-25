@@ -51,6 +51,13 @@ export function detect(win: unknown = globalThis): Caps {
   return { mse: true, av1: ms.isTypeSupported(AV1_TYPE), opusMp4: ms.isTypeSupported(OPUS_TYPE) };
 }
 
+/** The player's big button while nothing plays: with the picture it is `Listen or watch live`
+ *  (the operator, 2026-11-25: a show with a picture is still a show to listen to), and
+ *  `Listen live` for sound alone. The line a stopped stream says names the same button. */
+export function playLabel(mode: Mode | null | undefined): string {
+  return mode === 'video' ? 'Listen or watch live' : 'Listen live';
+}
+
 /** What to play, given the station's offer, the browser, and the listener's toggle. */
 export function choose(video: VideoInfo | null, streamUrl: string, caps: Caps, audioOnly: boolean): Choice {
   const icecast = (note: string | null): Choice => ({ mode: 'icecast', url: streamUrl, note, canToggle: false });

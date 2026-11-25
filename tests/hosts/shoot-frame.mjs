@@ -73,6 +73,8 @@ function check(name, ok, detail = '') {
   log(ok ? 'PASS' : 'FAIL', name, ok ? '' : detail);
 }
 const words = async (loc) => (await loc.innerText()).replace(/\s+/g, ' ').trim();
+/** The version as drawn, without the standing's word kept for a screen reader (1.3.2: ", up to date"). */
+const shown = async (loc) => (await words(loc)).replace(/\s*,\s*(up to date|behind)$/, '');
 
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM });
 
@@ -141,7 +143,7 @@ async function point(page, loc, rest = 300) {
 }
 
 /** Press Tab until the focus is on `loc`, as a person at the keyboard would reach it. */
-async function tabTo(page, loc, limit = 60) {
+async function tabTo(page, loc, limit = 90) {
   await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
   await page.mouse.move(2, 400);
   for (let i = 0; i < limit; i++) {
@@ -171,15 +173,23 @@ for (const size of SIZES) {
       const { ctx, page } = await open(st, size, theme);
       const ver = page.locator('[data-testid="app-version"]');
       check(`${tag}: the link to the station is good, so the frame is as a real station draws it`, (await page.locator('.frame .link').getAttribute('data-link')) === 'live');
-      const said = await words(ver);
-      // A member of staff's frame at 1,440 px leaves about 110 px: the number. With more, the name too.
-      check(`${tag}: the frame says the app’s version, ${APP}, the one Tauri packages`, said === `WeaveSignal ${APP}` || said === `v${APP}`, said);
+      const said = await shown(ver);
+      // Station and app on the same release: the version is up to date (1.3.2), so its glyph stands
+      // before the v (the operator, 2026-11-25: "a tick then v1.3.1"). An admin's frame at 1,440 px
+      // leaves about 65 px: the tick, the v and the number. With 10.25 rem or more, the name too.
+      check(`${tag}: the frame says the app’s version, v${APP}, the one Tauri packages, and it is drawn`, (await ver.isVisible()) && (said === `WeaveSignal v${APP}` || said === `v${APP}`), said);
       const room = await page.evaluate(() => document.querySelector('.frame .spacer').getBoundingClientRect().width);
-      check(`${tag}: with the name where the spare room holds it (${Math.round(room)} px here), the number alone where it does not`, said === (room >= 132 * Z ? `WeaveSignal ${APP}` : `v${APP}`), said);
+      check(`${tag}: with the name where the spare room holds it (${Math.round(room)} px here), the v and the number where it does not`, said === (room >= 164 * Z ? `WeaveSignal v${APP}` : `v${APP}`), said);
+      const drawn = await ver.evaluate((el) => { const g = el.querySelector('svg.vg').getBoundingClientRect(); const v = el.querySelector('.v').getBoundingClientRect(); const n = el.querySelector('.name').getBoundingClientRect(); return { cut: el.scrollWidth > el.clientWidth + 1, gap: Math.round((n.width ? n : v).left - g.right), v: Math.round(v.width), after: v.left >= g.right && (!n.width || v.left >= n.right - 1) }; });
+      // A version longer than five characters gives up the gap after the tick, never its v, until
+      // the spare room holds both (4 rem for six characters, 4.5 rem for seven).
+      const close = APP.length > 5 && room < (APP.length === 6 ? 64 : 72) * Z;
+      check(`${tag}: the tick stands first, a little apart, the v before the number (after the name where there is room for it), and nothing is cut short`, !drawn.cut && drawn.v > 0 && drawn.after && (close ? drawn.gap >= 0 && drawn.gap <= 2 * Z : drawn.gap >= 3 * Z - 1 && drawn.gap <= 6 * Z), JSON.stringify(drawn));
+      check(`${tag}: up to date, it says so in words for a screen reader, and carries the tick`, (await words(ver)).endsWith(', up to date') && (await ver.getAttribute('data-standing')) === 'current' && (await ver.locator('svg.vg').count()) === 1, await words(ver));
       const [vb, nav, acc] = [await ver.boundingBox(), await page.locator('.frame nav.tabs').boundingBox(), await page.locator('[data-panel="studio.account"]').first().boundingBox()];
       check(`${tag}: it sits between the tabs and who is signed in, touching neither`, !!vb && !!nav && !!acc && vb.x >= nav.x + nav.width + 8 && vb.x + vb.width <= acc.x - 8, JSON.stringify({ vb, nav, acc }));
       const look = await ver.evaluate((el) => { const c = getComputedStyle(el); const f = getComputedStyle(el.closest('.frame')); return { size: c.fontSize, weight: c.fontWeight, ink: c.color, frameInk: f.color, tag: el.tagName }; });
-      check(`${tag}: quiet words, not a button: the frame’s own ink at 13 px, regular`, look.tag === 'SPAN' && look.ink === look.frameInk && parseFloat(look.size) >= 12.9 && parseFloat(look.size) <= 13.1 && Number(look.weight) === 400, JSON.stringify(look));
+      check(`${tag}: words, not a button: 13 px, semibold, in the green of being up to date (the frame’s own ink only while the standing is not known)`, look.tag === 'SPAN' && look.ink !== look.frameInk && parseFloat(look.size) >= 12.9 && parseFloat(look.size) <= 13.1 && Number(look.weight) === 600, JSON.stringify(look));
       // The words take only spare room: with them gone, nothing else in the frame moves.
       const withIt = await frameBoxes(page);
       const hWith = await frameHeight(page);
@@ -194,7 +204,7 @@ for (const size of SIZES) {
       await shot(page, '1-desk');
       // Its tooltip: on hover, and from the keyboard.
       await point(page, ver);
-      check(`${tag}: pointing at it says whose version it is, and the station’s`, (await shownTip(page, 'ver-tip')) && (await words(page.locator('#ver-tip'))) === `This studio app is WeaveSignal ${APP}. The station runs the same version.`, await words(page.locator('#ver-tip')));
+      check(`${tag}: pointing at it says whose version it is, and the station’s`, (await shownTip(page, 'ver-tip')) && (await words(page.locator('#ver-tip'))) === `This studio app is WeaveSignal ${APP}. The station runs the same version. This app is up to date.`, await words(page.locator('#ver-tip')));
       check(`${tag}: the tooltip is inside the window and not over the words`, inside(await tipBox(page, 'ver-tip'), { width: W, height: H }) && !overlap(await tipBox(page, 'ver-tip'), await ver.boundingBox()));
       await shot(page, '2-version-tooltip', await top(page));
       await page.mouse.move(2, 400);
@@ -203,6 +213,81 @@ for (const size of SIZES) {
       check(`${tag}: Tab reaches it, and the tooltip shows on the keyboard’s focus`, (await tabTo(page, ver)) && (await shownTip(page, 'ver-tip')));
       await page.keyboard.press('Escape');
       check(`${tag}: Esc hides it`, !(await shownTip(page, 'ver-tip')));
+      await ctx.close();
+    }
+
+    // ---- 1b. A version written longer (1.3.10, 1.10.10): the tick, the v and the number, always ----
+    // The operator, 2026-11-25, of the tight form ✓1.3.10: "we want to see the tick, the v for
+    // version and then the version number". The build's own version is five characters, so a
+    // longer one is written into the page here (its text and the length the styles go by), in
+    // the frame as it is at this size and then in every room the spare room could have.
+    {
+      const st = new HostStation({ step: 'full', nowMinutes: 14 * 60 + 10, role: 'admin' });
+      st.join('duncan', 'Duncan Boyd', 'presenter');
+      const { ctx, page } = await open(st, size, theme);
+      const ver = page.locator('[data-testid="app-version"]');
+      const before = await frameBoxes(page);
+      const hBefore = await frameHeight(page);
+      /** Write `v` as the app's version, in `room` px of spare room (the frame's own when null), and read what is drawn. */
+      const drawnAs = (v, room) =>
+        ver.evaluate(
+          (el, [v, room]) => {
+            const text = [...el.childNodes].find((n) => n.nodeType === 3 && /\d/.test(n.textContent ?? ''));
+            text.textContent = v;
+            el.setAttribute('data-len', String(Math.min(7, Math.max(5, v.length))));
+            document.querySelector('style[data-room]')?.remove();
+            if (room !== null) {
+              const probe = document.createElement('style');
+              probe.setAttribute('data-room', '1');
+              probe.textContent = `.frame .spacer { flex: none !important; width: ${room}px !important; }`;
+              document.head.appendChild(probe);
+            }
+            const shown = getComputedStyle(el).display !== 'none';
+            if (!shown) return { shown, room: el.parentElement.clientWidth };
+            const g = el.querySelector('svg.vg').getBoundingClientRect();
+            const vb = el.querySelector('.v').getBoundingClientRect();
+            // What follows the tick: the name where the room holds it, else the v.
+            const nm = el.querySelector('.name').getBoundingClientRect();
+            const num = document.createRange();
+            num.selectNode(text);
+            const nb = num.getBoundingClientRect();
+            const box = el.getBoundingClientRect();
+            const host = el.parentElement.getBoundingClientRect();
+            return {
+              shown,
+              room: el.parentElement.clientWidth,
+              tick: g.width > 0,
+              v: vb.width > 0,
+              order: g.right <= vb.left + 0.5 && vb.right <= nb.left + 0.5,
+              gap: Math.round(((nm.width ? nm : vb).left - g.right) * 10) / 10,
+              whole: el.scrollWidth <= el.clientWidth + 1 && nb.right <= box.right + 0.5 && box.left >= host.left - 0.5 && box.right <= host.right + 0.5,
+              said: el.innerText.replace(/\s+/g, ' ').trim(),
+            };
+          },
+          [v, room],
+        );
+      for (const [v, bare, full] of [['1.3.10', 56, 64], ['1.10.10', 64, 72]]) {
+        // In the frame as it is: an admin's 1,440 px leaves about 65 px, and 1,280 px two rows.
+        const here = await drawnAs(v, null);
+        check(`${tag}: ${v} in the frame as it is (${here.room} px of spare room): the tick, the v and the number, whole`, here.shown && here.tick && here.v && here.order && here.whole && here.said.startsWith(here.room >= 164 ? `WeaveSignal v${v}` : `v${v}`), JSON.stringify(here));
+        check(`${tag}: ${v} moves nothing: every control in the frame is where it was, and the frame is as tall`, JSON.stringify(await frameBoxes(page)) === JSON.stringify(before) && (await frameHeight(page)) === hBefore);
+        if (v === '1.3.10') check(`${tag}: ${v} has the room for its gap here, as ${APP} has`, here.gap >= 3 * Z - 1 && here.gap <= 6 * Z, JSON.stringify(here));
+        // Every room from none to plenty: never the tick and the number without the v.
+        const seen = [];
+        for (let room = 40; room <= 110; room += 1) seen.push(await drawnAs(v, room));
+        const drawn = seen.filter((d) => d.shown);
+        check(`${tag}: ${v} is never drawn without its v, its tick first, in any room from 40 to 110 px`, drawn.length > 0 && drawn.every((d) => d.tick && d.v && d.order && d.said.startsWith(`v${v}`)), JSON.stringify(drawn.find((d) => !(d.tick && d.v && d.order && d.said.startsWith(`v${v}`))) ?? {}));
+        check(`${tag}: ${v} is whole wherever it is drawn, never cut short`, drawn.every((d) => d.whole), JSON.stringify(drawn.find((d) => !d.whole) ?? {}));
+        check(`${tag}: ${v} is drawn from ${bare} px of room, and not in less`, seen.every((d) => d.shown === d.room >= bare), JSON.stringify(seen.find((d) => d.shown !== d.room >= bare) ?? {}));
+        check(`${tag}: ${v} gives up the gap after the tick under ${full} px, and has it from there`, drawn.every((d) => (d.room >= full ? d.gap >= 3 * Z - 1 && d.gap <= 6 * Z : d.gap >= 0 && d.gap <= 2 * Z)), JSON.stringify(drawn.find((d) => !(d.room >= full ? d.gap >= 3 * Z - 1 && d.gap <= 6 * Z : d.gap >= 0 && d.gap <= 2 * Z)) ?? {}));
+        if (theme === THEMES[0]) {
+          await drawnAs(v, bare);
+          const b = await page.locator('.frame .spacer').boundingBox();
+          await shot(page, `1b-${v}-least-room`, { x: Math.max(0, b.x - 120), y: 0, width: Math.min(W, b.width + 240), height: Math.min(H, (await frameHeight(page)) + 8) });
+          await drawnAs(v, null);
+          await shot(page, `1b-${v}-frame`, await top(page));
+        }
+      }
       await ctx.close();
     }
 
@@ -219,8 +304,8 @@ for (const size of SIZES) {
       await page.evaluate(() => document.querySelector('style[data-probe]')?.remove());
       check(`${tag}: with the setup button and the link down, the version still moves nothing and adds no row`, JSON.stringify(withIt) === JSON.stringify(without) && hWith === hWithout, `${hWith} px against ${hWithout} px`);
       const ver = page.locator('[data-testid="app-version"]');
-      const said = (await ver.isVisible()) ? await words(ver) : '';
-      check(`${tag}: there it says what it has room for, whole or not at all`, ['', `v${APP}`, `WeaveSignal ${APP}`].includes(said), said);
+      const said = (await ver.isVisible()) ? await shown(ver) : '';
+      check(`${tag}: there it says what it has room for, whole or not at all`, ['', `v${APP}`, `WeaveSignal ${APP}`, `WeaveSignal v${APP}`].includes(said), said);
       const cut = (await ver.isVisible()) ? await ver.evaluate((el) => el.scrollWidth > el.clientWidth + 1) : false;
       check(`${tag}: and never cut short`, !cut);
       await shot(page, '3-frame-fullest', { x: 0, y: 0, width: W, height: Math.min(H, hWith + 24) });
@@ -271,7 +356,19 @@ for (const size of SIZES) {
       await page.mouse.move(2, H - 40);
       await sleep(300);
       check(`${tag}: it goes when the pointer leaves`, !(await shownTip(page, 'air-tip')));
-      check(`${tag}: Tab reaches the button, and the tooltip shows on the keyboard’s focus`, (await tabTo(page, air)) && (await shownTip(page, 'air-tip')));
+      const reached = await tabTo(page, air);
+      // Where the button is below the fold (the one-column desk in a short window), the focus scrolls it
+      // into view, and a scroll hides a tooltip (Tip.svelte, on purpose): so look once, and if it was
+      // hidden by that, leave and come back by the keyboard, now that the button is in view.
+      await sleep(400);
+      let early = await shownTip(page, 'air-tip');
+      if (reached && !early) {
+        await page.keyboard.press('Shift+Tab');
+        await page.keyboard.press('Tab');
+        await sleep(400);
+        early = await shownTip(page, 'air-tip');
+      }
+      check(`${tag}: Tab reaches the button, and the tooltip shows on the keyboard’s focus`, reached && early, JSON.stringify({ reached, early }));
       await page.keyboard.press('Escape');
       check(`${tag}: Esc hides it, and the button keeps the focus`, !(await shownTip(page, 'air-tip')) && (await air.evaluate((el) => el === document.activeElement)));
       // A press does not leave the tooltip up: with Duncan open, the dialog asks.

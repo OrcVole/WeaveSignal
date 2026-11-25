@@ -106,7 +106,7 @@ That matters on a station tab: a station bank is the wall of the show on air as 
 A new station loads the sounds WeaveSignal ships into its banks once, at its first start.
 A station that already has banks never gets a later release's sounds by itself, and a bank you emptied stays empty.
 **Default pack…**, beside the tabs, loads them when you ask.
-From 1.3.1 an admin or a producer is told once: a band under the top bar says *50 new sounds are available* (the number is the sounds a load would add) and has **Default pack…**, which opens this dialog, and **Not now** ([`studio.pack.notice`](/docs/reference/surfaces/studio/#studiopacknotice)).
+From 1.3.1 an admin or a producer is told once: a band under the top bar says *The default pack has 50 sounds this station does not have* (the number is the sounds a load would add) and has **Default pack…**, which opens this dialog, and **Not now** ([`studio.pack.notice`](/docs/reference/surfaces/studio/#studiopacknotice)). It stays until you press **Not now** or a load has finished; on the Desk it is drawn only while nobody is on air.
 
 1. Go to the tab of the bank you mean and press **Default pack…**.
 2. Choose **which of the pack's banks** to load, or all of them, each into the station's bank of its own number.

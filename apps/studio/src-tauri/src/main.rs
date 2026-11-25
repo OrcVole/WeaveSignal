@@ -13,6 +13,7 @@ mod bridge_local;
 mod bridge_up;
 mod calendar;
 mod open;
+mod save;
 mod sound;
 mod station;
 mod stations;
@@ -35,6 +36,9 @@ fn main() {
         // Updates are signed (ADR-0015): the public key and the endpoint are given when the
         // packages are built (`just package-desktop`); a build without them never updates.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // The system's save dialog, for `save_file` below. Opened from Rust only: the window is
+        // granted none of the plugin's own commands (capabilities/default.json).
+        .plugin(tauri_plugin_dialog::init())
         // The window's page is not the station's origin, and a station behind a login proxy
         // answers a browser's CORS preflight with a redirect: requests go out from Rust, which
         // also keeps the station's key out of the page (ADR-0121).
@@ -52,6 +56,9 @@ fn main() {
         // `sound_read` reads a sound dropped on the cart wall (1.2.1), for the page to send to the
         // station as a cart: a file that is a sound by its name and its first bytes, no larger
         // than the station takes, and no other file.
+        // `save_file` writes a list of keys (CSV) or a key's QR code (SVG) where the person says
+        // in the system's save dialog (keyed shows, 1.3.2). The page gives a plain file name and
+        // the text, never a path: the only path written is the one the dialog answers with.
         // `open_link` hands the Solo DJ's own microphone link to the person's browser (ADR-0274):
         // a web address only, never through a shell.
         .invoke_handler(tauri::generate_handler![
@@ -80,6 +87,7 @@ fn main() {
             calendar::calendar_save,
             calendar::calendar_read,
             sound::sound_read,
+            save::save_file,
             bridge::bridge_view,
             bridge::bridge_save,
             bridge::bridge_start,

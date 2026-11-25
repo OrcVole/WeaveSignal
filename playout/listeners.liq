@@ -66,7 +66,8 @@ let json.parse (data :
         directory : bool?,
         bitrate : int?,
         compat : {enabled : bool, mount : string?, bitrate : int?}?,
-        compat_high : {enabled : bool, mount : string?, bitrate : int?}?
+        compat_high : {enabled : bool, mount : string?, bitrate : int?}?,
+        keyed : {enabled : bool, mount : string?, compat_mount : string?}?
       },
     fallback : {dir : string, default_file : string?}?,
     logger : {dir : string, bitrate : int?}?,
@@ -303,8 +304,92 @@ then
   mp3_mount("to-compat-high", compat_high_mount, compat_high.bitrate ?? 320)
 end
 
+# ---- The keyed mounts (1.3.2; spike on branch p132-keyed-spike, PLAN 19a) ----
+# Playout sends a second feed, `feed_keyed`: the programme with keyed shows in it. The public
+# mounts above take `feed`, which playout has already gated (the slate in place of a keyed
+# show), so nothing here decides what is keyed and nothing keyed can reach a public mount
+# through this process: the public fallbacks are the station's own files.
+# The keyed mounts carry the programme at all times (between keyed shows, what everyone hears),
+# so a key holder's player needs no switch. Who may listen is checked in front of this process
+# (the proxy and the edges, against a signed token): icecast.server accepts every listener.
+# `keyed.stop` and `keyed.start` take the keyed outputs down and up: icecast.server drops a
+# mount's listeners when its source leaves, which ends every keyed connection at the end of a
+# keyed show (a key for one show must not hear the next), and touches no public listener.
+keyed_cfg = data.listeners.keyed ?? {enabled = false, mount = null, compat_mount = null}
+# What key holders hear: the keyed feed when keyed shows are on, else the public programme. The
+# legal logger records it (1.3.2, the operator's choice: what key holders heard; between keyed
+# shows it is what everyone heard).
+keyed_heard = ref((programme : source))
+if
+  keyed_cfg.enabled
+then
+  keyed_mount = keyed_cfg.mount ?? "programme-keyed.opus"
+  feed_keyed =
+    input.harbor(
+      id="feed_keyed",
+      "feed_keyed",
+      port=data.listeners.feed_port,
+      password=password,
+      buffer=data.listeners.feed_buffer_s ?? 0.5,
+      max=10.
+    )
+  # While playout's keyed feed is away (playout restarting), key holders hear what the public
+  # hears (its fallback), never silence: the public programme holds nothing keyed (1.3.2).
+  keyed_source =
+    fallback(
+      id="keyed_programme",
+      [
+        feed_keyed.{track_sensitive = {false}, on_select = fun (sw) -> sw.starting},
+        programme.{track_sensitive = {false}, on_select = fun (sw) -> sw.starting}
+      ]
+    )
+  keyed_source = source.drop.metadata_track_marks(keyed_source)
+  keyed_heard := (keyed_source : source)
+  keyed_opus =
+    output.icecast(
+      id="to-keyed",
+      %ogg(%opus(bitrate = opus_bitrate, channels = 2, vbr = "none")),
+      host=data.listeners.host,
+      port=data.listeners.port,
+      password=password,
+      mount=keyed_mount,
+      public=false,
+      keyed_source
+    )
+  keyed_stops = ref([fun () -> keyed_opus.stop()])
+  keyed_starts = ref([fun () -> keyed_opus.start()])
+  if
+    compat.enabled
+  then
+    keyed_mp3 =
+      output.icecast(
+        id="to-keyed-compat",
+        %mp3(bitrate = compat.bitrate ?? 128, samplerate = 44100, stereo = true),
+        host=data.listeners.host,
+        port=data.listeners.port,
+        password=password,
+        mount=(keyed_cfg.compat_mount ?? "programme-keyed.mp3"),
+        public=false,
+        keyed_source
+      )
+    keyed_stops := [...keyed_stops(), fun () -> keyed_mp3.stop()]
+    keyed_starts := [...keyed_starts(), fun () -> keyed_mp3.start()]
+  end
+  def keyed_stop(_) =
+    list.iter(fun (f) -> f(), keyed_stops())
+    "ok stopped"
+  end
+  def keyed_start(_) =
+    list.iter(fun (f) -> f(), keyed_starts())
+    "ok started"
+  end
+  server.register(namespace="keyed", usage="stop", description="Take the keyed mounts down (their listeners are dropped).", "stop", keyed_stop)
+  server.register(namespace="keyed", usage="start", description="Put the keyed mounts up again.", "start", keyed_start)
+end
+
 # ---- The legal logger (ADR-0044) ----
-# What listeners heard, fallback included, in hourly Ogg Opus files named by the hour they
+# What listeners heard, fallback included (with keyed shows on, what key holders heard: the
+# keyed programme, which is the public one outside keyed shows), in hourly Ogg Opus files named by the hour they
 # start (UTC: the container's time), e.g. 2026-10-26/14-00-00.opus. Off until the control plane
 # turns it on: how long recordings are kept is the station's retention setting, and the default
 # (ADR-0113, No retention) keeps none. The control plane deletes files past their period.
@@ -363,7 +448,7 @@ then
       reopen_when=hour_turned,
       %ogg(%opus(bitrate = logger_bitrate, channels = 2, vbr = "constrained")),
       {time.string("#{logger_dir}/%Y-%m-%d/%H-%M-%S.opus")},
-      programme
+      keyed_heard()
     )
   logger_command(logger)
 end

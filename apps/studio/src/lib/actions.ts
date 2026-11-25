@@ -3,6 +3,7 @@
 // What each key (and each button, which runs the same action) does: the keymap's actions
 // turned into the control plane's commands. One place, so a button and its key never differ.
 
+import { keysUi } from './keys.svelte.ts';
 import { onStationChange } from './reset.ts';
 import { tick } from 'svelte';
 import * as api from './api.ts';
@@ -655,6 +656,10 @@ export async function run(a: Action): Promise<void> {
       return;
     case 'stations':
       openStations();
+      return;
+    case 'keys':
+      // The Keys tab's own keys (N, /): the tab acts on each press once.
+      keysUi[a.what] += 1;
       return;
     case 'mod-hide':
     case 'mod-timeout':

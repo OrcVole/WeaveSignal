@@ -20,6 +20,9 @@
   import { adoptInBrowser, type Moved } from './lib/move.ts';
   import { wantsCameraPreview } from './lib/rules.ts';
   import { useStationIce } from './lib/turn.ts';
+  import KeyedNote from './lib/keyed/KeyedNote.svelte';
+  import { keyedShows, type KeyedShows } from './lib/keyed/routes.ts';
+  import { invitedKeyed } from './lib/keyed/words.ts';
 
   // The pass changes once: when a rehearsal link finds it was moved before the person joined.
   const fromLink = (globalThis.location?.hash ?? '').replace(/^#/, '').trim();
@@ -40,6 +43,11 @@
   // Join waits until the page knows whether to show the preview: a press before that took the
   // camera at join and then opened a second capture for the preview (review 0028, C3).
   let checkingVideo = $state(true);
+  /** The station's keyed shows (1.3.2), to say when the show joined is for people with a key. */
+  let keyed = $state<KeyedShows | null>(null);
+  // The keyed line follows the invitation's own show (1.3.2: the pass says which show it is for
+  // and whether that show is keyed now), not whatever is on when the page is opened.
+  const keyedShow = $derived(invitedKeyed(info, keyed));
 
   onMount(async () => {
     if (!pass) return;
@@ -50,6 +58,7 @@
     } catch (e) {
       problem = e instanceof Error ? e.message : String(e);
     }
+    void keyedShows().then((s) => (keyed = s));
     await prepare();
   });
 
@@ -139,6 +148,7 @@
           <!-- What joining does is said once the seat is open: not beside "Not just now". -->
           {#if !info.not_now}<p class="small">{what(info.role, studio)}</p>{/if}
           <p class="small">{lasts(info.expires_at_ms, studio)}</p>
+          {#if !info.ended}<KeyedNote show={keyedShow} rehearsal={studio === 'rehearsal'} />{/if}
         {:else if !problem}
           <h1 id="join-h">Opening your invitation…</h1>
         {:else}

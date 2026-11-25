@@ -28,6 +28,8 @@
     <symbol id="g-phone" viewBox="0 0 14 14"><rect x="4" y="1.5" width="6" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="7" cy="10.5" r="0.7" fill="currentColor"/></symbol>
     <symbol id="g-disc" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></symbol>
     <symbol id="g-chat" viewBox="0 0 14 14"><path d="M2 2.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8L5 13v-2.5H2a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <!-- A key: a keyed show, heard or watched only with a listener key (1.3.2). The padlock above marks what is read-only or private; this marks who may listen. -->
+    <symbol id="g-key" viewBox="0 0 14 14"><circle cx="4.4" cy="4.4" r="2.9" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 6.5l5.8 5.8M9.5 9.5l1.7-1.7M11.5 11.5l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
     <symbol id="g-lock" viewBox="0 0 14 14"><rect x="2.5" y="6" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 6V4.5a2.5 2.5 0 0 1 5 0V6" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
     <symbol id="g-video" viewBox="0 0 14 14"><rect x="1.5" y="3" width="8" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 6l3-2v6l-3-2z" fill="currentColor"/></symbol>
     <symbol id="g-flag" viewBox="0 0 14 14"><path d="M3 13V1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M3 2h8l-2 3 2 3H3z" fill="currentColor"/></symbol>
@@ -48,6 +50,7 @@
     <symbol id="g-repeat" viewBox="0 0 14 14"><path d="M3 7a4 4 0 0 1 4-4h3.5M10.5 3 8.8 1.3M10.5 3 8.8 4.7M11 7a4 4 0 0 1-4 4H3.5M3.5 11l1.7 1.7M3.5 11l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="g-moved" viewBox="0 0 14 14"><path d="M2 7h8M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="g-up" viewBox="0 0 14 14"><path d="M7 11V3M3.5 6.5 7 3l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-behind" viewBox="0 0 14 14"><path d="M7 2v7M3.5 5.8 7 9.3l3.5-3.5M3 12h8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <!-- the cart wall's own (1.2.1): change a cart, add one, a sound dropped in. Drawn for WeaveSignal. -->
     <symbol id="g-edit" viewBox="0 0 14 14"><path d="M2.25 11.75 2.9 9.1l6.4-6.4a1.1 1.1 0 0 1 1.55 0l.45.45a1.1 1.1 0 0 1 0 1.55l-6.4 6.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.4 3.6l2 2" stroke="currentColor" stroke-width="1.3"/></symbol>
     <symbol id="g-add" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>

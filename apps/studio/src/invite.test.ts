@@ -4,7 +4,7 @@
 // the link, how long it lasts, a refusal, and the Solo DJ's own link.
 import { describe, expect, it } from 'vitest';
 import { FieldError } from './lib/api.ts';
-import { DJ_COMES_WITH_FULL, INVITE_ROLES, OWN_LINK, inviteProblem, inviteUrl, joinsLine, lasts, lastsLine, nameProblem, rolesAt } from './lib/invite.ts';
+import { DJ_COMES_WITH_FULL, INVITE_ROLES, OWN_LINK, inviteProblem, inviteUrl, joinsLine, lasts, lastsLine, nameProblem, ownLinkProblem, rolesAt } from './lib/invite.ts';
 
 describe('the invitation dialog', () => {
   it('offers the DJ first, and says of every role that it joins off air (1.3: everyone invited stands by)', () => {
@@ -58,6 +58,21 @@ describe('the invitation dialog', () => {
     // The Solo DJ's own link, refused for an account that is not the show's presenter (403).
     const own = 'While this show runs at Solo, only its presenter makes their own microphone link. Ask an admin to name you its presenter, or move the show up a step.';
     expect(inviteProblem(new FieldError(403, own, null))).toBe(own);
+  });
+
+  it('words the Solo refusal for a preparing window, whose own show is not the one on air (1.3.2)', () => {
+    const solo = new FieldError(403, 'While this show runs at Solo, only its presenter makes their own microphone link. Ask an admin to name you its presenter, or move the show up a step.', null);
+    // A live window reads the station's own sentence, as before.
+    expect(ownLinkProblem(solo, false, 'The Morning Kettle')).toBe(solo.message);
+    // A preparing window is told whose show has the room, and when its own link comes.
+    expect(ownLinkProblem(solo, true, 'The Morning Kettle')).toBe('The Morning Kettle runs at Solo, and while it does only its presenter joins the room. Your own microphone link is made once your show is on air, or when The Morning Kettle moves up a step.');
+    expect(ownLinkProblem(solo, true, null)).toBe('The show on air runs at Solo, and while it does only its presenter joins the room. Your own microphone link is made once your show is on air, or when that show moves up a step.');
+    expect(ownLinkProblem(solo, true, 'The Morning Kettle')).not.toMatch(/Ask an admin|name you its presenter/);
+    // Any other refusal is worded as an invitation's is, preparing or not.
+    const other = new FieldError(403, 'Your account may not create invitations here.', null);
+    expect(ownLinkProblem(other, true, 'The Morning Kettle')).toBe(inviteProblem(other));
+    expect(ownLinkProblem(new FieldError(401, 'x', null), true, null)).toBe(inviteProblem(new FieldError(401, 'x', null)));
+    expect(ownLinkProblem(new TypeError('Failed to fetch'), true, null)).toBe(inviteProblem(new TypeError('Failed to fetch')));
   });
 
   it('offers the roles the show’s step has: no DJ below Full, and the line that says where the DJ comes', () => {

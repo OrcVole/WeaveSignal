@@ -245,6 +245,10 @@
   <p class="help">
     Everyone who runs the studio signs in as themselves. An admin also manages staff, retention and erasure; every role runs the desk, the screener, the carts and the schedule.
   </p>
+  {#if me?.kind === 'station'}
+    <!-- The second step of K2: after adding yourself, which button signs the key out (design review F2). -->
+    <p class="help" data-testid="staff-key-steps">You are on the station key. After adding yourself, press <b>Station key</b> (top right), choose <b>Sign out</b>, then sign in with your username.</p>
+  {/if}
 
   {#if loadError}
     <div class="callout serious" role="alert">
@@ -475,6 +479,10 @@
   }
   .ph .add {
     margin-left: auto;
+  }
+  /* Open Staff lands with the panel's top edge clear of the frame (design review F2). */
+  :global([data-panel='settings.staff']) {
+    scroll-margin-top: var(--s-3);
   }
   .help {
     color: var(--ink-2);

@@ -62,15 +62,18 @@ pub struct NowPlaying {
     /// listener it is the station's fallback, and only the studio is told it is the default.
     pub on_air: String,
     pub now: Option<Current>,
-    /// What comes next; left out for a US statutory webcaster (17 U.S.C. 114(d)(2)(C)(ii)).
+    /// What comes next; left out for a US statutory webcaster (17 U.S.C. 114(d)(2)(C)(ii)) and
+    /// while a keyed show's window is open (1.3.2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<Vec<NextUp>>,
+    /// False when `next` is left out, for either reason.
     pub up_next_shown: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, utoipa::ToSchema)]
 pub struct Current {
-    /// `track`, `cart`, `fallback` or `live`.
+    /// `track`, `cart`, `fallback` or `live`; `show` while a keyed show's window is open (1.3.2),
+    /// when only the show's name is told, in `title`.
     pub kind: String,
     pub title: String,
     pub artist: String,
@@ -82,6 +85,28 @@ pub struct Current {
 pub struct NextUp {
     pub title: String,
     pub artist: String,
+}
+
+/// What listeners are told while a keyed show's window is open (1.3.2): the show and nothing of
+/// its tracks (they would give the show away to people without a key), and no next. Outside a
+/// window it is `full` as it stands. What is on air (`desk`, `automation`, ...) is not a track and
+/// stays.
+pub fn public_view(full: &NowPlaying, keyed: Option<&KeyedNow>) -> NowPlaying {
+    let Some(k) = keyed else {
+        return full.clone();
+    };
+    NowPlaying {
+        on_air: full.on_air.clone(),
+        now: Some(Current {
+            kind: "show".into(),
+            title: k.name.clone(),
+            artist: String::new(),
+            album: String::new(),
+            started_at_ms: k.since_ms,
+        }),
+        next: None,
+        up_next_shown: false,
+    }
 }
 
 /// Listener seconds and sessions of at least a minute, from repeated looks at who is
@@ -341,6 +366,19 @@ struct State {
     empty_generate_ms: Option<i64>,
     /// The station's outgoing-Icecast choice, read once and kept (ADR-0226).
     icecast_mode: Option<IcecastOutMode>,
+    /// A keyed show's window is open (1.3.2): while it is, what listeners are told names only
+    /// the show, never a track, an artist or what is next.
+    keyed: Option<KeyedNow>,
+}
+
+/// The keyed show whose window is open, as now playing names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyedNow {
+    pub show: Uuid,
+    /// The show's name; what listeners are told is playing.
+    pub name: String,
+    /// When the window was first seen open, in epoch milliseconds.
+    pub since_ms: i64,
 }
 
 /// Where the playout layer's parts are.
@@ -371,6 +409,9 @@ pub struct OnAir {
     hub: Weak<Hub>,
     state: Mutex<State>,
     now_tx: watch::Sender<Arc<NowPlaying>>,
+    /// What the staff are shown as playing: the same as `now_tx` but with the tracks of a keyed
+    /// show in it (1.3.2). Only `now_tx` reaches listeners, the events and the webhooks.
+    staff_now_tx: watch::Sender<Arc<NowPlaying>>,
     /// One generation at a time in this process, taken before the database's lock so that at
     /// most one waiter holds a pool connection for it.
     generating: tokio::sync::Mutex<()>,
@@ -378,10 +419,12 @@ pub struct OnAir {
 
 impl OnAir {
     pub fn new(station: StationId, db: PgPool, links: Links, hub: &Arc<Hub>) -> Arc<Self> {
-        let (now_tx, _) = watch::channel(Arc::new(NowPlaying {
+        let start = Arc::new(NowPlaying {
             on_air: "unknown".into(),
             ..NowPlaying::default()
-        }));
+        });
+        let (now_tx, _) = watch::channel(start.clone());
+        let (staff_now_tx, _) = watch::channel(start);
         Arc::new(Self {
             station,
             db,
@@ -389,6 +432,7 @@ impl OnAir {
             hub: Arc::downgrade(hub),
             state: Mutex::new(State::default()),
             now_tx,
+            staff_now_tx,
             generating: tokio::sync::Mutex::new(()),
         })
     }
@@ -460,7 +504,7 @@ impl OnAir {
             }
             let (station, show) = {
                 let v = hub.view();
-                (v.station.clone(), v.show.title.clone())
+                (v.station.clone(), v.show_name().to_owned())
             };
             let current = self.state.lock().unwrap().current.clone();
             let words = slate_words(&station, &show, current.as_ref());
@@ -492,6 +536,14 @@ impl OnAir {
     /// what follows now-playing (the public stream, the events out).
     #[doc(hidden)]
     pub fn announce(&self, np: NowPlaying) {
+        self.staff_now_tx.send_if_modified(|v| {
+            if **v != np {
+                *v = Arc::new(np.clone());
+                true
+            } else {
+                false
+            }
+        });
         self.now_tx.send_if_modified(|v| {
             if **v != np {
                 *v = Arc::new(np);
@@ -504,8 +556,33 @@ impl OnAir {
 
     pub fn status(&self) -> Status {
         let mut s = self.state.lock().unwrap().status.clone();
-        s.now_playing = (*self.now_playing()).clone();
+        // The staff see the keyed show's tracks too (1.3.2); listeners and events never do.
+        s.now_playing = (**self.staff_now_tx.borrow()).clone();
         s
+    }
+
+    /// A keyed show's window opens or closes (1.3.2): while one is open now playing names only
+    /// the show. Called by the keyed shows' driver at every look; changes only when the show
+    /// does, and then what listeners are told is worked out again.
+    pub async fn set_keyed(&self, show: Option<(Uuid, String)>) {
+        let changed = {
+            let mut st = self.state.lock().unwrap();
+            let next = match (&st.keyed, show) {
+                (Some(k), Some((id, name))) if k.show == id => Some(KeyedNow { name, ..k.clone() }),
+                (_, Some((show, name))) => Some(KeyedNow {
+                    show,
+                    name,
+                    since_ms: now_ms() as i64,
+                }),
+                (_, None) => None,
+            };
+            let changed = st.keyed != next;
+            st.keyed = next;
+            changed
+        };
+        if changed {
+            self.publish().await;
+        }
     }
 
     fn notice(&self, tone: Tone, kind: &str, title: &str, message: String) {
@@ -835,7 +912,7 @@ impl OnAir {
 
     /// Work out what listeners are told, and tell them when they hear it.
     async fn publish(&self) {
-        let (on_air, current, us) = {
+        let (on_air, current, us, keyed) = {
             let st = self.state.lock().unwrap();
             (
                 st.status
@@ -849,22 +926,32 @@ impl OnAir {
                     .unwrap_or_else(|| "unknown".into()),
                 st.current.clone(),
                 st.status.retained.us_statutory,
+                st.keyed.clone(),
             )
         };
         let next = if us { None } else { Some(self.up_next().await) };
-        let np = NowPlaying {
+        let full = NowPlaying {
             on_air,
             now: current,
             up_next_shown: next.is_some(),
             next,
         };
-        let tx = self.now_tx.clone();
+        let public = public_view(&full, keyed.as_ref());
+        let (tx, staff_tx) = (self.now_tx.clone(), self.staff_now_tx.clone());
         let delay = self.links.listener_delay;
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
+            staff_tx.send_if_modified(|v| {
+                if **v != full {
+                    *v = Arc::new(full);
+                    true
+                } else {
+                    false
+                }
+            });
             tx.send_if_modified(|v| {
-                if **v != np {
-                    *v = Arc::new(np);
+                if **v != public {
+                    *v = Arc::new(public);
                     true
                 } else {
                     false
@@ -1819,6 +1906,57 @@ fn slate_words(station: &str, show: &str, current: Option<&Current>) -> DeskComm
 
 #[cfg(test)]
 mod tests {
+    fn playing() -> NowPlaying {
+        NowPlaying {
+            on_air: "automation".into(),
+            now: Some(Current {
+                kind: "track".into(),
+                title: "Auld Lang Syne".into(),
+                artist: "Isla Robertson".into(),
+                album: "Hogmanay".into(),
+                started_at_ms: 5,
+            }),
+            next: Some(vec![NextUp {
+                title: "Loch Lomond".into(),
+                artist: "Hamish Grant".into(),
+            }]),
+            up_next_shown: true,
+        }
+    }
+
+    #[test]
+    fn a_keyed_shows_window_tells_listeners_the_show_and_nothing_of_its_tracks() {
+        let full = playing();
+        // No window: as it stands.
+        assert_eq!(public_view(&full, None), full);
+        let k = KeyedNow {
+            show: Uuid::from_u128(1),
+            name: "The Late Blether".into(),
+            since_ms: 99,
+        };
+        let public = public_view(&full, Some(&k));
+        let now = public.now.as_ref().expect("the show is named");
+        assert_eq!(
+            (now.kind.as_str(), now.title.as_str(), now.started_at_ms),
+            ("show", "The Late Blether", 99)
+        );
+        assert!(now.artist.is_empty() && now.album.is_empty());
+        assert!(public.next.is_none() && !public.up_next_shown);
+        assert_eq!(public.on_air, "automation", "what is on air is no track");
+        // Nothing of the tracks is in what goes out, as JSON or in a webhook.
+        let json = serde_json::to_string(&public).unwrap();
+        for secret in [
+            "Auld Lang Syne",
+            "Isla Robertson",
+            "Hogmanay",
+            "Loch Lomond",
+            "Hamish Grant",
+        ] {
+            assert!(!json.contains(secret), "{secret} is in {json}");
+        }
+        assert!(json.contains("The Late Blether"));
+    }
+
     use super::*;
 
     fn current(kind: &str, title: &str, artist: &str) -> Current {
