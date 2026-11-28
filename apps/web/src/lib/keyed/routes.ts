@@ -114,9 +114,8 @@ export type KeyMedia = 'sound' | 'video' | 'both';
 export interface ListenKey {
   id: string;
   kind: KeyKind;
-  /** The name staff gave it, to find it again. The station sends it; the page never shows it
-   *  and does not keep it (words.ts, `GREETING`). */
-  label: string;
+  /* No `label`: the name staff gave a key is theirs, and the station does not send it to the
+   * holder (1.3.3; words.ts, `GREETING`). */
   /** `video` opens what `both` does: a key for the picture carries the show's sound. */
   media: KeyMedia;
   all_shows: boolean;

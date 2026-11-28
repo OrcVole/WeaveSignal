@@ -98,7 +98,9 @@ export const KIND_LINE: Record<KeyKind, string> = {
 };
 /** What a key is for. A key for the picture carries the show's sound with it (the operator,
  *  2026-11-25: a video key also opens the show's sound), so `video` opens what `both` does and
- *  its words say so: there is no picture without the sound. */
+ *  its words say so: there is no picture without the sound. The studio no longer offers
+ *  `video` for a new key (1.3.3; ADR-0295); the word stays for the keys made with it, which go
+ *  on working, and the station still takes it. */
 export const MEDIA_WORD: Record<KeyMedia, string> = { both: 'Sound and picture', sound: 'Sound only', video: 'Picture, with its sound' };
 /** What the public hears while a keyed show's window is open, as playout says it (the studio
  *  view's `keyed.public_hears`). */

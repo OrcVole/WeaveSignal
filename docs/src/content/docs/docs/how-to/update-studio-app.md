@@ -12,7 +12,7 @@ The desktop studio app (the AppImage, `.deb`, `.rpm` or Windows installer) check
 The project's packages read `https://weavesignal.top/updates/latest.json`, on the project's own domain (ADR-0140).
 It never installs anything by itself.
 
-> **An update has run on a real install:** the Windows studio app updated itself from 1.0.4 to 1.0.5 from the public feed and stayed signed in (16 November 2026). A rollback on an installed copy has not been tried yet ([status](/docs/reference/release-one-status/)).
+> **An update has run on a real install:** the Windows studio app updated itself from 1.0.4 to 1.0.5 from the public feed and stayed signed in (16 November 2026). A rollback from **Settings** (an AppImage's) has not been tried on an installed copy yet; installing an older Windows installer over a newer one has been run once, in a test virtual machine ([status](/docs/reference/release-one-status/)).
 > A package built without the project's update key (your own `just package-desktop` without one) never updates itself; **Settings > Updates** then says so.
 
 ## Find and install an update
@@ -70,7 +70,7 @@ sudo dnf downgrade ./WeaveSignal-1.0.0-1.x86_64.rpm                   # Fedora
 ```
 
 On Windows, run the earlier `WeaveSignal_1.0.0_x64-setup.exe`.
-Not tried on Windows yet ([planned](/docs/reference/release-one-status/)).
+Run once on Windows (16 November 2026, in a test virtual machine): the published 1.0.4 installer, run silently over a 1.0.5 test build, installed 1.0.4, which opened signed out.
 
 **Going back to a version older than 1.0.5.**
 This applies to a rollback from Settings and to installing an older `.deb`, `.rpm` or Windows installer over a newer one.

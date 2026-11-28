@@ -15,7 +15,7 @@ You will check your microphone and headphones, hear your station as a listener d
 > **The studio app makes no sound of its own.**
 > It shows the desk and sends your keys; it does not play the station and it does not carry your voice.
 > Sound goes in and out through pages in a web browser on the same computer: the **player** to listen, the **echo test** to try your microphone and headphones, and your **microphone link** to speak and to hear the studio.
-> So there is nothing to choose in the studio app for your microphone or speakers ([Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/)).
+> So there is nothing to choose in the studio app for your microphone or speakers: the microphone is chosen on your microphone link's page, the speakers in the browser and in Windows ([Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/)).
 
 **No station yet?** The studio app on its own is not a station: it needs one to sign in to.
 To hear what a station sounds like first, open [Try the desk](/try/) in a browser and press **Start**: the sandbox plays its show in the browser tab, and nothing you press reaches a real station.
@@ -104,7 +104,7 @@ Every show works the same way: the studio app drives the desk, and the browser t
 ## If it does not work
 
 - **The address says *This station is not set up yet*.** The station has no name yet, and shows that page in place of the player. Its admin finishes [Set up the station](/docs/how-to/set-up-the-station/); on Cloudron, the public pages' domain has the player meanwhile.
-- **There is no Join with my microphone… button.** You signed in with the station key, your account is not an admin's or a producer's, someone is already presenting, or the window is preparing a show. Sign in with your own admin or producer account.
+- **There is no Join with my microphone… button.** You signed in with the station key, a presenter is already in the room (or a DJ is on air), or the show is above Solo and your account is neither an admin's, a producer's nor the show presenter's. Sign in with your own admin or producer account.
 - **The player is silent.** See [No sound?](/guides/no-sound/).
 - **Your microphone or headphones are the wrong ones.** See [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/).
 

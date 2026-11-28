@@ -245,9 +245,8 @@ struct ShowRef {
 #[schema(as = ListenKey)]
 struct HolderKey {
     id: Uuid,
-    /// The name staff gave it, to find it again. It is theirs: the station's player does not
-    /// show it to the key's holder, and another player should not either.
-    label: String,
+    // No `label` (1.3.3): the name staff gave a key is theirs, to find it again, and the station
+    // does not send it to the key's holder.
     kind: Kind,
     /// `video` opens what `both` does: a key for the picture carries the show's sound.
     media: Media,
@@ -387,7 +386,6 @@ async fn grant(
         device: g.device,
         key: HolderKey {
             id: g.key.id,
-            label: g.key.label,
             kind: g.key.kind,
             media: g.key.media,
             all_shows: g.key.all_shows,
@@ -520,24 +518,18 @@ async fn redeem(
             let opens = |s: Uuid| k.all_shows || k.shows.contains(&s);
             match show {
                 Some(s) if !opens(s) => {
-                    return refusal_response(Refusal::DoesNotOpenShow, json!({ "label": k.label }));
+                    return refusal_response(Refusal::DoesNotOpenShow, json!({}));
                 }
                 Some(s) => {
                     if rt.live.token_window(s, now as i64).is_none() {
-                        return refusal_response(
-                            Refusal::NotScheduled,
-                            json!({ "label": k.label }),
-                        );
+                        return refusal_response(Refusal::NotScheduled, json!({}));
                     }
                     Some(s)
                 }
                 None => match rt.live.first_for(opens, now as i64) {
                     Some(s) => Some(s),
                     None => {
-                        return refusal_response(
-                            Refusal::NotScheduled,
-                            json!({ "label": k.label }),
-                        );
+                        return refusal_response(Refusal::NotScheduled, json!({}));
                     }
                 },
             }
@@ -580,9 +572,6 @@ async fn redeem(
                 extra["devices"] = devices_json(&devices);
                 extra["max_devices"] = json!(key.as_ref().and_then(|k| k.max_devices));
                 extra["device_hold_s"] = json!(rt.config.device_hold_s);
-            }
-            if let Some(k) = key.as_ref() {
-                extra["label"] = json!(k.label);
             }
             refusal_response(refusal, extra)
         }
@@ -707,9 +696,9 @@ async fn renew(
     .await;
     match verdict {
         Err(e) => server_error(e),
-        Ok(Verdict::Refused { refusal, key, .. }) => {
-            let extra = key.map_or(json!({}), |k| json!({ "label": k.label }));
-            refusal_response(refusal, extra)
+        Ok(Verdict::Refused { refusal, .. }) => {
+            // Nothing of the key's own: its label is staff's (1.3.3).
+            refusal_response(refusal, json!({}))
         }
         Ok(Verdict::Granted(g)) => match grant(&state, pool, *g, now as i64, Some(show_id)).await {
             Ok(r) => (
@@ -1221,10 +1210,7 @@ mod tests {
 
     #[test]
     fn a_refusal_answers_with_a_code_a_sentence_and_what_the_words_need() {
-        let r = refusal_response(
-            Refusal::NotYetValid { from_ms: 1234 },
-            json!({ "label": "Ishbel" }),
-        );
+        let r = refusal_response(Refusal::NotYetValid { from_ms: 1234 }, json!({}));
         assert_eq!(r.status(), StatusCode::FORBIDDEN);
         let r = refusal_response(Refusal::NotRecognised, json!({}));
         assert_eq!(r.status(), StatusCode::NOT_FOUND);

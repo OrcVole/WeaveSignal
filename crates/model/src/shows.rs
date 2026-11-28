@@ -3291,6 +3291,26 @@ pub async fn episode_files_in_use(
     Ok(rows.into_iter().map(|(v,)| v).collect())
 }
 
+/// The key rule and opening time of each show whose episodes name a published file, one row per
+/// episode naming it (no rule: a public show). On every station: they share the directory. No
+/// row: no episode names the file.
+pub async fn file_rules(
+    pool: &sqlx::PgPool,
+    name: &str,
+) -> Result<Vec<(Option<String>, Option<i64>)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT a.rule, (extract(epoch FROM a.opens_at) * 1000)::bigint
+         FROM episode e
+         JOIN series s ON s.station_id = e.station_id AND s.id = e.series_id
+         LEFT JOIN show_access a ON a.station_id = s.station_id AND a.show_id = s.show_id
+         WHERE e.files IS NOT NULL
+           AND EXISTS (SELECT 1 FROM jsonb_each(e.files) f WHERE f.value ->> 'file' = $1)",
+    )
+    .bind(name)
+    .fetch_all(pool)
+    .await
+}
+
 /// Every card file any show, series or episode names now (all stations: they share a
 /// directory), so files no longer named can be deleted.
 pub async fn card_files_in_use(

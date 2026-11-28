@@ -19,7 +19,7 @@ A window that is **Preparing** fires nothing, and still adds and changes carts, 
 
 - **A sound file**: WAV, FLAC, MP3, Ogg (Vorbis or Opus) or M4A.
 - **Up to 64 MB and 10 minutes**, unless your station is set otherwise (`carts.max_upload_mb` and `carts.max_seconds`, [Settings](/docs/reference/settings/)). The dialog prints your station's own figures.
-- **At any loudness.** The station measures the sound and plays every cart at one loudness (`carts.loudness_lufs`, −23 LUFS unless set otherwise), so a quiet recording and a loud jingle come out level. Your file on your computer is not changed.
+- **At any loudness.** The station measures the sound and plays every cart at one loudness (−16 LUFS on a station installed with 1.3.3 or later, −23 on one from an earlier release, unless set otherwise: [The carts' loudness](/docs/reference/desk-carts/#the-carts-loudness)), so a quiet recording and a loud jingle come out level. Your file on your computer is not changed.
 
 ## Add a cart to an empty slot
 
@@ -46,7 +46,7 @@ An empty slot says **Add a cart**.
 
 The dialog says the file is on its way while the station reads it, measures it and levels it; a long sound takes a few seconds.
 **Stop** (`Esc`) ends the wait at once, so the wall's keys are yours again if you need them on air.
-When the cart is added the dialog closes, the wall says what was measured (*“Top of the hour” is on Q: 0:02 · measured −9.0 LUFS, plays at −23.0 LUFS (gain −14.0 dB)*), and the focus is on the new pad: its key fires it.
+When the cart is added the dialog closes, the wall says what was measured (*“Top of the hour” is on Q: 0:02 · measured −9.0 LUFS, plays at −16.0 LUFS (gain −7.0 dB)*; a station from before 1.3.3 says −23.0 and the gain to match), and the focus is on the new pad: its key fires it.
 
 If the station refuses the file, the dialog shows the station's own sentence and keeps what you typed.
 The common ones:

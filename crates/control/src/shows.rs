@@ -27,14 +27,16 @@
 //! | `GET /api/v1/schedule/episodes?from_ms=&to_ms=` | every episode airing in the range with its show, series and resolved fields: the calendar's week |
 //!
 //! Public, no bearer: `GET /feeds/{show}.xml` (the podcast feed), `GET /cards/{file}` and
-//! `GET /media/episodes/{file}` (files, with ranges).
+//! `GET /media/episodes/{file}` (files, with ranges). While a show is kept for people with a key
+//! (1.3.3) its feed lists no episode and its files are not served; the file route serves only
+//! files an episode names.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::{Path as UrlPath, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
@@ -42,13 +44,15 @@ use jiff::tz::TimeZone;
 use jiff::{Timestamp, Zoned};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tower_http::services::ServeDir;
+use tower::ServiceExt;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use weavesignal_cards::{
     CardData, CardError, EpisodeCard, Layout, Output, SeriesCard, ShowCard, StationCard,
 };
 use weavesignal_feeds::tags::{self, EpisodeTags};
 use weavesignal_model::Station;
+use weavesignal_model::listener_keys;
 use weavesignal_model::planner::{self, Clash, Clashes, NextOn};
 use weavesignal_model::rule::{Rule, RuleWords};
 use weavesignal_model::ruleplan;
@@ -109,7 +113,6 @@ impl ShowsState {
 
 pub fn router(state: Arc<ShowsState>) -> Router {
     let cards = ServeDir::new(&state.publishing.cards_dir);
-    let media = ServeDir::new(&state.publishing.episodes_dir);
     Router::new()
         .route("/api/v1/shows", get(list))
         .route(
@@ -155,6 +158,7 @@ pub fn router(state: Arc<ShowsState>) -> Router {
         .route("/api/v1/people", get(list_people))
         .route("/api/v1/people/{id}/erase", post(erase_person))
         .route("/feeds/{file}", get(feed))
+        .route("/media/episodes/{file}", get(episode_file))
         // The open read-only routes for station websites (ADR-0195).
         .merge(crate::open::show_routes())
         // A show's rule: changing it, previewing it (release 1.0.4).
@@ -162,7 +166,6 @@ pub fn router(state: Arc<ShowsState>) -> Router {
         // Calendar files: the schedule as .ics, and a file read into new shows (release 1.0.5).
         .merge(crate::calendar::routes())
         .nest_service("/cards", cards)
-        .nest_service("/media/episodes", media)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -2436,7 +2439,7 @@ fn media(public: &str, v: &Value, title: &str) -> Option<weavesignal_feeds::Medi
     operation_id = "shows_feed",
     tag = "public",
     summary = "A show's podcast feed",
-    description = "`{slug}.xml`, the show's RSS feed with its episodes. 503 while the show's card has not been drawn or `publishing.public_url` is not set.",
+    description = "`{slug}.xml`, the show's RSS feed with its episodes. While the show is kept for people with a key the feed lists none (1.3.3). 503 while the show's card has not been drawn or `publishing.public_url` is not set.",
     params(("file" = String, Path, description = "The show's slug and `.xml`")),
     responses(
         (status = 200, description = "The feed.", body = String, content_type = "application/rss+xml"),
@@ -2511,7 +2514,13 @@ async fn feed(State(state): State<Arc<ShowsState>>, UrlPath(file): UrlPath<Strin
         generator: "WeaveSignal".into(),
     };
     let mut items = Vec::new();
-    for (series, ep) in shows::published_episodes(pool, show.id).await? {
+    // A keyed show's feed stays, empty, until the show is open to everyone.
+    let published = if kept_for_keys(&state, show.id).await? {
+        Vec::new()
+    } else {
+        shows::published_episodes(pool, show.id).await?
+    };
+    for (series, ep) in published {
         let Some(r) = ep.frozen.clone() else { continue };
         let Some(files) = &ep.files else { continue };
         let kind = |v: &Value| match v.get("mime").and_then(Value::as_str) {
@@ -2601,6 +2610,66 @@ async fn feed(State(state): State<Arc<ShowsState>>, UrlPath(file): UrlPath<Strin
         Body::from(xml),
     )
         .into_response())
+}
+
+// The files.
+
+/// Whether a show is kept for people with a key now: its episodes' files are then in no feed,
+/// public list or file route (1.3.3).
+pub(crate) async fn kept_for_keys(state: &ShowsState, show: uuid::Uuid) -> Result<bool, Fail> {
+    let access =
+        weavesignal_model::listener_keys_db::get_access(db(state)?, state.station.id, show).await?;
+    Ok(crate::public::keyed_by(
+        access.as_ref(),
+        crate::hub::now_ms() as i64,
+    ))
+}
+
+/// `GET /media/episodes/{file}`: a published episode file, with ranges. Only a file an episode
+/// names, and none whose show is kept for people with a key; the rules unread, nothing.
+#[utoipa::path(
+    get,
+    path = "/media/episodes/{file}",
+    operation_id = "shows_episode_file",
+    tag = "public",
+    summary = "A published episode file",
+    description = "A file an episode names, with ranges, as the feed gives its address. 404 for a file no episode names, and while a show naming it is kept for people with a key (1.3.3).",
+    params(("file" = String, Path, description = "The file's name")),
+    responses(
+        (status = 200, description = "The file.", content_type = "application/octet-stream"),
+        (status = 206, description = "The range asked for."),
+        (status = 404, response = crate::openapi::NotFound),
+        (status = 503, response = crate::openapi::Unavailable),
+        (status = 500, description = "The database failed.", body = crate::openapi::Problem),
+    ),
+    security(()),
+)]
+async fn episode_file(
+    State(state): State<Arc<ShowsState>>,
+    UrlPath(file): UrlPath<String>,
+    request: Request<Body>,
+) -> Answer {
+    // The name checked is the one served: decoded once, here, and never from the address again.
+    if !file_name(&file) {
+        return Err(missing(format!("file `{file}`")));
+    }
+    let rules = shows::file_rules(db(&state)?, &file).await?;
+    let now = crate::hub::now_ms() as i64;
+    let keyed = rules.iter().any(|(rule, opens_at)| {
+        rule.as_deref().is_some_and(|rule| {
+            listener_keys::effective(rule, *opens_at, now) == listener_keys::Effective::Key
+        })
+    });
+    if rules.is_empty() || keyed {
+        return Err(missing(format!("file `{file}`")));
+    }
+    let served = ServeFile::new(state.publishing.episodes_dir.join(&file))
+        .oneshot(request)
+        .await;
+    Ok(match served {
+        Ok(response) => response.map(Body::new).into_response(),
+        Err(never) => match never {},
+    })
 }
 
 // ---- the description (ADR-0195) ----
@@ -2694,7 +2763,8 @@ struct CardFields {
     episodes_between,
     list_people,
     erase_person,
-    feed
+    feed,
+    episode_file
 ))]
 pub(crate) struct Api;
 

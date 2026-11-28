@@ -21,6 +21,8 @@
   import { setShowAccess, showAccess, type AccessRule, type ShowAccess, type Slate } from '../lib/keysApi.ts';
   import { accessUi, keyed, loadKeyed, reloadKeyed } from '../lib/keys.svelte.ts';
   import { toKeys as goToKeys } from '../lib/keyedNav.ts';
+  import { FILES, holdsFiles } from '../lib/keyed.ts';
+  import { APP_VERSION } from '../appVersion.ts';
   import KeySteps from '../keys/KeySteps.svelte';
   import { studio } from '../lib/studio.svelte.ts';
   import { fromLocalInput, localInputValue } from './model.ts';
@@ -76,20 +78,27 @@
   const opensMs = $derived(opens ? fromLocalInput(opens, zone) : null);
   const dirty = $derived(!!stored && (rule !== stored.rule || (rule === 'key' && (slate !== stored.slate || slateNote.trim() !== stored.slate_note || (opensMs ?? null) !== (stored.opens_at_ms ?? null)))));
   const opened = $derived(stored?.rule === 'key' && stored.opens_at_ms != null && stored.opens_at_ms <= now);
+  /** The station holds a keyed show's podcast feed and episode files back (1.3.3). */
+  const held = $derived(holdsFiles(studio.stationVersion, APP_VERSION));
   /** For someone who may not read the rule: what the public list says of this show. */
   const listed = $derived(keyed.list?.shows.find((s) => s.slug === slug) ?? null);
 
   // The rule was changed elsewhere while this is open (the tick at the top of the pane, in the
   // list of shows, on the Keys tab; another window): the station's list no longer agrees with
   // what was read here, so it is read again, unless something typed here waits to be saved.
-  // Without this a save here would send the old rule back over the new one.
+  // Without this a save here would send the old rule back over the new one. The time it opens
+  // to everyone counts too (1.3.3): a show that had opened by itself and is ticked again keeps
+  // its rule and loses that time, and a form that still held the past time would say the show
+  // was open, and send the past time back with the next save.
   // Once for each reading of the list: a list and a rule that still disagree are not asked about in a loop.
   let rereadFor: unknown = null;
   $effect(() => {
     const list = keyed.list;
     if (phase !== 'ok' || !stored || keyed.state !== 'ok' || !list) return;
-    const now = list.shows.some((s) => s.slug === slug) ? 'key' : 'public';
-    if (now === stored.rule || dirty || saving || list === rereadFor) return;
+    const row = list.shows.find((s) => s.slug === slug) ?? null;
+    const now = row ? 'key' : 'public';
+    const same = now === stored.rule && (now === 'public' || (row?.opens_at_ms ?? null) === (stored.opens_at_ms ?? null));
+    if (same || dirty || saving || list === rereadFor) return;
     rereadFor = list;
     untrack(() => {
       void showAccess(slug)
@@ -167,6 +176,9 @@
     {#if phase === 'ok' && stored}
       {#if may}
         <KeySteps compact current={1} go={{ 2: stored.rule === 'key' ? makeKey : undefined }} waits={{ 2: 'Choose People with a key and save, and this step leads to Make a key.', 3: 'Send opens by itself the moment a key is made.' }} />
+        <!-- A show that opened to everyone by itself still has People with a key chosen below: said
+             first, above the choice, so the form is not read as a show still kept (1.3.3). -->
+        {#if opened && !dirty}<p class="src-note" data-testid="access-opened">This show opened to everyone on {timeWords(stored.opens_at_ms!, zone)}, so no key is needed now. To keep it for people with a key again, clear <b>Opens to everyone</b> or give it a later time, and save.</p>{/if}
         <div class="choice" role="radiogroup" aria-label="Who can listen to {name}">
           <label class="opt" class:on={rule === 'public'}><input type="radio" name="access-{slug}" value="public" bind:group={rule} /><span><b>Everyone</b><span class="hint">The show is on the station’s streams as ever.</span></span></label>
           <label class="opt" class:on={rule === 'key'}><input type="radio" name="access-{slug}" value="key" bind:group={rule} /><span><b>People with a key</b><span class="hint">Advertised to everyone, heard and watched only with a key you give out.</span></span></label>
@@ -188,9 +200,8 @@
             <input type="datetime-local" bind:value={opens} aria-label="When the show opens to everyone" />
           </Field>
         {/if}
-        {#if opened && !dirty}<p class="src-note" data-testid="access-opened">This show opened to everyone on {timeWords(stored.opens_at_ms!, zone)}, so no key is needed now.</p>{/if}
         {#if dirty && rule !== stored.rule}
-          <p class="src-note" role="status">{rule === 'key' ? 'From the moment you save, new listeners need a key to hear this show.' : 'From the moment you save, anyone can listen to this show again.'}</p>
+          <p class="src-note" role="status" data-testid="access-will">{rule === 'key' ? `From the moment you save, new listeners need a key to hear this show. ${held ? `${FILES.tick} ${FILES.gone}` : FILES.older}` : `From the moment you save, anyone can listen to this show again.${held ? ` ${FILES.back}` : ''}`}</p>
         {/if}
         {#if problem}<p class="err" role="alert">{problem}</p>{/if}
         <div class="acts">

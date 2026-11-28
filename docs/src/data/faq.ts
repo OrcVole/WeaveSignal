@@ -53,7 +53,7 @@ export const questions: Question[] = [
     home: true,
     q: 'Does it run on macOS?',
     a: [
-      'There is no macOS build of the studio app yet. A presenter or guest on a Mac joins from the browser as anyone does; running the desk from a Mac is not possible yet. The server runs on Linux.',
+      'There is no macOS build of the studio app, and none is planned. A presenter or guest on a Mac joins from the browser as anyone does; running the desk needs a Linux or Windows machine. The server runs on Linux.',
     ],
   },
   {
@@ -61,7 +61,7 @@ export const questions: Question[] = [
     q: 'How is it packaged?',
     a: [
       'The server comes three ways: a Compose bundle installed by <code>weavesignal.sh</code> on any Linux server with Docker Compose or Podman; a Cloudron app, installed from its published image with Cloudron\'s command-line tool; and Quadlets for systemd, generated from the same bundle. All three run the same published images.',
-      'The studio app comes as an AppImage, a <code>.deb</code> and an <code>.rpm</code> for Linux (64-bit Intel and AMD), and as an unsigned Windows installer (<code>.exe</code>) that has been built but not yet run on Windows. <a href="/run/">Run your own station</a> has the commands and the downloads; <a href="/docs/reference/packages/">Packages and install files</a> lists every file.',
+      'The studio app comes as an AppImage, a <code>.deb</code> and an <code>.rpm</code> for Linux (64-bit Intel and AMD), and as an unsigned Windows installer (<code>.exe</code>) that has been run on Windows 11 in a test virtual machine. <a href="/run/">Run your own station</a> has the commands and the downloads; <a href="/docs/reference/packages/">Packages and install files</a> lists every file.',
     ],
   },
   {
@@ -87,7 +87,7 @@ export const questions: Question[] = [
     home: true,
     q: 'Is it ready for a real station?',
     a: [
-      'Release 1.3.2 is the thirteenth public release; 1.0.0 came out on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the Windows installer has been run on Windows 11 once, unsigned.',
+      'Release 1.3.3 is the fourteenth public release; 1.0.0 came out on 4 November 2026. A station has been installed from the published images on a public server, and a real caller has rung in from a phone and gone to air. Some parts have not run end to end yet: the status page lists them. It has streamed for 24 hours on a server of its own with no restart; two people talking over two real networks has been measured but not judged by ear, and the unsigned Windows installer and the studio app\'s own updater have been run on Windows 11 in a test virtual machine, not on Windows 10.',
       'So: run a test show before you put a real one on air, on a server of its own, and read <a href="/docs/reference/release-one-status/">what release one does and leaves out</a>.',
     ],
   },

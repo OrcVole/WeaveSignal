@@ -36,7 +36,7 @@ Sound goes through a browser on the same computer:
 
 1. If the page says **Your microphone is blocked**, allow it by the lock at the left of the address, then press **Try again**.
 2. On the Desk tab, look at your tile: it must say **ON AIR** to reach listeners. You join standing by; your slot's key, `1`, puts you on air.
-3. If your tile's meter does not move when you speak, the browser has another microphone: [choose yours](/docs/how-to/choose-your-microphone-and-speakers/).
+3. If your tile's meter does not move when you speak, the page has another microphone: on your microphone link's page, choose yours under **Your microphone** and press **Use** with its name ([more](/docs/how-to/choose-your-microphone-and-speakers/)).
 
 ## A cart plays nowhere
 

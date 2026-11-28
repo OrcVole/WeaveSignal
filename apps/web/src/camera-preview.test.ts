@@ -42,9 +42,15 @@ vi.mock('livekit-client', () => {
   return {
     Room,
     RoomEvent: {},
+    TrackEvent: { Restarted: 'restarted', Muted: 'muted' },
     DisconnectReason: {},
     Track: { Source: { Camera: 'camera', Microphone: 'microphone' }, Kind: {} },
-    createLocalAudioTrack: async () => ({ mediaStreamTrack: {} as MediaStreamTrack, stop: () => {} }),
+    createLocalAudioTrack: async () => ({
+      mediaStreamTrack: { readyState: 'live', label: 'Built-in Audio', getSettings: () => ({ deviceId: 'built-in' }), addEventListener: () => {} } as unknown as MediaStreamTrack,
+      stop: () => {},
+      on: () => {},
+      off: () => {},
+    }),
     createLocalVideoTrack: async () => {
       events.push('capture camera');
       if (denied) throw new DOMException('no', 'NotAllowedError');

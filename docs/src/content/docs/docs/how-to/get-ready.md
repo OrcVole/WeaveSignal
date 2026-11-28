@@ -24,7 +24,7 @@ It takes five minutes, and most of it is the headphones.
    ![The invitation page after the browser refused the microphone: the chip No microphone, Your microphone is blocked, the advice, and Try again.](../../../../assets/screens/reference-public-pages-no-mic.png)
 
 The studio app does not carry your voice: it shows the desk and sends your keys, and your voice reaches the room from the browser.
-So the microphone and the headphones are the ones the browser and Windows choose ([Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/)).
+So the headphones are the ones the browser and Windows choose, and the microphone is the one named under **Your microphone** on that page, where you can choose another (from 1.3.3; [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/)).
 The studio app joining the room itself, so you present from one window (ADR-0013), is [planned](/docs/reference/release-one-status/#not-in-release-one).
 
 As a presenter you join in slot 1 of the desk, standing by: you go on air when the air is taken back from automation for your show, at the post, at a handover's press, or by your slot's key (since 1.3; before, a presenter's invitation was on air at once).

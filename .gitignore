@@ -47,6 +47,7 @@ __pycache__/
 /tests/pull/run/
 /tests/keyed/run/
 /tests/keyed/run-edge/
+/tests/keyed/run-edge-tls/
 /tests/keyed/last-*.log
 /tests/keyed/run-stack/
 /tests/keyed/run-slate/

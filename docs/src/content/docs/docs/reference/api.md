@@ -2514,7 +2514,7 @@ The station, the show, the stream, whether the presenter is live, whether call-i
 
 Needs: nobody (no bearer).
 
-For a station's own website: aired episodes with published files, newest first, with where to hear them, their card, their page and their feed. Page back with `before_ms`. No bearer; CORS open to any origin; limited per address. Cached for 30 s.
+For a station's own website: aired episodes with published files, newest first, with where to hear them, their card, their page and their feed. None of a show kept for people with a key (1.3.3). Page back with `before_ms`. No bearer; CORS open to any origin; limited per address. Cached for 30 s.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -2613,7 +2613,7 @@ For a station's own website: the station, the show now, the stream, whether the 
 
 Needs: nobody (no bearer).
 
-`{slug}.xml`, the show's RSS feed with its episodes. 503 while the show's card has not been drawn or `publishing.public_url` is not set.
+`{slug}.xml`, the show's RSS feed with its episodes. While the show is kept for people with a key the feed lists none (1.3.3). 503 while the show's card has not been drawn or `publishing.public_url` is not set.
 
 | Parameter | In | Type | Needed | Meaning |
 |---|---|---|---|---|
@@ -2642,6 +2642,26 @@ Playlists never cached, segments briefly. Only names the desk writes (letters, d
 |---|---|---|
 | 200 | The file. | [File](#schema-file) (`application/vnd.apple.mpegurl`) |
 | 404 | There is no such thing. | [Problem](#schema-problem) |
+
+### GET /media/episodes/{file}
+
+**A published episode file**
+
+Needs: nobody (no bearer).
+
+A file an episode names, with ranges, as the feed gives its address. 404 for a file no episode names, and while a show naming it is kept for people with a key (1.3.3).
+
+| Parameter | In | Type | Needed | Meaning |
+|---|---|---|---|---|
+| `file` | path | string | yes | The file's name |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | The file. | any (`application/octet-stream`) |
+| 206 | The range asked for. |  |
+| 404 | There is no such thing. | [Problem](#schema-problem) |
+| 500 | The database failed. | [Problem](#schema-problem) |
+| 503 | The part of the station that answers is not configured or does not answer (the desk, the database, LiveKit, mail). | [Problem](#schema-problem) |
 
 ## Routes: tokens
 
@@ -6678,7 +6698,6 @@ What the holder is told about the key: enough for "Welcome. This key opens the F
 | `ends_soon` | boolean | yes | The key ends within `keys.ends_soon_days`: say so. |
 | `id` | string (uuid) | yes |  |
 | `kind` | [ListenerKeyKind](#schema-listenerkeykind) | yes |  |
-| `label` | string | yes | The name staff gave it, to find it again. It is theirs: the station's player does not show it to the key's holder, and another player should not either. |
 | `media` | [ListenerKeyMedia](#schema-listenerkeymedia) | yes | `video` opens what `both` does: a key for the picture carries the show's sound. |
 | `shows` | array of [ListenShow](#schema-listenshow) | yes | The shows it opens when it is not `all_shows`. |
 | `valid_from_ms` | integer (int64), or null | no |  |

@@ -411,7 +411,7 @@ async fn import_track(
         );
     }
     let mut cfg = state.hub.carts.config.clone();
-    cfg.loudness_lufs = o.links.library_lufs;
+    cfg.loudness_lufs = Some(o.links.library_lufs);
     cfg.max_seconds = o.links.library_max_seconds;
     let (flac, report) = match crate::media::normalise(&cfg, body.to_vec()).await {
         Ok(r) => r,

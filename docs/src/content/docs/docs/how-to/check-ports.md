@@ -16,14 +16,14 @@ The Compose route's installer, `weavesignal.sh`, makes the same check itself and
 weavesignal-control --config control.toml check-ports
 ```
 
-It lists all sixteen ports under `[ports]`, each as `free` or `TAKEN`, with its setting and what listens on it, and ends with `every port is free` when they all are:
+It lists all nineteen ports under `[ports]`, each as `free` or `TAKEN`, with its setting and what listens on it, and ends with `every port is free` when they all are:
 
 ```text
 free    7310/tcp  control  (the control plane's HTTP API, behind the proxy)
 free    7882/udp  livekit_media  (LiveKit's one WebRTC media port (ADR-0023))
 ```
 
-Loopback ports are checked on the internal address (`listen.internal`, `127.0.0.1` by default), and the public ones (the proxy's, LiveKit's media, ICE over TCP and TURN) on every address.
+Loopback ports are checked on the internal address (`listen.internal`, `127.0.0.1` by default), and the public ones (the proxy's, LiveKit's media, ICE over TCP and TURN, and the hosts' source ports) on every address.
 
 For a port that is not free, the command adds a line naming what wanted it and the next suggested alternative that is free now:
 

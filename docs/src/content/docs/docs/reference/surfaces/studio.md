@@ -15,13 +15,12 @@ Its heading below is its name on screen (ADR-0070, ADR-0097).
 
 The station's name, the show's step, the tabs with their keys, Settings, the app's version, who is signed in, whether the window is Live or Preparing, the link to the station, the text size and the theme.
 
-![The studio app’s top bar: the station's name, the five tabs with their keys, Settings, who is signed in, the control plane link, text size and the theme.](../../../../../assets/screens/reference-studio-frame.png)
+![The studio app’s top bar: the station's name, the tabs with their keys, Settings, who is signed in, the control plane link, text size and the theme.](../../../../../assets/screens/reference-studio-frame.png)
 
-- **The tabs**: Desk `⌃1`, Screener `⌃2`, Carts `⌃3`, Schedule `⌃5`.
+- **The tabs**: Desk `⌃1`, Screener `⌃2`, Carts `⌃3`, Schedule `⌃5` and, from 1.3.2, in a producer's or an admin's window, Keys `⌃6`.
   `⌃4` has no tab: it opens the Screener tab with the focus in its Room lane, where the chat is moderated (from 1.1; before, the strip drew a greyed Chat tab).
   Below the Full step the Screener tab is not drawn, `⌃4` with it, and each tab keeps its number ([`studio.step`](#studiostep)).
-  Desk, Screener, Carts and Schedule are built.
-  Chat is not a tab yet (**[planned](/docs/reference/release-one-status/)**): it says it is not in this build, and the chat is on the Screener tab.
+  There is no Chat tab: the chat is on the Screener tab.
 - **Settings**: retention, holds, the time zone, staff, API tokens, updates and, for a member of staff signed in as themselves, **Your show**. While Settings is open only the `⌃` chords reach the keymap; a tab's key leaves Settings for that tab.
 - **Update … available**: shown in the packaged app when its update feed offers a newer version; it opens Settings, and nothing installs without a yes there.
 - **The version** (from 1.1): the studio app's own version, in quiet words between the tabs and who is signed in: **WeaveSignal 1.1.0**, or **v1.1.0** where the bar has less room (a member of staff's window at 1,440 px).
@@ -30,7 +29,8 @@ The station's name, the show's step, the tabs with their keys, Settings, the app
   When the station runs another version, the station's is said beside it (**v1.1.0 · station 1.0.5**, or **1.1.0 ≠ 1.0.5** in less room); a test build of the same release (`1.1.0-test.4`) is not a difference.
   From 1.3.2 its ink says where the app stands. **Green with a tick** is up to date: the station runs the same release and no update is offered. **Red with an arrow** is behind: the update feed offers a newer app, or the station runs a newer release than the app. Neither, in the bar's own ink, means the station's version is not known yet or the app is the newer of the two, which asks nothing of the app.
   The glyph stands before the **v** (**✓ v1.3.2**, and **✓ WeaveSignal v1.3.2** where the bar has the room), and the version keeps its place in an admin's or a producer's 1,440 px window, which leaves it about 65 px.
-  It is always the glyph, the **v** and the number, in that order. A version written longer than five characters (**1.3.10**) needs a little more room: until the bar has it, the version gives up the gap after the glyph (**✓v1.3.10**), never its **v**, and in less room than that it is not drawn. At 1,440 px **✓ v1.3.10** has its gap; at 1,280 px an admin's or a producer's bar takes a second row and leaves about 105 px.
+  It is always the glyph, the **v** and the number, in that order. A version written longer than five characters (**1.3.10**) needs a little more room: until the bar has it, the version gives up the gap after the glyph (**✓v1.3.10**), never its **v**, and in less room than that it is not drawn. At 1,440 px **✓ v1.3.10** has its gap; at 1,280 px an admin's or a producer's bar takes a second row and leaves about 180 px.
+  From 1.3.3 a bar 1,300 px wide or less keeps the version its place, so it is drawn there in every window: in 1.3.2 a bar that fitted one row at 1,280 px (a presenter's, a screener's) had no spare room left and drew none. The room comes from the bar's own spacing at that width (its controls stand 8 px apart, not 12, the text size's and the theme's buttons are a little narrower, and a tab's key stands closer to its word), so a bar that fitted one row still does and none takes more rows than it did. Wider than 1,300 px the version still takes only spare room: a bar that is just full there (an admin's or a producer's at Solo in a 1,440 px window, which leaves about 35 px) does not draw it there.
   The colour is never the only sign: the glyph is drawn with it, a screen reader hears *up to date* or *behind* after the number, and the tooltip closes with the same in a sentence. Behind is not a fault, and a station is never refused on its version.
   Point at it, or reach it with `Tab`, and its tooltip gives both versions in full and, when they differ, which way and what follows ([Work with several stations](/docs/how-to/work-with-several-stations/)).
 - **Who is signed in**: the member of staff, or the station key ([Add staff and sign in](/docs/how-to/add-staff/)).
@@ -48,7 +48,8 @@ The browser build is still given the station key once (as `?token=` in its addre
 
 ## `studio.show-setup`
 
-The presenter's show setup (ADR-0218, ADR-0219), a dialog over the surface: **About you** (the on-air name and the takedown contact), **Your show** (its name, links to the presenter's channels, the usual day and time, whether it plays commercial music) and **Done**.
+The presenter's show setup (ADR-0218, ADR-0219), a dialog over the surface, in four parts: **About you** (the on-air name and the takedown contact), **Your show** (its name, links to the presenter's channels, whether it plays commercial music, how much of the studio to start with), **When it is on** (`calendar.rule`, the same questions and preview as New show) and **Done**.
+From 1.3.3 the third part of a first setup opens with **Start now**, as New show's second part does: one press saves the show to start at the station's next whole minute, once, for the length the two times make, with its first episode drafted, and **Done** says when it starts. Another show at that minute is said before anything is saved; a presenter, whom the station does not let schedule over another show, is told so. It is not offered when the setup is run again for a show that exists, nor at a station older than 1.0.4.
 It opens by itself for a presenter signed in as themselves with no show of their own, and again from Settings; **Skip for now** keeps it away on that computer.
 A dialog owns the keyboard: only the `⌃` chords reach the keymap while it is open.
 The answers become the show's own fields, tied to the account ([Set up your show](/docs/how-to/set-up-your-show/)).

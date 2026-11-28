@@ -173,7 +173,7 @@ export const ACCOUNT: readonly PanelInfo[] = [
 /** The DJ's show setup (ADR-0218, ADR-0219): the wizard over the surface, and its panel in
  *  Settings for a member of staff signed in as themselves (so not in SETTINGS). */
 export const SHOW_SETUP: readonly PanelInfo[] = [
-  { name: 'studio.show-setup', what: 'Set up your show, in four parts: your on-air name and takedown contact; your show, its links, whether it plays commercial music and how much of the studio to start with; when it is on, with the next dates; done. The answers are the defaults for you and your show (ADR-0218).' },
+  { name: 'studio.show-setup', what: 'Set up your show, in four parts: your on-air name and takedown contact; your show, its links, whether it plays commercial music and how much of the studio to start with; when it is on, with the next dates; done. The answers are the defaults for you and your show (ADR-0218). A first setup’s third part opens with Start now (1.3.3): the show starts at the station’s next whole minute, once.' },
   { name: 'settings.my-show', what: 'Your show: the show tied to your account as the setup wizard left it (name, on-air name, takedown contact, links, when it is on, commercial music), with Change… to run the wizard again; or Set up your show… (ADR-0218).' },
 ];
 
@@ -244,7 +244,7 @@ export const KEYS: readonly PanelInfo[] = [
   { name: 'keys.change', what: 'Change a key in place: who it is for, its email address, the shows it opens, sound or picture, its window and its limits. Its text stays the same, so nothing needs sending again.' },
   { name: 'keys.ask', what: 'Asked before a key is paused, revoked, replaced or erased: what it does, what the holder will see, and a reason for the log.' },
   { name: 'keys.extend', what: 'Extend a key to a date, in station time.' },
-  { name: 'keys.keep-show', what: 'Make a show keyed: the station’s shows, who can listen to each, and on each the tick Keyed show, which keeps it for people with a key from that moment; New keyed show… for one that does not exist yet. Step 1 of the three (keep a show, make a key, send it), from the Keys tab and from Make a key.' },
+  { name: 'keys.keep-show', what: 'Make a show keyed: the station’s shows, who can listen to each, and on each the tick Keyed show, which keeps it for people with a key from that moment (ticked only while a key is needed: a show that has opened to everyone is not); New keyed show… for one that does not exist yet. Step 1 of the three (keep a show, make a key, send it), from the Keys tab and from Make a key.' },
   { name: 'keys.find', what: 'Find a key: paste a key found somewhere, or the link that carries it, and the station says whose it was and which family issued it.' },
   { name: 'calendar.show-access', what: 'In the show editor, right under the name: who can listen. Everyone, or people with a key; when it opens to everyone; and what the public hears meanwhile (an announcement with its line, the fallback music, or a teaser). A producer’s and an admin’s to change.' },
   { name: 'desk.keyed', what: 'In the Playout panel, while the show on air is kept for key holders: what the public hears now by the show’s rule, and that key holders hear the show. Not confirmed, with a dashed chip, while playout does not answer the station.' },

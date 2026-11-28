@@ -107,6 +107,9 @@ elif ! grep -q '^# weavesignal: loudness default moved to -16' "$data/weavesigna
     printf '# weavesignal: loudness default moved to -16 (0.9.0); set -23 here to keep the old level\n' >> "$data/weavesignal.env"
 fi
 setting PROCESSING_MAX_GAIN_DB 6 "The most the gain control may raise the programme, in dB."
+# --- 1.3.3: the carts' loudness. Written empty, never with a number: empty is the station's own
+# default, which keeps a station from before 1.3.3 at -23 (a number here would move it). ---
+setting CARTS_LOUDNESS_LUFS "" "The level, in LUFS, every cart's sound is brought to when it is loaded (1.3.3). Empty, the default: -16 for a station installed with 1.3.3 or later, -23 for one from an earlier release. A cart already on the wall keeps its level until its sound is loaded again."
 setting DESK_FEED_PORT 7317 "Playout's programme back to the desk, the video's sound (ADR-0172), on loopback; used only with VIDEO=true."
 # --- 1.1: hosts in their own studios (ADR-0280) ---
 setting DESK_SOURCES_PORT 7318 "Hosts' own studios from the ingest to the desk (ADR-0280), on loopback. The public ports for hosts' software are chosen in Cloudron's dashboard."
@@ -1140,6 +1143,7 @@ export WEAVESIGNAL_LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
 export WEAVESIGNAL_CONTROL_ADMIN_TOKEN=$CONTROL_ADMIN_TOKEN
 export WEAVESIGNAL_CHAT_EMAIL_KEY=$CHAT_EMAIL_KEY WEAVESIGNAL_CONTROL_EMAIL_KEY=$CONTROL_EMAIL_KEY
 export WEAVESIGNAL_CONTROL_TOKEN_KEY=$CONTROL_TOKEN_KEY
+export WEAVESIGNAL_CARTS_LOUDNESS_LUFS=${CARTS_LOUDNESS_LUFS:-}   # 1.3.3; empty: the station's own
 export WEAVESIGNAL_PLAYOUT_DATA=$run/playout.json
 export WEAVESIGNAL_LISTENERS_SOURCE_PASSWORD=$LISTENERS_SOURCE_PASSWORD
 export WEAVESIGNAL_PLAYOUT_FEED_PASSWORD=$LISTENERS_SOURCE_PASSWORD   # the desk's video feed (ADR-0172)

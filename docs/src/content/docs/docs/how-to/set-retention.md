@@ -12,7 +12,7 @@ A new station keeps nothing after a show except anonymous listening totals: its 
 The one other thing No retention keeps is the record of a released hold, for 14 days (ADR-0199): who placed and released it, when and why, with no recording or message in it, so the station can show that a hold existed and was released.
 A licensed broadcaster, or a US webcaster under the statutory licence, must choose its jurisdiction, or it breaks its licence.
 
-One record sits outside the retention setting: the addresses of connections to the two ports for hosts' own studios are kept 30 days, whichever jurisdiction is chosen, so that the station can see repeated wrong keys ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/#what-the-station-keeps)).
+One record sits outside the retention setting: the addresses of connections from hosts' own studios are kept 30 days, whichever jurisdiction is chosen, so that the station can see repeated wrong keys ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/#what-the-station-keeps)).
 
 ## Choose the jurisdiction
 

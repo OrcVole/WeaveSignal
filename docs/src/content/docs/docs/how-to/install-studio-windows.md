@@ -3,7 +3,7 @@ title: "Install the studio app on Windows"
 description: "Check the installer, get past Windows' unknown-publisher warning, install the studio app for your user, and remove it again."
 type: howto
 status: draft
-last_verified: 2026-11-23
+last_verified: 2026-11-28
 sidebar:
   order: 36
 ---
@@ -13,7 +13,7 @@ It is an NSIS installer and it is not signed (ADR-0076).
 
 ## Download it
 
-Download `WeaveSignal_1.3.2_x64-setup.exe` and the checksum file `SHA256SUMS-1.3.2-windows` from the assets of [release v1.3.2 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.3.2); the updater reads the same files from `https://weavesignal.top/updates/`.
+Download `WeaveSignal_1.3.3_x64-setup.exe` and the checksum file `SHA256SUMS-1.3.3-windows` from the assets of [release v1.3.3 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.3.3); the updater reads the same files from `https://weavesignal.top/updates/`.
 
 Edge holds the installer at first: it says the file *isn't commonly downloaded*. To keep it:
 
@@ -29,7 +29,7 @@ The release lists it in `SHA256SUMS-<version>-windows`.
 In PowerShell, in the folder you saved it to:
 
 ```powershell
-Get-FileHash .\WeaveSignal_1.3.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\WeaveSignal_1.3.3_x64-setup.exe -Algorithm SHA256
 ```
 
 The `Hash` it prints must match the line for the installer, letter for letter (case does not matter).
@@ -73,19 +73,21 @@ An address nothing answers at gives *No station answered at that address.* under
 ## Sound: why the app is silent
 
 The studio app makes no sound of its own, and has no setting for a microphone or speakers.
-It shows the desk and sends your keys; you hear the station, and speak into the studio, from a browser on the same computer, through the audio devices the browser and Windows choose.
+It shows the desk and sends your keys; you hear the station, and speak into the studio, from a browser on the same computer: the microphone is chosen on the page you speak from, the speakers by the browser and Windows.
 [Get your first sound out in ten minutes](/docs/tutorials/first-sound/) is the next step, and [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/) says where the devices are chosen.
 
 ## Remove it
 
-Open **Settings**, then **Apps**, then **Installed apps**, find **WeaveSignal** (it lists the version, 1.3.2 here), open the **…** menu and choose **Uninstall**, then **Uninstall** again.
+Open **Settings**, then **Apps**, then **Installed apps**, find **WeaveSignal** (it lists the version, 1.3.3 here), open the **…** menu and choose **Uninstall**, then **Uninstall** again.
 The uninstaller opens a window with a box, **Delete the application data**, which is not ticked: tick it to remove the app's saved browser data as well.
 If the app is still open, a message says *WeaveSignal is running! Click OK to kill it*: close the app first, or choose **OK**.
 Without the box ticked, the folder `org.weavesignal.studio` stays in your user's `AppData\Local` (the window's saved data); the program folder, the Start menu entry and the desktop shortcut are gone.
-Whether the saved sign-in in Windows Credential Manager goes too was not tested.
+The saved sign-in in Windows Credential Manager stays either way, with the box ticked too (seen on 2026-11-23 without it and on 2026-11-28 with it).
+To remove it, for instance on a shared computer, open **Credential Manager**, then **Windows Credentials**, and remove the generic credentials whose names end in `.weavesignal-studio`.
 
 Verified on Windows 11 (build 26100, en-GB) · 2026-11-15: the 1.0.4 installer downloaded with Edge and kept as above, its checksum matched, it installed for the user with no administrator prompt and no SmartScreen window, and the app signed in to a station with its key, which Credential Manager kept across a restart.
 The installer is cross-built on Linux for the GNU target with NSIS 3.11, and carries the app and Microsoft's `WebView2Loader.dll`.
 
-Verified on Windows 11 (build 26100, en-GB) with Edge 158 · 2026-11-23: the 1.3.0 installer was downloaded with Edge from the release page, kept as above, and its SHA-256 matched `SHA256SUMS-1.3.1-windows`; double-clicking it opened the installer with no SmartScreen window; it installed for the user in about 6 seconds (WebView2 was already present, so no download); the app opened on its sign-in screen and, for an address nothing answers at, said *No station answered at that address.*; the Start menu entry and the desktop shortcut were there (a second install, with the boxes left ticked); it uninstalled from **Settings › Apps** as above, which removed the program folder, the Start menu entry and the desktop shortcut.
-Not run: a sign-in to a real station on 1.3.0 (the 1.0.4 run above did), SmartScreen's blue window, an installer on a computer without WebView2, Windows 10, and the app updating itself.
+Verified on Windows 11 (build 26100, en-GB) with Edge 158 · 2026-11-23: the 1.3.0 installer was downloaded with Edge from the release page, kept as above, and its SHA-256 matched `SHA256SUMS-1.3.0-windows`; double-clicking it opened the installer with no SmartScreen window; it installed for the user in about 6 seconds (WebView2 was already present, so no download); the app opened on its sign-in screen and, for an address nothing answers at, said *No station answered at that address.*; the Start menu entry and the desktop shortcut were there (a second install, with the boxes left ticked); it uninstalled from **Settings › Apps** as above, which removed the program folder, the Start menu entry and the desktop shortcut.
+Verified on Windows 11 in a test virtual machine · 2026-11-23: the installed 1.3.0 signed in to a station with its key, found 1.3.1 on the signed update feed, installed it when asked and restarted into 1.3.1, still signed in.
+Not run: SmartScreen's blue window, an installer on a computer without WebView2, and Windows 10.

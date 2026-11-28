@@ -157,6 +157,21 @@ impl Cart {
     }
 }
 
+/// The station's own default loudness target for carts, when its settings set none (migration
+/// 0073): -23 LUFS for a station that was in the database before 1.3.3, `None` for one made
+/// since, which takes the new default.
+pub async fn loudness_default(
+    pool: &sqlx::PgPool,
+    station: StationId,
+) -> Result<Option<f64>, sqlx::Error> {
+    let row: Option<(Option<f32>,)> =
+        sqlx::query_as("SELECT carts_loudness_default FROM station WHERE id = $1")
+            .bind(station.as_uuid())
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(v,)| v).map(f64::from))
+}
+
 /// Every bank and cart of a station, the station's and every show's: the station's first,
 /// then each show's by its slug; banks by number and carts by bank and slot.
 pub async fn load(

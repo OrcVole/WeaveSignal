@@ -225,4 +225,20 @@ for v in svt auto nvenc; do ( VIDEO_ENCODER=$v; log() { :; }; eval "$check" ) ||
 for v in vaapi NVENC x264 ''; do ( VIDEO_ENCODER=$v; log() { :; }; eval "$check" ) && fail "start.sh takes VIDEO_ENCODER='$v'"; done
 grep -q '^encoder = "\$VIDEO_ENCODER"$' "$start" || fail "the desk's [video] is not given VIDEO_ENCODER"
 pass "VIDEO_ENCODER: svt by default (no GPU on Cloudron), auto and nvenc taken (the desk falls back), anything else stops the start; the desk is given it"
+
+# --- 6. the carts' loudness (1.3.3): written empty, never with a number --------------------------
+# An upgraded app's weavesignal.env gains the line empty, so the station keeps its own default
+# (-23 for a station from before 1.3.3); a number there would move every existing station.
+fn=$(sed -n '/^setting() {/,/^}/p' "$start")
+line=$(grep '^setting CARTS_LOUDNESS_LUFS ' "$start")
+[ -n "$fn" ] && [ -n "$line" ] || fail "start.sh's setting() or its CARTS_LOUDNESS_LUFS line was not found"
+for before in 'STATION_NAME=Kettle FM' $'STATION_NAME=Kettle FM\nCARTS_LOUDNESS_LUFS=-16'; do
+  printf '%b\n' "$before" > "$work/weavesignal.env"
+  ( data=$work; added=; eval "$fn"; eval "$line" )
+  want=; [[ $before == *-16* ]] && want=-16
+  [ "$(grep -c '^CARTS_LOUDNESS_LUFS=' "$work/weavesignal.env")" = 1 ] && [ "$(sed -n 's/^CARTS_LOUDNESS_LUFS=//p' "$work/weavesignal.env")" = "$want" ] \
+    || fail "CARTS_LOUDNESS_LUFS after start.sh: $(grep '^CARTS_LOUDNESS_LUFS=' "$work/weavesignal.env")"
+done
+grep -q '^export WEAVESIGNAL_CARTS_LOUDNESS_LUFS=\${CARTS_LOUDNESS_LUFS:-} ' "$start" || fail "the control plane is not given CARTS_LOUDNESS_LUFS"
+pass "CARTS_LOUDNESS_LUFS: added empty to an upgraded app's settings, a set value kept, and given to the control plane"
 echo "start.sh: the setup page's part is sound"

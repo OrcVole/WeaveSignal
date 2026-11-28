@@ -2,6 +2,87 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+## 1.3.3 (2026-11-28)
+
+- **A keyed show's episode files are held back**, which 1.3.2 did not do: its podcast feed,
+  `GET /api/v1/public/episodes` and `/media/episodes/` did not look at a show's key rule, so
+  episode files attached to a keyed show could be fetched without a key. Now, while a show is
+  kept for people with a key, its feed lists no episode, the list leaves the show out and its
+  files answer 404; they are back when the show opens to everyone. What was downloaded before
+  cannot be called back.
+- **The picture edge reaches a station behind two intermediate certificates**, which current
+  Let's Encrypt certificates can have: the 1.3.2 edge image answered 502 and served nothing. It
+  also reads the revoked-key list when the station is given by host name (`/etc/resolv.conf`, or
+  the new `EDGE_RESOLVER`); 1.3.2's did not, so such an edge would go on taking a revoked or
+  paused key until its token ended.
+- **`/media/episodes/` serves only a file an episode names.** It served any file in the folder,
+  so a recording copied there and not yet attached could be fetched by its name. A file you link
+  to from elsewhere must be attached to an episode.
+- **The player's Pause button works on a station with a picture.** After Pause it stayed
+  **Pause** and did nothing until the page was reloaded, with the picture and with **Audio only**;
+  the same happened when the stream stopped by itself or did not start. 1.3.2 has the same code.
+- **A microphone chooser** on the invitation page and the player's call-in, before joining and
+  during a call: the page names the microphone in use and lists the others, keeps the choice on
+  that device, and says so when the one chosen is not there. Echo cancelling stays on and gain
+  control off. Speakers are not chosen on any page. Not tried with a real microphone unplugged,
+  on a phone, or in Safari.
+- **`/join/` opened without an invitation** says **Join with an invitation**, who the page is
+  for, what to do with the link and who to ask, and links to the player. It no longer reads as a
+  broken link.
+- **The tick Keyed show means a key is needed now.** A show that has opened to everyone is not
+  ticked, and the list changes when a show opens by itself. The studio's words say that a keyed
+  show's podcast feed and episode files are held back, earlier episodes included.
+- **Picture, with its sound is no longer offered** for a new key: it opened what **Sound and
+  picture** opens. Keys made with it go on working and are shown as they are, and the API still
+  accepts `video`.
+- **Start now in the DJ's setup:** a first setup's third part opens with it, as New show does.
+- **The version is drawn in the narrowest studio window** (1,280 px), where 1.3.2 left it out in
+  a frame of one row.
+- **The keyed redeem answer no longer carries the key's `label`**, which is staff's name for the
+  key; nor do the redeem's and the renewal's refusals. The player never showed it.
+- **Carts on a new installation are brought to −16 LUFS**, the level the stream plays at. A
+  station upgraded from an earlier release keeps −23. To change it, set `CARTS_LOUDNESS_LUFS`
+  (Compose, Quadlets, or Cloudron's `weavesignal.env`) or `carts.loudness_lufs`. Carts already
+  on the wall keep their level until their sound is loaded again (migration 0073).
+- **A quieter playout log:** files in the fallback folder that cannot be sounds (a README, a
+  cover picture, a hidden file) are no longer offered to the decoder, which refused them about
+  once a second. A sound file that does not play is still logged, and the playout reference says
+  what each message means.
+- The keyed-shows reference says that an edge ignores the unused bits of a token signature's
+  last character, which is harmless, and that the station does not.
+
+### Upgrading from 1.3.2
+
+- **Migration 0073** (the carts' level for stations that exist) runs by itself at the first start.
+  Back up first, as for every release.
+- **Carts keep their level:** an upgraded station stays at −23 LUFS. Only a new installation gets
+  −16.
+- **Cloudron:** nothing to set and no port changes. `weavesignal.env` gains an empty
+  `CARTS_LOUDNESS_LUFS=` line; leave it empty to keep your station's cart level.
+- **Compose and `weavesignal.sh`:** run it again with the 1.3.3 image.
+- **Quadlets:** generate the units again from the new checkout, as for every release.
+- **Episode files:** if a show is kept for people with a key, its podcast feed now lists no
+  episode and its files answer 404. A file you link to from elsewhere must be attached to an
+  episode, or it is no longer served.
+- **Edges:** run them from the 1.3.3 edge image. An edge given the revoked-key list by host name
+  looks the name up with the DNS servers in `/etc/resolv.conf`; set `EDGE_RESOLVER` to use others.
+- **The studio app:** update it (it offers the update itself) for the words on keyed shows and
+  Start now in the DJ's setup.
+- **With video on: upgrade while no keyed show is on.** The upgrade starts the station; if a keyed
+  show was on at the time, restart it once after the show has ended, or its public picture stays
+  refused (see Known limits).
+
+### Known limits of 1.3.3
+
+- **A stream address can stop answering and stay stopped** (404, while others play) until the
+  station is restarted. Seen on two stations running 1.3.2, once on public streams and once on a
+  keyed one; the cause is not known, and 1.3.3 uses the same streaming engine, so it may do the
+  same. After a restart or an update, and from time to time, open each of your stream addresses;
+  if one does not answer, restart the station.
+- **With video turned on (it is off as installed), do not restart the station while a keyed show is
+  on.** A start during a keyed show's slot, an update included, leaves the public picture and HLS
+  sound refused after the show ends. Restart once when no keyed show is on. 1.3.2 does the same.
+
 ## 1.3.2 (2026-11-25)
 
 Shows advertised to everyone and heard or watched only with a key. Not in 1.3.2: keyed sound

@@ -4,8 +4,9 @@
 // Drives the player with a listener's key (keyed shows, 1.3.2; apps/web) in a real browser
 // against the stand-in station (station.mjs): a key's link and the key typed in, the welcome, the
 // badge, the end notice, every way a key does not work with its own words, the devices and Sign
-// out, Lost your key?, Can't hear the show?, a key that stops mid-listen, a station with no keys
-// at all, and the join page's line for a guest of a keyed show. It checks what the page shows
+// out, Lost your key? (and at a station that sends no email, 1.3.3), Can't hear the show?, a key
+// that stops mid-listen, a station with no keys at all, and the join page's line for a guest of
+// a keyed show. It checks what the page shows
 // and what it sent and played, and captures each state in Dark and Light (the public pages
 // follow the system) at 390×844 and 1440×900. No stack: one loopback port, and Playwright (not
 // a dependency of the repository; set PLAYWRIGHT_CORE to a playwright-core directory).
@@ -443,6 +444,27 @@ for (const size of SIZES) {
       }
       await shot(w.page, 'lost-sent', { docs: 'how-to-listen-lost.png' });
       await w.ctx.close();
+
+      // A station that sends no email (1.3.2; the pictures 1.3.3): the words say so before the
+      // address is typed, the button asks and does not promise to send, and the answer says a
+      // person at the station sends the key.
+      {
+        const nm = friday({ mail: false });
+        const n = await open(nm, size, theme);
+        await panel(n.page).locator('button', { hasText: 'Lost your key?' }).click();
+        await n.page.locator('#f-lost').fill('isla.fraser@mail.example');
+        if (first) check('no mail: the words under the field say the station does not send email by itself, and the button asks', (await words(n.page.locator('#lost-hint'))) === 'The one Kettle FM has for you. Kettle FM does not send email by itself: if a key was made with that address, its staff see your request and send the key to you again.' && (await words(n.page.locator('.lost button[type=submit]'))) === 'Ask for my key again', `${await words(n.page.locator('#lost-hint'))} / ${await words(n.page.locator('.lost button[type=submit]'))}`);
+        await shot(n.page, 'lost-no-mail');
+        await n.page.locator('.lost button[type=submit]').click();
+        await n.page.locator('[data-testid="key-lost"] [role=status]').waitFor();
+        if (first) {
+          const said = await words(n.page.locator('[data-testid="key-lost"]'));
+          check('no mail: the answer says its staff can see the request and send the key, never that an email is on its way', said.startsWith('Asked. If Kettle FM has a key for that address, its staff can see your request and will send the key to you again.') && said.includes('Nothing is emailed by itself here, so it may take a while: a person at Kettle FM sends it.') && !/on its way|inbox/i.test(said) && (await n.page.locator('[data-testid="key-lost"] [role=status]').getAttribute('data-mail')) === 'false', said);
+          check('no mail: the request reaches the station all the same, to be noted on the key', sent(nm, /keyed\/lost$/).at(-1)?.body.email === 'isla.fraser@mail.example' && nm.lostAsked.length === 1);
+        }
+        await shot(n.page, 'lost-no-mail-asked', { docs: 'how-to-listen-lost-no-mail.png' });
+        await n.ctx.close();
+      }
     }
 
     // ---- the quieter states ----

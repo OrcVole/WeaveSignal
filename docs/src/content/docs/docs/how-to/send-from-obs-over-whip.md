@@ -104,10 +104,6 @@ connection, the end, a host behind a NAT) and GStreamer's `whipclientsink` sendi
 NAT (`just test-whip`: standing by, heard at the desk, its end). A real OBS 33.0.2 was tried
 against 1.2.0 on one machine on 2026-11-21: it accepted the answer that takes its picture and
 discards it, chose Opus by itself, was heard at the desk and on air, and **Stop Streaming**
-ended the session; across a real NAT or the internet it has not been tried yet. The rest of this
-section is what was written before that try. From OBS's own pages: WHIP output came in OBS
-30.0, and *Settings › Stream* takes *Service* WHIP, *Server* and *Bearer Token*. Not yet seen with
-OBS: that it streams with an answer that takes its picture and discards it (the clients above
-send a picture and are heard), that it sends Opus without a change
-to its output settings, what it shows when UDP is blocked, and that **Stop Streaming** reaches
-the station's session address. The operator's first try with OBS settles these.
+ended the session; across a real NAT or the internet it has not been tried yet.
+From OBS's own pages: WHIP output came in OBS 30.0, and *Settings › Stream* takes *Service* WHIP,
+*Server* and *Bearer Token*. Not yet seen with OBS: what it shows when UDP is blocked.

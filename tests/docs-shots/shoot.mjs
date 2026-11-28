@@ -14,6 +14,10 @@
 //            at Solo and at Callers. No stack: the sandbox build, served as static files (:27911)
 //   prepare  Prepare mode (ADR-0276): the Live or Preparing control, its dialog, the band and the
 //            desk of a preparing window. No stack: the sandbox build, as `steps`
+//   microphone  the microphone list before joining and during a call (1.3.3), the join page in the
+//            rehearsal studio, and /join/ opened without an invitation. No stack: the join page
+//            built with a stand-in room (as tests/m3/layout.mjs builds it) and apps/web/dist,
+//            served from here (:27912, :27913); run `pnpm build` in apps/web first
 //
 // `desk` restarts playout, sets playout's auto mode and writes a fallback into tests/m2/run/playout.json
 // (a fresh stack each time; it runs last through a Dump, which the delay takes minutes to rebuild from).
@@ -40,8 +44,9 @@
 // Playwright is not a dependency of the repository (see tests/m2/drive.mjs).
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { createServer } from 'node:http';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -125,6 +130,25 @@ async function shotUnion(page, names, name, opts) {
   await shot(pageish, name, opts);
 }
 const panel = (page, name) => page.locator(`[data-panel="${name}"]`).first();
+
+/** Headless Chromium's test microphones under names a reader knows, in the browser's list and
+ *  on each capture, so a picture shows "USB headset" and not "Fake Audio Input 1". Run before
+ *  any page script (`addInitScript`). */
+function friendlyMics() {
+  const NAMES = { 'Fake Default Audio Input': 'Built-in microphone', 'Fake Audio Input 1': 'USB headset', 'Fake Audio Input 2': 'Webcam microphone' };
+  const md = navigator.mediaDevices;
+  const list = md.enumerateDevices.bind(md);
+  const get = md.getUserMedia.bind(md);
+  md.enumerateDevices = async () => (await list()).map((d) => ({ kind: d.kind, deviceId: d.deviceId, groupId: d.groupId, label: NAMES[d.label] ?? d.label }));
+  md.getUserMedia = async (c) => {
+    const stream = await get(c);
+    for (const t of stream.getAudioTracks()) {
+      const name = NAMES[t.label];
+      if (name) Object.defineProperty(t, 'label', { get: () => name });
+    }
+    return stream;
+  };
+}
 
 // ====================================================================================
 // screens: the Schedule tab, the editors, Settings (tests/screens/run-screens.sh)
@@ -624,13 +648,16 @@ async function publicPages() {
   const aboveChat = (page) => ({
     page: () => page,
     screenshot: async (o) => {
-      const h = await page.getByRole('heading', { name: 'Chat', exact: true }).boundingBox();
-      const y = h ? Math.max(0, h.y + (await page.evaluate(() => window.scrollY)) - 12) : 800;
+      // No chat heading on a stack with no chat service behind it: then the whole page.
+      const h = await page.getByRole('heading', { name: 'Chat', exact: true }).boundingBox({ timeout: 1500 }).catch(() => null);
+      if (!h) return page.screenshot({ ...o, fullPage: true });
+      const y = Math.max(0, h.y + (await page.evaluate(() => window.scrollY)) - 12);
       return page.screenshot({ ...o, fullPage: true, clip: { x: 0, y: 0, width: 390, height: Math.round(y) } });
     },
   });
 
   const ctx = await phoneBrowser.newContext({ ...phone, permissions: ['microphone'] });
+  await ctx.addInitScript(friendlyMics);
   const page = await ctx.newPage();
   await page.goto(WEB + '/');
   await page.getByRole('button', { name: 'Listen live' }).waitFor();
@@ -927,7 +954,104 @@ async function prepare() {
   await ctx.close();
 }
 
-const stages = { screens, signin, desk, public: publicPages, chat, steps, prepare };
+// ====================================================================================
+// microphone: the microphone list (1.3.3), the join page in the rehearsal studio, and /join/
+// with no invitation. No stack: the join page with a stand-in room, and the pages as they ship.
+// ====================================================================================
+async function microphone() {
+  const DIST = process.env.DIST ?? join(root, 'apps/web/dist');
+  const STANDIN = process.env.STANDIN ?? join(root, 'target/join-standin/dist');
+  const PORT = Number(process.env.MIC_PORT ?? 27912);
+  if (!process.env.STANDIN) execFileSync('pnpm', ['exec', 'vite', 'build', '-c', 'vite.joinstand.config.ts', '--logLevel', 'warn'], { cwd: join(root, 'apps/web'), stdio: 'inherit' });
+  if (!existsSync(join(DIST, 'join/index.html'))) throw new Error(`no build at ${DIST}: run \`pnpm build\` in apps/web first`);
+  const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+  const serve = (dist, port) =>
+    new Promise((ready) => {
+      const s = createServer((req, res) => {
+        const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+        const file = normalize(join(dist, path.endsWith('/') ? `${path}index.html` : path));
+        if (!file.startsWith(dist) || !existsSync(file)) return res.writeHead(404).end();
+        res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
+      });
+      s.listen(port, '127.0.0.1', () => ready(s));
+    });
+  const web = await serve(DIST, PORT);
+  const stand = await serve(STANDIN, PORT + 1);
+  const WEB = `http://127.0.0.1:${PORT}`;
+  const STAND = `http://127.0.0.1:${PORT + 1}`;
+  // Kettle FM as answers to the page's own requests; sample people from the Tartan list.
+  async function station(page, { studio = 'live', role = 'guest', phase = 'off_air', show = 'The Morning Kettle' } = {}) {
+    const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    const relay = { turn_tls_port: 5349, stun_servers: [] };
+    await page.route('**/api/v1/**', (route) => {
+      const p = new URL(route.request().url()).pathname;
+      if (p === '/api/v1/player') return json(route, { station: 'Kettle FM', show: 'The Morning Kettle', stream_url: '', streams: [], presenter: 'Eilidh Fraser-MacLeod', presenter_live: true, show_on_air: true, call_in: { open: true, why_not: null, consent_text: '', consent_version: 'v1', name_max: 60, topic_max: 200 }, relay, video: null });
+      if (p === '/api/v1/branding') return json(route, { accent: null, icon: null, banner: null });
+      if (p === '/api/v1/pass') return json(route, { kind: 'invite', role, identity: 'gregor', name: 'Gregor Stewart', station: 'Kettle FM', show, expires_at_ms: Date.now() + 3_600_000, ended: false, relay, not_now: null, studio });
+      if (p === '/api/v1/pass/token') return json(route, { pass: 'pass', token: 'x', url: 'ws://127.0.0.1:9', room: 'studio', identity: 'gregor', role, name: 'Gregor Stewart', hear: 'desk-mm-gregor', see: null, pass_expires_at_ms: Date.now() + 3_600_000 }, 201);
+      if (p === '/api/v1/pass/events') {
+        const me = { identity: 'gregor', role, phase, open: false, muted: false, place: null, queue: 0, screener_talking: false, talkback: false, held_until_ms: null, station: 'Kettle FM', show, presenter: 'Eilidh Fraser-MacLeod', presenter_live: true, show_on_air: true, desk_reachable: true, studio };
+        return route.fulfill({ status: 200, contentType: 'text/event-stream', body: `event: me\ndata: ${JSON.stringify(me)}\n\n` });
+      }
+      return json(route, { error: 'not found' }, 404);
+    });
+  }
+  const micBrowser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'en-GB', timezoneId: ZONE, colorScheme: 'dark', permissions: ['microphone'] };
+  const full = (page) => ({ page: () => page, screenshot: (o) => page.screenshot({ ...o, fullPage: true }) });
+  const top = (page, height) => ({ page: () => page, screenshot: (o) => page.screenshot({ ...o, clip: { x: 0, y: 0, width: 390, height } }) });
+  async function joinPage(opts) {
+    const ctx = await micBrowser.newContext(phone);
+    await ctx.addInitScript(friendlyMics);
+    const page = await ctx.newPage();
+    await station(page, opts);
+    await page.goto(`${STAND}/join/#pass`);
+    await page.getByRole('button', { name: /^Join the (rehearsal )?studio$/ }).waitFor();
+    return page;
+  }
+  try {
+    // Before joining: the check names the microphone, and a choice is taken at once.
+    const a = await joinPage();
+    await a.getByRole('button', { name: 'Check your microphone' }).tap();
+    await panel(a, 'join.microphone').locator('select').selectOption({ label: 'USB headset' });
+    await a.getByText('Now using USB headset.').waitFor();
+    await a.getByText('Working: we can hear you.').waitFor();
+    await shot(full(a), 'how-to-microphone-check', { pause: 600 });
+    await a.context().close();
+
+    // During a call: another microphone picked, waiting for its button.
+    const b = await joinPage();
+    await b.getByRole('button', { name: 'Join the studio' }).tap();
+    await b.locator('.banner[data-link="connected"][data-phase="off_air"]').waitFor();
+    await panel(b, 'join.microphone').locator('select').selectOption({ label: 'USB headset' });
+    await b.getByRole('button', { name: 'Use USB headset' }).waitFor();
+    await shot(full(b), 'how-to-microphone-change', { pause: 600 });
+    await b.context().close();
+
+    // The rehearsal studio's page once joined (Rehearse before your show).
+    const c = await joinPage({ studio: 'rehearsal', phase: 'on_air', show: 'Steeped' });
+    await c.getByRole('button', { name: 'Join the rehearsal studio' }).tap();
+    await c.locator('.banner[data-link="connected"][data-phase="on_air"]').waitFor();
+    await shot(top(c, 620), 'how-to-rehearse-join-in-the-mix', { pause: 600 });
+    await c.context().close();
+
+    // /join/ with no invitation, as the station serves it.
+    const dctx = await micBrowser.newContext({ ...phone, permissions: [] });
+    const d = await dctx.newPage();
+    await station(d);
+    await d.goto(`${WEB}/join/`);
+    await d.getByText('Kettle FM has invited').waitFor();
+    const card = await d.locator('main .card').boundingBox();
+    await shot(top(d, Math.round(card.y + card.height + 24)), 'reference-public-pages-join-bare', { pause: 600 });
+    await dctx.close();
+  } finally {
+    await micBrowser.close();
+    web.close();
+    stand.close();
+  }
+}
+
+const stages = { screens, signin, desk, public: publicPages, chat, steps, prepare, microphone };
 const wanted = process.argv.slice(2);
 if (!wanted.length || wanted.some((w) => !stages[w])) {
   console.error(`usage: shoot.mjs ${Object.keys(stages).join(' | ')}`);

@@ -32,15 +32,26 @@ Tick **Keyed show**, the tick box with a key beside it. It is the same control w
 ![Make a show keyed, on the Keys tab: the three steps, then the station's shows, each with who can listen to it, Who can listen… and the tick Keyed show; New keyed show… and Done below.](../../../../assets/screens/how-to-keys-keep-show.png)
 
 The tick saves at once: the show is kept for people with a key from that moment, for every episode to come, and a line beside the tick says so.
-A key keeps the whole show, not one episode: the tick on an episode is the show's, and on an episode that has aired it changes only the episodes to come.
-Unticking a keyed show asks first, since it opens to everyone what was kept; its keys are kept.
+A key keeps the whole show, not one episode: the tick on an episode is the show's, and on an episode that has aired it changes nothing about who heard it on air.
+While a show is kept for people with a key, its podcast feed lists no episode and its episode files cannot be fetched, earlier episodes' included (from 1.3.3); they are back when the show opens to everyone.
+So ticking a show that has published episodes withdraws them too, an aired episode's file among them, and the words beside the tick say so before you tick: on a show's episode, in the tick's tooltip, in **Make a show keyed** and beside **People with a key** in the show's editor.
+What was downloaded before cannot be called back.
+At a station still on 1.3.2, which holds no file back, the studio says that instead, and to update the station.
+Unticking a keyed show asks first, since it opens to everyone what was kept; its keys are kept, and its episodes return to the podcast feed within a few minutes.
+
+**What the tick means.** It is ticked only while a key is needed to listen (from 1.3.3).
+A show you gave a time to open to everyone is not ticked once that time has passed, since everyone can then listen: the words beside it say *Opened to everyone*, with the date and time, and *Tick to keep it for people with a key again*.
+Ticking it then keeps the show from that moment and drops the past time; the rest of its rule (what the public hears) is as it was.
+In 1.3.2 such a show stayed ticked, and could be taken for one still kept.
+
+![The Schedule's list of shows with one that has opened to everyone: its tick Keyed show is not ticked, and under its row a line says when it opened and that ticking keeps it again; the keyed shows above and below it are ticked.](../../../../assets/screens/how-to-keys-opened.png)
 If the station refuses (it keeps a show only where playout can keep it from the public), the tick goes back and the reason is beside it.
 
 The rest of the choice is in the show's editor: **Who can listen…** beside the tick opens it, or choose the show in the list, then **Details**. **Who can listen** is right under the show's name, and **People with a key** there is the same as the tick.
 
 ![The show editor's Who can listen, under the show's name: the three steps in short, Everyone or People with a key, what the public hears, the announcement's line, when it opens to everyone, and Save who can listen.](../../../../assets/screens/how-to-keys-show.png)
 
-- **The public hears**: what you would like everyone else to hear while the show is on: *an announcement* (with a line of your own), *the fallback music* or *a teaser*. In 1.3.2 the station plays the same whichever you choose: its slate file if its playout data names one (`keyed.slate`), else its fallback music, else the loop WeaveSignal ships (a station with nothing in its fallback folder plays the loop). The desk's Playout panel says which it is while the show is on. No package sets `keyed.slate` yet, so to give the public a spoken slate, put it in the fallback folder. Your choice is kept for a later release.
+- **The public hears**: what you would like everyone else to hear while the show is on: *an announcement* (with a line of your own), *the fallback music* or *a teaser*. In 1.3.2 and 1.3.3 the station plays the same whichever you choose: its slate file if its playout data names one (`keyed.slate`), else its fallback music, else the loop WeaveSignal ships (a station with nothing in its fallback folder plays the loop). The desk's Playout panel says which it is while the show is on. No package sets `keyed.slate` yet, so to give the public a spoken slate, put it in the fallback folder. Your choice is kept for a later release.
 - **Opens to everyone**: leave it empty, or give a date and time (the station's) for early access: from that moment the show is public by itself.
 
 Press **Save who can listen**.
@@ -52,6 +63,9 @@ The episodes' times are the schedule's: a keyed show needs its episodes on the s
 A key holder hears the show about 13 seconds after it is played, and is dropped about 14 seconds after the slot's end, when they have heard it out; the next keyed show's stream starts after that.
 While it is on, what the station tells listeners is playing is only the show's name, never its tracks.
 While a keyed show is on, the desk's Playout panel says what the public hears and whether the station is keeping the show from them.
+If playout stops answering the station, the panel says **not confirmed** until it answers again: what should be so (the listeners' stream playing the station's own fallback, not the show), and to restart playout if it stays.
+
+![The desk's Playout panel with a keyed show on air and playout not answering: the Keyed chip drawn dashed, What the public hears now · not confirmed, and a sentence that says playout is not answering, what the listeners' stream should be playing, and to restart playout if it stays.](../../../../assets/screens/how-to-keys-desk-not-confirmed.png)
 
 ## 2. Make a key
 
@@ -61,7 +75,8 @@ Open the **Keys** tab (`⌃6`) and press **Make a key…** (`N`).
 
 Type who it is for and press **Make the key**: left as it is, the key is a personal one for every keyed show, sound and picture, on two devices at a time, with no end.
 Who it is for is your own name for the key, to find it again: its holder never sees it, and the player greets them with *Welcome* alone.
-Under **For**, **Sound only** keeps the picture back; a key for the picture always carries the show's sound, so **Picture, with its sound** opens what **Sound and picture** does.
+Under **For**, **Sound and picture** is the usual choice and **Sound only** keeps the picture back.
+The studio offered a third, **Picture, with its sound**, until 1.3.3: a key for the picture always carries the show's sound, so it opened what **Sound and picture** does. A key made with it goes on working as it is; its page still says *picture, with its sound*, and **Change…** keeps the choice in that key's own list with a line that says what it opens.
 Change what you need first: the shows it opens, when it starts and ends, how many devices, how many listens.
 An email address is worth giving: with it the listener can ask the player for a lost key themselves.
 Use **Group** for a class or a club that shares one key, with how many people may use it, and **Machine** for a partner station's software or another program, which redeems the key itself through the API (1.3.2 has no ready-made relay for it).
@@ -132,7 +147,7 @@ curl -X PUT https://station.example/api/v1/shows/friday-supporters/access \
   -d '{"rule": "key", "slate": "announcement", "slate_note": "Supporters hear this show. Join at station.example/join."}'
 ```
 
-This makes the show keyed from its next episode, as in [step 1](#1-make-the-show-keyed); `slate` records what the public is to hear (in 1.3.2 the station plays its one slate whichever is named).
+This makes the show keyed from its next episode, as in [step 1](#1-make-the-show-keyed); `slate` records what the public is to hear (in 1.3.2 and 1.3.3 the station plays its one slate whichever is named).
 A station whose playout has keyed shows off is told so (409), and one whose playout does not answer is refused (503).
 To open it to everyone from a time (early access), add `"opens_at_ms"`: the show becomes public by itself at that moment.
 
@@ -149,7 +164,7 @@ curl -X POST https://station.example/api/v1/listener-keys \
 
 The answer holds the key's text (`KETM-7QMP-2D4X`) and its link, once; the station keeps the text sealed, so you can have it again (below).
 Left out, a key opens every keyed show, for sound and video, on two devices at a time, with no end.
-`"media": "sound"` is the sound alone; `"video"` opens what `"both"` does, since a key for the picture always carries the show's sound.
+`"media": "sound"` is the sound alone; `"video"` opens what `"both"` does, since a key for the picture always carries the show's sound. The API still takes `"video"`; the studio no longer offers it for a new key (from 1.3.3).
 Use `"kind": "group"` with `"max_people"` for a class or a club, and `"kind": "machine"` for a partner station's software, which redeems the key itself (1.3.2 has no ready-made relay for it).
 
 For many people, make a **family**, so that every copy is its own key:

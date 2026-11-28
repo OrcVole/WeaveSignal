@@ -10,6 +10,11 @@
 // Test tooling, not a second implementation: it signs nothing (a token here is a label), counts
 // no addresses (a driver sets what the leak report says) and sends no mail.
 //
+// From 1.3.3 the station holds a keyed show's podcast feed and episode files back, and the studio
+// words what a tick does by the station's version (lib/keyed.ts `holdsFiles`). The stand-in says
+// the app's own version, as the hosts' does; `version: '1.3.2'` is the one release with keyed
+// shows that held nothing back, which an app of 1.3.3 or later words differently.
+//
 // Sample people are from the Tartan list (ADR-0071): Isla Fraser, Callum Reid, Katie Ross, Neil
 // Kennedy, Margaret Anderson, Hugh Wallace, Ewan Graham and the family's patrons; Fiona Kennedy
 // presents Friday Supporters' Hour.
@@ -348,7 +353,7 @@ export class KeysStation extends Station12 {
 
   listenKey(k) {
     const now = this.now * 1000;
-    return { id: k.id, kind: k.kind, label: k.label, media: k.media, all_shows: k.all_shows, shows: k.all_shows ? [] : k.shows.map((id) => this.shows.find((s) => s.id === id)).filter(Boolean).map((s) => ({ id: s.id, slug: s.slug, name: s.name })), valid_from_ms: k.valid_from_ms, valid_until_ms: k.valid_until_ms, ends_soon: k.valid_until_ms !== null && k.valid_until_ms - now <= this.soonDays * DAY };
+    return { id: k.id, kind: k.kind, media: k.media, all_shows: k.all_shows, shows: k.all_shows ? [] : k.shows.map((id) => this.shows.find((s) => s.id === id)).filter(Boolean).map((s) => ({ id: s.id, slug: s.slug, name: s.name })), valid_from_ms: k.valid_from_ms, valid_until_ms: k.valid_until_ms, ends_soon: k.valid_until_ms !== null && k.valid_until_ms - now <= this.soonDays * DAY };
   }
 
   /** The show a token is for, as the station picks it: the one asked for, else the keyed show on
@@ -591,7 +596,7 @@ export class KeysStation extends Station12 {
       const no = this.refusalOf(k, asked, body.device);
       if (no) return this.refuse(no);
       const show = this.tokenShow(k, asked);
-      if (!show) return this.refuse(['not_scheduled', { label: k.label }]);
+      if (!show) return this.refuse(['not_scheduled', {}]);
       const devs = this.devs.get(k.id);
       let d = devs.find((x) => x.id === body.device && x.ended_ms === null);
       if (!d) {

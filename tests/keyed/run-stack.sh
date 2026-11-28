@@ -153,8 +153,15 @@ check "the redeem's own HLS address for the sound key passes the edge's njs chec
 check "the same token for the picture (a sound key)" "$(code "${hls%/audio.m3u8}/live.m3u8")" 403
 check "another show's path" "$(code "/hls/k/$(cat /proc/sys/kernel/random/uuid)/$token/audio.m3u8")" 403
 # Change a character ten from the end, never the last: the last character of a 64-byte signature
-# in base64 has two unused bits, so replacing it can decode to the same bytes and the "garbled"
+# in base64 has four unused bits, so replacing it can decode to the same bytes and the "garbled"
 # token is then the real one (a flake of about one run in sixteen, seen in r132f, 2026-11-24).
 garbled="${token:0:${#token}-10}A${token: -9}"; [ "$garbled" = "$token" ] && garbled="${token:0:${#token}-10}B${token: -9}"
 check "a garbled signature" "$(code "/hls/k/$show/$garbled/audio.m3u8")" 403
+# The same last character with its four unused bits changed decodes to the same signature, and the
+# edge passes it (docs: reference/keyed-shows, Tokens; the station refuses it, crates/keyed's
+# the_signatures_unused_bits_are_refused_here).
+b64=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_
+last=${token: -1}; at=${b64%%"$last"*}; at=${#at}
+respelt="${token:0:${#token}-1}${b64:$(( (at & ~15) | ((at & 15) ^ 1) )):1}"
+check "the signature's last character respelt in its unused bits passes the edge" "$(code "/hls/k/$show/$respelt/audio.m3u8")" 502
 exit "$fail"

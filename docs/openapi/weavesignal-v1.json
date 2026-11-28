@@ -5681,7 +5681,7 @@
           "public"
         ],
         "summary": "Published episodes",
-        "description": "For a station's own website: aired episodes with published files, newest first, with where to hear them, their card, their page and their feed. Page back with `before_ms`. No bearer; CORS open to any origin; limited per address. Cached for 30 s.",
+        "description": "For a station's own website: aired episodes with published files, newest first, with where to hear them, their card, their page and their feed. None of a show kept for people with a key (1.3.3). Page back with `before_ms`. No bearer; CORS open to any origin; limited per address. Cached for 30 s.",
         "operationId": "public_episodes",
         "parameters": [
           {
@@ -13764,7 +13764,7 @@
           "public"
         ],
         "summary": "A show's podcast feed",
-        "description": "`{slug}.xml`, the show's RSS feed with its episodes. 503 while the show's card has not been drawn or `publishing.public_url` is not set.",
+        "description": "`{slug}.xml`, the show's RSS feed with its episodes. While the show is kept for people with a key the feed lists none (1.3.3). 503 while the show's card has not been drawn or `publishing.public_url` is not set.",
         "operationId": "shows_feed",
         "parameters": [
           {
@@ -13993,6 +13993,57 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/media/episodes/{file}": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "A published episode file",
+        "description": "A file an episode names, with ranges, as the feed gives its address. 404 for a file no episode names, and while a show naming it is kept for people with a key (1.3.3).",
+        "operationId": "shows_episode_file",
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "description": "The file's name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file.",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "206": {
+            "description": "The range asked for."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "description": "The database failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           },
           "503": {
             "$ref": "#/components/responses/Unavailable"
@@ -19861,7 +19912,6 @@
         "description": "What the holder is told about the key: enough for \"Welcome. This key opens the Friday\nsupporters' show and 3 more, until 30 Nov.\"",
         "required": [
           "id",
-          "label",
           "kind",
           "media",
           "all_shows",
@@ -19883,10 +19933,6 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ListenerKeyKind"
-          },
-          "label": {
-            "type": "string",
-            "description": "The name staff gave it, to find it again. It is theirs: the station's player does not\nshow it to the key's holder, and another player should not either."
           },
           "media": {
             "$ref": "#/components/schemas/ListenerKeyMedia",

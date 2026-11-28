@@ -14,7 +14,7 @@ The Carts tab (`⌃3`): a strip of banks, 24 carts under the left hand of the ke
 
 Each panel is a heading below, named as it is on screen (ADR-0070).
 Carts sound in the desk (ADR-0117): listeners, the presenter and the guests all hear them, the profanity delay holds them, and `⇧` with a key cues one into the presenters' and DJs' headphones only (see [Carts in the desk](/docs/reference/desk-carts/)).
-The demo banks are the repository's demo pack, `assets/carts-demo/`: 50 openly licensed sounds (CC0, public domain or CC BY) in four suggested banks, with their credits in `CREDITS.md` and `NOTICES.md`. The files were cut to about −16 LUFS; like every cart, each is brought to the station's cart loudness (`carts.loudness_lufs`, −23 LUFS by default) when it is loaded ([The media worker](/docs/reference/desk-carts/#the-media-worker)).
+The demo banks are the repository's demo pack, `assets/carts-demo/`: 50 openly licensed sounds (CC0, public domain or CC BY) in four suggested banks, with their credits in `CREDITS.md` and `NOTICES.md`. The files were cut to about −16 LUFS; like every cart, each is brought to the station's cart loudness (−16 LUFS on a station installed with 1.3.3 or later, −23 on one from before: [The carts' loudness](/docs/reference/desk-carts/#the-carts-loudness)) when it is loaded ([The media worker](/docs/reference/desk-carts/#the-media-worker)).
 
 ## A cart wall per show
 

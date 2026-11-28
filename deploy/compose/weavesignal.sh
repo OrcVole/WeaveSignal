@@ -26,7 +26,7 @@
 #                                   also delete the data volumes and the settings with their secrets
 #
 # Options: --project NAME (default weavesignal), --env-file PATH (default .env beside this script),
-# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
+# --image IMAGE (the server image; default forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3, pulled when absent; a localhost/ image must be built first), --engine podman|docker.
 # Each port may be given in the environment (CONTROL_PORT=17310 ./weavesignal.sh); see .env.example.
 #
 # It runs Podman (with `podman compose`) or Docker (with `docker compose`); it never uses sudo.
@@ -289,7 +289,7 @@ room=$(keep ROOM studio)
 if [ -n "${have[DEMO_STILL]+set}" ]; then demo_still=${have[DEMO_STILL]}
 elif [ "$station_name" = "Kettle FM" ]; then demo_still=/opt/weavesignal/stills-demo/kettle-fm.png
 else demo_still=''; fi
-image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2)}
+image=${image:-$(keep SERVER_IMAGE forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3)}
 lk_key=$(keep LIVEKIT_API_KEY weavesignal)
 # Secrets are never taken from the environment: only from the settings file, or made here.
 lk_secret=${have[LIVEKIT_API_SECRET]:-$(secret)}
@@ -910,6 +910,13 @@ trap 'rm -f "$tmp"' EXIT
     say "# Pulled sources (1.2): true lets a pull open an address inside the station's own network."
     say "PULL_ALLOW_PRIVATE=$pull_private"
   fi
+  # Written back only when set: unset, the station keeps its own default (1.3.3: -16 for a new
+  # station, -23 for one from before), which a written default would override.
+  carts_lufs=$(keep CARTS_LOUDNESS_LUFS "")
+  if [ -n "$carts_lufs" ]; then
+    say "# The carts' loudness target in LUFS (1.3.3); a cart loaded before keeps its level until loaded again."
+    say "CARTS_LOUDNESS_LUFS=$carts_lufs"
+  fi
   say "# The telephone line (17f): true runs phone.yaml (Valkey and LiveKit's SIP service); set the trunk"
   say "# first (PHONE_NUMBERS and the rest: see .env.example and Take phone calls), or it is refused."
   say "PHONE=$phone"
@@ -942,7 +949,7 @@ trap 'rm -f "$tmp"' EXIT
     printf '%s\n' "$derived"
   fi
   # Anything else the file held is kept as it was.
-  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU GPU_FOUND PULL_ALLOW_PRIVATE "
+  known=" STATION_ID STATION_NAME ROOM SERVER_IMAGE DEMO_STILL LIVEKIT_API_KEY LIVEKIT_API_SECRET LISTENERS_SOURCE_PASSWORD POSTGRES_PASSWORD CONTROL_ADMIN_TOKEN CHAT_EMAIL_KEY CONTROL_EMAIL_KEY CONTROL_TOKEN_KEY INGEST_TOKEN DESK_SOURCES_PASSWORD MAIL_MODE MAIL_FROM STUN_SERVERS CONGESTION_CONTROL AVATAR_UPLOADS CHAT_ATTACHMENTS CONSENT_CONTACT CONSENT_TEXT SEARCH_LISTING DIRECTORY_LISTING CONTROL_PORT CHAT_PORT LISTENERS_PORT SRT_INGEST_PORT PLAYOUT_FEED_PORT DESK_FEED_PORT DESK_SOURCES_PORT LIVEKIT_HTTP_PORT LIVEKIT_MEDIA_PORT SOURCE_ICECAST_PORT SOURCE_SRT_PORT SOURCE_BRIDGE_PORT KIT_VBAN SOURCE_WHIP_PORT INGEST_WHIP_PORT PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT PUBLIC_ORIGIN ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND VIDEO_ENCODER GPU GPU_FOUND PULL_ALLOW_PRIVATE CARTS_LOUDNESS_LUFS "
   known+="PHONE REHEARSAL LAN_ADDRESS LAN_PORT "
   [ "$gpu" != nvidia ] || known+="GPU_DEVICE NVENC_SESSIONS "
   [ "$phone" = false ] || known+="PHONE_LINES PHONE_SIP_PORT PHONE_RTP_PORT PHONE_RTP_LAST PHONE_REDIS_PORT PHONE_REDIS_PASSWORD $phone_settings "

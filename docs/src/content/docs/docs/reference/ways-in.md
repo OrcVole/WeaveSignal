@@ -27,7 +27,7 @@ The three ports a host's software reaches directly (Icecast, SRT, WHIP) listen o
 
 ## Which to choose
 
-- **A host with OBS**: SRT encrypts and carries the most software; WHIP needs no port forwarding on the host's side but only sound is used, and it has been tried with GStreamer's WHIP client, not yet with a real OBS.
+- **A host with OBS**: SRT encrypts and carries the most software; WHIP needs no port forwarding on the host's side but only sound is used, and it has been tried with GStreamer's WHIP client and, on one machine on 1.2.0, with a real OBS (33.0.2), not yet from OBS across the internet.
 - **A host behind a router who cannot open a port, or a station with no source port open** (a Cloudron station by default): the bridge.
-- **A partner station already streaming**: a pull, made through the API.
+- **A partner station already streaming**: a pull, made in the show editor or through the API.
 - **A studio PC beside the station, on the same network**: VBAN (no password, so that network only), or SRT, which encrypts.

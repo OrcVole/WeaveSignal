@@ -32,7 +32,7 @@ Drafting the next episode, or a whole season at once, fills in each number and a
 
 ## The podcast feed
 
-`/feeds/<show>.xml` lists the show's aired episodes that have files: RSS 2.0 with the iTunes and Podcasting 2.0 tags, an MP3 or AAC enclosure for Apple and Spotify, and the Ogg Opus copy as `podcast:alternateEnclosure` (ADR-0018). The tags and the card are written into each file as the last step (ADR-0019).
+`/feeds/<show>.xml` lists the show's aired episodes that have files (none while the show is kept for people with a key, from 1.3.3): RSS 2.0 with the iTunes and Podcasting 2.0 tags, an MP3 or AAC enclosure for Apple and Spotify, and the Ogg Opus copy as `podcast:alternateEnclosure` (ADR-0018). The tags and the card are written into each file as the last step (ADR-0019).
 An episode's files are attached through the API (`PUT /api/v1/shows/{show}/series/{n}/episodes/{e}/files`, from `publishing.episodes_dir`); publishing an episode from the studio app is **[planned](/docs/reference/release-one-status/)**.
 
 ## The specimens

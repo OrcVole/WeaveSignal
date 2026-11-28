@@ -9,7 +9,7 @@ sidebar:
 ---
 
 A station is a handful of processes on one server.
-Only the web proxy and LiveKit's media and TURN ports face the network (and LiveKit's ICE over TCP, where a station turns it on).
+Only the web proxy and LiveKit's media and TURN ports face the network, and the ports a station turns on: LiveKit's ICE over TCP, the hosts' source ports, the phone line's and VBAN's ([Ports](/docs/reference/ports/)).
 Everything else listens on loopback or on a Unix socket: PostgreSQL has no TCP port at all.
 
 ![A diagram of the station. People in the room reach LiveKit over WebRTC on one UDP port. The desk exchanges audio with LiveKit: each voice in, and a mix-minus back to each person. The desk sends the programme over SRT on loopback to playout, Liquidsoap 2.5, which passes it as PCM in WAV over loopback to the listener process, which holds the mount with icecast.server and serves listeners Ogg Opus through the proxy. The studio app reaches the control plane over HTTPS with live events; the control plane drives the desk over a Unix socket and keeps its data in PostgreSQL. A dashed area around the people, LiveKit and the desk is labelled "Conversation: 69–77 ms on loopback, about 0.25 s each way online"; another around playout, the listener process and the listeners is labelled "Listeners: about 12 to 23 s behind".](../../../../assets/architecture.svg)
@@ -42,7 +42,7 @@ It also serves the public pages, the HLS video, the podcast feeds and the show c
 **The chat** is a service of its own beside the control plane, behind the same proxy ([The chat](/docs/reference/chat/)).
 
 **The studio app** shows the control plane's view as the desk, the screener, the cart wall and the schedule, and sends the presenter's and screener's keys back as commands.
-It carries no audio: presenters and guests join the room from a browser.
+It never joins the room: presenters and guests join from a browser. The only sound it handles is a host's own software passing through [the bridge](/docs/how-to/send-through-the-bridge/), and the phone line's words, which Settings plays and records.
 
 ## Two latencies
 
@@ -106,5 +106,5 @@ The stream is encoded at a constant 96 kbit/s, so silence still sends a steady s
 - **LiveKit's built-in TURN refuses clients that reach it over IPv6** (an allocation error, 508): give the TURN name an A record and no AAAA record.
 - **The studio app's Linux webview has no WebRTC**, so the app drives the desk and presenters join from a browser.
 
-WHIP for remote DJs is **[planned](/docs/reference/release-one-status/)**.
-For everything else release one leaves out, see [What release one does, and what it leaves out](/docs/reference/release-one-status/).
+A host can send their show's sound from OBS over WHIP with their show key, where the station turns its port on; OBS's picture is set aside ([Send from OBS over WHIP](/docs/how-to/send-from-obs-over-whip/)).
+For what release one leaves out, see [What release one does, and what it leaves out](/docs/reference/release-one-status/).

@@ -6,6 +6,7 @@
   // the relay for networks that block calls, and hanging up (two presses, like the desk's drop).
   import { onDestroy } from 'svelte';
   import type { Call } from './call.svelte.ts';
+  import MicChooser from './MicChooser.svelte';
   import { Meter } from './meter.svelte.ts';
   import { banner, showLine } from './words.ts';
 
@@ -108,8 +109,24 @@
         <span data-hearing={call.hearing}>{call.hearing ? (rehearsing ? 'The people in the rehearsal, through this page' : 'The show and the studio, through this page') : 'Nothing yet'}</span>
       </div>
       <div class="row">
-        <span class="caps">Your microphone</span>
+        <!-- Which microphone (1.3.3). A change waits for its own button: the studio hears it at once. -->
+        <MicChooser
+          list={call.mics.list}
+          using={call.micInUse}
+          label="Your microphone"
+          caps
+          confirm
+          disabled={call.link !== 'connected'}
+          busy={call.micChanging}
+          stopped={call.micStopped}
+          onchoose={(id) => call.useMic(id)}
+        />
         <span class="level" role="img" aria-label={meter?.heard ? 'Your microphone is working' : 'Your microphone has not been heard yet'}><i style:width="{meter?.pct ?? 0}%"></i></span>
+        <!-- Always in the page, so a screen reader hears what is written into it. -->
+        <div class="says" aria-live="polite" aria-atomic="true">
+          {#if call.micNote && !call.micTrouble}<p class="small" data-mic-note>{call.micNote}</p>{/if}
+        </div>
+        {#if call.micNote && call.micTrouble}<p class="problem" role="alert" data-mic-note>{call.micNote}</p>{/if}
       </div>
       {#if rehearsing}
         <p class="small">Headphones stop the others echoing back. Nothing here reaches the station's listeners.</p>
@@ -139,6 +156,7 @@
       <summary>Trouble hearing or being heard?</summary>
       <div>
         <p class="small">Studio too quiet? On a phone, press volume up once the call has started: a call has its own volume, apart from music's.</p>
+        <p class="small">Wrong microphone? Choose another under <b>Your microphone</b>, above. A headset you plug in now appears there too.</p>
         {#if call.relay}
           <p class="small">You're connected through the station's relay (TURN over TLS, port {relayPort}).</p>
         {:else}
@@ -270,5 +288,9 @@
   }
   .io .level {
     display: block;
+  }
+  /* Empty, it takes no room: not even the row's gap. */
+  .io .says:empty {
+    margin-top: calc(-1 * var(--s-1));
   }
 </style>

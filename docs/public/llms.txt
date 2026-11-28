@@ -1,11 +1,11 @@
 # WeaveSignal
 
-> WeaveSignal is open-source (AGPL-3.0-only) software for a self-hosted internet radio or video station with the live studio built in: a LiveKit room for presenters, guests and screened callers; a desk (Rust, gstreamer-rs) that mixes the programme and a mix-minus for each person; playout through one fixed Liquidsoap 2.5 script; listener streams (Ogg Opus, an optional MP3 stream, HLS with video) from Liquidsoap's icecast.server; a live chat; show cards and podcast feeds; one installation on your own server. Release 1.0.0 was published on 2026-11-04. The website is at / and the documentation under /docs/. Documentation text is CC BY-SA 4.0; code samples are AGPL-3.0-only.
+> WeaveSignal is open-source (AGPL-3.0-only) software for a self-hosted internet radio or video station with the live studio built in: a LiveKit room for presenters, guests and screened callers; a desk (Rust, gstreamer-rs) that mixes the programme and a mix-minus for each person; playout through one fixed Liquidsoap 2.5 script; listener streams (Ogg Opus, an optional MP3 stream, HLS with video) from Liquidsoap's icecast.server; a live chat; show cards and podcast feeds; one installation on your own server. Release 1.0.0 was published on 2026-11-04; the home page names the current release. The website is at / and the documentation under /docs/. Documentation text is CC BY-SA 4.0; code samples are AGPL-3.0-only.
 
 ## The website
 
-- [Home](/): what it is, the demo station, the status of 1.0.0, the eight strongest features, who uses what, the two latencies, a short comparison, how to run it, eight questions
-- [Features](/features/): what 1.0.0 does for a station, in eight groups with the page that explains each, and what is planned and not in 1.0.0
+- [Home](/): what it is, the demo station, the status of the current release, the eight strongest features, who uses what, the two latencies, a short comparison, how to run it, eight questions
+- [Features](/features/): what the current release does for a station, in eight groups with the page that explains each, and what is planned and not built
 - [Videos](/videos/): four tutorials for a newcomer (your first station on Linux and the studio app on Windows, release 1.3.0; the four views of a show and a solo show, release 1.3.1; with captions, transcripts and written steps), the demo show and five moments from it
 - [Compare](/compare/): WeaveSignal against the stack of tools a station combines today, by job, with sources and the date read
 - [Questions](/faq/): cost, hardware, players and relays, macOS, packaging, chat, AzuraCast, readiness, telephones, hosting, help, versioning
@@ -13,7 +13,7 @@
 
 ## Status
 
-- [What release one does, and what it leaves out](/docs/reference/release-one-status/): 1.0.0, what is in it, what is not, the known limits, what was measured
+- [What release one does, and what it leaves out](/docs/reference/release-one-status/): what the releases so far hold, what they leave out, the known limits, what was measured
 
 ## Documentation
 
@@ -27,7 +27,7 @@
 ## How-to guides: presenters
 
 - [Get ready to present](/docs/how-to/get-ready/): joining, headphones, the microphone's browser settings
-- [Choose your microphone and speakers (audio devices)](/docs/how-to/choose-your-microphone-and-speakers/): no device list in WeaveSignal; the browser's and Windows' choices, and what to do with no device or no sound
+- [Choose your microphone and speakers (audio devices)](/docs/how-to/choose-your-microphone-and-speakers/): the microphone is chosen on the page you speak from (from 1.3.3), the speakers in the browser and in Windows; what to do with no device or no sound
 - [Play a sound file while you test](/docs/how-to/play-a-sound-file/): an MP3 uploaded as a cart, where it is heard, why it may be silent
 - [Put a sound file in the schedule](/docs/how-to/put-a-file-in-the-schedule/): no upload in the app yet; the fallback folder, and the library with an hour clock through the API
 - [Present from the keyboard](/docs/how-to/present-from-the-keyboard/): on air, cue, mute, held talk
@@ -50,7 +50,7 @@
 - [Install a station with weavesignal.sh](/docs/how-to/install-with-weavesignal-sh/): the Compose bundle in one command; secrets made locally, free ports, uninstall keeps the data
 - [Listen on a phone or another computer](/docs/how-to/listen-on-another-device/): `--lan` opens the player and the stream to the home network, listen only; the firewall command; why nobody can speak
 - [Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/): a reverse proxy with a certificate, TURN over TLS, the ports to open
-- [Install on Cloudron](/docs/how-to/install-on-cloudron/): the 1.0.0 package from its published image; TURN over TLS on 15349; 1.5 GiB
+- [Install on Cloudron](/docs/how-to/install-on-cloudron/): the package from its published image; TURN over TLS on 15349; a 2 GiB memory limit
 - [Run a station as Podman Quadlets](/docs/how-to/run-with-quadlets/): units generated from the Compose bundle, secrets as Podman secrets
 - [Run the loopback stack with Compose](/docs/how-to/run-with-compose/): every listener on loopback, for development
 - [Install the studio app on Linux](/docs/how-to/install-studio-linux/): AppImage, .deb or .rpm; checksums; the Wayland setting

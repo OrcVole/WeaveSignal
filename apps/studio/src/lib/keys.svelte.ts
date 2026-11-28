@@ -6,11 +6,12 @@
 // text is shown in the dialog that asked for it and is gone when that closes.
 
 import { sandboxed } from './api.ts';
-import { accessProblem, keepBody } from './keyed.ts';
+import { accessProblem, keepBody, nextOpening } from './keyed.ts';
 import { SOON_DAYS, unreadyOf, type UnreadyWords } from './keys.ts';
 import * as api from './keysApi.ts';
 import type { KeyDevice, KeyFamily, KeyFilter, KeyLogEntry, KeyState, KeyKind, KeyedShow, KeyedShows, LeakReport, ListenerKey } from './keysApi.ts';
 import { onStationChange } from './reset.ts';
+import { stationNow } from './studio.svelte.ts';
 
 // ---- the keyed shows, for the key beside a show on every tab ----
 
@@ -26,6 +27,33 @@ export const keyed = $state(freshKeyed());
 let keyedAsking: Promise<void> | null = null;
 const KEYED_FRESH_MS = 30_000;
 
+// A keyed show opens to everyone by itself at its time, with nobody pressing anything: the list
+// is read again a moment after the next such time, so the tick, the key on its blocks and the
+// words beside them change when the show does (1.3.3). A time further off than a timer holds
+// (24.8 days) is waited for in day-long steps. Where the station still says the show is kept
+// after its time (its clock is behind what this window takes it to be), it is asked again at
+// longer and longer intervals, up to a minute, never in a tight loop.
+let opening: ReturnType<typeof setTimeout> | null = null;
+let overdue = 0;
+const OPENING_GRACE_MS = 1500;
+const DAY_MS = 86_400_000;
+function watchOpening(): void {
+  if (opening) clearTimeout(opening);
+  opening = null;
+  const wait = keyed.list ? nextOpening(keyed.list.shows, stationNow()) : null;
+  if (wait === null) return void (overdue = 0);
+  overdue = wait === 0 ? overdue + 1 : 0;
+  const grace = Math.min(60_000, OPENING_GRACE_MS * 2 ** Math.max(0, overdue - 1));
+  opening = setTimeout(
+    () => {
+      opening = null;
+      if (wait <= DAY_MS) void reloadKeyed();
+      else watchOpening();
+    },
+    wait <= DAY_MS ? wait + grace : DAY_MS,
+  );
+}
+
 /** Read which shows need a key. Asked for by whichever tab draws a show first, and again after
  *  half a minute or when told (`force`): a rule changes rarely, and opens to everyone by itself. */
 export function loadKeyed(force = false): Promise<void> {
@@ -40,6 +68,7 @@ export function loadKeyed(force = false): Promise<void> {
     .then((list) => {
       keyed.list = list;
       keyed.state = 'ok';
+      watchOpening();
     })
     .catch(() => {
       // A station older than 1.3.2 has no such route; one that did not answer keeps what was read.
@@ -163,6 +192,9 @@ const fresh = () => ({
 export const ks = $state(fresh());
 
 onStationChange('keys', () => {
+  if (opening) clearTimeout(opening);
+  opening = null;
+  overdue = 0;
   Object.assign(keyed, freshKeyed());
   Object.assign(accessUi, freshAccessUi());
   Object.assign(keysUi, freshUi());

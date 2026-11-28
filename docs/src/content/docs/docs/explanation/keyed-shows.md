@@ -15,9 +15,9 @@ This page says what the software keeps of that promise and what it cannot.
 
 ## What it is for
 
-Someone without a valid key cannot get the keyed show from the station: not from the public stream, which carries a slate meanwhile, not from the stream's address, not from the picture.
+Someone without a valid key cannot get the keyed show from the station: not from the public stream, which carries a slate meanwhile, not from the stream's address, not from the picture, and, from 1.3.3, not from the show's podcast feed or episode files.
 The cut is made in playout, where the programme is chosen, on playout's own clock: nothing after it decides what is keyed, so nothing after it can let a keyed moment through.
-While a keyed show is on, the public hears the station's slate: its slate file, else its fallback files, else the loop WeaveSignal ships, so a new station with an empty fallback folder still plays something; a spoken slate that says when the public programme returns is for the station to record and put in its fallback folder (no package names a slate file of its own in 1.3.2).
+While a keyed show is on, the public hears the station's slate: its slate file, else its fallback files, else the loop WeaveSignal ships, so a new station with an empty fallback folder still plays something; a spoken slate that says when the public programme returns is for the station to record and put in its fallback folder (no package names a slate file of its own in 1.3.2 or 1.3.3).
 A key can start later, end, be switched off, be limited to a number of devices or listens, and be ended for good.
 Switching it off or ending it stops someone already listening at once, at the station and at every edge that reads the station's revoked list; the other changes reach them at their player's next renewal, about a minute later.
 
@@ -47,7 +47,7 @@ Checking a key on every request would need the control plane in every listener's
 So the key is checked when it is entered and each time the player renews, about once a minute; in between, the edge and the station check only a signature, a clock and a short list of revoked keys.
 The renewal is also the proof of a device in use: a closed browser stops renewing, and after a few minutes its place on the key is free.
 
-The token lasts the show's window rather than a minute or two, because players that cannot change the address mid-play (Safari's own player, and later radio apps, which cannot take a key in 1.3.2) must keep playing; a revoke reaches them through the revoked list instead.
+The token lasts the show's window rather than a minute or two, because players that cannot change the address mid-play (Safari's own player, and later radio apps, which cannot take a key yet) must keep playing; a revoke reaches them through the revoked list instead.
 
 The signature is ECDSA P-256, so an edge run by someone else holds only the station's public key: it can check tokens and cannot make one.
 (Ed25519 would have been the first choice; the edge's nginx cannot check it.)

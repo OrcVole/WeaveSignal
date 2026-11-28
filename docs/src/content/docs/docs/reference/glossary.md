@@ -26,10 +26,10 @@ Its panels are named in [The desk](/docs/reference/surfaces/desk/).
 
 **The studio app.**
 The desktop program (Linux and Windows) that shows the desk, the screener, the cart wall, the schedule and the settings, and sends your keys to the station.
-It carries no audio: presenters and guests join the room from a browser, and the app controls the desk.
+It does not carry your voice into the room: presenters and guests join from a browser, and the app controls the desk. The one live sound it can carry is a host's own broadcasting software, through the bridge (below).
 
 **Playout.**
-The automation that fills the air between and around live shows: it plays the schedule's music and recorded shows, takes the desk's programme when the desk is on air, and keeps listeners connected through a dead-air fallback.
+The automation that fills the air between and around live shows: it plays the schedule's music, takes the desk's programme when the desk is on air, and keeps listeners connected through a dead-air fallback.
 Liquidsoap 2.5 runs it from one fixed script ([Playout](/docs/reference/playout/)).
 
 **The listener process.**
@@ -111,16 +111,18 @@ It is off until the host starts it, and needs the station's public address and t
 
 ## On air
 
-**ON AIR, OPEN, AUTO, PLAYOUT DOWN.**
-The master lamp's four states.
+**ON AIR, STANDBY, AUTO, PLAYOUT DOWN, FAULT.**
+The master lamp's five states.
 *ON AIR*: listeners can hear this now.
-*OPEN*: the room hears this source but listeners do not, because automation holds the air.
-*AUTO*: automation is playing the log.
-*PLAYOUT DOWN*: the room is alive but nothing reaches listeners.
+*STANDBY*: nobody is on air.
+*AUTO*: automation holds the air.
+*PLAYOUT DOWN*: the room is alive but nothing of it reaches listeners.
+*FAULT*: the desk does not answer.
+**OPEN** is a source's word, never the master lamp's: the room hears the source but listeners do not, because automation holds the air or playout is down.
 [What the lamp means](/docs/explanation/on-air/) explains them.
 
-**DESK BUSY, BANNED BEFORE, LINK DEGRADED, FAULT, ALL GOOD, STANDBY.**
-The other state words: a caller the presenter declined for now; a caller matched to the banned list before they are heard; a person's connection losing packets; something the desk depends on has failed; nothing needs you; nothing is open and the next On key puts you on air.
+**DESK BUSY, BANNED BEFORE, LINK DEGRADED, ALL GOOD.**
+The other state words: a caller the presenter declined for now; a caller matched to the banned list before they are heard; a person's connection losing packets; nothing needs you.
 
 **The rundown.**
 The running order of a show: what comes next and when, shown beside the desk.

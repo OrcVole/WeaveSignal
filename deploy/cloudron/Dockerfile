@@ -205,7 +205,7 @@ RUN for e in livekitwebrtcsrc livekitwebrtcsink webrtcbin srtsink srtsrc matrosk
     && msmtp --version | head -1 \
     && rm -rf /root/.cache
 
-COPY playout/weavesignal.liq playout/listeners.liq playout/chain.liq /app/code/playout/
+COPY playout/weavesignal.liq playout/listeners.liq playout/chain.liq playout/station_files.liq /app/code/playout/
 # Liquidsoap's script cache, built now: with no cache, each Liquidsoap typechecks at start and
 # peaks near 650 MB before settling near 130 MB, and the two starting together passed a 1 GiB
 # limit (measured 2026-10-25). From this cache each peaks near 170 MB. Read-only at run time.

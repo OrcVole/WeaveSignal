@@ -10,8 +10,15 @@
 # listener, and at the end checks the run and writes RESULT.md (see soak.py's header for what is
 # seeded and which checks are made). Not part of `ci`: it takes as long as it is told to.
 #
+# Keyed shows (1.3.3): two keyed shows whose windows recur through the run, one pair back to back,
+# with a signature on the keyed programme that ears on the public mounts must never hear, a key
+# holder per window, and the keyed shows' podcast feed and files checked at every sample (see
+# soak.py's "keyed shows" section). NEGATIVE=1 makes two leaks on purpose (a signature outside any
+# window, and playout's public gate opened mid-window); the run then passes only if it heard both.
+#
 #   just soak-24h                      the whole day
 #   DURATION=20m SAMPLE_S=15 tests/soak/run-24h.sh
+#   DURATION=20m SAMPLE_S=15 NEGATIVE=1 tests/soak/run-24h.sh      the negative control
 #
 # To leave it running after the terminal closes (the output goes to $OUT/run.out):
 #   OUT=$HOME/Code/weavesignal-soak-runs/$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
@@ -21,7 +28,9 @@
 # ~/Code/weavesignal-soak-runs, never under a target/), WEAVESIGNAL_SERVER_IMAGE (the image to
 # run; build it first with `just server-image`), WEAVESIGNAL_TEST_PREFIX (the project is
 # <prefix>-soak), and the ports CONTROL_PORT, CHAT_PORT, LISTENERS_PORT, SRT_PORT, FEED_PORT,
-# DESK_FEED_PORT, DESK_SOURCES_PORT, LK_PORT and LK_UDP_PORT (31410 to 31482 by default). Only
+# DESK_FEED_PORT, DESK_SOURCES_PORT, LK_PORT and LK_UDP_PORT (31410 to 31482 by default), and
+# NEGATIVE (0; 1 for the keyed shows' negative control) and LIVEKIT_NO_MEDIA (0; 1 for a test
+# stack whose LiveKit must open no port beyond loopback, see below). Only
 # one stack at a time: it stops if its project is already up. Exit status 0 only if every check
 # passed.
 set -euo pipefail
@@ -60,6 +69,7 @@ sed -e 's/^STATION_ID=.*/STATION_ID=5a1e0b7c-93d2-4c6f-8b1a-7e4d2f0c6a35/' \
     -e 's/^CHAT_EMAIL_KEY=.*/CHAT_EMAIL_KEY=soak-test-only-chat-email-key-0123456789/' \
     -e 's/^INGEST_TOKEN=.*/INGEST_TOKEN=soak-test-only-ingest-token-0123456789/' \
     -e 's/^DESK_SOURCES_PASSWORD=.*/DESK_SOURCES_PASSWORD=soak-test-only-desk-sources-0123456789/' \
+    -e 's/^CONTROL_TOKEN_KEY=.*/CONTROL_TOKEN_KEY=soak-test-only-token-key-0123456789abcdef/' \
     -e "s|^SERVER_IMAGE=.*|SERVER_IMAGE=$image|" \
     -e 's/^COMPAT_STREAM=.*/COMPAT_STREAM=true/' \
     -e 's/^COMPAT_HIGH_STREAM=.*/COMPAT_HIGH_STREAM=true/' \
@@ -79,7 +89,24 @@ sed -e 's/^STATION_ID=.*/STATION_ID=5a1e0b7c-93d2-4c6f-8b1a-7e4d2f0c6a35/' \
 # control plane refuses them ("cards are off").
 echo "PUBLIC_ORIGIN=http://127.0.0.1:$CONTROL_PORT" >> "$env"
 
-compose() { (cd "$root/deploy/compose" && podman compose --env-file "$env" -p "$project" "$@"); }
+files=(-f compose.yaml)
+# LIVEKIT_NO_MEDIA=1: LiveKit opens no media port at all. The bundle's LiveKit binds its UDP media
+# port on every address but loopback (bind_addresses covers its HTTP port only, and LiveKit leaves
+# loopback out of its candidates, 2026-11-27), which a test stack must not; the soak itself has
+# nobody in the room, so it needs none. An override narrows LiveKit's addresses to loopback, of
+# which it then uses none. Leave it unset when something joins the room beside the run.
+if [ "${LIVEKIT_NO_MEDIA:-0}" = 1 ]; then
+  awk 'BEGIN { print "configs:\n  livekit:\n    content: |" }
+       /^configs:/ { c = 1; next }
+       c && /^  livekit:/ { l = 1; next }
+       l && /^    content: \|/ { k = 1; next }
+       k && /^ {0,5}[^ ]/ { exit }
+       k { print; if ($0 ~ /^      rtc:$/) print "        ips:\n          includes: [\"127.0.0.1/32\"]" }' \
+    "$root/deploy/compose/compose.yaml" > "$out/livekit-no-media.yaml"
+  grep -q '127.0.0.1/32' "$out/livekit-no-media.yaml" || { echo "LIVEKIT_NO_MEDIA: LiveKit's config was not found in compose.yaml" >&2; exit 2; }
+  files+=(-f "$out/livekit-no-media.yaml")
+fi
+compose() { (cd "$root/deploy/compose" && podman compose "${files[@]}" --env-file "$env" -p "$project" "$@"); }
 # shellcheck disable=SC2329
 down() {
   trap - EXIT INT TERM
@@ -90,7 +117,7 @@ down() {
 trap down EXIT
 trap 'exit 130' INT TERM
 
-echo "soak: $duration (every ${SAMPLE_S:-60} s), project $project, image $image, output $out"
+echo "soak: $duration (every ${SAMPLE_S:-60} s), project $project, image $image, output $out${NEGATIVE:+, NEGATIVE=$NEGATIVE}"
 compose up -d >/dev/null 2>&1
 for i in $(seq 1 90); do
   curl -fs "http://127.0.0.1:$CONTROL_PORT/health" 2>/dev/null | grep -q '"database":"ok"' && break
@@ -99,7 +126,7 @@ done
 
 set +e
 SOAK_PROJECT=$project CONTROL_PORT=$CONTROL_PORT LISTENERS_PORT=$LISTENERS_PORT SOAK_TOKEN=$token \
-  SOAK_DURATION_S=$seconds SAMPLE_S=${SAMPLE_S:-60} OUT=$out SOAK_IMAGE=$image \
+  SOAK_DURATION_S=$seconds SAMPLE_S=${SAMPLE_S:-60} OUT=$out SOAK_IMAGE=$image NEGATIVE=${NEGATIVE:-0} \
   python3 -I "$here/soak.py" &
 pid=$!
 trap 'kill -TERM "$pid" 2>/dev/null' INT TERM

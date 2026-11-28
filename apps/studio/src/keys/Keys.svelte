@@ -81,6 +81,14 @@
   let making = $state<null | { family: string }>(null);
   let makingMany = $state(false);
   let sending = $state<{ key: ListenerKey; given: KeyText | null; why: 'send' | 'made' | 'replaced' } | null>(null);
+  /** Send is closed: the key's text was shown, which the station notes on the key, so its page
+   *  is read again. A request that waited for a person (Lost your key?, at a station that sends
+   *  no email) is answered by that, and its note goes without the page being opened again (1.3.3). */
+  function sent() {
+    const id = sending?.key.id;
+    sending = null;
+    if (id && ks.selected === id) void openKey(id, false);
+  }
   /** Make a show keyed…: the station's shows, each with one press. It may lie over Make a key
    *  or Send, whose step 1 opens it, so what is typed there stays. */
   let keeping = $state(false);
@@ -455,7 +463,7 @@
           {:else}
             <ul class="showlist">
               {#each shows as s (s.id)}
-                <li><svg aria-hidden="true"><use href="#g-key" /></svg><span><b>{s.name}</b><span class="small block">{s.now === 'public' ? 'Open to everyone now' : 'Only a key opens it'}{s.now === 'key' && s.opens_at_ms != null ? ` · opens to everyone ${timeWords(s.opens_at_ms, zone)}` : ''}</span></span></li>
+                <li><svg aria-hidden="true"><use href="#g-key" /></svg><span><b>{s.name}</b><span class="small block">{s.now === 'public' ? `Opened to everyone${s.opens_at_ms != null ? ` ${timeWords(s.opens_at_ms, zone)}` : ''}: no key is needed now` : 'Only a key opens it'}{s.now === 'key' && s.opens_at_ms != null ? ` · opens to everyone ${timeWords(s.opens_at_ms, zone)}` : ''}</span></span></li>
               {/each}
             </ul>
           {/if}
@@ -473,7 +481,7 @@
 {#if makingMany}<MakeMany onmade={onMadeMany} onclose={() => (makingMany = false)} onkeep={() => (keeping = true)} />{/if}
 {#if sending}
   {#key sending.key.id}
-    <SendKey key={sending.key} given={sending.given} why={sending.why} onclose={() => (sending = null)} onkeep={() => (keeping = true)} onmake={makeNext} />
+    <SendKey key={sending.key} given={sending.given} why={sending.why} onclose={sent} onkeep={() => (keeping = true)} onmake={makeNext} />
   {/key}
 {/if}
 <!-- After the others, so that it lies over them: step 1 from Make a key keeps what is typed there. -->

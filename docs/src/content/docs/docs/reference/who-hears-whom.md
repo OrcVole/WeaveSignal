@@ -46,8 +46,9 @@ Nothing the screener says reaches a caller by accident.
 
 ## Talking to one person
 
-A person can talk to one other person while a key is held (the desk's `talk_to`): the presenter to anyone in slots 2 to 5 with the Desk tab's `S` to `G`, the presenter to the screener with `⌃T`, and the screener to the selected caller with `T` on the Screener tab.
+A person can talk to one other person while a key is held (the desk's `talk_to`): the presenter to anyone in slots 2 to 5 with the Desk tab's `S` to `G`, the presenter to the screener with `⌃T`, and the screener to the selected caller with `T` on the Screener tab, or, with no screener in the room, the presenter with that same `T` (from 1.2).
 While the key is held, the talker's voice reaches that one person's headphones and leaves the programme and every other mix (ADR-0099).
+While the key is held the talker also hears that person back, even while they are muted, standing by or waiting off air (from 1.2), unless that person is talking privately to someone else.
 Releasing the key puts them back where they were.
 It works only where the table gives the talker's voice a route to that person: a screener cannot talk to a guest this way, and a producer has only talkback.
 
@@ -55,8 +56,8 @@ It works only where the table gives the talker's voice a route to that person: a
 
 ## What a waiting caller hears
 
-A caller who is neither on air nor cued hears the programme, and the screener only while the screener talks to them.
-Only the screener hears the caller; once the presenter cues them, presenters and DJs hear them too.
+A caller who is neither on air nor cued hears the programme, and whoever talks to them only while the talk key is held: the screener, or the presenter from the Screener tab with no screener in the room.
+The screener hears the caller, and so does anyone talking to them while the key is held; once the presenter cues them, presenters and DJs hear them too.
 The screener is never heard by listeners.
 Each caller is in a booth room of their own, which only the desk joins ([Rooms](/docs/reference/roles/#rooms)): the desk carries their voice to everyone who hears it, and their mix-minus back to them. A caller in a booth hears the programme and is not shown the programme picture.
 

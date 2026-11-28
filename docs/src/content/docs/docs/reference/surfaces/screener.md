@@ -1,6 +1,6 @@
 ---
 title: "Screener"
-description: "The screener's panels by name, what each shows, and what WeaveSignal 1.0 leaves out."
+description: "The screener's panels by name, what each shows, and what is left out."
 type: reference
 status: draft
 last_verified: 2026-11-04
@@ -25,7 +25,7 @@ Until 1.2.1 the first two columns were fixed and the layout stacked under 1,360 
 
 The verdict first, then the show: the lamp's word, the show and its presenter, whether the desk is taking callers, the studio clock and the time listeners hear, the screener's own name, and *Talk to* the presenter, held (`⌃T`).
 The desk is "not taking callers" while any caller sent to it carries DESK BUSY.
-*Listeners* shows a dash: the listener count is [not in WeaveSignal 1.0](/docs/reference/release-one-status/).
+*Listeners* shows a dash: this bar does not show the count. The desk's [Listeners panel](/docs/reference/surfaces/desk/#deskaudience) does.
 
 ## `screener.queue`
 
@@ -41,7 +41,7 @@ The selected caller:
 - whether they hear you, and what listeners hear ("none of this"), with their level;
 - *One line for* the presenter, and a *Note* the presenter sees and listeners do not;
 - *Name on air* (`N`);
-- BANNED BEFORE, with the date and reason, when it applies (from the station's `studio.banned` setting);
+- BANNED BEFORE, with the date and reason, when it applies (from the station's `studio.banned` setting; for a telephone caller, from the numbers banned on the phone line, with **Ban this number…** on their card);
 - *Send to desk* (`P`), or *Send again* after a decline; *To queue* (`W`); *Drop* (`⌃D ⌃D`);
 - DESK BUSY, when the presenter declined them, with the time and the reason (*Desk busy: ⟨presenter⟩ is not taking callers*);
 - the consent to record, accepted on the player page or given for them by the station; a caller without it cannot be sent to the desk, and *Send to desk* is disabled until it is on file.

@@ -133,8 +133,32 @@ The studio's view (`GET /api/v1/studio` and its event stream) carries `carts`: w
 
 Every upload goes through `weavesignal-control media-worker`, a separate process that restricts itself (Landlock: no files, no network; no new processes; CPU and memory limits) before it reads a byte.
 It reads WAV, FLAC, MP3, Ogg Vorbis, AAC in MP4 and Ogg Opus (surround folded to stereo), measures EBU R128 loudness and true peak, and writes 24-bit FLAC at the source's own rate.
-The gain that brings the cart to `carts.loudness_lufs` (−23 by default) without pushing its true peak over `carts.ceiling_dbtp` (−1) is stored with the cart and applied by the desk when it fires.
+The gain that brings the cart to the station's cart loudness without pushing its true peak over `carts.ceiling_dbtp` (−1) is stored with the cart and applied by the desk when it fires.
 The control plane writes the files to `carts.media_dir`; the desk reads the same directory (`[carts] dir`), read-only in the Compose bundle.
+
+### The carts' loudness
+
+Every cart is brought to one loudness, in LUFS (EBU R128), when its sound is loaded:
+
+- **A station installed with 1.3.3 or later: −16 LUFS**, the level internet radio streams at (and playout's processing aims for).
+- **A station from an earlier release: −23 LUFS, as before.** Upgrading does not change it. 1.3.3's first start marks every station already in the database as an older one (migration 0073), and that station keeps −23 for as long as nothing sets a level.
+- **A level that is set wins over both:** `carts.loudness_lufs` in the settings file, or `CARTS_LOUDNESS_LUFS` on the Compose bundle, the Quadlets and the Cloudron package (−40 to −5). Empty or left out means the station's own default above.
+
+The control plane's log says the level at start (*carts are brought to this loudness*), and `GET /api/v1/carts` gives it as `loudness_lufs`.
+At −16 a short, sharp sound (a rimshot, a click) is more often held below the level by the −1 dBTP ceiling than at −23.
+
+**To move a station from an earlier release to −16** (or any station to another level):
+
+- **Compose bundle and Quadlets:** add `CARTS_LOUDNESS_LUFS=-16` to the settings file (`deploy/compose/.env`), then run `weavesignal.sh` again, which keeps the line.
+- **Cloudron:** in `/app/data/weavesignal.env`, set `CARTS_LOUDNESS_LUFS=-16` (the package writes the line empty), then restart the app.
+- **Your own `control.toml`:** set `loudness_lufs = -16.0` under `[carts]`, then restart the control plane.
+
+**Carts already on the wall are not re-levelled.** A cart's gain is worked out once, when its sound is loaded, and kept with it, so after a change the wall holds carts at two levels until each is loaded again:
+
+- a cart of your own: load its sound again, in the studio with the cart's **Replace the sound…** and the same file ([Add your own cart](/docs/how-to/add-your-own-cart/)), or through the API by putting the file to its slot with its words;
+- the default pack's carts nobody changed: load the pack again with `replace` ([Loading the default pack again](#loading-the-default-pack-again)), which brings each in at the new level and leaves your own carts as they are.
+
+The phone line's own recording of the phone words (17f) keeps −23 on a new station, as before, unless a cart level is set; a set level applies to it too.
 
 ## Loading a pack
 

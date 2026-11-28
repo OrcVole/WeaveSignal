@@ -26,7 +26,7 @@ const token = (o: Partial<ListenToken> = {}): ListenToken => ({
   show: forShow(null),
   urls: { hls: `/hls/k/s-fri/ks1.claims${n}.sig/live.m3u8`, opus: `/listen/k/s-fri/ks1.claims${n}.sig/programme-keyed.opus`, mp3: null },
   renew_in_s: 60,
-  key: { id: 'k1', kind: 'personal', label: 'Isla Fraser', media: 'both', all_shows: true, shows: [], valid_from_ms: null, valid_until_ms: null, ends_soon: false },
+  key: { id: 'k1', kind: 'personal', media: 'both', all_shows: true, shows: [], valid_from_ms: null, valid_until_ms: null, ends_soon: false },
   ...o,
 });
 const dev = (id: string, label: string): Device => ({ id, label, first_seen_ms: NOW, last_seen_ms: NOW, ended_ms: null });

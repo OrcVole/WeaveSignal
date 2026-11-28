@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // What WeaveSignal can do, grouped by what a station cares about, for /features/ and the home
-// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.3.2:
+// page's short list (`lead`, the entries marked `home`). Every feature here is in 1.3.3:
 // check a new one against "What release one does, and what it leaves out" before adding it, and
 // put anything planned in `next`, never here. `clip` names a moment from the demo video
 // (public/media/moment-<clip>.webm, present only at a build that has it) and `shot` a screenshot
@@ -87,7 +87,7 @@ export const groups: Group[] = [
       {
         id: 'whip',
         name: 'OBS over WHIP',
-        what: 'A host pastes an address and their show key\'s secret into OBS\'s WHIP output, and their sound reaches the desk over WebRTC on one UDP port the station answers itself, with no STUN or TURN. Sound only: OBS\'s picture is taken and set aside. Tried with GStreamer\'s WHIP client; a real OBS has not been tried yet.',
+        what: 'A host pastes an address and their show key\'s secret into OBS\'s WHIP output, and their sound reaches the desk over WebRTC on one UDP port the station answers itself, with no STUN or TURN. Sound only: OBS\'s picture is taken and set aside. Tried with GStreamer\'s WHIP client and with a real OBS (33.0.2) on one machine; not yet from OBS across the internet.',
         href: '/docs/how-to/send-from-obs-over-whip/',
         link: 'Send from OBS over WHIP',
       },
@@ -335,7 +335,7 @@ export const groups: Group[] = [
       {
         id: 'desk-gpu',
         name: 'Video on a graphics card',
-        what: 'On Compose and the Quadlets the desk encodes the picture on an NVIDIA card with NVENC when the server has one, found by the install script on a new install or named in a setting, and on the CPU with SVT-AV1 otherwise. An update never moves a station to the card: Settings says when one is there and not used. A Cloudron app has no GPU. Not yet measured on a card with this release.',
+        what: 'On Compose and the Quadlets the desk encodes the picture on an NVIDIA card with NVENC when the server has one, found by the install script on a new install or named in a setting, and on the CPU with SVT-AV1 otherwise. An update never moves a station to the card: Settings says when one is there and not used. A Cloudron app has no GPU. The encoder has been measured on one card (an RTX 5090) with 1.2.0; a whole show on a card has not.',
         href: '/docs/how-to/use-a-gpu-for-video/',
         link: 'Use a GPU for video',
       },
@@ -523,7 +523,7 @@ export const leadFeatures = (): Feature[] => {
   });
 };
 
-// Planned, and not in 1.2. Each says what works today instead; the status page is the list.
+// Planned and not built. Each says what works today instead; the status page is the list.
 export interface Planned {
   id: string;
   name: string;
@@ -538,7 +538,7 @@ export const next: Planned[] = [
     id: 'host-picture',
     name: 'A host\'s own picture, passed through',
     what: 'A host who encodes their picture on their own GPU sends it with their sound, and the desk passes it to viewers without encoding it again where the codecs allow (ADR-0289).',
-    today: 'In 1.2 the station takes only a host\'s sound; viewers see the desk\'s own picture, encoded on the station\'s card (Compose and the Quadlets) or its CPU.',
+    today: 'The station takes only a host\'s sound; viewers see the desk\'s own picture, encoded on the station\'s card (Compose and the Quadlets) or its CPU.',
     href: '/docs/reference/desk-video/#a-hosts-own-picture',
     link: 'A host\'s own picture',
   },
@@ -557,13 +557,5 @@ export const next: Planned[] = [
     today: 'From 1.2 the telephone line runs on Compose and the Quadlets, behind the station\'s own SIP trunk; a Cloudron station takes callers from its page.',
     href: '/docs/how-to/take-phone-calls/',
     link: 'Take phone calls',
-  },
-  {
-    id: 'macos',
-    name: 'A macOS studio app',
-    what: 'The desk and the screener on a Mac.',
-    today: 'A presenter or guest on a Mac joins from the browser as anyone does; running the desk from a Mac is not possible yet.',
-    href: '/docs/reference/packages/',
-    link: 'Packages and install files',
   },
 ];

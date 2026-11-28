@@ -18,7 +18,9 @@
 //   SIZES=2560x1440 TEXT=1.2 … node tests/hosts/shoot-frame.mjs        # a larger window and text
 //
 // By default: 1440×900 (the window the app opens at) and 1280×600 (the smallest the packaged
-// window goes, tauri.conf.json), each in Dark and Light. Screenshots go to OUT
+// window goes, tauri.conf.json), each in Dark and Light. At 1,280 px it also opens the frames
+// that fit one row (a presenter's and a screener's, at Full set and at Solo), which drew no
+// version in 1.3.2, and checks the version is drawn in each with nothing moved (1.3.3). Screenshots go to OUT
 // (target/shots-frame unless told). The clock is shoot.mjs's.
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -129,6 +131,21 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width - 0.5 && b.x < a.x +
 const tipBox = (page, id) => page.locator(`#${id} > span`).boundingBox();
 const inside = (b, vp) => !!b && b.x >= 0 && b.y >= 0 && b.x + b.width <= vp.width + 0.5 && b.y + b.height <= vp.height + 0.5;
 
+/** The frame as 1.3.2 drew it at this size: a narrow frame's own spacing (1.3.3: closer controls,
+ *  and a place kept for the version) undone, measured, and put back. */
+const NARROW_UNDONE = '.frame { column-gap: var(--s-3) !important; } .frame .tab { gap: var(--s-2) !important; } .frame .seg button { padding: 0 var(--s-3) !important; } .frame .spacer { min-width: 0 !important; }';
+async function asBefore(page) {
+  await page.addStyleTag({ content: NARROW_UNDONE }).then((h) => h.evaluate((el) => el.setAttribute('data-before', '1')));
+  const was = { boxes: await frameBoxes(page), height: await frameHeight(page), shown: await page.locator('[data-testid="app-version"]').isVisible() };
+  await page.evaluate(() => document.querySelector('style[data-before]')?.remove());
+  return was;
+}
+/** The row each control is on (0 the first), by where its top is. */
+const rowsOf = (boxes) => {
+  const tops = [...new Set(boxes.map((b) => Math.round(b[2] / 20)))].sort((a, b) => a - b);
+  return boxes.map((b) => tops.indexOf(Math.round(b[2] / 20)));
+};
+
 /** Point at `loc`. The page is scrolled to it first and left to settle, and the pointer is then
  *  moved by its coordinates: a scroll hides a tooltip, as it should, and the driver's own
  *  scrolling on a hover (it scrolls again in a window as short as 600 px) would hide the one
@@ -190,6 +207,9 @@ for (const size of SIZES) {
       check(`${tag}: it sits between the tabs and who is signed in, touching neither`, !!vb && !!nav && !!acc && vb.x >= nav.x + nav.width + 8 && vb.x + vb.width <= acc.x - 8, JSON.stringify({ vb, nav, acc }));
       const look = await ver.evaluate((el) => { const c = getComputedStyle(el); const f = getComputedStyle(el.closest('.frame')); return { size: c.fontSize, weight: c.fontWeight, ink: c.color, frameInk: f.color, tag: el.tagName }; });
       check(`${tag}: words, not a button: 13 px, semibold, in the green of being up to date (the frame’s own ink only while the standing is not known)`, look.tag === 'SPAN' && look.ink !== look.frameInk && parseFloat(look.size) >= 12.9 && parseFloat(look.size) <= 13.1 && Number(look.weight) === 600, JSON.stringify(look));
+      const seg = await page.locator('.frame [role="group"][aria-label="Theme"] button').evaluateAll((bs) => bs.map((b) => ({ on: b.getAttribute('aria-pressed') === 'true', ground: getComputedStyle(b).backgroundColor })));
+      const pressed = seg.filter((b) => b.on);
+      check(`${tag}: the theme in use is marked on its button by a ground of its own`, pressed.length === 1 && seg.length > 1 && seg.every((b) => b.on || b.ground !== pressed[0].ground), JSON.stringify(seg));
       // The words take only spare room: with them gone, nothing else in the frame moves.
       const withIt = await frameBoxes(page);
       const hWith = await frameHeight(page);
@@ -235,11 +255,14 @@ for (const size of SIZES) {
             const text = [...el.childNodes].find((n) => n.nodeType === 3 && /\d/.test(n.textContent ?? ''));
             text.textContent = v;
             el.setAttribute('data-len', String(Math.min(7, Math.max(5, v.length))));
+            // The spare room's own length class, as the app sets it (1.3.3).
+            el.parentElement.classList.toggle('long', v.length >= 7);
             document.querySelector('style[data-room]')?.remove();
             if (room !== null) {
               const probe = document.createElement('style');
               probe.setAttribute('data-room', '1');
-              probe.textContent = `.frame .spacer { flex: none !important; width: ${room}px !important; }`;
+              // The room is forced, so a narrow frame's own least room (1.3.3) is set aside.
+              probe.textContent = `.frame .spacer { flex: none !important; width: ${room}px !important; min-width: 0 !important; }`;
               document.head.appendChild(probe);
             }
             const shown = getComputedStyle(el).display !== 'none';
@@ -291,6 +314,56 @@ for (const size of SIZES) {
       await ctx.close();
     }
 
+    // ---- 1c. The frames that fit one row at 1,280 px: the version is drawn there too (1.3.3) ----
+    // In 1.3.2 a presenter's frame at 1,280 px left 30 px of spare room at Full set and none at
+    // Solo, a screener's 16 px, and the version, which needs 56, was not drawn. A frame that
+    // narrow now keeps the version its place and finds the room in its own spacing: checked
+    // against the same frame with that undone, which is the frame as 1.3.2 drew it.
+    if (W <= 1300 && TEXT === 1) {
+      for (const [role, step] of [['presenter', 'full'], ['presenter', 'solo'], ['screener', 'full'], ['screener', 'solo'], ['producer', 'full'], ['admin', 'solo']]) {
+        const st = new HostStation({ step, nowMinutes: 14 * 60 + 10, role });
+        st.join('duncan', 'Duncan Boyd', 'presenter');
+        const { ctx, page } = await open(st, size, theme);
+        const who = `${tag}: ${role === 'admin' ? 'an' : 'a'} ${role}’s frame at ${step === 'full' ? 'Full set' : 'Solo'}`;
+        const ver = page.locator('[data-testid="app-version"]');
+        const now = { boxes: await frameBoxes(page), height: await frameHeight(page) };
+        const was = await asBefore(page);
+        const room = await page.evaluate(() => document.querySelector('.frame .spacer').getBoundingClientRect().width);
+        const said = (await ver.isVisible()) ? await shown(ver) : '';
+        const drawn = await ver.evaluate((el) => { const g = el.querySelector('svg.vg')?.getBoundingClientRect(); const v = el.querySelector('.v').getBoundingClientRect(); const host = el.parentElement.getBoundingClientRect(); const box = el.getBoundingClientRect(); return { tick: !!g && g.width > 0, v: v.width > 0, order: !!g && g.right <= v.left + 0.5, whole: el.scrollWidth <= el.clientWidth + 1 && box.left >= host.left - 0.5 && box.right <= host.right + 0.5 }; });
+        check(`${who} draws the version: the tick, the v and the number, whole (${Math.round(room)} px of spare room)`, (said === `v${APP}` || said === `WeaveSignal v${APP}`) && drawn.tick && drawn.v && drawn.order && drawn.whole, `${said} ${JSON.stringify(drawn)}`);
+        check(`${who} takes no more rows than it did, and no control has moved to a later row`, now.height <= was.height && rowsOf(now.boxes).every((r, i) => r <= rowsOf(was.boxes)[i]), `${now.height} px against ${was.height} px; ${JSON.stringify(rowsOf(now.boxes))} against ${JSON.stringify(rowsOf(was.boxes))}`);
+        check(`${who} keeps every control inside the window, none over another`, now.boxes.every((b) => b[1] >= 0 && b[1] + b[3] <= W + 0.5) && now.boxes.every((b, i) => now.boxes.every((c, j) => i === j || Math.round(b[2] / 20) !== Math.round(c[2] / 20) || b[1] + b[3] <= c[1] + 0.5 || c[1] + c[3] <= b[1] + 0.5)), JSON.stringify(now.boxes));
+        if (role === 'presenter' || (role === 'screener' && step === 'full')) {
+          // These are the frames that had one row and no version.
+          check(`${who} is one row, as it was, and 1.3.2 drew no version there`, now.height <= 44 * Z && was.height <= 44 * Z && !was.shown, `${now.height} px, ${was.height} px before, version ${was.shown ? 'drawn' : 'not drawn'} before`);
+        }
+        const [vb, nav, acc] = [await ver.boundingBox(), await page.locator('.frame nav.tabs').boundingBox(), await page.locator('[data-panel="studio.account"]').first().boundingBox()];
+        check(`${who}: it sits between the tabs and who is signed in, touching neither`, !!vb && !!nav && !!acc && vb.x >= nav.x + nav.width + 8 && vb.x + vb.width <= acc.x - 8, JSON.stringify({ vb, nav, acc }));
+        // A version written longer keeps its place too, and still moves nothing.
+        for (const v of ['1.3.10', '1.10.10']) {
+          const long = await ver.evaluate((el, v) => {
+            const text = [...el.childNodes].find((n) => n.nodeType === 3 && /\d/.test(n.textContent ?? ''));
+            text.textContent = v;
+            el.setAttribute('data-len', String(Math.min(7, Math.max(5, v.length))));
+            el.parentElement.classList.toggle('long', v.length >= 7);
+            const g = el.querySelector('svg.vg').getBoundingClientRect();
+            const vb = el.querySelector('.v').getBoundingClientRect();
+            const box = el.getBoundingClientRect();
+            const host = el.parentElement.getBoundingClientRect();
+            return { shown: getComputedStyle(el).display !== 'none', tick: g.width > 0, v: vb.width > 0, whole: el.scrollWidth <= el.clientWidth + 1 && box.left >= host.left - 0.5 && box.right <= host.right + 0.5, said: el.innerText.replace(/\s+/g, ' ').trim() };
+          }, v);
+          const then = { boxes: await frameBoxes(page), height: await frameHeight(page) };
+          check(`${who} draws ${v} too, whole, in as many rows`, long.shown && long.tick && long.v && long.whole && /v[\d.]+/.test(long.said) && long.said.includes(`v${v}`) && then.height <= was.height && rowsOf(then.boxes).every((r, i) => r <= rowsOf(was.boxes)[i]), JSON.stringify({ long, height: then.height }));
+        }
+        if (theme === THEMES[0] || role === 'presenter') {
+          await ver.evaluate((el, v) => { const text = [...el.childNodes].find((n) => n.nodeType === 3 && /\d/.test(n.textContent ?? '')); text.textContent = v; el.setAttribute('data-len', '5'); el.parentElement.classList.remove('long'); }, APP);
+          await shot(page, `1c-${role}-${step}-frame`, await top(page));
+        }
+        await ctx.close();
+      }
+    }
+
     // ---- 2. The fullest frame a browser draws: the setup button too, and the link down ----
     {
       const st = new HostStation({ step: 'full', nowMinutes: 14 * 60 + 10, role: 'admin' });
@@ -303,6 +376,9 @@ for (const size of SIZES) {
       const hWithout = await frameHeight(page);
       await page.evaluate(() => document.querySelector('style[data-probe]')?.remove());
       check(`${tag}: with the setup button and the link down, the version still moves nothing and adds no row`, JSON.stringify(withIt) === JSON.stringify(without) && hWith === hWithout, `${hWith} px against ${hWithout} px`);
+      // A narrow frame keeps the version its place (1.3.3): even this full, it takes no more rows than it did.
+      const was = await asBefore(page);
+      check(`${tag}: and the frame takes no more rows than it did before a narrow frame kept the version its place`, hWith <= was.height && rowsOf(withIt).every((r, i) => r <= rowsOf(was.boxes)[i]), `${hWith} px against ${was.height} px`);
       const ver = page.locator('[data-testid="app-version"]');
       const said = (await ver.isVisible()) ? await shown(ver) : '';
       check(`${tag}: there it says what it has room for, whole or not at all`, ['', `v${APP}`, `WeaveSignal ${APP}`, `WeaveSignal v${APP}`].includes(said), said);

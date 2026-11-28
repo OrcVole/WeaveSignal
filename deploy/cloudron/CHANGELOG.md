@@ -2,6 +2,20 @@
 <!-- SPDX-FileCopyrightText: 2026 The WeaveSignal contributors -->
 # Changelog
 
+[1.3.3]
+
+- **Fixed: a keyed show's episode files could be fetched without a key.** In 1.3.2 the podcast feed, the public episode list and `/media/episodes/` did not look at a show's key rule. While a show is kept for people with a key, its feed now lists no episode and its files answer 404. What was downloaded before cannot be called back.
+- **`/media/episodes/` serves only a file an episode names.** A file you link to from elsewhere must be attached to an episode.
+- **Fixed: the player's Pause button with video on**: it stayed Pause and did nothing until the page was reloaded.
+- **A microphone chooser** on the invitation page and the player's call-in, and clearer words on `/join/` opened without an invitation.
+- **Studio:** the tick **Keyed show** means a key is needed now; **Start now** in the DJ's setup; **Picture, with its sound** is no longer offered for new keys (existing ones keep working); the version is drawn in the narrowest window.
+- **Carts on a new installation play at -16 LUFS.** Yours keep their level; `weavesignal.env` gains an empty `CARTS_LOUDNESS_LUFS=` line.
+- A quieter playout log. The redeem answer no longer carries a key's label.
+- **Migration 0073** runs at the first start. No port changes.
+- **If you run picture edges**, update them to the 1.3.3 edge image: the 1.3.2 edge could not reach a station whose certificate has more than one intermediate.
+- **Known limit:** a stream address can stop answering (404) and stay stopped until the app is restarted, as seen with 1.3.2; the cause is not known. After an update, open each stream address once.
+- **With video on and keyed shows:** update while no keyed show is on (automatic updates included); if one was on, restart the app once after it ends.
+
 [1.3.2]
 
 - **Keyed shows**: a show advertised to everyone and heard or watched only with a key. Tick **Keyed show** wherever a show is in the studio app (the Schedule's list, a show's pane, New show, **New keyed show**).

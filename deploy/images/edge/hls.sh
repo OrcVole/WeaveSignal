@@ -32,6 +32,8 @@
 #   EDGE_KEYED_REVOKED_URL  optional: the station's list of revoked keys, read every
 #                       EDGE_KEYED_REVOKED_EVERY (30s); a revoked key is refused at once, and its
 #                       streams are ended
+#   EDGE_RESOLVER       the DNS servers the revoked list's host name is looked up with, separated
+#                       by spaces; empty, the default, takes them from /etc/resolv.conf
 #
 # Nothing here is a secret of the station's: the edge fetches what any viewer may fetch, and
 # drops cookies and credentials both ways. `/health` is the station's health answer fetched
@@ -84,6 +86,9 @@ origin=${EDGE_ORIGIN%/}
 case $origin in
   *://*/*) echo "weavesignal-edge: EDGE_ORIGIN is a scheme and host only, without a path" >&2; exit 2 ;;
 esac
+# How many certificates may stand between the station's own and a trusted root. nginx's default,
+# 1, refuses a chain with two intermediates (current Let's Encrypt certificates can have more).
+verify_depth=5
 case $hls_path in
   /*/) ;;
   *) echo "weavesignal-edge: EDGE_HLS_PATH starts and ends with /, such as /hls/" >&2; exit 2 ;;
@@ -146,6 +151,24 @@ keyed_block="location ^~ ${hls_path}k/ { return 404; }
     location ^~ /listen/k/ { return 404; }"
 if [ -n "$keyed_key" ]; then
   keyed_load="load_module /usr/lib/nginx/modules/ngx_http_js_module.so;"
+  # The revoked list is fetched by njs, not proxied: a host name is looked up through nginx's own
+  # resolver (which reads neither /etc/resolv.conf nor /etc/hosts), and an https certificate is
+  # checked only against the roots named here.
+  keyed_fetch=""
+  if [ -n "$keyed_revoked_url" ]; then
+    resolvers=${EDGE_RESOLVER:-}
+    if [ -z "$resolvers" ] && [ -r /etc/resolv.conf ]; then
+      # A link-local server with a zone (fe80::1%eth0) is one nginx cannot be given.
+      resolvers=$(awk '$1 == "nameserver" && $2 !~ /%/ { printf "%s%s", sep, ($2 ~ /:/ ? "[" $2 "]" : $2); sep = " " }' /etc/resolv.conf)
+    fi
+    if printf '%s' "$resolvers" | grep -q '[;{}"$#\\]'; then
+      echo "weavesignal-edge: EDGE_RESOLVER is DNS server addresses separated by spaces" >&2; exit 2
+    fi
+    keyed_fetch="js_fetch_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+  js_fetch_verify_depth $verify_depth;"
+    [ -z "$resolvers" ] || keyed_fetch="resolver $resolvers valid=30s;
+  $keyed_fetch"
+  fi
   keyed_http="js_path /usr/local/share/weavesignal-edge;
   js_import keyed from keyed.js;
   js_shared_dict_zone zone=keyed_revoked:1m;
@@ -153,6 +176,7 @@ if [ -n "$keyed_key" ]; then
   js_var \$keyed_skew $keyed_skew;
   js_var \$keyed_revoked_url $keyed_revoked_url;
   js_fetch_timeout 5s;
+  $keyed_fetch
   map \$uri \$keyed_hls_key { \"~^${hls_path}k/([^/]+)/[^/]+/(.+)\$\" ${hls_path}k/\$1/\$2; default \"\"; }
   map \$uri \$keyed_listen_mount { \"~^/listen/k/[^/]+/[^/]+/([A-Za-z0-9._-]+)\$\" \$1; default \"\"; }"
   keyed_common="proxy_pass $origin;
@@ -161,6 +185,7 @@ if [ -n "$keyed_key" ]; then
         proxy_set_header Host \$proxy_host;
         proxy_ssl_server_name on;
         proxy_ssl_verify on;
+        proxy_ssl_verify_depth $verify_depth;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_set_header Cookie \"\";
         proxy_set_header Authorization \"\";
@@ -227,6 +252,7 @@ health_block="location = /health {
       proxy_set_header Host \$proxy_host;
       proxy_ssl_server_name on;
       proxy_ssl_verify on;
+      proxy_ssl_verify_depth $verify_depth;
       proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
       proxy_set_header Cookie \"\";
       proxy_set_header Authorization \"\";
@@ -244,6 +270,7 @@ content="    $keyed_block
       proxy_set_header Host \$proxy_host;
       proxy_ssl_server_name on;
       proxy_ssl_verify on;
+      proxy_ssl_verify_depth $verify_depth;
       proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
       # Nothing personal crosses the edge, and the edge's rules, not the origin's headers,
       # decide what is cached. The query string is not part of the key: it cannot bust the cache.

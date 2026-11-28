@@ -126,6 +126,22 @@ The control plane reports it as `default_fallback` in the studio view and in `GE
 
 ![The playout panel with the Default loop chip and its warning that the station has no fallback files of its own.](../../../../assets/screens/reference-playout-default-loop.png)
 
+### What the fallback folder offers, and the decoder's messages
+
+From 1.3.3 playout and the listener process leave out of the fallback folder what cannot be a sound by its name (`playout/station_files.liq`): sub-folders themselves (the files in them still count), hidden files (a name starting with a dot, such as `.DS_Store`), and files ending in a text, picture, document, playlist or archive extension (`.txt`, `.md`, `.pdf`, `.jpg`, `.png`, `.m3u`, `.cue`, `.zip` and the like; the list is in that file).
+Until 1.3.2 each was offered to the decoder on every round and refused, and a folder that held only such a file was tried about once a second, three lines in playout's log each time.
+Every other file is offered as before: the same files, shuffled each round, and the folder read again within a second of a change.
+
+So a decoder message about a fallback file that is still in the log is about a file whose name says it is a sound and which does not play:
+
+| Message in playout's (or the listener process's) log | What it means |
+|---|---|
+| `[decoder:3] Available decoders cannot decode "/…/fallback/song.mp3"` | the file is not a sound Liquidsoap can read: damaged, cut short while copying, or another kind of file with a sound's name. It is tried again each round (about once a second when nothing else in the folder plays), and the next file, or the default loop, plays meanwhile |
+| `[decoder:2] Error while checking file's content` and `[decoder.ffmpeg:2] Error while decoding file tags` | the same try, as FFmpeg (and for an `.mp3`, the MP3 decoder) saw it: they come with the line above |
+| `[decoder:2] Decoding "…" ended: Ffmpeg_decoder.End_of_file` | not a fault: a file played to its end |
+
+To end the messages, play the file on a computer, and replace it with a good copy or take it out of the folder; nothing needs a restart.
+
 ## The processing chain
 
 Playout runs one chain on everything listeners hear, after the programme is chosen and before it goes to the listener process (ADR-0044):

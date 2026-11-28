@@ -1,9 +1,9 @@
 ---
 title: "The public pages"
-description: "The player with call-in, the invitation page and the echo test as the control plane serves them: caching, the Content-Security-Policy, call-in's challenge, what TURN over TLS needs from a station, and what to do when a call does not work."
+description: "The player with call-in, the invitation page and the echo test as the control plane serves them: the microphone list, the invitation page opened without an invitation, caching, the Content-Security-Policy, call-in's challenge, what TURN over TLS needs from a station, and what to do when a call does not work."
 type: reference
 status: draft
-last_verified: 2026-11-10
+last_verified: 2026-11-27
 sidebar:
   order: 7
 ---
@@ -22,7 +22,7 @@ The player before anyone calls, and the page a caller sees while they wait in th
 
 ![The player on a phone with a Listen live button and a Call the studio panel.](../../../../assets/screens/reference-public-pages-player.png)
 
-![The caller's page saying "You're number 1 in the queue", with the microphone level and Hang up.](../../../../assets/screens/reference-public-pages-call-waiting.png)
+![The caller's page saying "You're number 1 in the queue", with the name of the microphone in use, its level and Hang up.](../../../../assets/screens/reference-public-pages-call-waiting.png)
 
 The invitation page for a guest, and the echo test:
 
@@ -48,6 +48,46 @@ It is driven by `just test-monitor-page` against a stand-in station (Chromium; n
 
 From 1.0.1 the same build holds the station's **setup page** (`/setup/`), for its admin only: it shows nothing until someone signs in with the station key or as an admin, and it is never listed ([Set up the station and its look](/docs/how-to/set-up-the-station/)).
 The three public pages take the station's accent colour, icon and banner when it has set them ([The station's look](/docs/reference/branding/)).
+
+## The microphone
+
+From 1.3.3 the pages a person speaks from name the microphone in use and let them choose another: the invitation page and the player's call-in before joining (inside **Check your microphone**), and both during the call (under **Your microphone**), as panel `join.microphone`.
+Speakers and headphones are not chosen on any page; the echo test has no list and keeps its own settings.
+[Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/) is the person's side of it.
+
+![An invitation page after Check your microphone: the list Microphone showing USB headset, the level bar, Working: we can hear you, and the line that the page will use it next time too.](../../../../assets/screens/how-to-microphone-check.png)
+
+- **The list** is the browser's audio inputs, read after the page has been given a microphone (a browser names none before) and again at each `devicechange`. Chromium's second entries for the system's microphone (`default`, and `communications` on Windows) are left out when the microphone itself is listed. With one microphone the page shows its name and no list.
+- **The microphone in use** is read back from the capture itself (`getSettings().deviceId`), never taken from what was asked for: Firefox's own question can give another.
+- **The choice** is kept in the browser's `localStorage` under `weavesignal.mic`, as the device's id and name. It is kept only when the person chooses, never for the microphone the browser happened to give, and nothing about a person's devices is sent to the station. Where storage is refused (a private window), the choice lasts while the page does.
+- **At the start** the page asks for the kept microphone exactly (`deviceId: { exact }`), and when the browser answers that it is not there, asks again for the browser's own choice and says which it got. It is not asked for as a preference (`ideal`): Chromium gives its default microphone whatever id is preferred. An id that has changed is found again by the device's name. With no kept choice, the microphone checked before joining is the one the call asks for.
+- **A change the person makes** is asked for exactly too. Before joining it is taken at once. During a call it waits for its button, **Use** and the name, so a key or a scroll wheel over the list changes nothing.
+- **During a call** the new microphone is captured first, with everything the one in use was captured with, and then put in its place on the same published track (the RTP sender's `replaceTrack`). Nothing is unpublished and nothing rejoins: the room keeps the same track, the browser the same RTP stream, and the desk its subscription. A microphone that cannot be had (refused, held by another program, unplugged) leaves the one in use running, and the page says why. A later rejoin publishes that same track again.
+- **Every capture** keeps the join pages' rules, whichever microphone it is: echo cancelling and noise suppression on, automatic gain control off.
+- **A microphone that ends** (unplugged, or taken back by the browser) is the room client's to mend: it starts the track again on the system's microphone with the same rules, and the page says which it is on. If none can be started the page says *Your microphone has stopped, so the studio cannot hear you.* and takes the first one that appears. A microphone that comes back while another is sending is offered, never switched to.
+- **The list is off** while the page is connecting, reconnecting or moving from the rehearsal studio.
+
+It is driven by `just test-microphone` (headless Chromium with its three test microphones, against a stand-in room; a refusal and an unplugging are simulated) and, on the M3 stack, by `tests/m3/microphone-room.mjs` against a real room and desk: the same track id in the room and the same RTP stream before and after a change, the desk's subscription untouched and its level for the person still there, the rules kept by the new capture and by the room client's own restart, and the person heard again after a rejoin.
+Not proved: a real microphone unplugged, a computer with real microphones (the test browser's are made up, and Chromium's `default` entry is matched to its microphone only in the unit tests), a phone, Safari, and Firefox beyond what [the how-to](/docs/how-to/choose-your-microphone-and-speakers/) says was run.
+
+## The invitation page without an invitation
+
+`/join/` opened with nothing after it (typed by hand, found by a search, or a link that lost everything from its `#` on the way) is not a broken link, and from 1.3.3 it is not worded as one.
+It asks for no microphone and says, under **Join with an invitation**:
+
+> This page is for people Kettle FM has invited to its studio: guests, remote DJs and presenters.
+>
+> Have the link the station sent you? Open that link, all of it, on this device, and your invitation comes with it.
+>
+> No link, or only part of one? Ask whoever invited you to send it again.
+>
+> Here to listen, or to call the show? Go to Kettle FM's player.
+
+The last line links to the player at `/`.
+The station's name comes from the player's public facts; until they arrive the page says *the station*.
+A link whose invitation the station refuses still says **This link doesn't work**, with the station's reason.
+
+![The invitation page opened without an invitation: Join with an invitation, who the page is for, what to do with the link, who to ask, and a link to the player.](../../../../assets/screens/reference-public-pages-join-bare.png)
 
 ## Serving
 
@@ -191,13 +231,15 @@ A show runs at one of four steps, and below Callers the station closes call-in w
 | *Your microphone is blocked* (chip: No microphone), with *Try again* | The browser, or the phone, refused the microphone, so the page never joined. Firefox for Android needs its microphone permission allowed in Android's own settings as well as on the page | The page says how: "Allow it for this page (the lock or the site settings by the address). On a phone, the browser itself may need it too: the phone's Settings, Apps, your browser, Permissions, Microphone." Then *Try again* |
 | *A direct connection did not work, so this page is trying the station’s relay.* | The network or the browser blocks WebRTC's UDP | Nothing: the page tries TURN over TLS by itself. A caller can also choose *Reconnect through the relay* under *Trouble hearing or being heard?* |
 | *This page could not reach the studio.* | Neither a direct connection nor the relay worked. A phone that reaches TURN only over IPv6 is refused ([above](#turn-over-tls)) | Check the TURN name has an A record and no AAAA record, and that `ports.turn_tls` is open |
+| The studio hears the wrong microphone, or none | The browser gave the page another microphone than the one the person speaks into | Under **Your microphone**, choose the right one and press **Use** with its name; the page stays in the room ([above](#the-microphone)). The same line is under *Trouble hearing or being heard?* |
+| *Your microphone has stopped, so the studio cannot hear you.* | The microphone in use was unplugged or switched off and no other could be started | Plug it back in, or choose another in the list: the page takes the first one that appears |
 | The studio is too quiet | A call's return is about −23 LUFS, against the stream's −16 (ADR-0205), and a phone's call volume is its own | The call page says: "Studio too quiet? On a phone, press volume up once the call has started: a call has its own volume, apart from music's." |
 | *The lines are closed for this show.* (the player's call-in), or *The lines have closed* on a waiting call | The show on air runs at Solo or Guests, which switch call-in off (ADR-0271), or its step was moved down while the caller waited: their place is gone and they were not on air | Wait for a show that takes calls; the caller who is let go can call again when the lines are open |
 | *The studio is not taking guests during this show.* (the invitation page) | The show on air's step has switched the seat off; the link stays good for later | Ask whoever sent it when to join ([Choose how much of the studio a show uses](/docs/how-to/choose-a-step/)); **Look again** on the page asks the station once more |
 | *The lines closed while you were filling this in. This show is not taking calls.* | A call-in form opened earlier was sent after the lines closed | Nothing: the page goes back to the player, which says the lines are closed |
 | The studio breaks up | The desk times each return block from its place in the mix (0.0 % concealed by the receiver, measured with WebRTC `getStats`), so gaps come from the caller's network; the desk cannot adapt a voice to one caller's link, a known limit | Ask the caller to try another network |
 
-![The waiting call page with Trouble hearing or being heard? opened: the volume advice and the button to reconnect through the relay.](../../../../assets/screens/reference-public-pages-trouble.png)
+![The waiting call page with Trouble hearing or being heard? opened: the volume advice, the button to reconnect through the relay, and where to choose another microphone.](../../../../assets/screens/reference-public-pages-trouble.png)
 
 ![The invitation page after the browser refused the microphone: the chip No microphone, Your microphone is blocked, the advice, and Try again.](../../../../assets/screens/reference-public-pages-no-mic.png)
 

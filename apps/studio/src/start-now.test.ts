@@ -2,12 +2,16 @@
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
 // Start now in New show (1.3.2): the length it gives, the rule made here for a station without
 // the route (on the station's clock and zone, across midnight), what the station's preview of
-// it means, the words, and where the offer is drawn.
+// it means, the words, and where the offer is drawn. From 1.3.3 the DJ's setup has it too, at
+// the head of its third part, where the show is set up for the first time.
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import type { PreviewDate, RulePreview, ShowSaved } from './lib/api.ts';
 import type { Show } from './lib/schedule.ts';
+import type { Me } from './lib/api.ts';
 import NewShow from './schedule/rule/NewShow.svelte';
+import ShowWizard from './settings/ShowWizard.svelte';
+import wizardSrc from './settings/ShowWizard.svelte?raw';
 import newShowSrc from './schedule/rule/NewShow.svelte?raw';
 import { newForm } from './schedule/rule/form.ts';
 import { START_NOW, nowMinutes, nowVerdict, ruleNowHere, ruleNowOr, startNowFlow, startedWords, type RuleNow } from './schedule/rule/startNow.ts';
@@ -266,5 +270,75 @@ describe('Done, for a show started now', () => {
 
   it('says nothing of it for a show made with dates', () => {
     expect(render(NewShow, { props: { ...base, part: 3, name: 'The Morning Kettle', saved } }).body).not.toContain('data-testid="ns-started"');
+  });
+});
+
+describe('Start now in the DJ’s setup (1.3.3)', () => {
+  const ailsa: Me = { kind: 'staff', role: 'presenter', account: { id: 'a-ailsa', username: 'ailsa', name: 'Ailsa Drummond', role: 'presenter', disabled_ms: null, created_ms: 1 } };
+  const wizard = { me: ailsa, shows: [] as Show[], zone: ZONE, today: '2026-11-24', rules: true, live: false, onDone: noop, onSkip: noop, onClose: noop };
+  const part3 = (props: Record<string, unknown> = {}) => render(ShowWizard, { props: { ...wizard, part: 3, ...props } as never }).body;
+  const row = (body: string) => body.slice(body.indexOf('data-testid="sw-now"'), body.indexOf('class="keep"'));
+  const mine = { slug: 'the-wee-small-hours', name: 'The Wee Small Hours', colour_slot: 3, slot: null, rule: null, hosts: [], tags: [], explicit: false, presenter: 'Ailsa Drummond', contact: '', links: [], commercial_music: false, presenter_account: 'a-ailsa' } as unknown as Show;
+
+  it('opens the third part with Start now over the questions: one button, what it does, and not the primary button', () => {
+    const body = part3();
+    expect(body.indexOf('data-testid="sw-now"')).toBeGreaterThan(-1);
+    expect(body.indexOf('data-testid="sw-now"')).toBeLessThan(body.indexOf('id="sw-first"'));
+    expect(text(row(body))).toContain('On air straight away? Saves your show and starts it at the next whole minute, station time, for 1 hour, once. Give it more dates later, from Settings, under Your show.');
+    expect(body).toMatch(/<button id="sw-now" type="button" class="btn"[^>]*aria-describedby="sw-now-what"[^>]*>Start now<\/button>/);
+    // Save my show keeps the primary button, and ⏎.
+    expect(body).toMatch(/<button type="submit" class="btn primary"[^>]*>Save my show<\/button>/);
+    expect(body.match(/class="btn primary/g)).toHaveLength(1);
+  });
+
+  it('gives the length the two times make', () => {
+    expect(text(row(part3({ form: { ...newForm('2026-11-24'), from: '21:00', until: '23:00' } })))).toContain('for 2 hours, once');
+    expect(START_NOW.whatMine(150)).toContain('for 2 h 30 min, once');
+  });
+
+  it('is not offered on the other parts, at a station that keeps a weekly time only, or for a show that exists', () => {
+    expect(render(ShowWizard, { props: wizard as never }).body).not.toContain('data-testid="sw-now"');
+    expect(render(ShowWizard, { props: { ...wizard, part: 2 } as never }).body).not.toContain('data-testid="sw-now"');
+    expect(part3({ rules: false })).not.toContain('data-testid="sw-now"');
+    // Run again from Settings: the show may have episodes, and the station drafts the one that
+    // airs now only for a show that has none.
+    expect(part3({ initial: mine, shows: [mine] })).not.toContain('data-testid="sw-now"');
+  });
+
+  it('asks once when another show has the time: the clash and its cost, Start now anyway, and a way back', () => {
+    const body = part3({ nowAsk: { title: 'Steeped is on the schedule now (14:00 to 15:00).', body: CLASH_COST } });
+    const r = row(body);
+    expect(body).toMatch(/class="startnow [^"]*asks[^"]*" data-testid="sw-now"/);
+    expect(r).toContain('role="alert"');
+    expect(text(r)).toContain(`Steeped is on the schedule now (14:00 to 15:00). ${CLASH_COST}`);
+    expect(r).toMatch(/>Not now<\/button>.*<button id="sw-now"[^>]*>Start now anyway<\/button>/s);
+  });
+
+  it('is New show’s press: the station’s rule at the press, its preview, and one save with the DJ’s own answers and the first episode drafted', () => {
+    const fn = wizardSrc.slice(wizardSrc.indexOf('async function startNow()'), wizardSrc.indexOf('function skip()'));
+    expect(fn).toContain('ruleNowOr(() => rulesApi.ruleNow(len), routeAbsent, () => ruleNowHere(stationNow(), zone, len))');
+    expect(fn).toContain('preview: (rule) => rulesApi.previewRule({ rule, limit: 1 })');
+    expect(fn).toContain('save: (rule) => rulesApi.saveShow(slug, toShowInput(a, me, null, nextColour(shows.length), whenFields(rule, { rules: true, draftFirst: true })))');
+    expect(wizardSrc.match(/rulesApi\.ruleNow\(/g)).toHaveLength(1);
+    // A refusal of the DJ's own answers is theirs to put right, not a minute that turned.
+    expect(fn).toContain("!PLACED.some((f) => f === e.field)");
+    expect(wizardSrc).toContain("const PLACED = ['name', 'presenter', 'contact', 'links'] as const;");
+    // Done says when it starts only where the station drafted the episode that airs then.
+    expect(fn).toContain('started = saved.drafted?.episode ? done.now : null;');
+  });
+
+  it('says on Done when it starts, before the episode and the rest', () => {
+    const saved = { show: { ...mine, rule: { starts_on: '2026-11-24', start: 847, minutes: 60, repeat: { kind: 'once' }, end: { kind: 'never' }, skip: [], moves: [] }, rule_words: { sentence: 'Once, on Tuesday 24 November, 14:07 to 15:07.', short: '24 Nov, 14:07–15:07', last: null, last_on: null, notes: [] } }, resolved: {}, series: [], drafted: { episode: { id: 'e1', number: 1, air_at: at('2026-11-24T14:07:00Z') / 1000, minutes: 60 }, resolved: {} } } as unknown as ShowSaved;
+    const started: RuleNow = { ...ruleNowHere(at('2026-11-24T14:06:20Z'), ZONE, 60) };
+    const body = render(ShowWizard, { props: { ...wizard, part: 4, saved, started } as never }).body;
+    const t = text(body);
+    expect(t).toContain('The Wee Small Hours is set up as your show.');
+    expect(t).toContain('It starts at 14:07, station time: within a minute, until 15:07.');
+    // The first thing Done says: it is the one line with a minute in it.
+    expect(body.indexOf('data-testid="sw-started"')).toBeLessThan(body.indexOf('callers agree to be recorded'));
+    expect(body.indexOf('data-testid="sw-started"')).toBeLessThan(body.indexOf('is drafted'));
+    expect(t).toContain('It airs once, so there is nothing more to draft.');
+    // Without it, Done is as it was.
+    expect(render(ShowWizard, { props: { ...wizard, part: 4, saved } as never }).body).not.toContain('data-testid="sw-started"');
   });
 });

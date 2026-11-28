@@ -271,13 +271,16 @@ server.register(namespace="autodj", usage="clear", description="Empty the queue.
 # while the folder holds nothing it can play (an empty folder is what a new station has); then
 # silence. Each is a child of the programme below, not a fallback of its own: one that ended in
 # silence would never let the next through.
+# The folder is read by station_files.liq's playlist, which leaves out files that cannot be sounds
+# (a README, a picture), so they do not fill the log with decoder errors (1.3.3).
+%include "station_files.liq"
 fallback_dir = null.case(data.fallback, fun () -> "", fun (f) -> f.dir)
 default_file = null.case(data.fallback, fun () -> "", fun (f) -> f.default_file ?? "")
 station_files =
   if
     fallback_dir != "" and file.is_directory(fallback_dir)
   then
-    s = playlist(id="fallback_files", mode="randomize", reload_mode="watch", fallback_dir)
+    s = station_playlist("fallback_files", fallback_dir)
     s.on_track(
       synchronous=true,
       fun (m) -> emit("fallback", name=path.basename(m["filename"]))
@@ -577,16 +580,7 @@ def keyed_gate(programme) =
           [
             slate_child(
               "fallback",
-              (
-                playlist(
-                  id="keyed_slate_files",
-                  mode="randomize",
-                  reload_mode="watch",
-                  fallback_dir
-                )
-              :
-                source
-              )
+              (station_playlist("keyed_slate_files", fallback_dir) : source)
             )
           ]
         else

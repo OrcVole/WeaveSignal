@@ -27,6 +27,11 @@ pub const ADMIN_TOKEN_ENV: &str = "WEAVESIGNAL_CONTROL_ADMIN_TOKEN";
 /// environment variable takes any text whole. Unset, empty or blank: the settings file's words,
 /// else the default.
 pub const CONSENT_TEXT_ENV: &str = "WEAVESIGNAL_CONSENT_TEXT";
+/// The environment variable that sets the cart wall's loudness target (`CARTS_LOUDNESS_LUFS` on
+/// the Compose bundle, the Quadlets and the Cloudron package, whose settings files are written
+/// for them): set, it takes the place of `carts.loudness_lufs`. Unset or empty: the settings
+/// file's, else the station's default ([`CartsConfig::target`]).
+pub const CARTS_LOUDNESS_ENV: &str = "WEAVESIGNAL_CARTS_LOUDNESS_LUFS";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -556,8 +561,12 @@ pub struct CartsConfig {
     /// The cart files (FLAC, named by UUID); the desk reads the same directory (its
     /// `carts.dir`) and plays them.
     pub media_dir: PathBuf,
-    /// The station's loudness target for carts, in LUFS (EBU R128, as the desk's meters).
-    pub loudness_lufs: f64,
+    /// The station's loudness target for carts, in LUFS (EBU R128, as the desk's meters), when
+    /// the settings file (or [`CARTS_LOUDNESS_ENV`]) sets one. Left out, the station's default
+    /// is in force: -23 for a station whose database is older than 1.3.3 (migration 0073 kept
+    /// it), -16 for one installed since ([`CartsConfig::with_station_default`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loudness_lufs: Option<f64>,
     /// The true peak a cart's gain may not push it above, in dBTP.
     pub ceiling_dbtp: f64,
     /// The largest upload, in megabytes.
@@ -578,7 +587,7 @@ impl Default for CartsConfig {
     fn default() -> Self {
         Self {
             media_dir: PathBuf::from("/var/lib/weavesignal/carts"),
-            loudness_lufs: -23.0,
+            loudness_lufs: None,
             ceiling_dbtp: -1.0,
             max_upload_mb: 64,
             max_seconds: 600.0,
@@ -586,6 +595,36 @@ impl Default for CartsConfig {
             worker: None,
             demo_pack: None,
         }
+    }
+}
+
+impl CartsConfig {
+    /// A new station's loudness target for carts, in LUFS (1.3.3): the internet-radio norm, as
+    /// playout's own processing (ADR-0044).
+    pub const NEW_STATION_LUFS: f64 = -16.0;
+
+    /// The loudness the media worker brings each cart to: the one set, else
+    /// [`Self::NEW_STATION_LUFS`]. A station from before 1.3.3 has its old default set by
+    /// [`Self::with_station_default`] before this is read.
+    pub fn target(&self) -> f64 {
+        self.loudness_lufs.unwrap_or(Self::NEW_STATION_LUFS)
+    }
+
+    /// Fill a target the settings left out with the station's own default from its database
+    /// (`station.carts_loudness_default`: -23 for every station migration 0073 found, none for
+    /// a station made since). A target that is set wins.
+    pub fn with_station_default(mut self, station_default: Option<f64>) -> Self {
+        self.loudness_lufs = self.loudness_lufs.or(station_default);
+        self
+    }
+
+    fn check(&self) -> Result<(), ConfigError> {
+        if !(-40.0..=-5.0).contains(&self.target()) || !(-10.0..=0.0).contains(&self.ceiling_dbtp) {
+            return Err(ConfigError::Invalid(
+                "`carts.loudness_lufs` is -40 to -5 and `carts.ceiling_dbtp` -10 to 0".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -1003,6 +1042,7 @@ impl Config {
         }
         let mut config = Self::from_toml(&text, &shown)?;
         config.with_consent_text(env(CONSENT_TEXT_ENV).as_deref());
+        config.with_carts_loudness(env(CARTS_LOUDNESS_ENV).as_deref())?;
         config.database_url = env(DATABASE_URL_ENV);
         config.livekit_secret = env(LIVEKIT_SECRET_ENV);
         config.admin_token = env(ADMIN_TOKEN_ENV);
@@ -1026,6 +1066,21 @@ impl Config {
         if let Some(text) = text.filter(|t| !t.trim().is_empty()) {
             self.join.consent_text = text.to_owned();
         }
+    }
+
+    /// The cart target from [`CARTS_LOUDNESS_ENV`] in place of the settings file's, when given
+    /// and not blank; otherwise the file's (or none) stays.
+    pub fn with_carts_loudness(&mut self, value: Option<&str>) -> Result<(), ConfigError> {
+        let Some(v) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+            return Ok(());
+        };
+        let lufs = v.parse::<f64>().map_err(|_| {
+            ConfigError::Invalid(format!(
+                "{CARTS_LOUDNESS_ENV} is `{v}`: a loudness in LUFS, such as -16"
+            ))
+        })?;
+        self.carts.loudness_lufs = Some(lufs);
+        self.carts.check()
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -1063,11 +1118,7 @@ impl Config {
             )));
         }
         let c = &self.carts;
-        if !(-40.0..=-5.0).contains(&c.loudness_lufs) || !(-10.0..=0.0).contains(&c.ceiling_dbtp) {
-            return Err(ConfigError::Invalid(
-                "`carts.loudness_lufs` is -40 to -5 and `carts.ceiling_dbtp` -10 to 0".into(),
-            ));
-        }
+        c.check()?;
         if !(1..=1024).contains(&c.max_upload_mb)
             || !(1.0..=3600.0).contains(&c.max_seconds)
             || !(5..=3600).contains(&c.worker_timeout_s)
@@ -1521,15 +1572,49 @@ name = "Kettle FM"
     fn playout_and_the_carts_are_settings() {
         let c = Config::from_toml(MINIMAL, "t").unwrap();
         assert_eq!(c.playout.socket, None);
-        assert_eq!(c.carts.loudness_lufs, -23.0);
+        // Left out: the station's default, which the database decides (migration 0073).
+        assert_eq!(c.carts.loudness_lufs, None);
+        assert_eq!(c.carts.target(), -16.0);
+        assert_eq!(
+            c.carts.clone().with_station_default(Some(-23.0)).target(),
+            -23.0
+        );
+        assert_eq!(c.carts.clone().with_station_default(None).target(), -16.0);
         let text = format!(
             "{MINIMAL}\n[playout]\nsocket = \"/run/weavesignal-playout/playout.sock\"\n\n[carts]\nmedia_dir = \"/srv/carts\"\nloudness_lufs = -16.0\ndemo_pack = \"/opt/weavesignal/carts-demo\"\n"
         );
         let c = Config::from_toml(&text, "t").unwrap();
         assert_eq!(c.carts.media_dir, PathBuf::from("/srv/carts"));
-        assert_eq!(c.carts.loudness_lufs, -16.0);
+        assert_eq!(c.carts.loudness_lufs, Some(-16.0));
+        // Set in the file, it wins over a station's old default.
+        assert_eq!(
+            c.carts.clone().with_station_default(Some(-23.0)).target(),
+            -16.0
+        );
         let bad = text.replace("-16.0", "0.0");
         assert!(Config::from_toml(&bad, "t").is_err());
+    }
+
+    #[test]
+    fn the_cart_target_from_the_environment() {
+        let mut c = Config::from_toml(MINIMAL, "t").unwrap();
+        // Unset or empty, as a package passes `CARTS_LOUDNESS_LUFS` nobody set: nothing set.
+        c.with_carts_loudness(None).unwrap();
+        c.with_carts_loudness(Some("")).unwrap();
+        c.with_carts_loudness(Some("  ")).unwrap();
+        assert_eq!(c.carts.loudness_lufs, None);
+        assert_eq!(
+            c.carts.clone().with_station_default(Some(-23.0)).target(),
+            -23.0
+        );
+        c.with_carts_loudness(Some("-16")).unwrap();
+        assert_eq!(c.carts.loudness_lufs, Some(-16.0));
+        assert_eq!(
+            c.carts.clone().with_station_default(Some(-23.0)).target(),
+            -16.0
+        );
+        assert!(c.with_carts_loudness(Some("loud")).is_err());
+        assert!(c.with_carts_loudness(Some("-3")).is_err());
     }
 
     #[test]

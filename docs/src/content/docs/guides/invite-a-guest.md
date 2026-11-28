@@ -30,6 +30,8 @@ They wait under **Not on air**, in their own slot on your desk. Press their slot
 
 - **The guest is not on your desk.** They have not pressed **Join the studio** yet. Once they have, they wait under **Not on air** until you put them on.
 - **The page says their microphone is blocked.** They allow the microphone for the page, then press **Try again** ([get ready](/docs/how-to/get-ready/)).
+- **You hear the wrong microphone, or their tile's meter does not move.** On their page, under **Your microphone**, they choose the right one and press **Use** with its name. They stay in the room ([more](/docs/how-to/choose-your-microphone-and-speakers/)).
+- **They opened the page without its link** and read **Join with an invitation**: they need the whole link you sent. Send it again.
 
 ## More detail
 

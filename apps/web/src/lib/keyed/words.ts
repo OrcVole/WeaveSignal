@@ -24,8 +24,9 @@ export function whenWords(ms: number, now: number, zone?: string): string {
 /** The greeting, to anyone whose key was accepted: "Welcome." and no name. A key has one name,
  *  the one staff gave it to find it again ("Agent test (delete me)", "Ticket 014", "Press, batch
  *  3"): it is theirs, not the holder's, and the page never shows it (the operator, 2026-11-25:
- *  the person's own label if the key has one, otherwise just "Welcome"). The station sends no
- *  name of the holder's own today; if a key gains one, it is greeted here. */
+ *  the person's own label if the key has one, otherwise just "Welcome"). Since 1.3.3 the station
+ *  does not send staff's name for a key at all, and sends no name of the holder's own; if a key
+ *  gains one, it is greeted here. */
 export const GREETING = 'Welcome.';
 
 /** What a key opens, by name: one show, two, or the first and how many more. */

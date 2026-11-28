@@ -61,11 +61,13 @@ If the key is already in use on as many devices as it allows, the player lists t
 ## Lost your key?
 
 Choose **Lost your key?**, give the email address the station has for you, and press **Send my key again** (at a station that sends no email the button reads **Ask for my key again**, and the words under the field say so before you type).
-If a key was made with that address, the station sends its link there. A station that has no mail set up says so in the answer ("this station does not send email itself"), and its staff, who can see the request, send the key themselves: if you hear nothing, ask them.
+If a key was made with that address, the station sends its link there. A station that has no mail set up says so under the field (*does not send email by itself*) and in the answer (*its staff can see your request and will send the key to you again*): a person there sends the key, so it may take a while, and if you hear nothing, ask them.
 The player says the same thing whether it found one or not, so that nobody can use it to find out who has a key.
 If nothing arrives, the key may have been made without an email address: ask the station.
 
 ![Lost your key?: the answer after an email address is given, the same whether a key was found or not.](../../../../assets/screens/how-to-listen-lost.png)
+
+![Lost your key? at a station that sends no email: the answer says the station's staff can see the request and will send the key again, that nothing is emailed by itself, and to ask the station if nothing comes.](../../../../assets/screens/how-to-listen-lost-no-mail.png)
 
 ## If it does not work
 

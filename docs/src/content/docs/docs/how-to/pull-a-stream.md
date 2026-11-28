@@ -1,6 +1,6 @@
 ---
 title: "Pull a partner's stream into a show"
-description: "Let the station open a partner station's or a host's stream itself, over HTTP, HTTPS, HLS or SRT, from before the show's time: the source stands by on the desk and goes on air at the post as a host's own studio does. Made with the API in 1.2; the address is checked against the station's own network."
+description: "Let the station open a partner station's or a host's stream itself, over HTTP, HTTPS, HLS or SRT, from before the show's time: the source stands by on the desk and goes on air at the post as a host's own studio does. Made in the show editor or with the API; the address is checked against the station's own network."
 type: howto
 status: draft
 last_verified: 2026-11-20
@@ -35,8 +35,8 @@ host send to the station with a show key instead.
 
 ## 1. Make the pull
 
-There is no screen for this in 1.2 yet. Make it with the API, as a show key whose `hint` is
-`pull` and with the address as `url`:
+In the studio app, open the show's editor, choose **A stream the station pulls** under **Comes from**, give the address and a name for the desk, and press **Pull this stream**.
+Or make it with the API, as a show key whose `hint` is `pull` and with the address as `url`:
 
 ```sh
 curl -X POST https://station.example/api/v1/shows/steeped/keys \
@@ -114,11 +114,4 @@ It also checks that the first pull is closed once its door shuts.
 HLS, HTTPS and a refused address are covered by the ingest's and the control plane's own tests,
 not by this one.
 
-**Known limit in 1.2.0: an SRT pull from an SRT listener built on libsrt gets no sound.**
-Liquidsoap and GStreamer, both on libsrt, refused to send the station their usual 1,316-byte
-messages when the station called them (found by this test, 2026-11-21); ffmpeg and OBS use the
-same library.
-Until a fix ships, pull an HTTP, HTTPS or HLS address instead.
-Alternatively, have the host send to the station over SRT with a show key
-([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)): the
-release tests send that way with ffmpeg.
+In 1.2.0 an SRT pull from a listener built on libsrt (Liquidsoap, FFmpeg, OBS, GStreamer) got no sound; 1.2.1 fixed it.

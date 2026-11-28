@@ -142,6 +142,9 @@ pub struct RecordingView {
 /// The largest recording taken (8 MB: two minutes of FLAC and more).
 const WORDS_MAX_BYTES: usize = 8 * 1024 * 1024;
 /// A recording's length, from the media worker's report: 1.5 s to 2 minutes.
+/// The phone words' loudness when the station sets no cart target (LUFS): the carts' default
+/// before 1.3.3, so the words are as loud on a new station as they were.
+const WORDS_LUFS: f64 = -23.0;
 const WORDS_MIN_MS: u64 = 1_500;
 const WORDS_MAX_MS: u64 = 120_000;
 
@@ -332,8 +335,11 @@ async fn put_words(
             "The station has no database.",
         );
     };
-    let (flac, report) = match crate::media::normalise(&state.hub.carts.config, body.to_vec()).await
-    {
+    // The phone words keep the level they had before 1.3.3: the carts' target when the station
+    // sets one (or kept its old default), else -23, also where a new station's carts are -16.
+    let mut cfg = state.hub.carts.config.clone();
+    cfg.loudness_lufs = Some(cfg.loudness_lufs.unwrap_or(WORDS_LUFS));
+    let (flac, report) = match crate::media::normalise(&cfg, body.to_vec()).await {
         Ok(r) => r,
         Err(crate::media::WorkerError::Refused(e)) => {
             return problem(StatusCode::UNPROCESSABLE_ENTITY, e);

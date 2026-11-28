@@ -12,8 +12,8 @@ Two images from `deploy/images/edge/`, on Alpine 3.24 (ADR-0051).
 
 | Image | Published | Built locally (`just edge-image`) |
 |---|---|---|
-| `weavesignal-edge` | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.3.2` | `localhost/weavesignal-edge:m1` (`WEAVESIGNAL_EDGE_IMAGE` to change) |
-| `weavesignal-relay` | `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.3.2` | `localhost/weavesignal-relay:m1` (`WEAVESIGNAL_RELAY_IMAGE`) |
+| `weavesignal-edge` | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.3.3` | `localhost/weavesignal-edge:m1` (`WEAVESIGNAL_EDGE_IMAGE` to change) |
+| `weavesignal-relay` | `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.3.3` | `localhost/weavesignal-relay:m1` (`WEAVESIGNAL_RELAY_IMAGE`) |
 
 Each writes its server's configuration from the environment at start and refuses to start on a value it cannot use.
 How to run them is in [Run a self-run edge pool](/docs/how-to/run-edges/).
@@ -39,6 +39,9 @@ It ignores the station's cache headers and sends viewers its own `Cache-Control`
 | `EDGE_CACHE_MAX` | `2g` | the cache's size on disk |
 | `EDGE_RELAY` | none | `host:port` of a relay beside the edge; its mounts are then served under `/listen/`, unbuffered and never cached |
 | `EDGE_WORKERS` | `auto` | nginx's worker processes |
+| `EDGE_RESOLVER` | from `/etc/resolv.conf` | the DNS servers, separated by spaces, that the host name in `EDGE_KEYED_REVOKED_URL` is looked up with (from 1.3.3) |
+
+The station's HTTPS certificate may stand behind up to five certificates before a root the image trusts (from 1.3.3; earlier edges refused a chain with more than one, which current Let's Encrypt certificates can have).
 
 `/health` is the station's health answer fetched through the edge: the edge asks `EDGE_HEALTH_PATH` on `EDGE_ORIGIN` (2 s limits, never cached) and returns what it gets, so it answers 2xx only while nginx, the edge's route to the station and the station are all well, and 502 or 504 when the route is down.
 The station's reverse proxy must therefore publish its `/health` to the edges, with no login in front of it: a redirect to a login page counts as a failure.

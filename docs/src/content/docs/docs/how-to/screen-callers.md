@@ -18,7 +18,7 @@ Listeners never hear you.
 Callers wait in `screener.queue` in the order they arrived, each with a number.
 Press `↑` or `↓` to move, or `1` to `9` to jump to a caller.
 A caller marked BANNED BEFORE carries the date and reason; nothing of theirs is on air, so screen them or drop them.
-The list behind it is the station's `studio.banned` setting; it does not yet come from the chat's moderation log ([What release one does](/docs/reference/release-one-status/)).
+For a caller from the player page the list behind it is the station's `studio.banned` setting; it does not yet come from the chat's moderation log ([What release one does](/docs/reference/release-one-status/)). A telephone caller carries it when their number has been banned (**Ban this number…** on their card, from 1.2).
 A caller who rang in from the player page shows the line they typed about the call, and a *no consent* tag if they did not agree to be recorded.
 
 ## Talk to them

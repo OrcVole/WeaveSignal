@@ -10,9 +10,9 @@ sidebar:
 
 > **A station streaming video to more than about 500 viewers needs a CDN** (ADR-0017).
 > At the default quality each viewer takes about 1 Mbit/s, so 500 viewers are about 500 Mbit/s of upload, more than most homes and many servers have to spare, before chat, guests and listeners.
-> The studio app says so: when video is on, more than about 500 are connected and the station has no CDN or edges configured (`steering.edges`), `desk.audience` shows a warning. The count is of listeners on the station's stream, the nearest figure the control plane has; it does not yet count video viewers apart.
+> The studio app says so: when video is on, more than about 500 are connected and the station has no CDN or edges configured (neither `steering.edges` nor a `join.hls_url` on another address), `desk.audience` shows a warning. The count is of listeners on the station's stream, the nearest figure the control plane has; it does not yet count video viewers apart.
 
-Bunny is the CDN this documentation names and tests for live HLS and for large archive downloads.
+Bunny is the CDN this documentation names for live HLS and for large archive downloads.
 Nothing in WeaveSignal is Bunny-specific: the HLS output and the archive are plain files that any pull CDN can serve, and a [self-run edge pool](/docs/how-to/run-edges/) can stand beside it or instead of it.
 Bunny Standard costs about 0.01 USD per GB in Europe and North America (report 18): about 4.4 to 8.8 USD per programme hour for 2,000 to 4,000 viewers, against 0.8 to 1.4 USD for a self-run pool (ADR-0051).
 
@@ -47,8 +47,8 @@ hls_url = "https://cdn.station.example/hls"
 ```
 
 The player then fetches every playlist and segment from Bunny, and its page allows that address.
-The Compose bundle and the Cloudron package write `control.toml` themselves and have no setting for `hls_url` or steering yet: on the Compose bundle, add the lines to the `control` entry under `configs:` in `deploy/compose/compose.yaml` and start the bundle again; the Cloudron package cannot take them.
-The studio app's warning above looks at `steering.edges` only, so it still shows with Bunny set this way.
+The Compose bundle and the Cloudron package write `control.toml` themselves and have no setting for `hls_url`: on the Compose bundle, add the lines to the `control` entry under `configs:` in `deploy/compose/compose.yaml` and start the bundle again; the Cloudron package cannot take them. Steering does have settings, `STEERING_*`, from 1.1 ([Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)).
+The studio app's warning above counts this too: it no longer shows once `hls_url` points the player at another address.
 
 ## Steer viewers to Bunny with content steering
 
@@ -77,6 +77,7 @@ Every setting is in [Content steering](/docs/reference/steering/).
 
 A second pull zone over the episode files (`/media/episodes/`) can carry a new episode's first day of downloads.
 The feeds do not yet take a CDN address for their enclosures, so today that zone serves only links you hand out yourself.
+From 1.3.3 the station serves only files an episode names. When a show is kept for people with a key its files answer 404 at the station, but the zone may go on serving what it has cached.
 
 ## Known limits
 

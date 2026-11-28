@@ -428,6 +428,35 @@ mod tests {
         }
     }
 
+    /// The signature's 64 bytes take 86 base64 characters, and the last carries 2 bits of the
+    /// signature and 4 unused bits. The edge's njs ignores those 4 (16 spellings of the last
+    /// character decode to the same signature; docs: reference/keyed-shows, Tokens); the station
+    /// takes only the spelling it issued, with the unused bits zero.
+    #[test]
+    fn the_signatures_unused_bits_are_refused_here() {
+        let t = signer().mint(&claims());
+        let (signed, sig) = t.rsplit_once('.').unwrap();
+        assert_eq!(sig.len(), 86);
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let last = sig.as_bytes()[85];
+        let at = ALPHABET.iter().position(|&c| c == last).unwrap();
+        assert_eq!(
+            at & 0b1111,
+            0,
+            "the issued spelling has the unused bits zero"
+        );
+        for low in 1..16 {
+            let other = ALPHABET[(at & !0b1111) | low] as char;
+            let respelt = format!("{signed}.{}{other}", &sig[..85]);
+            assert_eq!(
+                check(&respelt, "show-a", Media::Sound, NOW),
+                Err(Refusal::Malformed),
+                "{respelt}"
+            );
+        }
+        assert_eq!(check(&t, "show-a", Media::Sound, NOW), Ok(claims()));
+    }
+
     #[test]
     fn a_changed_claim_breaks_the_signature() {
         let t = signer().mint(&claims());

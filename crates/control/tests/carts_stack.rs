@@ -272,8 +272,14 @@ fn carts_fire_into_the_listener_stream() {
         .iter()
         .map(|c| c["loudness_lufs"].as_f64().unwrap() + c["gain_db"].as_f64().unwrap())
         .collect();
-    let at_target = lufs.iter().filter(|l| (**l - -23.0).abs() < 0.1).count();
-    eprintln!("{at_target} of 50 carts sound at -23 LUFS; the rest are held under -1 dBTP");
+    // A new station's target (1.3.3): its settings set none and its database is new.
+    let target = cat["loudness_lufs"].as_f64().unwrap();
+    assert_eq!(
+        target, -16.0,
+        "a new station's carts are brought to -16 LUFS"
+    );
+    let at_target = lufs.iter().filter(|l| (**l - target).abs() < 0.1).count();
+    eprintln!("{at_target} of 50 carts sound at {target} LUFS; the rest are held under -1 dBTP");
 
     // A listener, from now on.
     let heard = Arc::new(Mutex::new(Vec::<Heard>::new()));

@@ -130,17 +130,24 @@ grep -q '^PUBLIC_ORIGIN=' "$work/flip.env" && fail "--public off kept the route'
 printf 'PULL_ALLOW_PRIVATE=true\n' >> "$work/flip.env"
 PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$work/flip.env" --public off >/dev/null 2>&1 || fail "a run with PULL_ALLOW_PRIVATE set was refused"
 [ "$(value "$work/flip.env" PULL_ALLOW_PRIVATE)" = true ] || fail "PULL_ALLOW_PRIVATE was dropped on a second run"
+# CARTS_LOUDNESS_LUFS (1.3.3) is never written with a default, which would move a station from
+# before 1.3.3 off its -23; set by hand, a second run keeps it.
+grep -q '^CARTS_LOUDNESS_LUFS=' "$work/flip.env" && fail "CARTS_LOUDNESS_LUFS was written though nobody set it: $(value "$work/flip.env" CARTS_LOUDNESS_LUFS)"
+printf 'CARTS_LOUDNESS_LUFS=-16\n' >> "$work/flip.env"
+PATH="$work/bin:$PATH" "$script" --engine podman --no-start --env-file "$work/flip.env" --public off >/dev/null 2>&1 || fail "a run with CARTS_LOUDNESS_LUFS set was refused"
+[ "$(value "$work/flip.env" CARTS_LOUDNESS_LUFS)" = -16 ] && [ "$(grep -c '^CARTS_LOUDNESS_LUFS=' "$work/flip.env")" = 1 ] || fail "CARTS_LOUDNESS_LUFS was not kept once: $(grep '^CARTS_LOUDNESS_LUFS=' "$work/flip.env")"
+pass "CARTS_LOUDNESS_LUFS is written only when set, and kept"
 # Every key the script knows is written by it, or is a public-route key this loopback station
-# has no use for (or written only when set, PULL_ALLOW_PRIVATE): a known key the script never writes is dropped on every run.
+# has no use for (or written only when set, PULL_ALLOW_PRIVATE and CARTS_LOUDNESS_LUFS): a known key the script never writes is dropped on every run.
 known=$(sed -n 's/^  known=" \(.*\) "$/\1/p' "$script")
 [ -n "$known" ] || fail "the script's list of known keys was not found"
-not_here=" PULL_ALLOW_PRIVATE PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND "
+not_here=" PULL_ALLOW_PRIVATE CARTS_LOUDNESS_LUFS PUBLIC_DOMAIN PUBLIC_TLS ACME_EMAIL NODE_IP TURN_ALLOW_CIDRS PROXY_HTTPS_PORT PROXY_HTTP_PORT TURN_TLS_PORT TURN_UDP_PORT LIVEKIT_TCP_PORT ROOM_PUBLIC_URL STREAM_URL FORWARDED_FOR TURN_ENABLED TURN_CERT_DIR PROXY_LOCAL_CERTS PROXY_ACME_EMAIL LIVEKIT_USE_EXTERNAL_IP LIVEKIT_NODE_IP INGEST_BIND "
 for k in $known; do
   [[ $not_here == *" $k "* ]] && continue
   grep -q "^$k=" "$env" || fail "the script knows $k but did not write it on a loopback station: it would be dropped"
 done
 for k in $known; do
-  [ "$k" = PULL_ALLOW_PRIVATE ] && continue   # written only when set: checked above
+  case $k in PULL_ALLOW_PRIVATE|CARTS_LOUDNESS_LUFS) continue ;; esac   # written only when set: checked above
   grep -q "^$k=" "$work/compose.env" || fail "the script knows $k but did not write it on a public station: it would be dropped"
 done
 pass "KIT_VBAN and a hand-set PUBLIC_ORIGIN are kept (and checked); --public replaces the address and --public off drops it; every known key is written"

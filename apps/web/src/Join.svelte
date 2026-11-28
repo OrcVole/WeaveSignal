@@ -6,7 +6,8 @@
   // never sends to a server. Every invitation arrives standing by (1.3): the page says before
   // joining that nobody is on air until the studio puts them on or the handover, checks the
   // microphone, then joins. A link to the rehearsal studio says who hears it there, and moves the
-  // person to the live studio, standing by, when the presenter moves everyone.
+  // person to the live studio, standing by, when the presenter moves everyone. Opened with no
+  // invitation at all (a bare `/join/`), it says who the page is for and where to go instead.
   import { onDestroy, onMount } from 'svelte';
   import Glyphs from '../../studio/src/lib/Glyphs.svelte';
   import BrandMark from './lib/BrandMark.svelte';
@@ -16,7 +17,7 @@
   import CameraCheck from './lib/CameraCheck.svelte';
   import MicCheck from './lib/MicCheck.svelte';
   import { CameraPreview } from './lib/camera-preview.svelte.ts';
-  import { AS, caps, heading, joinWord, lasts, movedHere, what } from './lib/join-words.ts';
+  import { AS, bareWords, caps, heading, joinWord, lasts, movedHere, what } from './lib/join-words.ts';
   import { adoptInBrowser, type Moved } from './lib/move.ts';
   import { wantsCameraPreview } from './lib/rules.ts';
   import { useStationIce } from './lib/turn.ts';
@@ -31,8 +32,12 @@
   let moved = $state<Moved | null>(null);
   let info = $state<api.PassInfo | null>(null);
   const studio = $derived(info?.studio ?? 'live');
-  // The link's own pass, read once: a page without one says so.
-  let problem = $state<string | null>(fromLink ? null : 'This page needs the link the station sent you. Open that link, all of it, on this device.');
+  // The link's own pass, read once. A page opened without one is not a broken link: it has its
+  // own words (1.3.3), with the station's name once the player's public facts give it.
+  const bare = !fromLink;
+  let stationName = $state('');
+  const bareSay = $derived(bareWords(stationName));
+  let problem = $state<string | null>(null);
   let call = $state<Call | null>(null);
   let joining = $state(false);
   let relay = $state(false);
@@ -50,7 +55,11 @@
   const keyedShow = $derived(invitedKeyed(info, keyed));
 
   onMount(async () => {
-    if (!pass) return;
+    if (bare) {
+      stationName = (await api.player().catch(() => null))?.station ?? '';
+      document.title = bareSay.title;
+      return;
+    }
     try {
       info = await api.passInfo(pass);
       document.title = `Join ${info.station}`;
@@ -131,11 +140,19 @@
 <div class="page">
   <header class="top">
     <BrandMark />
-    <span class="station">{info?.station ?? 'WeaveSignal'}</span>
+    <span class="station">{info?.station ?? (stationName || 'WeaveSignal')}</span>
   </header>
 
   <main class="main" aria-label="Join the studio">
-    {#if call && info}
+    {#if bare}
+      <section class="card bare" aria-labelledby="join-h" data-bare>
+        <h1 id="join-h">{bareSay.heading}</h1>
+        <p>{bareSay.who}</p>
+        <p>{bareSay.link}</p>
+        <p>{bareSay.ask}</p>
+        <p class="small">{bareSay.listen} <a href="/">{bareSay.player}</a>.</p>
+      </section>
+    {:else if call && info}
       <h1 class="sr-only">{studio === 'rehearsal' ? 'Rehearsal studio, ' : ''}{info.station}: {info.name || 'you'} {AS[info.role] ?? ''}</h1>
       <CallPanel {call} relayPort={info.relay.turn_tls_port} />
     {:else}

@@ -1214,7 +1214,10 @@ async fn show_is_keyed(state: &AppState, show: Option<uuid::Uuid>) -> bool {
 }
 
 /// The rule row says `key` now (a show without a row is public).
-fn keyed_by(access: Option<&weavesignal_model::listener_keys_db::Access>, now_ms: i64) -> bool {
+pub(crate) fn keyed_by(
+    access: Option<&weavesignal_model::listener_keys_db::Access>,
+    now_ms: i64,
+) -> bool {
     access.is_some_and(|a| {
         weavesignal_model::listener_keys::effective(&a.rule, a.opens_at_ms, now_ms)
             == weavesignal_model::listener_keys::Effective::Key

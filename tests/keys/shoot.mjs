@@ -4,7 +4,10 @@
 // Drives the studio app's Keys tab (keyed shows, 1.3.2) and the key beside a show (the show
 // editor, the Schedule, the desk's Playout panel) in a real browser against the stand-in station
 // (station.mjs), checks each state and each press against what the page shows and what it sent,
-// and captures them in Dark, Light and Night at 1440×900 and 2560×1440. No stack and no port
+// and captures them in Dark, Light and Night at 1440×900 and 2560×1440. From 1.3.3 also: what
+// the tick means on a show that has opened to everyone (`opened`), the desk's third state while
+// playout does not answer (in `locks`), a key's page at a station that sends no email
+// (`nomail`), a key made for the picture and a station of 1.3.2 (`media`, `older`). No stack and no port
 // but its own loopback one; Playwright is not a dependency of the repository (set
 // PLAYWRIGHT_CORE to a playwright-core directory).
 //
@@ -455,6 +458,26 @@ for (const size of SIZES) {
         check('a keyed show playout does not keep from the public is said as an alarm', alarm.includes('but playout is not keeping it from the public: everyone hears the show. Restart playout') && (await b.page.locator('[data-testid="keyed-now"] [role=alert]').count()) === 1, alarm);
         await shot(b.page, 'desk-keyed-not-kept');
         await b.ctx.close();
+      }
+      // Playout does not answer the station: the third state, not confirmed (1.3.2; the picture 1.3.3).
+      {
+        const away = new KeysStation({ onAir: 'friday-supporters' });
+        away.gateConfirmed = false;
+        away.join('fiona', 'Fiona Kennedy', 'presenter');
+        const n = await open(away, size, theme, { tab: 'desk' });
+        const now = n.page.locator('[data-testid="keyed-now"][data-standing="not-confirmed"]');
+        await now.waitFor({ timeout: 10000 });
+        if (first) {
+          const said = await words(now);
+          check('playout not answering: the panel says not confirmed beside its heading, what should be so and what to do', said.includes('What the public hears now · not confirmed') && said.includes('Friday Supporters’ Hour is for people with a key. Playout is not answering the station, so this is not confirmed: the listeners’ stream should be playing the station’s own fallback, not the show. It is asked again every two seconds. If this stays, restart playout, and see its log.'), said);
+          check('it is a status and not an alarm, and the chip is drawn dashed', (await now.locator('[role=alert]').count()) === 0 && (await now.locator('[role=status]').count()) === 1 && (await now.locator('.state.dashed').count()) === 1 && (await now.locator('.hollow-warning').count()) === 0);
+        }
+        await now.scrollIntoViewIfNeeded();
+        check(`${tag}: the not-confirmed panel is whole inside the window`, await now.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5; }));
+        await shot(n.page, 'desk-keyed-not-confirmed', { docs: 'how-to-keys-desk-not-confirmed.png' });
+        await n.ctx.close();
+      }
+      if (first) {
         const pub = new KeysStation({ onAir: 'the-long-lunch' });
         pub.join('duncan', 'Duncan Boyd', 'presenter');
         const e = await open(pub, size, theme, { tab: 'desk' });
@@ -462,6 +485,206 @@ for (const size of SIZES) {
         check('a public show on air has no keyed line', (await e.page.locator('[data-testid="keyed-now"]').count()) === 0);
         await e.ctx.close();
       }
+    }
+
+
+    // ---- what the tick means on a show that has opened to everyone (1.3.3) ----
+    // In 1.3.2 a show kept until a time that had passed stayed ticked in the list, though
+    // everyone could listen. The tick now means one thing, that a key is needed now.
+    if (wants('opened')) {
+      const vp = { width: size[0], height: size[1] };
+      const inside = (b) => !!b && b.x >= -0.5 && b.y >= -0.5 && b.x + b.width <= vp.width + 0.5 && b.y + b.height <= vp.height + 0.5;
+      const OPENED = 'Opened to everyone 15 Nov 2026, 15:00: no key is needed now. Tick to keep it for people with a key again.';
+      /** Kettle FM, where The Archive Hour was kept until Sunday 15 November at 15:00. */
+      const withOpened = (o = {}) => {
+        const st = new KeysStation(o);
+        st.access.get('id-the-archive-hour').opens_at_ms = Date.UTC(2026, 10, 15, 15, 0);
+        return st;
+      };
+      const st = withOpened();
+      const { ctx, page } = await open(st, size, theme, { tab: 'schedule' });
+      await page.keyboard.press('Control+5');
+      await page.locator('[data-panel="calendar.week"] .ev').first().waitFor({ timeout: 15000 });
+      await sleep(600);
+      const list = page.locator('[data-panel="calendar.shows"]');
+      const item = list.locator('.showitem:has(.showrow[data-show="the-archive-hour"])');
+      const tick = item.locator('[data-testid="keyed-tick"]');
+      if (first) {
+        check('opened: the station’s list says the show has a key rule and is open to everyone now', st.keyedShows().shows.find((x) => x.slug === 'the-archive-hour')?.now === 'public');
+        check('opened: its tick is not ticked, and the two shows still kept are', (await tick.getAttribute('data-listen')) === 'opened' && !(await tick.locator('input').isChecked()) && (await list.locator('.showitem [data-testid="keyed-tick"] input:checked').count()) === 2 && (await list.locator('.showitem [data-testid="keyed-tick"][data-listen="key"] input:checked').count()) === 2);
+        check('opened: a line under its row says when it opened and that ticking keeps it again', (await words(tick.locator('[data-testid="keyed-tick-opened"]'))) === OPENED, await words(tick));
+        check('opened: the tick’s tooltip says the same, and is not the keyed show’s', (await tick.locator('label').getAttribute('title')) === 'Not ticked: the show opened to everyone 15 Nov 2026, 15:00, so no key is needed now. Tick to keep it for people with a key again.' && (await list.locator('.showitem:has(.showrow[data-show="friday-supporters"]) [data-testid="keyed-tick"] label').getAttribute('title')).startsWith('Ticked: only people with a key can listen now.'));
+        const keyedBlocks = await page.locator('[data-panel="calendar.week"] .ev:has(.rep.keyed)').evaluateAll((els) => [...new Set(els.map((e) => e.querySelector('b')?.textContent))]);
+        check('opened: its blocks in the week carry no key, and a screen reader is not told it is keyed', !keyedBlocks.includes('The Archive Hour') && keyedBlocks.includes('Friday Supporters’ Hour') && !(await words(item.locator('.showrow b'))).includes('keyed'), JSON.stringify(keyedBlocks));
+      }
+      await item.scrollIntoViewIfNeeded();
+      check(`${tag} opened: the row, its tick and the line under it are inside the list, and the line is not cut`, inside(await item.boundingBox()) && (await tick.locator('[data-testid="keyed-tick-opened"]').evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.getBoundingClientRect().height > 10)), JSON.stringify(await item.boundingBox()));
+      await shot(page, 'opened-1-list', { docs: 'how-to-keys-opened.png' });
+
+      // Make a show keyed, on the Keys tab: the row says when it opened, once.
+      if (first) {
+        await page.keyboard.press('Control+6');
+        await page.locator('[data-testid="about-keep"]').waitFor({ timeout: 10000 });
+        const about = await words(page.locator('[data-panel="keys.about"] .showlist li', { hasText: 'The Archive Hour' }));
+        check('opened: the Keys tab’s list of shows says when it opened and that no key is needed now', about === 'The Archive Hour Opened to everyone 15 Nov 2026, 15:00: no key is needed now', about);
+        await page.locator('[data-testid="about-keep"]').click();
+        const keep = page.locator('dialog[data-panel="keys.keep-show"][open]');
+        const row = keep.locator('.keeplist li[data-show="the-archive-hour"]');
+        await row.waitFor({ timeout: 10000 });
+        check('opened: in Make a show keyed its row is not ticked and says when it opened, once', (await row.getAttribute('data-listen')) === 'opened' && !(await row.locator('input').isChecked()) && (await words(row)).includes('Opened to everyone 15 Nov 2026, 15:00') && (await row.locator('[data-testid="keyed-tick-opened"]').count()) === 0, await words(row));
+        await row.scrollIntoViewIfNeeded();
+        await shot(page, 'opened-2-keep-show');
+        await keep.getByRole('button', { name: 'Done' }).click();
+        await page.keyboard.press('Control+5');
+        await page.locator('[data-panel="calendar.week"] .ev').first().waitFor({ timeout: 15000 });
+        await sleep(400);
+      }
+
+      // The show's pane, and Who can listen in its editor.
+      await list.locator('.showrow[data-show="the-archive-hour"]').click();
+      const pane = page.locator('[data-testid="pane-listen"]');
+      await pane.waitFor();
+      if (first) check('opened: its pane has the tick unticked, and says once when it opened and that no key is needed now', (await pane.getAttribute('data-listen')) === 'opened' && !(await pane.locator('input').isChecked()) && (await words(pane)) === `Keyed show: The Archive Hour ${OPENED} Who can listen…`, await words(pane));
+      check(`${tag} opened: the pane’s tick and its words are in view`, inside(await pane.boundingBox()));
+      await shot(page, 'opened-3-pane');
+      await pane.getByRole('button', { name: 'Who can listen…' }).click();
+      const access = page.locator('[data-panel="calendar.show-access"]');
+      await access.locator('[data-testid="access-opened"]').waitFor({ timeout: 10000 });
+      await sleep(400);
+      if (first) check('opened: Who can listen says it opened, that no key is needed now, and how to keep it again', (await words(access.locator('[data-testid="access-opened"]'))) === 'This show opened to everyone on 15 Nov 2026, 15:00, so no key is needed now. To keep it for people with a key again, clear Opens to everyone or give it a later time, and save.', await words(access.locator('[data-testid="access-opened"]')));
+      check(`${tag} opened: that line is inside the window, above the choice it explains`, inside(await access.locator('[data-testid="access-opened"]').boundingBox()) && (await access.locator('[data-testid="access-opened"]').boundingBox()).y < (await access.locator('.choice').boundingBox()).y);
+      await shot(page, 'opened-4-who-can-listen');
+      if (first) {
+        // Ticking it keeps the show again from now: the past time is left out, the rest of the rule kept,
+        // and the form open under the tick follows, so a later save cannot send the past time back.
+        await pane.locator('input').check();
+        await page.locator('[data-testid="pane-listen"][data-listen="key"]').waitFor({ timeout: 10000 });
+        const body = sent(st, 'PUT', /shows\/the-archive-hour\/access$/).at(-1)?.body;
+        check('opened: ticked, the show is kept again from now, without the past time and with what the public hears as it was', JSON.stringify(body) === '{"rule":"key","slate":"fallback","slate_note":"","opens_at_ms":null}' && (await pane.locator('input').isChecked()), JSON.stringify(body));
+        check('opened: the tick says what it did, with what becomes of the feed and the files', (await words(pane.locator('[data-testid="keyed-tick-said"]'))) === 'The Archive Hour is kept for people with a key, from now. Its podcast feed and episode files are held back meanwhile, earlier episodes included. Make keys for its listeners on the Keys tab.', await words(pane));
+        await access.locator('[data-testid="access-opened"]').waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+        check('opened: Who can listen, open under the tick, follows: it no longer says the show opened, its time is empty, and Save has nothing to send', (await access.locator('[data-testid="access-opened"]').count()) === 0 && (await access.locator('input[type="datetime-local"]').inputValue()) === '' && (await access.getByRole('button', { name: 'Save who can listen' }).isDisabled()), await access.locator('input[type="datetime-local"]').inputValue());
+        await shot(page, 'opened-5-kept-again');
+      }
+      await ctx.close();
+
+      if (first) {
+        // Anyone who may not change it sees no Keyed mark on a show everyone can hear.
+        const p = await open(withOpened({ role: 'presenter' }), size, theme, { tab: 'schedule' });
+        await p.page.keyboard.press('Control+5');
+        await p.page.locator('[data-panel="calendar.shows"] .showrow[data-show="the-archive-hour"]').waitFor({ timeout: 15000 });
+        await sleep(600);
+        const pl = p.page.locator('[data-panel="calendar.shows"]');
+        check('opened: a presenter sees the word Keyed on the shows still kept, and none on the one that opened', (await pl.locator('.showitem:has(.showrow[data-show="the-archive-hour"]) .keyedmark').count()) === 0 && (await pl.locator('.showitem:has(.showrow[data-show="friday-supporters"]) .keyedmark').count()) === 1 && (await pl.locator('input[type=checkbox]').count()) === 0);
+        await shot(p.page, 'opened-6-presenter');
+        await p.ctx.close();
+      }
+    }
+
+    // ---- a key's page at a station that sends no email (1.3.2; the picture 1.3.3) ----
+    if (wants('nomail')) {
+      const st = new KeysStation({ mail: false });
+      // Callum asked for his key again on the player: the station sent nothing, and noted it.
+      st.handle('POST', '/api/v1/keyed/lost', { email: 'callum.reid@mail.example' });
+      const { ctx, page } = await open(st, size, theme);
+      await page.locator('.keys .search input').fill('Callum');
+      await page.locator('.rowbtn', { hasText: 'Callum Reid' }).click();
+      const note = page.locator('[data-testid="key-lost-waiting"]');
+      await note.waitFor({ timeout: 10000 });
+      const keyPage = page.locator('[data-panel="keys.key"]');
+      if (first) {
+        check('no mail: the key’s page says its holder asked for it again, that the station sent nothing, and offers Send…', (await words(note)).startsWith('Its holder asked for it again') && (await words(note)).includes('with Lost your key? on the player. The station sent nothing, because it has no outgoing mail: send it to them yourself.') && (await note.getByRole('button', { name: 'Send…' }).count()) === 1, await words(note));
+        check('no mail: the Email line says an address is kept and that the request is only noted', (await words(keyPage.locator('dl.facts').first())).includes('An address is kept, sealed. This station does not send email, so Lost your key? only notes the request here: you send the key yourself, with Send.'), await words(keyPage.locator('dl.facts').first()));
+        check('no mail: the change log says nothing was sent', (await words(keyPage.locator('.log'))).includes('Its holder asked for it again (Lost your key?): nothing was sent'), await words(keyPage.locator('.log')));
+      }
+      check(`${tag} no mail: the note is whole inside the key’s page`, await note.evaluate((el) => { const r = el.getBoundingClientRect(); const p = el.closest('[data-panel="keys.key"]').getBoundingClientRect(); return r.left >= p.left - 0.5 && r.right <= p.right + 0.5 && r.top >= 0 && r.bottom <= innerHeight + 0.5; }));
+      await shot(page, 'no-mail-key', { docs: 'how-to-keys-key-no-mail.png' });
+      if (first) {
+        // Send… answers the request: the key's text is shown, the station notes it, and the note goes.
+        await note.getByRole('button', { name: 'Send…' }).click();
+        await page.locator('dialog[data-panel="keys.send"][open] [data-testid="send-link"], dialog[data-panel="keys.send"][open] .linkbox, dialog[data-panel="keys.send"][open]').first().waitFor({ timeout: 10000 });
+        await sleep(600);
+        await page.keyboard.press('Escape');
+        await sleep(600);
+        await page.locator('[data-testid="key-lost-waiting"]').waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+        check('no mail: once the key’s text has been shown with Send…, nothing waits, without the page being opened again', (await page.locator('[data-testid="key-lost-waiting"]').count()) === 0 && sent(st, 'POST', /\/text$/).length === 1, String(sent(st, 'POST', /\/text$/).length));
+        // Make a key says what an address is for at such a station.
+        await page.keyboard.press('n');
+        await page.locator('dialog[data-panel="keys.make"][open]').waitFor({ timeout: 10000 });
+        check('no mail: Make a key says an address only lets a request be noted', (await words(page.locator('#mk-email-hint'))) === 'Kept sealed. This station does not send email: with an address, a Lost your key? request on the player is noted on the key, for you to send it again.', await words(page.locator('#mk-email-hint')));
+        await shot(page, 'no-mail-make');
+      }
+      await ctx.close();
+    }
+
+    // ---- what a key is for: Picture, with its sound is no longer offered (1.3.3) ----
+    if (wants('media') && first) {
+      const st = new KeysStation();
+      // A key made for the picture before 1.3.3, or through the API: it goes on working, and is shown as it is.
+      const old = st.put({ label: 'Rhona Sinclair', media: 'video', shows: ['id-friday-supporters'], all_shows: false, note: 'Made for the picture in 1.3.2' });
+      const { ctx, page } = await open(st, size, theme);
+      await page.keyboard.press('n');
+      const make = page.locator('dialog[data-panel="keys.make"][open]');
+      await make.waitFor({ timeout: 10000 });
+      check('media: Make a key offers Sound and picture or Sound only, and no third', (await make.locator('#mk-media option').allInnerTexts()).join('|') === 'Sound and picture|Sound only' && (await make.locator('#mk-media').inputValue()) === 'both', (await make.locator('#mk-media option').allInnerTexts()).join('|'));
+      await page.keyboard.press('Escape');
+      await page.locator('.keys .search input').fill('Rhona');
+      await page.locator('.rowbtn', { hasText: 'Rhona Sinclair' }).click();
+      const keyPage = page.locator('[data-panel="keys.key"]');
+      await keyPage.locator('.log').waitFor({ timeout: 10000 });
+      check('media: a key made for the picture is still shown as it is on its page', (await words(keyPage.locator('dl.facts').first())).includes('Friday Supporters’ Hour · picture, with its sound'), await words(keyPage.locator('dl.facts').first()));
+      await keyPage.getByRole('button', { name: 'Change…' }).click();
+      const change = page.locator('dialog[data-panel="keys.change"][open]');
+      await change.waitFor({ timeout: 10000 });
+      check('media: Change keeps the choice in that key’s own list, chosen, and says what it opens', (await change.locator('#ch-media option').allInnerTexts()).join('|') === 'Sound and picture|Sound only|Picture, with its sound' && (await change.locator('#ch-media').inputValue()) === 'video' && (await words(change.locator('[data-testid="media-old"]'))) === 'This key was made for the picture, with its sound. It opens the same as Sound and picture, and goes on working as it is. The choice is no longer offered for new keys.', await words(change.locator('[data-testid="media-old"]')));
+      await change.locator('#ch-media').scrollIntoViewIfNeeded();
+      await shot(page, 'media-change-video-key');
+      // Another field changed and saved: the key stays a key for the picture.
+      await change.locator('#ch-note').fill('Made for the picture in 1.3.2; still in use');
+      await change.locator('button[type=submit]').click();
+      await change.waitFor({ state: 'hidden', timeout: 10000 });
+      const patch = sent(st, 'PATCH', new RegExp(`listener-keys/${old.id}$`)).at(-1)?.body;
+      check('media: saving another field sends that field alone, and the key is still for the picture', !!patch && !('media' in patch) && patch.note === 'Made for the picture in 1.3.2; still in use' && st.lkeys.find((k) => k.id === old.id).media === 'video', JSON.stringify(patch));
+      // Changed to Sound and picture, the old choice leaves its list.
+      await keyPage.getByRole('button', { name: 'Change…' }).click();
+      await change.waitFor({ timeout: 10000 });
+      await change.locator('#ch-media').selectOption('both');
+      await change.locator('button[type=submit]').click();
+      await change.waitFor({ state: 'hidden', timeout: 10000 });
+      check('media: changed to Sound and picture, that is what is sent', sent(st, 'PATCH', new RegExp(`listener-keys/${old.id}$`)).at(-1)?.body?.media === 'both');
+      await keyPage.getByRole('button', { name: 'Change…' }).click();
+      await change.waitFor({ timeout: 10000 });
+      check('media: and the old choice is no longer in its list', (await change.locator('#ch-media option').allInnerTexts()).join('|') === 'Sound and picture|Sound only' && (await change.locator('[data-testid="media-old"]').count()) === 0, (await change.locator('#ch-media option').allInnerTexts()).join('|'));
+      await ctx.close();
+    }
+
+    // ---- a station of 1.3.2, which holds no episode file back: the studio says that instead ----
+    // The released app goes by the station's version. A build made before the release's version is
+    // set says 1.3.2 itself, as its own station does while it holds the files back, so there the
+    // app says what 1.3.3 does: until the version is 1.3.3 this checks that, and the other after.
+    if (wants('older') && first) {
+      const APP = JSON.parse(readFileSync(join(ROOT, 'apps', 'studio', 'src-tauri', 'tauri.conf.json'), 'utf8')).version;
+      const [maj, min, pat] = APP.split('.').map((n) => parseInt(n, 10));
+      const released = maj > 1 || (maj === 1 && (min > 3 || (min === 3 && pat >= 3)));
+      const st = new KeysStation({ version: '1.3.2' });
+      st.draft('the-long-lunch', '2026-11-19', { aired: true });
+      const { ctx, page } = await open(st, size, theme, { tab: 'schedule' });
+      await page.keyboard.press('Control+5');
+      await page.locator('[data-panel="calendar.week"] .ev').first().waitFor({ timeout: 15000 });
+      await sleep(600);
+      const OLDER = 'This station runs WeaveSignal 1.3.2, which leaves a keyed show’s podcast feed and episode files open to anyone. Update the station to hold them back.';
+      await page.locator('[data-panel="calendar.week"] .ev.past', { hasText: 'The Long Lunch' }).first().click();
+      const line = page.locator('[data-testid="listen-line"]');
+      await line.waitFor({ timeout: 10000 });
+      if (released) check('older: on a station of 1.3.2 an aired episode says its files stay open and to update, and promises no hold-back', (await words(line)).includes(`The tick keeps the episodes to come for people with a key. ${OLDER}`) && !(await words(line)).includes('held back'), await words(line));
+      else check(`older: this build says ${APP} itself, so at a station that says 1.3.2 it words the tick as 1.3.3 does`, (await words(line)).includes('and holds back the show’s podcast feed and episode files, this episode’s too') && !(await words(line)).includes('This station runs WeaveSignal 1.3.2'), await words(line));
+      await line.locator('input').check();
+      await page.locator('[data-testid="listen-line"][data-listen="key"]').waitFor({ timeout: 10000 });
+      const said = await words(line.locator('[data-testid="keyed-tick-said"]'));
+      if (released) check('older: and the tick says the same when it is pressed', said === `The Long Lunch is kept for people with a key, from now. ${OLDER} Make keys for its listeners on the Keys tab.`, said);
+      else check('older: and the tick says the same when it is pressed', said === 'The Long Lunch is kept for people with a key, from now. Its podcast feed and episode files are held back meanwhile, earlier episodes included. Make keys for its listeners on the Keys tab.', said);
+      await shot(page, 'older-station-aired-episode');
+      await ctx.close();
     }
 
     // ---- the way to a keyed show (the operator's click-through, 2026-11-25) ----
@@ -490,6 +713,9 @@ for (const size of SIZES) {
           check('route: it lists the station’s shows, each open to everyone, each with the tick Keyed show, unticked', (await keep.locator('.keeplist li').count()) === 7 && (await keep.locator('.keeplist li [data-testid="keyed-tick"] input:not(:checked)').count()) === 7 && (await words(keep.locator('.keeplist li[data-show="steeped"]'))).includes('Everyone can listen.') && (await words(keep.locator('.keeplist li[data-show="steeped"] [data-testid="keyed-tick"] label'))) === 'Keyed show: Steeped', await words(keep.locator('.keeplist')));
           check('route: the three steps stand at its top, the first marked as where you are', (await steps.locator('li[aria-current="step"]').getAttribute('data-step')) === '1' && (await steps.locator('li').count()) === 3 && (await words(steps)).startsWith('1 Step 1, where you are: Keep a show for people with a key You are here'), await words(steps));
           check('route: and a show that does not exist yet is a press away: New keyed show…', (await keep.getByRole('button', { name: 'New keyed show…' }).count()) === 1);
+          // 1.3.3: before anyone ticks, the dialog says what a tick does to the show's published episodes.
+          check('route: it says, before a tick, that the show’s podcast feed and episode files are held back too, and that a downloaded copy cannot be called back', (await words(keep.locator('p.lead'))).endsWith('Its podcast feed and episode files are held back too, earlier episodes included, until it is open to everyone again. Copies already downloaded cannot be called back.'), await words(keep.locator('p.lead')));
+          check('route: and the tick’s own tooltip says what its state means', (await keep.locator('.keeplist li[data-show="steeped"] [data-testid="keyed-tick"] label').getAttribute('title')).startsWith('Not ticked: everyone can listen. Tick and the show is kept for people with a key from that moment.'));
         }
         await shot(page, 'route-2-make-a-show-keyed', { docs: 'how-to-keys-keep-show.png' });
         const tickS = keep.locator('.keeplist li[data-show="steeped"] [data-testid="keyed-tick"] input');
@@ -498,11 +724,11 @@ for (const size of SIZES) {
         if (first) {
           const put = sent(st, 'PUT', /shows\/steeped\/access$/);
           check('route: one tick reads the show’s rule and saves it as key, keeping what the public hears', sent(st, 'GET', /shows\/steeped\/access$/).length === 1 && put.length === 1 && JSON.stringify(put[0].body) === KEEP_BODY, JSON.stringify(put.map((c) => c.body)));
-          check('route: the row says what the tick did, and that only people with a key can listen', (await words(keep.locator('.keeplist li[data-show="steeped"]'))).includes('Only people with a key can listen.') && (await words(keep.locator('.keeplist li[data-show="steeped"] [data-testid="keyed-tick-said"]'))) === 'Steeped is kept for people with a key, from now. Make keys for its listeners on the Keys tab.' && (await tickS.isChecked()), await words(keep.locator('.keeplist li[data-show="steeped"]')));
+          check('route: the row says what the tick did, and that only people with a key can listen', (await words(keep.locator('.keeplist li[data-show="steeped"]'))).includes('Only people with a key can listen.') && (await words(keep.locator('.keeplist li[data-show="steeped"] [data-testid="keyed-tick-said"]'))) === 'Steeped is kept for people with a key, from now. Its podcast feed and episode files are held back meanwhile, earlier episodes included. Make keys for its listeners on the Keys tab.' && (await tickS.isChecked()), await words(keep.locator('.keeplist li[data-show="steeped"]')));
           await tickS.uncheck().catch(() => {});
           const ask = keep.locator('.keeplist li[data-show="steeped"] .ask');
           await ask.waitFor();
-          check('route: unticking a keyed show asks first, and nothing is sent until it is answered', (await words(ask)).startsWith('Open Steeped to everyone again? Its keys are kept.') && (await tickS.isChecked()) && sent(st, 'PUT', /shows\/steeped\/access$/).length === 1, await words(ask));
+          check('route: unticking a keyed show asks first, and nothing is sent until it is answered', (await words(ask)).startsWith('Open Steeped to everyone again? Its keys are kept, and its episodes return to the podcast feed.') && (await tickS.isChecked()) && sent(st, 'PUT', /shows\/steeped\/access$/).length === 1, await words(ask));
           await ask.getByRole('button', { name: 'Open to everyone' }).click();
           await keep.locator('.keeplist li[data-show="steeped"][data-listen="public"]').waitFor();
           check('route: answered, it opens the show to everyone again', JSON.stringify(sent(st, 'PUT', /shows\/steeped\/access$/).at(-1).body) === '{"rule":"public"}' && !(await tickS.isChecked()));
@@ -602,7 +828,7 @@ for (const size of SIZES) {
         const tickOf = (scope, slug) => scope.locator(`[data-testid="keyed-tick"][data-show="${slug}"]`);
         if (first) {
           check('route: every row of the list of shows ends with the tick Keyed show, ticked on the three keyed shows', (await list.locator('.showitem [data-testid="keyed-tick"]').count()) === 7 && (await list.locator('.showitem [data-testid="keyed-tick"] input:checked').count()) === 3 && (await words(tickOf(list, 'steeped').locator('label'))) === 'Keyed show: Steeped' && (await list.locator('.showitem [data-testid="keyed-tick"] label svg use[href="#g-key"]').count()) === 7, await words(list.locator('.showlist')));
-          check('route: and its tooltip says what keyed means', (await tickOf(list, 'steeped').locator('label').getAttribute('title')) === 'Keyed: advertised to everyone, heard and watched only with a key you give out.');
+          check('route: and its tooltip says what the tick’s state means, and what a press does to the show’s feed and files', (await tickOf(list, 'steeped').locator('label').getAttribute('title')) === 'Not ticked: everyone can listen. Tick and the show is kept for people with a key from that moment. Its podcast feed and episode files are held back too, earlier episodes included, until it is open to everyone again. Copies already downloaded cannot be called back.' && (await tickOf(list, 'friday-supporters').locator('label').getAttribute('title')) === 'Ticked: only people with a key can listen now. Its podcast feed lists no episode and its episode files are held back while it is keyed, earlier episodes included. Untick to open the show to everyone again.', await tickOf(list, 'steeped').locator('label').getAttribute('title'));
           const blockTitles = await page.locator('[data-panel="calendar.week"] .ev .rep.keyed').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute('title')))]);
           check('route: every keyed block in the week carries the key beside its time, with the same tooltip', blockTitles.length === 1 && blockTitles[0].startsWith('Keyed: advertised to everyone'), JSON.stringify(blockTitles));
           check('route: the legend names the mark Keyed', /keyed/i.test(await words(page.locator('.schedule .legend'))));
@@ -691,7 +917,7 @@ for (const size of SIZES) {
         const line = page.locator('[data-testid="listen-line"]');
         await page.locator('[data-panel="calendar.week"] .ev:has(.rep.keyed)', { hasText: 'Friday Supporte' }).first().click();
         await line.waitFor({ timeout: 10000 });
-        if (first) check('route: an episode of a keyed show has the tick, ticked, and says the show is kept for people with a key, this episode too', (await line.getAttribute('data-listen')) === 'key' && (await line.locator('input').isChecked()) && (await words(line)) === 'Keyed show: Friday Supporters’ Hour This show is kept for people with a key. Every episode of Friday Supporters’ Hour, this one too: it is advertised to everyone and heard only with a key. Who can listen…', await words(line));
+        if (first) check('route: an episode of a keyed show has the tick, ticked, and says the show is kept for people with a key, this episode too', (await line.getAttribute('data-listen')) === 'key' && (await line.locator('input').isChecked()) && (await words(line)) === 'Keyed show: Friday Supporters’ Hour This show is kept for people with a key. Every episode of Friday Supporters’ Hour, this one too: it is advertised to everyone and heard only with a key. Its podcast feed lists no episode and its episode files are held back while it is keyed, earlier episodes included. Who can listen…', await words(line));
         check(`${tag} route: the line is in view at the top of the episode, with its tick and its link`, inside(await line.boundingBox()) && inside(await line.getByRole('button', { name: 'Who can listen…' }).boundingBox()));
         await shot(page, 'route-13-episode-keyed');
         // An aired episode: a key keeps the whole show, not that episode.
@@ -699,12 +925,16 @@ for (const size of SIZES) {
         await sleep(200);
         await page.locator('[data-panel="calendar.week"] .ev.past', { hasText: 'The Long Lunch' }).first().click();
         await line.waitFor({ timeout: 10000 });
-        if (first) check('route: an aired episode says plainly that a key keeps the whole show, not that episode, with the show’s tick', (await line.getAttribute('data-aired')) === 'true' && (await words(line)) === 'Keyed show: The Long Lunch A key keeps the whole show, not one episode. This one has aired, so nothing here changes who heard it. The Long Lunch is open to everyone; the tick changes the episodes to come. Who can listen…', await words(line));
+        if (first) check('route: an aired episode says plainly that a key keeps the whole show, not that episode, with the show’s tick', (await line.getAttribute('data-aired')) === 'true' && (await words(line)) === 'Keyed show: The Long Lunch A key keeps the whole show, not one episode. This one has aired, so nothing here changes who heard it on air. The Long Lunch is open to everyone. The tick keeps the episodes to come for people with a key, and holds back the show’s podcast feed and episode files, this episode’s too, until it is open to everyone again. Copies already downloaded cannot be called back. Who can listen…', await words(line));
         await shot(page, 'route-14-episode-aired');
         if (first) {
           await line.locator('input').check();
           await page.locator('[data-testid="listen-line"][data-listen="key"]').waitFor({ timeout: 10000 });
           check('route: ticked on an episode, it is the show that is keyed', JSON.stringify(sent(st, 'PUT', /shows\/the-long-lunch\/access$/).at(-1)?.body) === KEEP_BODY && (await words(line)).includes('The Long Lunch is kept for people with a key now'), await words(line));
+          // 1.3.3: the aired episode's own file is held back with the rest, and the line says so.
+          check('route: and the aired episode says its own file is held back with the show’s, and that a downloaded copy cannot be called back', (await words(line)).includes('so its podcast feed lists no episode and its episode files are held back, this episode’s too, until the show is open to everyone. Copies already downloaded cannot be called back.'), await words(line));
+          check(`${tag} route: the longer line on an aired episode is in view, with its tick and its link`, inside(await line.boundingBox()) && inside(await line.getByRole('button', { name: 'Who can listen…' }).boundingBox()));
+          await shot(page, 'route-14b-episode-aired-keyed');
           await line.getByRole('button', { name: 'Who can listen…' }).click();
           await access.waitFor({ timeout: 10000 });
           await sleep(300);
@@ -736,7 +966,7 @@ for (const size of SIZES) {
         if (first) {
           await page.locator('.schedule button', { hasText: /^New show$/ }).first().click();
           await tick.waitFor({ timeout: 10000 });
-          check('route: New show has the same tick, Keyed show, with its line, unticked', (await words(tick)).startsWith('Who can listen Keyed show Kept for people with a key: advertised to everyone, heard only with a key you give out. You make the keys on the Keys tab.') && !(await tick.locator('input').isChecked()) && (await words(ns.locator('h2'))) === 'New show' && (await tick.locator('.keyedtick label svg use[href="#g-key"]').count()) === 1, await words(tick));
+          check('route: New show has the same tick, Keyed show, with its line, unticked', (await words(tick)).startsWith('Who can listen Keyed show Kept for people with a key: advertised to everyone, heard only with a key you give out. Its podcast feed and episode files are held back while it is keyed. You make the keys on the Keys tab.') && !(await tick.locator('input').isChecked()) && (await words(ns.locator('h2'))) === 'New show' && (await tick.locator('.keyedtick label svg use[href="#g-key"]').count()) === 1, await words(tick));
           await ns.getByRole('button', { name: 'Cancel' }).click();
           await sleep(300);
         }

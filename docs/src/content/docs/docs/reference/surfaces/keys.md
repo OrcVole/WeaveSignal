@@ -3,14 +3,14 @@ title: "Keys tab"
 description: "The studio app's Keys tab by panel name: the list of listener keys, families, the leak report, a key's own page, the dialogs that make, change and send a key, what each state of a key means, the key beside a show elsewhere in the app, and what the tab says when it cannot show the keys."
 type: reference
 status: draft
-last_verified: 2026-11-25
+last_verified: 2026-11-28
 sidebar:
   order: 8
 ---
 
 The Keys tab (`⌃6`, from 1.3.2): listener keys for the shows kept for people with a key.
 It is a producer's and an admin's: a presenter's or a screener's window has no Keys tab, and nor has the website's sandbox.
-The tab was driven in Chromium; it has not yet been tried in the desktop app's own window on Linux (WebKitGTK).
+The tab was driven in Chromium, and tried by hand in the desktop app's own window on Linux (WebKitGTK).
 
 > The tab makes, changes and ends keys, and the player takes them ([Listen with a key](/docs/how-to/listen-with-a-key/)).
 > What keeps a keyed show from everyone else, and what is not covered yet, is in [Keyed shows](/docs/reference/keyed-shows/#how-a-keyed-show-is-kept-from-the-public).
@@ -50,7 +50,7 @@ The station keeps three states (on, paused, revoked); the tab reads the key's wi
 | Word | Means |
 |---|---|
 | **Works** | its holder can listen |
-| **Ends soon** | it works, and ends within seven days (the tab counts seven; the player follows the station's `keys.ends_soon_days`, seven unless set otherwise) |
+| **Ends soon** | it works, and ends within the station's `keys.ends_soon_days`, seven unless set otherwise (the tab and the player count the same) |
 | **Not started** | its window has not opened; the player tells its holder when it does |
 | **Ended** | its window is over; **Extend** makes it work again |
 | **Used up** | its listens are used; raising the limit makes it work again |
@@ -87,6 +87,8 @@ A revoked or replaced key is kept for its record and offers nothing that would c
 **Change log** says who did what and when: made, changed (which fields, never their values), extended, paused, resumed, revoked, replaced, its text shown or exported, its holder asking for it again, a device signed out.
 While the leak report shows a sign for the key, its page says which.
 
+![A key's page at a station that sends no email, after its holder asked for the key again: a note under the buttons says its holder asked for it again and that the station sent nothing, with Send…; the Email line says an address is kept and that Lost your key? only notes the request.](../../../../../assets/screens/how-to-keys-key-no-mail.png)
+
 **Lost your key?** follows whether the station has outgoing mail (1.3.2). With mail, the station emails the key's link to its holder and the log says *the station emailed it*. Without it nothing is sent: the log says *nothing was sent*, and the page shows a note, *Its holder asked for it again*, with **Send…**, until the key's text has been shown or the key replaced. The **Email** line says the same: at a station without mail an address only lets a request be noted on the key, for you to send it yourself. On the player the words change with it: *Send my key again* becomes *Ask for my key again*, and the answer says that a person at the station sends the key, never that an email is on its way.
 
 ## `keys.about`
@@ -99,8 +101,9 @@ Under them, **Make a show keyed…** (**Make another show keyed…** once one is
 **Make a show keyed…**, also in the line that says *No show needs a key yet* and as step 1 of the three steps.
 It lists the station's shows, each with who can listen to it now, **Who can listen…** (the show's editor, for what the public hears meanwhile and a time it opens to everyone) and the tick **Keyed show**.
 
-- Ticking a show keeps it for people with a key from that moment; the row says so. The rule the show had before is kept (what the public hears, and a time it opens to everyone that is still to come).
-- Unticking a keyed show asks first (*Open … to everyone again? Its keys are kept.*).
+- Ticking a show keeps it for people with a key from that moment; the row says so, and that its podcast feed and episode files are held back meanwhile, earlier episodes included (1.3.3). The rule the show had before is kept (what the public hears, and a time it opens to everyone that is still to come).
+- A show that has opened to everyone by itself is not ticked (1.3.3): its row says *Opened to everyone* with the date and time, and ticking it keeps it again from that moment.
+- Unticking a keyed show asks first (*Open … to everyone again? Its keys are kept, and its episodes return to the podcast feed.*).
 - A refusal puts the tick back with the reason under the row: playout has keyed shows off, playout is not answering, or keys are not set up.
 - **New keyed show…** opens New show on the Schedule tab with **Keyed show** ticked.
 - **Next: make a key…** is offered once a show is keyed. Opened from step 1 of Make a key, the dialog lies over it, and **Done** comes back to what was typed there.
@@ -125,10 +128,10 @@ The common case is already chosen: a personal key for every keyed show, sound an
 | Field | Is |
 |---|---|
 | Who it is for | a name, a group or a ticket number, up to 120 characters. It is yours, to find the key again: the player never shows it to the key's holder, whom it greets with *Welcome* alone |
-| Kind | **Personal** (one named person), **Group** (many who share one key, up to a number of people) or **Machine** (a partner station's software or another program, which redeems the key itself, with no ready-made relay in 1.3.2; no devices to count) |
+| Kind | **Personal** (one named person), **Group** (many who share one key, up to a number of people) or **Machine** (a partner station's software or another program, which redeems the key itself, with no ready-made relay yet in 1.3.2; no devices to count) |
 | Email address | optional, kept sealed; with it **Lost your key?** on the player can send the key to its holder again. At a station with no outgoing mail (1.3.2) the hint says instead that a request is noted on the key, for staff to send it |
 | Opens | every keyed show, now and later, or the shows ticked (up to 32) |
-| For | **Sound and picture**, **Sound only**, or **Picture, with its sound**. A key for the picture always carries the show's sound, so the last opens what the first does |
+| For | **Sound and picture** or **Sound only**. Until 1.3.3 there was a third, **Picture, with its sound**, which opened what **Sound and picture** does (a key for the picture always carries the show's sound). A key made with it goes on working: its page says *picture, with its sound*, and in **Change…** the choice stays in that key's own list, with a line that says what it opens, until the key is changed to another. The API still takes `video` |
 | Works | from and until, in station time; empty is at once and no end. **in a week**, **in a month**, **in a year** and **never** set the end |
 | Limits | devices at once, listens in all and, for a group, people; empty is any number |
 | Note | for staff, up to 500 characters |
@@ -223,13 +226,26 @@ The padlock elsewhere in the app marks what is read-only or has aired; the key m
 
 - **`calendar.show-access`**, in the show editor, right under the show's name: **Who can listen**. *Everyone*, or *People with a key*; for a keyed show, what the public is to hear meanwhile (an announcement with its own line, the fallback music, or a teaser; kept for a later release, since in 1.3.2 the station plays its one slate, its slate file, else its fallback music, else the loop WeaveSignal ships, whichever is chosen) and when it opens to everyone by itself. A station whose playout has keyed shows off, or does not answer, refuses *People with a key*, and the editor says why. **Save who can listen** saves it apart from **Save show**, and **Its keys…** opens the Keys tab narrowed to the show. A producer and an admin change it; a presenter reads it.
 - **Keyed show**, the tick: one control wherever a show is in sight (the Schedule's list of shows, a show's pane, an episode and a date not drafted yet, `keys.keep-show`, New show). A producer's and an admin's; anyone else sees the word **Keyed** with the key on a keyed show, and no control.
+  From 1.3.3 the tick means one thing, that a key is needed to listen now:
+
+  | The show | The tick | Beside it |
+  |---|---|---|
+  | kept for people with a key | ticked | *Only people with a key can listen*, and when it opens to everyone if a time is set |
+  | open to everyone, never keyed or opened again by hand | not ticked | *Everyone can listen* |
+  | kept until a time that has passed, so it opened to everyone by itself | not ticked | *Opened to everyone* with the date and time, *no key is needed now*, and *Tick to keep it for people with a key again*. A presenter or a screener sees no **Keyed** mark on it |
+
+  In 1.3.2 the third stayed ticked. Its rule is still stored: ticking it keeps the show again from that moment, without the past time, and what the public hears is as it was. The app reads the station's list again at the moment a show opens by itself, so the tick, the key on its blocks and the legend change with it. In the show's editor such a show still has **People with a key** chosen with its past time in **Opens to everyone**, so a line above the choice says first that it opened, that no key is needed now, and how to keep it again (clear the time or give a later one, and save).
+  The tick's tooltip says what its state means and what a press does, and wherever a show is made keyed the words say what becomes of its podcast feed and episode files: held back while it is keyed, earlier episodes included, back when it is open to everyone, and that copies already downloaded cannot be called back. At a station of 1.3.2, which holds no file back, they say that instead.
 - **The Schedule**: a keyed show's blocks carry the key beside their time, with the word **Keyed** beside it where the line has the room (the Day view, a wide column) and otherwise on a line of its own under the kind, which a block of an hour or less has no room for; the tooltip says *Keyed: advertised to everyone, heard and watched only with a key you give out*. The legend gains *Keyed: for people with a key* while any show is keyed.
 
   ![The Schedule's week with two keyed shows: a key beside the time on their blocks, the key in the legend, and the tick Keyed show ticked on their rows in the list of shows.](../../../../../assets/screens/how-to-keys-schedule.png)
 
 - **`desk.keyed`**, in the desk's Playout panel while a keyed show's window is open: *What the public hears now*, as playout says it (the station's slate, its fallback music, the loop WeaveSignal ships), and that the station is keeping the show from the public while people with a key hear it. When playout does not shut its public gate (keyed shows off, an older script, a refusal), the line turns to an alarm: *playout is not keeping it from the public: everyone hears the show*, with what to do. It reads the control plane's last look at playout, every two seconds. It is not a lamp: the lamp says what is on air, this says who may hear it.
-  From 1.3.2 there is a third state, **not confirmed**, while playout does not answer the station: the chip is drawn dashed (the shape of *not connected*), the heading reads *What the public hears now · not confirmed*, and the sentence says that playout is not answering, what should be so (the listeners' stream playing the station's own fallback, not the show), that it is asked again every two seconds, and to restart playout if it stays. It is a status, not an alarm: the alarm is kept for what playout itself said.
 
   ![The desk with a keyed show on air: under Playout, Keyed and What the public hears now, the station's fallback music, kept from the public.](../../../../../assets/screens/how-to-keys-desk.png)
+
+  From 1.3.2 there is a third state, **not confirmed**, while playout does not answer the station: the chip is drawn dashed (the shape of *not connected*), the heading reads *What the public hears now · not confirmed*, and the sentence says that playout is not answering, what should be so (the listeners' stream playing the station's own fallback, not the show), that it is asked again every two seconds, and to restart playout if it stays. It is a status, not an alarm: the alarm is kept for what playout itself said.
+
+  ![The desk's Playout panel with playout not answering: the Keyed chip drawn dashed, What the public hears now · not confirmed, and the sentence that says what should be so and what to do.](../../../../../assets/screens/how-to-keys-desk-not-confirmed.png)
 
 ![The show editor's Who can listen, under the show's name: the three steps in short, Everyone or People with a key, what the public hears, the announcement's line, when it opens to everyone, and Save who can listen.](../../../../../assets/screens/how-to-keys-show.png)

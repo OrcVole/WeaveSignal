@@ -479,6 +479,73 @@ const dlg = (page, panel = 'calendar.new-show') => page.locator(`dialog[data-pan
   await ctx.close();
 }
 
+// ---- 4b. Start now in the DJ's setup (1.3.3): one press, the station's minute, Done says when ----
+{
+  const station = new Station({ role: 'presenter' });
+  const { ctx, page } = await open(station, { tab: false });
+  const d = dlg(page, 'studio.show-setup');
+  await d.waitFor({ timeout: 10000 });
+  await page.locator('#sw-presenter').fill('Ailsa Drummond');
+  await page.locator('#sw-presenter').press('Enter');
+  await page.locator('#sw-show').fill('The Wee Small Hours');
+  await page.locator('#sw-show').press('Enter');
+  await d.locator('[data-panel="calendar.rule"]').waitFor();
+  const row = d.locator('[data-testid="sw-now"]');
+  check('the setup’s third part opens with Start now over the questions, and says what one press does', (await row.count()) === 1 && (await row.innerText()).replace(/\s+/g, ' ').startsWith('On air straight away? Saves your show and starts it at the next whole minute, station time, for 1 hour, once. Give it more dates later, from Settings, under Your show.') && (await row.evaluate((el) => !!(el.compareDocumentPosition(document.getElementById('sw-first')) & Node.DOCUMENT_POSITION_FOLLOWING))), (await row.innerText()).replace(/\s+/g, ' '));
+  check('Start now is a button of its own, and Save my show keeps the primary button', (await d.getByRole('button', { name: 'Start now', exact: true }).count()) === 1 && (await d.locator('.btn.primary').count()) === 1 && (await d.locator('.btn.primary').innerText()) === 'Save my show');
+  await inView(page, d, 'the setup’s third part with Start now');
+  const [rb, db, sb] = [await row.boundingBox(), await d.boundingBox(), await d.getByRole('button', { name: 'Save my show' }).boundingBox()];
+  check('the row and Save my show are both inside the dialog, the row above the questions', !!rb && !!db && !!sb && rb.x >= db.x && rb.x + rb.width <= db.x + db.width + 0.5 && rb.y >= db.y && sb.y + sb.height <= db.y + db.height + 0.5 && rb.y < (await page.locator('#sw-first').boundingBox()).y, JSON.stringify({ rb, db, sb }));
+  await shot(page, '19b-dj-setup-start-now');
+  const before = station.calls.length;
+  await d.getByRole('button', { name: 'Start now', exact: true }).click();
+  await d.getByText('is set up as your show.').waitFor();
+  const calls = station.calls.slice(before).map((c) => `${c.method} ${c.path.split('?')[0]}`);
+  const put = station.calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/shows/the-wee-small-hours');
+  check('one press asks the station for the rule, then its preview, then saves once', calls.indexOf('GET /api/v1/schedule/rule/now') > -1 && calls.indexOf('GET /api/v1/schedule/rule/now') < calls.indexOf('POST /api/v1/schedule/rule/preview') && calls.indexOf('POST /api/v1/schedule/rule/preview') < calls.indexOf('PUT /api/v1/shows/the-wee-small-hours') && calls.filter((c) => c.startsWith('PUT /api/v1/shows/')).length === 1, calls.join(' | '));
+  check('the save carries the DJ’s own answers, the station’s once-only rule from its next whole minute, and drafts the first episode', put?.body.draft_first === true && put.body.rule.repeat.kind === 'once' && put.body.rule.starts_on === '2026-11-13' && put.body.rule.start === 601 && put.body.rule.minutes === 60 && put.body.presenter === 'Ailsa Drummond' && put.body.presenter_account === 'a-ailsa' && put.body.step === 'solo', JSON.stringify(put?.body));
+  const done = (await d.locator('div.done').innerText()).replace(/\s+/g, ' ');
+  check('Done says first when it starts, in the station’s time, then the episode', done.includes('It starts at 10:01, station time: within a minute, until 11:01.') && done.indexOf('It starts at 10:01') < done.indexOf('callers agree to be recorded') && done.indexOf('It starts at 10:01') < done.indexOf('Episode 1 is drafted') && done.includes('It airs once, so there is nothing more to draft.'), done);
+  await inView(page, d, 'the setup’s Done after Start now');
+  await shot(page, '19c-dj-setup-started');
+  await ctx.close();
+
+  // Another show has that minute: a presenter may not schedule over it, and nothing is saved.
+  const busy = new Station({ role: 'presenter', nowMinutes: 540 });
+  const w = await open(busy, { tab: false });
+  const d2 = dlg(w.page, 'studio.show-setup');
+  await d2.waitFor({ timeout: 10000 });
+  await w.page.locator('#sw-presenter').fill('Ailsa Drummond');
+  await w.page.locator('#sw-presenter').press('Enter');
+  await w.page.locator('#sw-show').fill('The Wee Small Hours');
+  await w.page.locator('#sw-show').press('Enter');
+  await d2.locator('[data-panel="calendar.rule"]').waitFor();
+  await d2.getByRole('button', { name: 'Start now', exact: true }).click();
+  const held = d2.locator('[data-testid="sw-now"] .err');
+  await held.waitFor({ timeout: 10000 });
+  check('with another show on at that minute a presenter is told so, and what to do, and nothing is saved', (await held.innerText()).replace(/\s+/g, ' ') === 'Kettle Breakfast has the air now (07:00 to 10:00), and this account may not schedule over it. Give your show a later time below, or ask the station.' && !busy.calls.some((c) => c.method === 'PUT' && c.path.startsWith('/api/v1/shows/')) && (await d2.locator('[data-panel="calendar.rule"]').count()) === 1, (await held.innerText()).replace(/\s+/g, ' '));
+  await inView(w.page, d2, 'the setup’s third part with Start now held');
+  await shot(w.page, '19d-dj-setup-start-now-held');
+  await w.ctx.close();
+
+  // Run again for a show that exists: no Start now there.
+  const again = new Station({ role: 'presenter' });
+  again.add({ slug: 'the-wee-small-hours', name: 'The Wee Small Hours', colour_slot: 5, presenter: 'Ailsa Drummond', presenter_account: 'a-ailsa', rule: null });
+  const a = await open(again, { tab: false });
+  await a.page.locator('.frame .settings-tab').click();
+  const change = a.page.locator('[data-panel="settings.my-show"]').getByRole('button', { name: 'Change…' });
+  if (await change.count()) {
+    await change.click();
+    const d3 = dlg(a.page, 'studio.show-setup');
+    await d3.waitFor({ timeout: 10000 });
+    await a.page.locator('#sw-presenter').press('Enter');
+    await a.page.locator('#sw-show').press('Enter');
+    await d3.locator('[data-panel="calendar.rule"]').waitFor();
+    check('run again from Settings for a show that exists, the third part has no Start now', (await d3.locator('[data-testid="sw-now"]').count()) === 0 && (await d3.getByRole('button', { name: 'No dates yet' }).count()) === 1);
+  } else check('run again from Settings for a show that exists, the third part has no Start now', false, 'Settings › Your show has no Change… in the stand-in');
+  await a.ctx.close();
+}
+
 // ---- 5. A station older than 1.0.4: a weekly time only, and nothing it would refuse ----
 {
   const station = new Station({ version: '1.0.3' });

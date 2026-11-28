@@ -14,7 +14,16 @@
   // date that clashes is only a warning until the DJ comes to draft it. Run again from
   // Settings, the third part shows the show's rule and behaves as a change: the drafted
   // episodes are listed before anything is saved. It opens by itself for a newly signed-in
-  // presenter with no show of their own. No email is sent or needed. Panel name
+  // presenter with no show of their own. No email is sent or needed.
+  //
+  // The third part opens with Start now (1.3.3; the operator, 2026-11-23: "also in the DJ's
+  // setup"), as New show's second part does: one press saves the show to start at the station's
+  // next whole minute, once, for the length the two times give, and Done says when. The press is
+  // New show's own (`startNowFlow`, startNow.ts): the rule is the station's, another show at
+  // that time is said once before anything is saved, and a presenter is held where the station
+  // would refuse the clash. It is offered where the show is set up for the first time: a show
+  // that exists may have episodes, and the station drafts the one that airs now only for a
+  // show that has none. Panel name
   // `studio.show-setup` (ADR-0070). A dialog owns the keyboard (keymap rule 5): only the ⌃
   // chords reach the keymap while it is open.
   import { untrack } from 'svelte';
@@ -48,6 +57,8 @@
   import { fromRule, newForm, ruleOfSlot, whenFields, type RuleForm } from '../schedule/rule/form.ts';
   import { dialogKeys } from '../schedule/rule/keys.ts';
   import { dateIn, firstState, firstWords, hasEpisodes, movable, ruleStatus, saveWords } from '../schedule/rule/view.ts';
+  import { START_NOW, nowMinutes, ruleNowHere, ruleNowOr, startNowFlow, startedWords, type RuleNow } from '../schedule/rule/startNow.ts';
+  import { routeAbsent } from '../lib/hosts.ts';
 
   let {
     me,
@@ -62,6 +73,8 @@
     saved: firstSaved = null,
     changing = false,
     live = true,
+    started: firstStarted = null,
+    nowAsk: firstNowAsk = null,
     onDone,
     onSkip,
     onClose,
@@ -83,6 +96,9 @@
     saved?: ShowSaved | null;
     changing?: boolean;
     live?: boolean;
+    /** The show was started now, and Start now's question about another show (a test's). */
+    started?: RuleNow | null;
+    nowAsk?: { title: string; body: string } | null;
     /** The show was saved. */
     onDone: (saved: ShowSaved) => void;
     /** Skipped for now: not asked again on this machine. */
@@ -90,7 +106,7 @@
     onClose: () => void;
   } = $props();
 
-  const seed = untrack(() => ({ initial, part: firstPart, firstForm, firstSaved, today, rules, changing, preview }));
+  const seed = untrack(() => ({ initial, part: firstPart, firstForm, firstSaved, today, rules, changing, preview, started: firstStarted, nowAsk: firstNowAsk }));
   const PARTS = ['About you', 'Your show', 'When it is on', 'Done'] as const;
 
   /** When the show is on, as the third part first shows it: the show's rule when it has one
@@ -110,7 +126,7 @@
   let form = $state<RuleForm>(firstAnswers());
   let pst = $state(firstState(seed.preview));
   const status = $derived(ruleStatus(form, pst, rules));
-  let errors = $state<{ presenter?: string; contact?: string; show?: string; links?: string; form?: string }>({});
+  let errors = $state<{ presenter?: string; contact?: string; show?: string; links?: string; form?: string; now?: string }>({});
   let saving = $state(false);
   let saved = $state<ShowSaved | null>(seed.firstSaved);
   /** Before you save: the drafted episodes a changed rule would move (run again only). */
@@ -225,6 +241,67 @@
       }
     } finally {
       saving = false;
+    }
+  }
+
+  // ---- Start now ----
+  /** The show was saved to start now: Done says when. */
+  let started = $state<RuleNow | null>(seed.started);
+  /** Another show has the time: said once, and the next press of Start now goes on. */
+  let nowAsk = $state<{ title: string; body: string } | null>(seed.nowAsk);
+  let startingNow = $state(false);
+  const startedLine = $derived(started ? startedWords(started, zone) : null);
+  /** The length Start now gives the show: the form's two times, when they make one it takes. */
+  const nowLen = $derived(nowMinutes(form));
+  /** Offered where the show is set up for the first time, on a station that stores rules. */
+  const canStartNow = $derived(rules && !again);
+  const PLACED = ['name', 'presenter', 'contact', 'links'] as const;
+
+  /** Start now: the show is saved to start at the station's next whole minute, once, with its
+   *  first episode drafted in the same transaction. The press is New show's (`startNowFlow`). */
+  async function startNow() {
+    if (saving || !canStartNow) return;
+    saving = true;
+    startingNow = true;
+    errors = {};
+    try {
+      const slug = freeSlug(a.show, shows.map((s) => s.slug));
+      const len = nowLen;
+      const done = await startNowFlow<ShowSaved>(
+        {
+          ask: () => ruleNowOr(() => rulesApi.ruleNow(len), routeAbsent, () => ruleNowHere(stationNow(), zone, len)),
+          preview: (rule) => rulesApi.previewRule({ rule, limit: 1 }),
+          save: (rule) => rulesApi.saveShow(slug, toShowInput(a, me, null, nextColour(shows.length), whenFields(rule, { rules: true, draftFirst: true }))),
+        },
+        { anyway: !!nowAsk, zone, minuteTurned: (e) => e instanceof rulesApi.FieldError && e.status === 422 && !PLACED.some((f) => f === e.field) },
+      );
+      if (done.kind === 'held') return void (errors = { now: done.why });
+      if (done.kind === 'clash') {
+        nowAsk = { title: done.title, body: done.body };
+        return focusFirst('sw-now');
+      }
+      nowAsk = null;
+      saved = { ...done.saved, show: api.asShow(done.saved.show) };
+      // Done says when it starts only where the station drafted the episode that airs then.
+      started = saved.drafted?.episode ? done.now : null;
+      part = 4;
+      focusFirst('sw-done');
+    } catch (err) {
+      const placed = placeError(err, PLACED);
+      if (placed.field === 'presenter' || placed.field === 'contact') {
+        part = 1;
+        errors = { [placed.field]: placed.message };
+        focusFirst(`sw-${placed.field}`);
+      } else if (placed.field === 'name' || placed.field === 'links') {
+        part = 2;
+        errors = { [placed.field === 'name' ? 'show' : 'links']: placed.message };
+        focusFirst(placed.field === 'name' ? 'sw-show' : 'sw-links');
+      } else {
+        errors = { now: placed.message };
+      }
+    } finally {
+      saving = false;
+      startingNow = false;
     }
   }
 
@@ -367,6 +444,22 @@
     </form>
   {:else if part === 3}
     <form onsubmit={(e) => { e.preventDefault(); void save(true); }} novalidate>
+      {#if canStartNow && !confirming}
+        <!-- Start now (1.3.3): the show on air within a minute, with one press, as in New show. -->
+        <div class="startnow" class:asks={!!nowAsk} data-testid="sw-now" role="group" aria-labelledby="sw-now-l">
+          {#if nowAsk}
+            <p id="sw-now-l" role="alert"><svg class="g-warning" aria-hidden="true"><use href="#g-fault" /></svg><span><b>{nowAsk.title}</b> {nowAsk.body}</span></p>
+            <span class="btns">
+              <button type="button" class="btn quiet" onclick={() => { nowAsk = null; focusFirst('sw-now'); }} disabled={saving}>{START_NOW.notNow}</button>
+              <button id="sw-now" type="button" class="btn" onclick={startNow} disabled={saving} aria-busy={startingNow || undefined}>{startingNow ? START_NOW.busy : START_NOW.anyway}</button>
+            </span>
+          {:else}
+            <p><b id="sw-now-l">{START_NOW.lead}</b> <span id="sw-now-what">{START_NOW.whatMine(nowLen)}</span></p>
+            <button id="sw-now" type="button" class="btn" onclick={startNow} disabled={saving} aria-busy={startingNow || undefined} aria-describedby="sw-now-what">{startingNow ? START_NOW.busy : START_NOW.button}</button>
+          {/if}
+          {#if errors.now}<p class="err" role="alert">{errors.now}</p>{/if}
+        </div>
+      {/if}
       <!-- The questions stay mounted behind Before you save, so going back finds them as they were. -->
       <div class="keep" hidden={confirming}>
         <RulePart
@@ -399,6 +492,7 @@
     <div class="done" id="sw-done" tabindex="-1">
       <p class="lead"><svg class="g-good" aria-hidden="true"><use href="#g-good" /></svg><span><strong>{saved?.show.name ?? a.show}</strong> is set up as your show.</span></p>
       <ul>
+        {#if startedLine}<li data-testid="sw-started"><b class="ink">{startedLine.lead}</b> {startedLine.rest}</li>{/if}
         <li>While it is on air, callers agree to be recorded under your name{a.contact.trim() ? ', with your takedown contact first and the station’s as the host' : ', with the station’s takedown contact'}.</li>
         {#if firstEp}<li><b class="ink">Episode {firstEp.number} is drafted</b>{firstWhen ? ` for ${firstWhen}` : ''}. Give it a title and guests when you know them.</li>{/if}
         {#if isOn}

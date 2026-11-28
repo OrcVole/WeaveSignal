@@ -113,7 +113,7 @@ curl -sS -X POST https://station.example/api/v1/webhooks \
 ```
 
 The answer has a `secret` (shown once).
-The five events are `now_playing.changed`, `on_air.changed`, `episode.started`, `episode.ended` and `caller.queued`; the [reference](/docs/reference/integrations/#events-out) has what each carries.
+The seven events are `now_playing.changed`, `on_air.changed`, `episode.started`, `episode.ended`, `caller.queued` and, from 1.3.2, `key.first_used` and `key.ended`; the [reference](/docs/reference/integrations/#events-out) has what each carries.
 
 **Check the signature** before trusting a delivery.
 Each carries `X-WeaveSignal-Timestamp` (Unix seconds) and `X-WeaveSignal-Signature: sha256=<hex>`, the HMAC-SHA-256, keyed with the secret, of the timestamp, a full stop and the exact bytes of the body.

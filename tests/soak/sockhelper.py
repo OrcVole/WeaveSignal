@@ -5,24 +5,27 @@
 # `podman unshare` so the soak's sampler can ask them every second without a process each time
 # (the volume's full path is too long for a Unix socket's address, so it works from inside it).
 #
-#   podman unshare python3 -I sockhelper.py <listeners volume dir> <desk volume dir>
+#   podman unshare python3 -I sockhelper.py <listeners volume dir> <desk volume dir> [<playout volume dir>]
 #
 # Reads one request a line on stdin, answers one JSON line on stdout:
 #   L <command>   the listener process's socket (listeners.sock): its first answer line
 #   D             the desk's status (desk.sock)
+#   P <command>   playout's socket (playout.sock): its first answer line (the keyed run's
+#                 NEGATIVE control opens the public gate with it)
 import json
 import os
 import socket
 import sys
 
 LISTENERS, DESK = sys.argv[1], sys.argv[2]
+PLAYOUT = sys.argv[3] if len(sys.argv) > 3 else None
 
 
-def listeners(cmd):
-    os.chdir(LISTENERS)
+def listeners(cmd, where=None, name="listeners.sock"):
+    os.chdir(where or LISTENERS)
     s = socket.socket(socket.AF_UNIX)
     s.settimeout(5)
-    s.connect("listeners.sock")
+    s.connect(name)
     s.sendall(cmd.encode() + b"\n")
     out = b""
     while b"END" not in out:
@@ -58,6 +61,8 @@ for line in sys.stdin:
     try:
         if line.startswith("L "):
             answer = {"ok": True, "v": listeners(line[2:])}
+        elif line.startswith("P ") and PLAYOUT:
+            answer = {"ok": True, "v": listeners(line[2:], PLAYOUT, "playout.sock")}
         elif line == "D":
             answer = {"ok": True, "v": desk()}
         else:

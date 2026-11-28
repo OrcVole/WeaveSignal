@@ -86,7 +86,7 @@ Episodes made before 1.0.4 were given the date of their weekly slot in their Mon
 
 A series follows its show's rule until it has one of its own (`null` follows the show again).
 Every show and series carries `rule` and, only while the rule is exactly a weekly slot (every week, one weekday, no start date, no end, nothing skipped or moved), `slot` as well, so a studio from before 1.0.4 still reads it.
-The three slot columns stay in the database for one release, written while the rule is slot-shaped and no longer read.
+The three slot columns are still in the database, written while the rule is slot-shaped and no longer read.
 
 A save that sends an old studio's `slot` and no `rule`:
 
@@ -121,7 +121,7 @@ The studio app says it on the Desk and on the Schedule tab. The Schedule tab rea
 ## Start now
 
 `GET /api/v1/schedule/rule/now` (1.3.2) answers the rule of a show that starts now: once, on the station's date, from the station's **next whole minute**, for `minutes` (15 to 480, an hour by default), on the station's own clock and zone.
-The New show wizard's **Start now** saves it as any other rule, with `draft_first`, which drafts the date under way: when the minute comes the show is on air by the schedule, within about three seconds, and the station's step then follows the show, so a new station is not left at Full.
+The New show wizard's **Start now**, and from 1.3.3 the one in a DJ's first show setup, saves it as any other rule, with `draft_first`, which drafts the date under way: when the minute comes the show is on air by the schedule, within about three seconds, and the station's step then follows the show, so a new station is not left at Full.
 The answer is for the minute it is asked in, so the wizard asks again just before saving; a save up to the show's length late still drafts the date under way.
 It writes nothing, and needs a staff session, the station key or a token with `shows:read`.
 

@@ -130,7 +130,7 @@ class Helper:
         vol = lambda n: sh("podman", "volume", "inspect", f"{PROJECT}_{n}", "--format", "{{.Mountpoint}}", check=True).strip()
         self.lock = threading.Lock()
         self.p = subprocess.Popen(
-            ["podman", "unshare", "python3", "-I", os.path.join(HERE, "sockhelper.py"), vol("listeners-control"), vol("desk-control")],
+            ["podman", "unshare", "python3", "-I", os.path.join(HERE, "sockhelper.py"), vol("listeners-control"), vol("desk-control"), vol("playout-control")],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
         )
 
@@ -262,9 +262,11 @@ class Listener(threading.Thread):
 
 
 def tone_wav(freq, secs):
+    """A tone, or a chord of tones (a tuple: the keyed shows' signatures), at 0.3 in all."""
+    freqs = freq if isinstance(freq, tuple) else (freq,)
     one = array("h")
     for i in range(48000):
-        v = int(math.sin(2 * math.pi * freq * i / 48000) * 0.3 * 32767)
+        v = int(sum(math.sin(2 * math.pi * f * i / 48000) for f in freqs) * 0.3 / len(freqs) * 32767)
         one.extend((v, v))
     body = one.tobytes() * secs
     hdr = b"RIFF" + (36 + len(body)).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little")
@@ -530,10 +532,426 @@ def take_away(victim, by_id, control, lib):
     if not upcoming:
         log("the missing source: no planned item ahead to take the file of")
         return
+    upcoming = [i for i in upcoming if i["track"] in by_id]  # never a keyed show's signature
+    if not upcoming:
+        log("the missing source: no planned item ahead to take the file of")
+        return
     track = by_id[upcoming[min(3, len(upcoming) - 1)]["track"]]
     victim.update(track)
     sh("podman", "exec", control, "mv", f"{lib}/{track['file']}", f"{lib}/{track['file']}.away")
     log(f"the missing source: took away {track['title']} ({track['file']})")
+
+
+# ---- keyed shows (1.3.3's run) --------------------------------------------------------------
+#
+# Two keyed shows, A and B, set to `key` through the studio's route and given episodes through
+# the show routes, as staff would; their windows recur through the run (`plan_windows`), A and B
+# in turn, one pair back to back. A keyed show's programme here is automation with a signature:
+# shortly before each window the log items that will play wholly inside it (worked out from what
+# is playing and queued now, since automation does not wait for planned times) are given the
+# show's signature track, a chord of two tones that no scale holds (`keyed_ear.py`). Separate
+# ears follow the three public mounts for the whole run and must never hear a signature; a key
+# holder per window (the show's own key, its device kept) must hear its show's and be dropped
+# after the window. Each show also has an aired episode with a file, which the feed must not
+# list and the file route must not serve while the show is keyed (1.3.3); a public show's
+# episode, served throughout, shows that check can see a file. NEGATIVE=1 plays a signature
+# outside any window and opens playout's public gate in the middle of the last window: the
+# public ears must then hear both, or the run fails.
+
+NEGATIVE = E.get("NEGATIVE", "0") == "1"
+SIGS = {"A": (1017, 2531), "B": (1433, 3061)}  # as keyed_ear.py listens for them
+KEYED_SLUG = {"A": "soak-keyed-a", "B": "soak-keyed-b"}
+PODCAST_SLUG = "soak-podcast"
+PUBLIC_MOUNTS = ("programme.opus", "programme.mp3", "programme-high.mp3")
+G1, G1_PAIR, G2 = 15, 50, 15  # signature items stay this far inside a window (the second of a pair: its holder starts late)
+DROP_BOUND_S = 60  # a key holder is dropped within this after the window's end (tail, delay and the mount's burst)
+REPO = os.path.dirname(os.path.dirname(HERE))
+
+
+def plan_windows(plan):
+    """The keyed windows as (show, start, end) offsets from T0, whole seconds, clear of the
+    missing source, the end of the log before the gap, and the gap: a pair (A then B) first in
+    the last stretch, then A and B in turn, `P` apart. Window `W` holds about two tracks."""
+    T = TRACK_S
+    W = max(60, math.ceil((2 * T + 30) / 60) * 60)
+    P = max(60, 2 * T)
+    lead = 3 * T + 40  # the signature items are chosen this long before a window
+    segs = [(lead + 20, plan["miss_a"]),
+            (plan["miss_a"] + plan["miss_len"] + lead, plan["gap1"] - plan["hole_len"] - 3 * T - 30),
+            (plan["gap2"] + lead + 30, D - 120)]  # automation takes the air again a few seconds after the gap
+    out, nxt = [], "A"
+    for i, (a, b) in enumerate(segs):
+        t = int(a)
+        if i == len(segs) - 1 and t + 2 * W + 60 <= b:
+            out += [dict(show="A", start=t, end=t + W, pair=1), dict(show="B", start=t + W, end=t + 2 * W + 60, pair=2)]
+            t += 2 * W + 60 + P
+            nxt = "A"
+        while t + W <= b:
+            out.append(dict(show=nxt, start=t, end=t + W, pair=0))
+            nxt = "B" if nxt == "A" else "A"
+            t += W + P
+    return sorted(out, key=lambda w: w["start"]), dict(W=W, P=P, lead=lead)
+
+
+def control_name(containers):
+    return containers[[short(c) for c in containers].index("control")]
+
+
+def seed_keyed(t0, windows, control):
+    """The keyed shows, their episodes and keys, the public podcast show, and the feed's state
+    before the rule (a control: the keyed shows' files are served while they are public)."""
+    tag = str(int(t0))
+    k = {"shows": {}, "files": {}, "keys": {}, "devices": {}, "before": {}}
+    fixture = open(os.path.join(REPO, "crates/feeds/tests/fixtures/tone.mp3"), "rb").read()
+    for sid, slug in list(KEYED_SLUG.items()) + [("P", PODCAST_SLUG)]:
+        n_eps = 1 + sum(1 for w in windows if w["show"] == sid)
+        must("PUT", f"/api/v1/shows/{slug}", {"name": f"Soak keyed {sid}" if sid != "P" else "Soak podcast", "colour_slot": 3,
+                                             "hosts": ["Soak Host"], "description": "The soak run's keyed show." if sid != "P" else "A public show."})
+        must("PUT", f"/api/v1/shows/{slug}/series/1", {})
+        must("POST", f"/api/v1/shows/{slug}/series/1/episodes", {"count": n_eps})
+        must("POST", f"/api/v1/shows/{slug}/series/1/episodes/1/air", {})
+        name = f"{slug}-{tag}.mp3"
+        r = subprocess.run(["podman", "exec", "-i", control, "sh", "-c", f"cat > /var/lib/weavesignal/episodes/{name}"], input=fixture, capture_output=True)
+        if r.returncode:
+            raise SystemExit(f"could not put the episode file in the control plane: {r.stderr[:300]}")
+        must("PUT", f"/api/v1/shows/{slug}/series/1/episodes/1/files", {"enclosure": name})
+        k["files"][sid] = name
+        k["shows"][sid] = must("GET", f"/api/v1/shows/{slug}")
+    k["shows"] = {s: (v.get("show") or v).get("id") for s, v in k["shows"].items()}
+    k["before"] = feed_state(k)
+    for sid, slug in KEYED_SLUG.items():
+        must("PUT", f"/api/v1/shows/{slug}/access", {"rule": "key", "slate": "fallback"})
+        made = must("POST", "/api/v1/listener-keys", {"label": f"Soak holder {sid}", "shows": [slug], "media": "sound"})
+        k["keys"][sid] = made["text"]
+    n = {"A": 1, "B": 1}
+    for w in windows:
+        n[w["show"]] += 1
+        w["episode"] = n[w["show"]]
+        must("PATCH", f"/api/v1/shows/{KEYED_SLUG[w['show']]}/series/1/episodes/{w['episode']}",
+             {"air_at": iso(t0 + w["start"])[:-1] + "+00:00[UTC]", "minutes": (w["end"] - w["start"]) // 60})
+    return k
+
+
+def feed_state(k):
+    """Each show's feed items and its episode file's answer, and whether the public list names it."""
+    out = {}
+    s, lst = api("GET", "/api/v1/public/episodes?limit=50", timeout=15)
+    listed = json.dumps(lst) if s == 200 else ""
+    for sid, slug in list(KEYED_SLUG.items()) + [("P", PODCAST_SLUG)]:
+        s, xml = api("GET", f"/feeds/{slug}.xml", timeout=15)
+        items = xml.count("<item>") if s == 200 and isinstance(xml, str) else None
+        s2, _ = api("GET", f"/media/episodes/{k['files'][sid]}", timeout=15)
+        out[sid] = {"feed": s, "items": items, "file": s2, "listed": k["files"][sid] in listed if s == 200 else None}
+    return out
+
+
+def plays_since(ms_from):
+    s, pl = api("GET", f"/api/v1/reports/plays?from_ms={ms_from}&to_ms={int(now() * 1000) + 60000}", timeout=20)
+    return pl["plays"] if s == 200 else []
+
+
+def predict():
+    """The items to come with the times they will play, from what is playing now and what is
+    queued and planned after it: [(item, start s, end s)], or [] when automation is not playing."""
+    nms = int(now() * 1000)
+    s, a = api("GET", f"/api/v1/schedule/log?from_ms={nms - 3 * HOUR * 1000}&to_ms={nms + 6 * HOUR * 1000}", timeout=20)
+    items = a["items"] if s == 200 else []
+    plays = [p for p in plays_since(nms - 3 * HOUR * 1000) if p.get("item") is not None]
+    if not plays or not items:
+        return []
+    cur = max(plays, key=lambda p: p["started_at_ms"])
+    end = (cur["started_at_ms"] + cur["duration_ms"]) / 1000
+    if end < now() - 5:
+        return []  # nothing playing: the log has run out
+    by = {i["id"]: i for i in items}
+    after = by.get(cur["item"], {}).get("planned_at_ms", cur["started_at_ms"])
+    out = []
+    for i in sorted((i for i in items if i["status"] in ("queued", "planned") and i["planned_at_ms"] > after and i["id"] != cur["item"]),
+                    key=lambda i: (i["planned_at_ms"], i["id"])):
+        out.append((i, end, end + i["duration_ms"] / 1000))
+        end += i["duration_ms"] / 1000
+    return out
+
+
+def give_signature(sig_track, lo, hi, limit=99):
+    """Give the planned items that will play wholly within [lo, hi] (Unix s) the signature."""
+    done = []
+    for item, a, b in predict():
+        if a >= lo and b <= hi and item["status"] == "planned" and item["kind"] == "track" and len(done) < limit:
+            s, r = api("PUT", f"/api/v1/schedule/log/{item['id']}", {"track": sig_track["id"], "force": True})
+            if s == 200:
+                done.append(dict(item=item["id"], start=a, end=b, seconds=item["duration_ms"] / 1000))
+            else:
+                log(f"keyed: item {item['id']} kept its track ({s} {str(r)[:120]})")
+    return done
+
+
+def playout_say(helper, cmd):
+    return helper.ask("P " + cmd)
+
+
+class Keyed:
+    def __init__(self, t0, windows, shape, k, sig_tracks, helper):
+        self.t0, self.windows, self.shape, self.k, self.sig, self.helper = t0, windows, shape, k, sig_tracks, helper
+        self.ears = {}
+        self.feeds = []  # (elapsed, in a window, state)
+        self.planted = None
+        self.gate_fault = None
+        self.threads = []
+
+    def start_ears(self):
+        for m in PUBLIC_MOUNTS:
+            path = os.path.join(OUT, f"keyed-ear-{m}.jsonl")
+            self.ears[m] = (subprocess.Popen([sys.executable, "-I", os.path.join(HERE, "keyed_ear.py"), "public", f"http://127.0.0.1:{LISTENERS_PORT}/{m}", path],
+                                             stdout=subprocess.DEVNULL, stderr=open(path + ".err", "w")), path, now())
+
+    def stop_ears(self):
+        for m, (p, path, _) in self.ears.items():
+            p.terminate()
+        for m, (p, path, _) in self.ears.items():
+            try:
+                p.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        self.ears_stopped = now()
+
+    def start(self):
+        for i, w in enumerate(self.windows):
+            th = threading.Thread(target=self.window, args=(i, w), daemon=True)
+            th.start()
+            self.threads.append(th)
+        if NEGATIVE:
+            th = threading.Thread(target=self.plant, daemon=True)
+            th.start()
+            self.threads.append(th)
+
+    def wait_until(self, t):
+        while not STOP.is_set() and now() < t:
+            STOP.wait(min(1.0, t - now()))
+        return not STOP.is_set()
+
+    def in_window(self, t):
+        return any(self.t0 + w["start"] - 3 <= t < self.t0 + w["end"] + 15 for w in self.windows)
+
+    def window(self, i, w):
+        t0, sid = self.t0, w["show"]
+        start, end = t0 + w["start"], t0 + w["end"]
+        g1 = G1_PAIR if w["pair"] == 2 else G1
+        w.update(items=[], holder=None, mid={})
+        if not self.wait_until(start - self.shape["lead"]):
+            return
+        # Again every few seconds while automation is not playing yet (as just after the gap),
+        # as long as the items in the window are some tracks away.
+        while True:
+            w["items"] = give_signature(self.sig[sid], start + g1, end - G2)
+            if w["items"] or now() > start + g1 - 2 * TRACK_S - 15 or not self.wait_until(now() + 5):
+                break
+        log(f"keyed: window {i + 1} ({sid}, {fmt_t(w['start'])} to {fmt_t(w['end'])}): {len(w['items'])} items given the signature")
+        if not self.wait_until(start - 75):
+            return
+        body = {"key": self.k["keys"][sid], "show": KEYED_SLUG[sid]}
+        if self.k["devices"].get(sid):
+            body["device"] = self.k["devices"][sid]
+        s, g = api("POST", "/api/v1/keyed/redeem", body)
+        if s != 200:
+            w["holder"] = {"redeem": f"{s} {str(g)[:160]}"}
+            log(f"keyed: window {i + 1}: the redeem was refused: {s} {str(g)[:160]}")
+        else:
+            self.k["devices"][sid] = g.get("device")
+            path = os.path.join(OUT, f"keyed-holder-{i + 1}.jsonl")
+            p = subprocess.Popen([sys.executable, "-I", os.path.join(HERE, "keyed_ear.py"), "holder", f"http://127.0.0.1:{CONTROL_PORT}{g['urls']['opus']}",
+                                  path, str(start - 5), str(start + 75)], stdout=subprocess.DEVNULL, stderr=open(path + ".err", "w"))
+            w["holder"] = {"path": path, "proc": p}
+        if NEGATIVE and i == len(self.windows) - 1 and w["items"]:
+            it = w["items"][0]
+            fault = (it["start"] + it["end"]) / 2
+            if self.wait_until(fault):
+                for _ in range(8):
+                    playout_say(self.helper, "keyed.window off")
+                    time.sleep(0.5)
+                self.gate_fault = dict(at=fault, window=i + 1)
+                script_did(t0, f"NEGATIVE: opened playout's public gate in window {i + 1} (keyed.window off, eight times in 4 s)")
+        if not self.wait_until((start + end) / 2):
+            return
+        s, v = api("GET", "/api/v1/studio", timeout=10)
+        kv = (v or {}).get("keyed") if s == 200 and isinstance(v, dict) else None
+        s, n = api("GET", "/api/v1/now-playing", timeout=10)
+        s2, ks = api("GET", "/api/v1/public/keyed-shows", timeout=10)
+        hls = {p: api("GET", f"/hls/{p}", timeout=10) for p in ("live.m3u8", "audio.m3u8")}
+        w["mid"] = dict(studio=kv, np_kind=((n or {}).get("now") or {}).get("kind") if s == 200 else None,
+                        on_now=ks.get("on_now") if s2 == 200 and isinstance(ks, dict) else None,
+                        hls={p: (a[0], (a[1] or {}).get("code") if isinstance(a[1], dict) else str(a[1])[:60]) for p, a in hls.items()})
+        p = (w["holder"] or {}).get("proc")
+        if p:
+            try:
+                p.wait(timeout=max(5, end + DROP_BOUND_S + 90 - now()))
+            except subprocess.TimeoutExpired:
+                p.terminate()
+                try:
+                    p.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+
+    def plant(self):
+        """NEGATIVE: a signature item wholly between two windows, where the public hears it."""
+        gaps = [(self.t0 + a["end"] + 20, self.t0 + b["start"] - 10) for a, b in zip(self.windows, self.windows[1:]) if b["start"] - a["end"] >= TRACK_S + 40]
+        if not gaps:
+            log("NEGATIVE: no stretch between windows long enough to plant a signature")
+            return
+        lo, hi = gaps[len(gaps) // 2]
+        if self.wait_until(lo - self.shape["lead"]):
+            got = give_signature(self.sig["A"], lo, hi, limit=1)
+            if got:
+                self.planted = got[0]
+                script_did(self.t0, f"NEGATIVE: gave an item outside any window show A's signature (to play from {fmt_t(got[0]['start'] - self.t0)})")
+
+    def sample_feeds(self):
+        self.feeds.append((now() - self.t0, self.in_window(now()), feed_state(self.k)))
+
+
+def read_jsonl(path):
+    rows = []
+    try:
+        for line in open(path):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    return rows
+
+
+def keyed_checks(check, kd, plays, t0, t_stop):
+    """The keyed shows' criteria; each a line of RESULT.md. Returns the per-window table."""
+    sig_ids = {t["id"]: s for s, t in kd.sig.items()}
+    sig_plays = [p for p in plays if p["track"] in sig_ids]
+    wins = kd.windows
+    check("(information) keyed windows planned", None,
+          f"{len(wins)} windows of {kd.shape['W']} s (the second of the pair {kd.shape['W'] + 60} s), {kd.shape['P']} s or more apart, "
+          f"{sum(1 for w in wins if w['show'] == 'A')} of show A and {sum(1 for w in wins if w['show'] == 'B')} of B, one pair back to back"
+          f"{' (none: the run is too short)' if not any(w['pair'] for w in wins) else ''}")
+    # The script's own placing first: a signature that played outside its window is the test's fault.
+    placed_bad, unplanned = [], []
+    item_win = {it["item"]: (i, w) for i, w in enumerate(wins) for it in w.get("items", [])}
+    planted = kd.planted["item"] if kd.planted else None
+    for p in sig_plays:
+        a, b = p["started_at_ms"] / 1000, (p.get("ended_at_ms") or p["started_at_ms"] + p["duration_ms"]) / 1000
+        if p.get("item") == planted:
+            continue
+        if p.get("item") not in item_win:
+            unplanned.append(f"{fmt_t(a - t0)}")
+            continue
+        i, w = item_win[p["item"]]
+        if a < t0 + w["start"] or b > t0 + w["end"]:
+            placed_bad.append(f"window {i + 1}: played {fmt_t(a - t0)} to {fmt_t(b - t0)}, window {fmt_t(w['start'])} to {fmt_t(w['end'])}")
+    given = sum(len(w.get("items", [])) for w in wins)
+    check("every signature item played wholly inside its window (the script's placing; outside, the run cannot judge the gate)",
+          given > 0 and not placed_bad and not unplanned and all(w.get("items") for w in wins),
+          f"{given} items given, {len(sig_plays) - (1 if planted else 0)} played; outside their window: {placed_bad[:4] or 'none'}; not the script's: {unplanned[:4] or 'none'}; "
+          f"windows with none: {[i + 1 for i, w in enumerate(wins) if not w.get('items')] or 'none'}")
+    # The public mounts.
+    leaks, cover = [], []
+    for m, (p, path, began) in kd.ears.items():
+        rows = read_jsonl(path)
+        runs = [r for r in rows if r["ev"] == "run"]
+        drops = [r for r in rows if r["ev"] == "end"]
+        decoded = max([r.get("decoded_s", 0) for r in rows if "decoded_s" in r] or [0])
+        span = kd.ears_stopped - began
+        cover.append((m, decoded, span, sum(1 for r in rows if r["ev"] == "connect"), drops))
+        for r in runs:
+            pt = r["t"] - 13  # the public hears playout about 13 s late
+            where = next((f"in window {i + 1}" for i, w in enumerate(wins) if t0 + w["start"] - 5 <= pt <= t0 + w["end"] + 20), "outside any window")
+            leaks.append((m, r, where))
+    coverage_ok = all(d >= 0.98 * s and c == 1 and not dr for _, d, s, c, dr in cover)
+    check("the public ears followed every public mount the whole run (decoded nearly all of it, never dropped)", coverage_ok,
+          "; ".join(f"{m}: {d:.0f} of {s:.0f} s decoded, {c} connection(s), drops {[x['why'] for x in dr][:3] or 'none'}" for m, d, s, c, dr in cover))
+    leak_text = "; ".join(f"{m} heard {r['sig']} for {r['seconds']} s at {fmt_t(r['t'] - t0)} ({where})" for m, r, where in leaks[:10]) or "none"
+    if NEGATIVE:
+        check("(information, NEGATIVE) signatures the public ears heard", None, leak_text)
+        def caught(lo, hi):
+            return all(any(lo <= r["t"] <= hi for mm, r, _ in leaks if mm == m) for m in PUBLIC_MOUNTS)
+        pl = kd.planted
+        check("NEGATIVE: the signature played outside any window was heard on every public mount", bool(pl) and caught(pl["start"], pl["end"] + 60),
+              f"planted at {fmt_t(pl['start'] - t0)} to {fmt_t(pl['end'] - t0)}" if pl else "nothing was planted")
+        gf = kd.gate_fault
+        check("NEGATIVE: the public gate opened mid-window was heard on every public mount", bool(gf) and caught(gf["at"], gf["at"] + 60),
+              f"opened at {fmt_t(gf['at'] - t0)} in window {gf['window']}" if gf else "the gate was not opened (the last window had no signature item)")
+    else:
+        check("no public mount (Opus, MP3, high MP3) ever carried a keyed show's signature (decoded; about 100 ms or more is caught)",
+              not leaks and coverage_ok, leak_text if leaks else f"none in {len(sig_plays)} signature items of {sum(TRACK_S for _ in sig_plays)} s")
+    # The key holders.
+    rows_out, bad_hold, bad_drop, bad_after, heard_other = [], [], [], [], []
+    for i, w in enumerate(wins):
+        h = w.get("holder") or {}
+        rows = read_jsonl(h["path"]) if h.get("path") else []
+        con = next((r for r in rows if r["ev"] == "connect"), None)
+        end_ = next((r for r in rows if r["ev"] == "end"), None)
+        after = next((r for r in rows if r["ev"] == "after"), None)
+        tries = [f"{r['status']} {r.get('code')}" for r in rows if r["ev"] == "try"]
+        own = sum(r["seconds"] for r in rows if r["ev"] == "run" and r["sig"] == w["show"])
+        other = sum(r["seconds"] for r in rows if r["ev"] == "run" and r["sig"] != w["show"])
+        expect = sum(it["seconds"] for it in w.get("items", []))
+        s, e = t0 + w["start"], t0 + w["end"]
+        conn_at = con["t"] - s if con else None
+        drop_after = end_["t"] - e if end_ else None
+        row = dict(n=i + 1, show=w["show"], pair=w["pair"], start=w["start"], end=w["end"], items=len(w.get("items", [])), expect=expect,
+                   heard=round(own, 1), other=round(other, 1), conn=conn_at, drop=drop_after, after=(after or {}).get("status"),
+                   after_code=(after or {}).get("code"), tries=tries, redeem=h.get("redeem"), mid=w.get("mid", {}))
+        rows_out.append(row)
+        if NEGATIVE and kd.gate_fault and kd.gate_fault["window"] == i + 1:
+            continue  # the faulted window's own figures are not judged
+        if not con or conn_at > 60 or expect <= 0 or own < 0.8 * expect:
+            bad_hold.append(f"{i + 1}: " + (h.get("redeem") or f"connected {conn_at if conn_at is None else round(conn_at, 1)} s after the start, heard {own:.1f} of {expect:.0f} s, tries {tries[:3]}"))
+        if other > 0:
+            heard_other.append(f"{i + 1}: {other:.1f} s")
+        if not end_ or drop_after is None or drop_after < 0 or drop_after > DROP_BOUND_S:
+            bad_drop.append(f"{i + 1}: " + (f"ended {drop_after:+.1f} s from the window's end ({end_['why']})" if end_ else "never ended"))
+        if not after or after.get("status") == 200:
+            bad_after.append(f"{i + 1}: {after}")
+    drops = [r["drop"] for r in rows_out if r["drop"] is not None]
+    check("a key holder heard each window's keyed show (connected within 60 s of its start, at least 80 % of its signature items)", not bad_hold,
+          f"{len(wins) - len(bad_hold)} of {len(wins)} windows; " + ("; ".join(bad_hold[:6]) if bad_hold else "ok"))
+    check("no key holder heard the other keyed show (the pair's change included)", not heard_other, "; ".join(heard_other) or "none")
+    check(f"each key holder was dropped after its window, within {DROP_BOUND_S} s of its end", not bad_drop,
+          (f"after the end: min {min(drops):.1f} s, max {max(drops):.1f} s; " if drops else "") + ("; ".join(bad_drop[:6]) if bad_drop else "all"))
+    check("after the drop, the same token was refused", not bad_after, "; ".join(bad_after[:6]) or
+          f"answers {sorted({(r['after'], r['after_code']) for r in rows_out if r['after']}, key=str)}")
+    # The station's own view in each window.
+    mids = [(r["n"], r["mid"]) for r in rows_out]
+    bad_mid = [f"{n}: {m}" for n, m in mids if not (m.get("studio") or {}).get("kept") or not (m.get("studio") or {}).get("confirmed")
+               or (m.get("studio") or {}).get("show") != kd.k["shows"][wins[n - 1]["show"]] or m.get("np_kind") != "show"
+               or m.get("on_now") != kd.k["shows"][wins[n - 1]["show"]]]
+    check("mid-window, the studio's view said playout kept the right show from the public (kept, confirmed), now playing named only the show, "
+          "and the public keyed-show list had it on now",
+          not bad_mid and bool(mids), "; ".join(bad_mid[:4]) or f"{len(mids)} windows, public hears {sorted({str((m.get('studio') or {}).get('public_hears')) for _, m in mids})}")
+    hls = sorted({str(v) for _, m in mids for v in (m.get("hls") or {}).values()})
+    check("(information) the public HLS mid-window", None,
+          f"answers {hls}: video is off in this run, so /hls/ serves nothing at any time and its keyed hold is not exercised here (tests/keyed and the edge tests cover it)")
+    # The podcast feed and files (1.3.3).
+    before = kd.k["before"]
+    check("before the rule: each keyed show's feed listed its episode and its file answered 200 (so the next check can see one)",
+          all(before[s]["items"] == 1 and before[s]["file"] == 200 for s in ("A", "B", "P")), f"{before}")
+    bad = [(round(e), s, st[s]) for e, _, st in kd.feeds for s in ("A", "B") if st[s]["feed"] != 200 or st[s]["items"] != 0 or st[s]["file"] != 404 or st[s]["listed"]]
+    pub_bad = [(round(e), st["P"]) for e, _, st in kd.feeds if st["P"]["items"] != 1 or st["P"]["file"] != 200 or not st["P"]["listed"]]
+    in_win = sum(1 for _, inw, _ in kd.feeds if inw)
+    check("while keyed, the keyed shows' feeds listed no episode, the public list left them out and their files answered 404, at every sample",
+          bool(kd.feeds) and not bad, f"{len(kd.feeds)} samples ({in_win} in a window); wrong at {bad[:4] or 'none'}")
+    check("the public show's feed, list entry and file were served at every sample (the check is not blind)", bool(kd.feeds) and not pub_bad,
+          f"{len(kd.feeds)} samples; wrong at {pub_bad[:4] or 'none'}")
+    return rows_out
+
+
+def keyed_lines(rows):
+    out = ["| # | show | from | to | signature items (s) | holder connected (s after start) | heard (s) | other show (s) | dropped (s after end) | then | studio mid-window |",
+           "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        st = (r["mid"] or {}).get("studio") or {}
+        out.append(f"| {r['n']}{' (pair ' + str(r['pair']) + ')' if r['pair'] else ''} | {r['show']} | {fmt_t(r['start'])} | {fmt_t(r['end'])} | {r['items']} ({r['expect']:.0f}) | "
+                   f"{'-' if r['conn'] is None else round(r['conn'], 1)} | {r['heard']} | {r['other']} | {'-' if r['drop'] is None else round(r['drop'], 1)} | "
+                   f"{r['after']} {r['after_code'] or ''} | kept {st.get('kept')}, confirmed {st.get('confirmed')}, public hears {st.get('public_hears')} |"
+                   + (f" redeem: {r['redeem']}" if r["redeem"] else ""))
+    return out
 
 
 def main():
@@ -545,6 +963,9 @@ def main():
     log(f"soak: {D}s, sampling every {SAMPLE_S}s, project {PROJECT}, {len(containers)} containers, tracks {NTRACKS} x {TRACK_S}s")
     tracks = seed_station()
     log(f"seeded: {len(tracks)} tracks, one clock on every hour of the week, retention uk_internet, mode auto")
+    sig_tracks = {s: must("PUT", f"/api/v1/library/tracks?title=Soak%20keyed%20{s}&artist=Soak%20Keyed%20{s}&album=Soak%20Keyed&label=Soak&category=k",
+                          raw=tone_wav(SIGS[s], TRACK_S)) for s in SIGS}
+    log(f"seeded: the keyed shows' signatures {SIGS} as tracks in category k, which no clock names")
     # the legal logger is on once the setting has taken
     retained = None
     for _ in range(60):
@@ -592,13 +1013,19 @@ def main():
         script_did(t0, f"WARNING: the generated log does not rotate ({rotation} tracks in its first items)")
     shows = seed_shows(t0)
     log(f"shows: {shows} seeded over the run")
+    control = control_name(containers)
+    windows, shape = plan_windows(dict(miss_a=miss_a, miss_len=miss_len, gap1=gap1, gap2=gap2, hole_len=hole_len))
+    kd = Keyed(t0, windows, shape, seed_keyed(t0, windows, control), sig_tracks, helper)
+    script_did(t0, f"keyed shows: A and B set to `key`, {len(windows)} windows on the schedule ({', '.join(w['show'] + ' ' + fmt_t(w['start']) + '-' + fmt_t(w['end']) for w in windows)}), "
+                   f"a key each, an aired episode with a file each, and a public show with one")
+    kd.start_ears()
+    kd.start()
 
     obs = Observer(helper, t0, containers)
     obs.sample()
     threading.Thread(target=obs.fast, daemon=True).start()
     victim = {}
     by_id = {t["id"]: t for t in tracks}
-    control = containers[[short(c) for c in containers].index("control")]
     lib = "/var/lib/weavesignal/library"
     events = [
         (miss_a, "the missing source: moved a track's file away", lambda: take_away(victim, by_id, control, lib)),
@@ -618,6 +1045,7 @@ def main():
             if "gap ends" in what:
                 resumed_at = obs.elapsed()
         if e >= next_sample:
+            kd.sample_feeds()
             r = obs.sample()
             next_sample += SAMPLE_S
             log(f"{r['e']:.0f}s: on air {r.get('on_air')}/{r.get('np')} now {r.get('np_title')} listeners {r.get('listeners')} health {r['health']} restarts {r['restarts']} "
@@ -630,10 +1058,14 @@ def main():
             script_did(t0, "interrupted: " + what)
     t_stop = obs.elapsed()
     obs.sample()
+    kd.sample_feeds()
+    for th in kd.threads:
+        th.join(timeout=5 if interrupted else 120)
+    kd.stop_ears()
     STOP.set()
     listener.finish()
     time.sleep(1.5)
-    finish(obs, listener, helper, containers, tracks, victim, t0, t_stop, interrupted, dict(
+    finish(obs, listener, helper, containers, tracks, victim, t0, t_stop, interrupted, kd, dict(
         gap1=gap1, gap2=gap2, hole_a=hole_a, hole_len=hole_len, miss_a=miss_a, miss_len=miss_len, resumed_at=resumed_at, seed_plan=seed_plan, shows=shows, retained=retained))
     helper.close()
 
@@ -776,6 +1208,21 @@ def fmt_t(sec):
     return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
 
 
+def keyed_mutes(containers):
+    """The control plane's `keyed.mute`s: (Unix s, seconds) of each change of keyed show."""
+    out = subprocess.run(["podman", "logs", control_name(containers)], capture_output=True, text=True)
+    mutes = []
+    for line in (out.stdout + out.stderr).splitlines():
+        if "silent for a change of show" in line:
+            try:
+                j = json.loads(line)
+                at = datetime.datetime.fromisoformat(j["timestamp"].replace("Z", "+00:00")).timestamp()
+                mutes.append((at, float(j["secs"])))
+            except (ValueError, KeyError):
+                pass
+    return mutes
+
+
 def analyse_logger_files(containers, t0):
     """Copy the logger's hour files out, decode each (length, silence), and delete the copies."""
     listeners = containers[[short(c) for c in containers].index("listeners")]
@@ -798,14 +1245,15 @@ def analyse_logger_files(containers, t0):
                 pass
             ff = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af", "silencedetect=n=-55dB:d=3", "-f", "null", "-"], capture_output=True, text=True)
             sil = [float(x) for x in re.findall(r"silence_duration: ([\d.]+)", ff.stderr)]
+            at = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", ff.stderr)]
             if "silence_start" in ff.stderr and len(sil) < ff.stderr.count("silence_start"):
                 sil.append(-1.0)  # silent to the end of the file
-            files.append(dict(name=f"{day}/{f}", start=start, bytes=os.path.getsize(path), duration=dur, silences=sil))
+            files.append(dict(name=f"{day}/{f}", start=start, bytes=os.path.getsize(path), duration=dur, silences=sil, silence_at=at))
     shutil.rmtree(dest, ignore_errors=True)
     return files, r.returncode
 
 
-def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, plan):
+def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, kd, plan):
     log("the run is over: collecting what the station kept")
     T_end = t0 + t_stop
     ms = lambda t: int(t * 1000)
@@ -855,6 +1303,12 @@ def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, 
     check("the legal logger was on at every sample", all(r.get("logger_on") for r in rows), f"{sum(1 for r in rows if r.get('logger_on'))} of {len(rows)} samples")
     check("the logger has an hour file for every hour of the run, and `missing_hours` is empty", not missing and not (lg.get("missing_hours") or []),
           f"{len(files)} files for {len(hours)} hours; missing hours {missing or 'none'}; the route's missing_hours {lg.get('missing_hours')}")
+    # The keyed feed, which the logger records, is silent on purpose at a change from one keyed
+    # show to the next until the first show's key holders are dropped (`keyed.mute`, about the
+    # tail, the desk's delay and the mount's burst: 31 s on 2026-11-27): a silence inside one of
+    # those, as the control plane logged it, is set aside and listed; any other fails as before.
+    mutes = keyed_mutes(containers)
+    excused = []
     bad = []
     for i, f in enumerate(files):
         nxt = files[i + 1]["start"] if i + 1 < len(files) else None
@@ -862,10 +1316,21 @@ def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, 
             bad.append(f"{f['name']} is {f['duration']:.0f}s of audio for {nxt - f['start']:.0f}s")
         if f["bytes"] <= 0 or f["duration"] is None:
             bad.append(f"{f['name']} unreadable")
-        if f["silences"]:
-            bad.append(f"{f['name']} has silence {f['silences']}")
-    check("each logger file is real audio of its hour's length with no silence of 3 s (decoded)", not bad and bool(files),
+        rest = []
+        for j, d in enumerate(f["silences"]):
+            a = f["start"] + f["silence_at"][j] if j < len(f["silence_at"]) else None
+            m = next((m for m in mutes if a is not None and d > 0 and m[0] - 3 <= a and a + d <= m[0] + m[1] + 5), None)
+            if m:
+                excused.append(f"{f['name']} {d:.1f} s from {fmt_t(a - t0)} (keyed.mute of {m[1]:.1f} s from {fmt_t(m[0] - t0)})")
+            else:
+                rest.append(d)
+        if rest:
+            bad.append(f"{f['name']} has silence {rest}")
+    check("each logger file is real audio of its hour's length with no silence of 3 s (decoded), but for the keyed feed's silence at a change of keyed show",
+          not bad and bool(files),
           "; ".join(f"{f['name']} {f['bytes'] / 1e6:.1f} MB {f['duration'] or 0:.0f}s" for f in files) if not bad else "; ".join(bad[:6]))
+    check("(information) silences in the logger files that were the keyed feed's silence at a change of keyed show (`keyed.mute`, logged by the control plane)",
+          None, "; ".join(excused) or f"none ({len(mutes)} changes of keyed show logged)")
     # 5 per-play log
     from_ms, to_ms = ms(t0) - 60000, ms(T_end) + 120000
     s, lgitems = api("GET", f"/api/v1/schedule/log?from_ms={from_ms}&to_ms={to_ms + 3 * HOUR * 1000}")
@@ -896,6 +1361,8 @@ def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, 
           and any(p["track"] == vid and p["started_at_ms"] > ms(t0 + plan["miss_a"] + plan["miss_len"]) for p in plays),
           f"{len(missing_victim)} skipped items, notes {sorted({i['note'][:60] for i in missing_victim})}; played after the file came back: "
           f"{sum(1 for p in plays if p['track'] == victim['id'] and p['started_at_ms'] > ms(t0 + plan['miss_a'] + plan['miss_len']))}")
+    # 5b keyed shows
+    keyed_rows = keyed_checks(check, kd, plays, t0, t_stop)
     # 6 the gap
     tl = obs.timeline
     log_plays = [p for p in plays if p.get("item") is not None]
@@ -969,16 +1436,20 @@ def finish(obs, L, helper, containers, tracks, victim, t0, t_stop, interrupted, 
                     cnt[("text", re.sub(r"\d+", "N", re.sub(r"^\S+ \S+ ", "", line))[:90])] += 1
         if cnt:
             noise.append((short(c), cnt))
-    write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift_pre)
+    write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift_pre, keyed_rows)
 
 
-def write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift):
+def write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, interrupted, items, plays, drift, keyed_rows):
     fails = [c for c in checks if c[1] is False]
+    if NEGATIVE:  # a negative control: only its own lines decide
+        fails = [c for c in checks if c[1] is False and c[0].startswith("NEGATIVE")]
     out = [f"# Soak run {iso(t0)}", "",
            f"- Station image: `{IMAGE}`; project `{PROJECT}`; ran {fmt_t(t_stop)} of {fmt_t(D)} asked{' (INTERRUPTED)' if interrupted else ''}; sampled every {SAMPLE_S} s ({len(obs.rows)} samples in `samples.jsonl`).",
            f"- Plan: {plan['seed_plan']}. Shows seeded: {plan['shows']}.",
            f"- Library: {NTRACKS} tones of {TRACK_S} s on one clock, mode auto, separations off, retention `uk_internet` (per-play log kept {plan['retained']['per_play_days']} days).",
-           f"- **Result: {'FAIL (' + str(len(fails)) + ')' if fails or interrupted else 'PASS'}**", "", "## Checks", ""]
+           f"- **Result: {'FAIL (' + str(len(fails)) + ')' if fails or interrupted else 'PASS'}**"
+           + (" of the NEGATIVE control (NEGATIVE=1: a signature played outside a window and playout's public gate opened mid-window on purpose; "
+              "only the NEGATIVE lines decide, and the others are as they fell)" if NEGATIVE else ""), "", "## Checks", ""]
     for name, ok, detail in checks:
         out.append(f"- **{'PASS' if ok else 'FAIL' if ok is False else 'INFO'}** {name}: {detail}")
     out += ["", "## What the script did to the station (script-caused)", ""]
@@ -986,6 +1457,7 @@ def write_result(obs, L, checks, mem_a, files, noise, plan, victim, t0, t_stop, 
     out += ["", "## What was on air (playout, now-playing, mode, desk connected), from the 2 s poll", ""]
     for t, a, n, m, d in obs.timeline:
         out.append(f"- {fmt_t(t)} {a} / {n} / {m} / desk {d}")
+    out += ["", "## Keyed windows (`keyed-holder-N.jsonl`, `keyed-ear-*.jsonl`)", ""] + keyed_lines(keyed_rows)
     out += ["", "## Memory (MiB)", ""] + memory_lines(mem_a, obs.cg_last_err)
     out += ["", "## Listener", "", f"- {L.connects} connection(s), {L.bytes / 1e6:.1f} MB, drops {L.drops}, gaps over 2 s {[(fmt_t(a), round(d, 1)) for a, d in L.gaps]}, silences {[(fmt_t(a), round(d, 1)) for a, d in L.silences]}"]
     out += ["", "## Logger files", ""] + [f"- {f['name']}: {f['bytes'] / 1e6:.1f} MB, {f['duration'] and round(f['duration'])} s, silences {f['silences']}" for f in files]

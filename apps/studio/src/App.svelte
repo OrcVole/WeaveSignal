@@ -458,7 +458,7 @@
          spacer is a container with no width of its own, and the words are drawn only as far
          as it has room (the styles below). Not a control: a word with its tooltip, as a state
          word has, so it takes a tab stop. -->
-    <span class="spacer">
+    <span class="spacer" class:long={verLen === 7}>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <span bind:this={verEl} class="ver st-trigger" class:differs={!!ver.station} class:cue={!!verGlyph} data-standing={ver.standing} data-len={verLen} data-testid="app-version" aria-describedby="ver-tip" tabindex="0"
         >{#if verGlyph}<svg class="vg" aria-hidden="true"><use href="#{verGlyph}" /></svg>{/if}<span class="name">WeaveSignal&nbsp;</span><span class="v">v</span>{ver.app}{#if ver.station}<span class="stn">{' '}· station {ver.station}</span><span class="neq">{' '}≠ {ver.stationShort}</span>{/if}{#if STANDING_WORD[ver.standing]}<span class="sr-only">, {STANDING_WORD[ver.standing]}</span>{/if}</span
@@ -898,5 +898,36 @@
   .seg button[aria-pressed='true'] {
     background: var(--accent);
     color: var(--accent-ink);
+  }
+  /* At 1,280 px, the narrowest the packaged window goes, a frame that fitted one row had no
+     spare room left: a presenter's left 30 px at Full set and none at Solo, a screener's 16 px,
+     and the version, which took only spare room and needs 56 px, was not drawn (1.3.2). In a
+     frame that narrow the version has its place: the spare room is never less than the version
+     needs (3.5 rem; 4 rem for one as long as 1.10.10), so it is drawn in every such frame, one
+     row or two. The room comes from the frame itself, so that nothing else moves to another
+     row: the controls stand 8 px apart, not 12, the text size's and the theme's buttons take
+     8 px a side, not 12, and a tab's key stands 4 px from its word, not 8. That is 92 px or
+     more in a frame of one row, and 64 px or more in the first row of two, against the 56 to
+     64 px the version asks: a frame that fitted one row still does, and one that took two
+     takes no more. Measured in Chromium with a station named Kettle FM: a presenter's frame has
+     127 px of spare room at Full set and 92 at Solo, a screener's 112 and 77, all in one row;
+     an admin's and a producer's keep their two rows. Wider than this the version takes spare
+     room alone, as before. */
+  @container (max-width: 1300px) {
+    .frame {
+      column-gap: var(--s-2);
+    }
+    .tab {
+      gap: var(--s-1);
+    }
+    .seg button {
+      padding: 0 var(--s-2);
+    }
+    .spacer {
+      min-width: 3.5rem;
+    }
+    .spacer.long {
+      min-width: 4rem;
+    }
   }
 </style>

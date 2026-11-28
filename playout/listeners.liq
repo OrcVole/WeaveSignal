@@ -191,6 +191,9 @@ feed =
 # is one flat list with the feed first: a fallback inside the list that ended in silence would
 # never let the next child through. A child that can play wins at once (`track_sensitive`
 # false), so files added to the folder replace the loop within seconds.
+# The folder is read by station_files.liq's playlist, which leaves out files that cannot be sounds
+# (a README, a picture), so they do not fill the log with decoder errors (1.3.3).
+%include "station_files.liq"
 fallback_dir = null.case(data.fallback, fun () -> "", fun (f) -> f.dir)
 default_file = null.case(data.fallback, fun () -> "", fun (f) -> f.default_file ?? "")
 
@@ -212,7 +215,7 @@ files_child =
     fallback_dir != "" and file.is_directory(fallback_dir)
   then
     [
-      playlist(id="fallback_files", mode="randomize", reload_mode="watch", fallback_dir).{
+      station_playlist("fallback_files", fallback_dir).{
         track_sensitive = {false},
         on_select = child("files")
       }

@@ -5,6 +5,11 @@
 // hears only its own mix-minus, follows its own state from the control plane, offers the relay
 // (TURN over TLS), and rejoins under the same identity when the link drops: within the held
 // 5 minutes for a caller (ADR-0101), while the pass lasts for anyone else.
+//
+// The microphone can be changed during the call (1.3.3). The new one is captured first and then
+// put in the old one's place on the same published track (`replaceTrack`): the room sees one
+// publication carry on, so the desk's subscription is never made again, and a microphone that
+// cannot be had leaves the one in use running. A rejoin publishes that same track again.
 
 import {
   type LocalAudioTrack,
@@ -17,12 +22,15 @@ import {
   Room,
   RoomEvent,
   Track,
+  TrackEvent,
   createLocalAudioTrack,
   createLocalVideoTrack,
 } from 'livekit-client';
 import * as api from './api.ts';
 import { CAMERA_PUBLISH, backoff, cameraCapture, connectOptions, limitSubscribers, offersCamera, rejoinUntil, shouldHear, shouldSee, voiceCapture } from './rules.ts';
 import { cameraProblem, micProblem } from './mic.ts';
+import { type Mic, MIC_STOPPED, chosen, micOptions, missingWords, movedWords, nowUsing, remember, sameCapture, switchProblem, used, wanted } from './mic-devices.ts';
+import { MicList } from './mics.svelte.ts';
 import { MOVE_RETRY_MS, adoptInBrowser, type Moved } from './move.ts';
 import type { CameraHandover } from './camera-preview.svelte.ts';
 import * as store from './store.ts';
@@ -63,6 +71,18 @@ export class Call {
   heldUntil = $state<number | null>(null);
   /** Our own microphone, for the level bar. */
   mic = $state<MediaStreamTrack | null>(null);
+  /** The browser's microphones, named once it has given us one, and kept current. */
+  mics = new MicList();
+  /** The microphone in use, as the list names it. */
+  micInUse = $state<Mic | null>(null);
+  /** A sentence about the microphone: which one is in use after a change, or why a change did
+   *  not happen (`micTrouble`). */
+  micNote = $state<string | null>(null);
+  micTrouble = $state(false);
+  /** A change of microphone is under way. */
+  micChanging = $state(false);
+  /** No microphone is sending: the one in use stopped and no other could be started. */
+  micStopped = $state(false);
   /** The desk's programme picture, live (ADR-0028), while the station has video on. */
   picture = $state<MediaStreamTrack | null>(null);
   /** Our own camera, for its preview; null when we send none. */
@@ -87,6 +107,10 @@ export class Call {
 
   /** The camera the join page already showed the person (ADR-0171), taken at start. */
   #handover: CameraHandover | null;
+  /** The microphone in use ended (unplugged, taken back), until the next one is read. */
+  #micEnded = false;
+  /** The captures whose end is already listened for. */
+  #heard = new WeakSet<MediaStreamTrack>();
 
   constructor(joined: api.Joined, relay = false, camera: CameraHandover | null = null, opts: CallOptions = {}) {
     this.joined = joined;
@@ -108,8 +132,12 @@ export class Call {
     this.#watch();
     this.link = 'connecting';
     try {
-      this.#track = await createLocalAudioTrack(voiceCapture());
-      this.mic = this.#track.mediaStreamTrack;
+      // The microphone chosen on this device, or the one just checked; the browser's own
+      // choice when it is not there.
+      const want = wanted(await this.mics.refresh());
+      this.#track = await createLocalAudioTrack(micOptions(want));
+      await this.#ownMic(this.#track);
+      this.#say(missingWords(chosen(), this.micInUse, this.mics.list));
     } catch (e) {
       this.problem = micProblem(e);
       this.link = 'no-mic';
@@ -220,6 +248,9 @@ export class Call {
     this.#stopMe?.();
     this.#stopMe = null;
     await this.#drop();
+    this.mics.stop();
+    this.#track?.off(TrackEvent.Restarted, this.#micRestarted);
+    this.#track?.off(TrackEvent.Muted, this.#micMuted);
     this.#track?.stop();
     this.mic = null;
     this.#camera?.stop();
@@ -282,6 +313,109 @@ export class Call {
       this.cameraProblem = null;
     } catch (e) {
       this.cameraProblem = cameraProblem(e, true);
+    }
+  }
+
+  /** A capture becomes the call's microphone: its level, its name, and what the room client
+   *  does to it by itself (it starts the track again on another device when the one in use is
+   *  unplugged, and mutes it when it cannot). */
+  async #ownMic(track: LocalAudioTrack): Promise<void> {
+    track.on(TrackEvent.Restarted, this.#micRestarted);
+    track.on(TrackEvent.Muted, this.#micMuted);
+    await this.#readMic();
+    this.mics.watch(this.#micsChanged);
+  }
+
+  /** Read which microphone the track is on, from the track itself and never from what was asked
+   *  for: a browser's own question can give another. */
+  async #readMic(): Promise<void> {
+    const t = this.#track?.mediaStreamTrack ?? null;
+    this.mic = t;
+    await this.mics.refresh();
+    this.micInUse = this.mics.of(t);
+    used(this.micInUse);
+    if (t && t.readyState === 'live') {
+      this.micStopped = false;
+      if (!this.#heard.has(t)) {
+        this.#heard.add(t);
+        t.addEventListener('ended', () => {
+          if (this.#track?.mediaStreamTrack === t && !this.#leaving) this.#micEnded = true;
+        });
+      }
+    }
+  }
+
+  #say(note: string | null, trouble = false): void {
+    this.micNote = note;
+    this.micTrouble = !!note && trouble;
+  }
+
+  /** The room client started our track again by itself, on whatever the browser gave it. */
+  #micRestarted = (): void => {
+    const from = this.micInUse;
+    const stopped = this.#micEnded;
+    this.#micEnded = false;
+    void this.#readMic().then(() => {
+      if (this.micChanging || !this.micInUse) return;
+      if (from?.id !== this.micInUse.id || stopped) this.#say(movedWords(from, this.micInUse, stopped));
+    });
+  };
+
+  /** We never mute the microphone: a mute is the room client giving up on a track that ended. */
+  #micMuted = (): void => {
+    if (this.#leaving || this.micChanging) return;
+    this.micStopped = true;
+    this.#say(MIC_STOPPED, true);
+    void this.mics.refresh();
+  };
+
+  /** A microphone was plugged in or taken away. While none is sending, take the first one that
+   *  appears: nothing is being heard that a change could interrupt. A microphone chosen before
+   *  that comes back while another is sending is offered in the list and not switched to. */
+  #micsChanged = (): void => {
+    if (!this.micStopped || this.micChanging || this.link !== 'connected') return;
+    const to = wanted(this.mics.list) ?? this.mics.list[0];
+    if (to) void this.useMic(to.id, false);
+  };
+
+  /**
+   * Change microphone during the call. The new one is captured first, with everything the one
+   * in use was captured with, and put in its place on the same published track; the room client
+   * then stops the old one. Nothing is unpublished and nothing rejoins, so the desk goes on
+   * hearing the same publication. If the new one cannot be had (the browser asks and is refused,
+   * another app holds it, it was unplugged) the microphone in use carries on and the page says so.
+   */
+  async useMic(id: string, chosenByPerson = true): Promise<void> {
+    const track = this.#track;
+    const room = this.#room;
+    const to = this.mics.list.find((m) => m.id === id);
+    if (!track || !room || !to || this.micChanging || this.link !== 'connected') return;
+    if (to.id === this.micInUse?.id && !this.micStopped) return;
+    const from = this.micStopped ? null : this.micInUse;
+    this.micChanging = true;
+    this.#say(null);
+    let fresh: MediaStreamTrack | null = null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: sameCapture(track.mediaStreamTrack.getConstraints(), to) });
+      fresh = stream.getAudioTracks()[0];
+      // The link dropped while the browser asked: there is nothing to put it into just now.
+      if (this.#track !== track || this.#room !== room || (this.link as Link) !== 'connected') throw new Error('not connected');
+      await track.replaceTrack(fresh, { userProvidedTrack: false });
+      fresh = null;
+      if (track.isMuted) await track.unmute();
+      this.#micEnded = false;
+      await this.#readMic();
+      // The room client moves a microphone it believes is the system's own; tell it which this is.
+      const now = track.mediaStreamTrack.getSettings().deviceId;
+      if (now) room.localParticipant.activeDeviceMap.set('audioinput', now);
+      if (chosenByPerson) remember(this.micInUse ?? to);
+      this.#say(chosenByPerson ? nowUsing(this.micInUse ?? to, true) : movedWords(null, this.micInUse ?? to, false));
+    } catch (e) {
+      fresh?.stop();
+      if (this.micStopped) this.#say(MIC_STOPPED, true);
+      else this.#say(switchProblem(e, to, from), true);
+    } finally {
+      this.micChanging = false;
     }
   }
 
@@ -391,10 +525,12 @@ export class Call {
   async #freshMic(): Promise<void> {
     if (this.#track && this.#track.mediaStreamTrack.readyState === 'live') return;
     try {
-      const fresh = await createLocalAudioTrack(voiceCapture());
+      const fresh = await createLocalAudioTrack(micOptions(wanted(await this.mics.refresh())));
+      this.#track?.off(TrackEvent.Restarted, this.#micRestarted);
+      this.#track?.off(TrackEvent.Muted, this.#micMuted);
       this.#track?.stop();
       this.#track = fresh;
-      this.mic = fresh.mediaStreamTrack;
+      await this.#ownMic(fresh);
     } catch {
       // Keep the old track: better a rejoin the desk may not hear than none at all.
     }

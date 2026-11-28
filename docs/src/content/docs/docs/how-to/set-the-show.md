@@ -9,9 +9,9 @@ sidebar:
 ---
 
 Three things the desk shows come from the control plane's settings (ADR-0102): the show's heading, the rundown and the callers banned before.
-The [Schedule tab](/docs/reference/surfaces/calendar/) and the chat's moderation log do not fill them yet ([planned](/docs/reference/release-one-status/#not-in-release-one)), so they are settings.
+The chat's moderation log does not fill the banned list yet ([planned](/docs/reference/release-one-status/#not-in-release-one)), and the rundown's own rows are settings.
 The schedule does choose the slate's picture for the show on air ([Video in the desk](/docs/reference/desk-video/#the-slates-picture)).
-From 1.3.2 the schedule also names the show on air on the desk's heading and on the join and player pages; the `show` setting is what they say between shows.
+From 1.3.2 the join and player pages name the show the schedule has on air, and the `show` setting is what they say between shows. The desk's heading takes the `show` setting when it has one, else the schedule's show. A rundown with no rows of its own shows the show on air and the next to start.
 
 ## Set them
 

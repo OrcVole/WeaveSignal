@@ -9,7 +9,7 @@ sidebar:
 ---
 
 :::note[What has been tried, and what is not there yet]
-The page has been driven in Chromium against a stand-in station, and used once by a host on a real station from a desktop browser; it has not yet been used on a phone, or in Firefox or Safari.
+The page has been driven in Chromium against a stand-in station, and used once by a host on a real station from a desktop browser; it has not yet been tried on a phone or in Safari.
 Not there yet: the name of whoever is talking to you (you hear them all the same), **Hear yourself** in a test, a plain audio address for a hardware player, and your connection details on the page.
 :::
 

@@ -82,7 +82,7 @@ The figure's own digit decides: `0:30` is the first amber and `0:10` the first r
 ## `desk.rundown`
 
 Coming up: the next rows of the show, with their times, which is a hard post, and the cart key each needs.
-The rows come from the setting `studio.rundown` (ADR-0102, [Set the show](/docs/how-to/set-the-show/)); the [Schedule tab](/docs/reference/surfaces/calendar/) does not fill them, and rows from the schedule are [planned](/docs/reference/release-one-status/#not-in-release-one).
+The rows come from the setting `studio.rundown` (ADR-0102, [Set the show](/docs/how-to/set-the-show/)). With no row of its own to show, the panel shows the show on air and the next to start, by the schedule (from 1.3.2), or *Nothing scheduled*. Filling the rundown's own rows from the [Schedule tab](/docs/reference/surfaces/calendar/) is [planned](/docs/reference/release-one-status/#not-in-release-one).
 
 One row is the schedule's: the show whose post it is, when its host comes from a studio of their own (ADR-0280).
 It says where the show comes from and how its source stands: *Steeped · Finlay Grant · own studio* with STANDBY, LINK LOST, or, once the post has come, NOT CONNECTED.
@@ -206,14 +206,11 @@ It says once why the desk is quiet (*Just you on this show*: guests, callers and
 Before anyone holds the presenter's seat, the stage reads *You are not in the room yet*, with **Join with my microphone…**: at Solo, and above it to an admin, a producer or the show's presenter.
 
 While a host in their own studio has the air, the stage does not say that: the show is theirs.
-The offer is then one quiet line, with words for the case: *Join to talk to Finlay or to hear a cue. Joining puts you on air.*, and a quiet **Join with my microphone…**.
+The offer is then one quiet line, with words for the case: *Join to talk to Finlay or to hear a cue. You join off air, standing by.*, and a quiet **Join with my microphone…**.
 It sits at the head of **Not on air**, beside **Invite someone…**; at Solo, which has no such row, it takes this seat.
-The line says only what will happen. While automation holds the air (the lamp says AUTO), whoever joins is open to the room and is not heard, so the line ends *You join open to the room.* and not *on air*.
-While the host's link is lost and their place is kept there is nobody to talk to. Once automation covers, the line reads *You join open to the room, and are on air when Finlay is back.*: the station brings a returning host back by itself and takes the air back with them, which puts you on air beside them.
-In the seconds before that, and on a station without the playout layer, the desk still holds the air, and the line reads *Joining puts you on air. If Finlay reconnects, they then stand by.*
-
+While the host's link is lost and their place is kept there is nobody to talk to. While automation holds the air the line reads *You join standing by. Automation holds the air until Finlay is back.*
+While the desk still holds the air it reads *You join standing by; your own On key puts you on air. If Finlay reconnects while you are on, they stand by.*, and in a preparing window *You join standing by. This window is preparing: switch it to Live to put yourself on air. If Finlay reconnects while you are on, they stand by.*
 From 1.3 a person who joins by an invitation, their own link included, joins standing by under **Not on air**, and goes on air by a press: their own key, the handover, or taking the air back from automation.
-The lines above are the studio app's wording of 1.2, in which joining put you on air; they are due to be revised for 1.3.0.
 <!-- R16: the strings are in apps/studio/src/lib (ownLinkBeside, desk3.test.ts): update this section when they change. -->
 
 ## `desk.next`

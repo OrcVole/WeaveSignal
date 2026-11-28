@@ -31,6 +31,7 @@ The fallback folder is the simplest way to put your own music on the air: whatev
 On a new station that is all the time between shows, and it replaces the soft loop WeaveSignal ships.
 Files added to the folder take over within seconds; nothing needs a restart.
 Put MP3, FLAC, Ogg or WAV files in it; it is music for listeners, so use only files you may broadcast.
+A README, a cover picture or a playlist file in the folder is left alone (from 1.3.3); a file that is named as a sound and does not play leaves a message in playout's log ([what it means](/docs/reference/playout/#what-the-fallback-folder-offers-and-the-decoders-messages)).
 
 ### On Cloudron
 

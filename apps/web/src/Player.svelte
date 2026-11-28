@@ -240,6 +240,7 @@
         setTimeout(() => (hlsHeldUntil = 0), 41_000);
         return void restart();
       }
+      playing = listening = false;
       streamProblem = 'The stream stopped. Press play to try again.';
     });
     h.loadSource(url);
@@ -284,8 +285,15 @@
       stopHls();
       await start();
     } catch {
-      streamProblem = "The stream didn't start. Try again in a moment.";
+      startFailed();
     }
+  }
+
+  /** A start failed: nothing plays, and the element may never say so. A keyed stream is waited
+   *  for and tried again (keyedStopped), so its button is left as it is. */
+  function startFailed() {
+    if (!playingKeyed) playing = false;
+    streamProblem = "The stream didn't start. Try again in a moment.";
   }
 
   /** The audio stream stopped by itself. (`listening`, not `playing`: a stream that ends is
@@ -330,6 +338,9 @@
     audio?.pause();
     screen?.pause();
     stopHls();
+    // Detaching hls.js reloads the element, which drops the `pause` event it had queued: said
+    // here, or the button stayed Pause, and did nothing, until the page was reloaded.
+    playing = false;
   }
 
   /** A key typed or pasted at `/listen/` was accepted. The press that sent it was the
@@ -363,7 +374,7 @@
     try {
       await start();
     } catch {
-      streamProblem = "The stream didn't start. Try again in a moment.";
+      startFailed();
     }
   }
 
@@ -383,7 +394,7 @@
       try {
         await startHls(choice.url, at);
       } catch {
-        streamProblem = "The stream didn't start. Try again in a moment.";
+        startFailed();
       }
     }
   }

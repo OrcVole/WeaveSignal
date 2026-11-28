@@ -2951,3 +2951,234 @@ async fn a_stations_own_calendar_read_back_is_already_there_and_no_clash_with_it
         );
     }
 }
+
+/// A keyed show promises that only key holders hear it (1.3.3): its episodes' files are in no
+/// feed, public list or file route while it is keyed, and the file route serves only files an
+/// episode names.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn a_keyed_shows_episode_files_are_held_back_while_it_is_keyed() {
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    let station = ensure_station(
+        &pool,
+        &Station::new(StationId::new_random(), "Kettle FM").unwrap(),
+    )
+    .await
+    .unwrap();
+    let station_id = station.id;
+    let dir =
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("keyed-{}", uuid::Uuid::new_v4()));
+    let episodes_dir = dir.join("episodes");
+    std::fs::create_dir_all(&episodes_dir).unwrap();
+    let app = router(Arc::new(ShowsState {
+        station,
+        db: Some(pool.clone()),
+        admin_token: Some(ADMIN.into()),
+        staff: Default::default(),
+        publishing: PublishingConfig {
+            public_url: "https://kettle.example".into(),
+            cards_dir: dir.join("cards"),
+            episodes_dir: episodes_dir.clone(),
+            ..PublishingConfig::default()
+        },
+        zone: Arc::new(weavesignal_control::zone::StationZone::new("Europe/London")),
+        live: None,
+        hub: None,
+        video: None,
+    }));
+
+    // File names no other test uses: every station's episodes share the folder.
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+    let name = |n: &str| format!("{n}-{tag}.mp3");
+    let aired = name("aired");
+    let aired_opus = format!("aired-{tag}.opus");
+    let unaired = name("unaired");
+    let open = name("open");
+    let shared = name("shared");
+    let replacement = name("replacement");
+    let stray = name("stray");
+    for f in [&aired, &unaired, &open, &shared, &replacement, &stray] {
+        std::fs::copy(
+            root().join("crates/feeds/tests/fixtures/tone.mp3"),
+            episodes_dir.join(f),
+        )
+        .unwrap();
+    }
+    std::fs::copy(
+        root().join("assets/carts-demo/ding-1.opus"),
+        episodes_dir.join(&aired_opus),
+    )
+    .unwrap();
+    std::fs::write(episodes_dir.join(".retag-half.mp3"), b"half written").unwrap();
+
+    let ok = |code: StatusCode, body: &serde_json::Value| assert!(code.is_success(), "{body}");
+    for (slug, title, colour) in [
+        ("members", "The Members Hour", 3),
+        ("open-desk", "Open Desk", 4),
+    ] {
+        let base = format!("/api/v1/shows/{slug}");
+        let (c, b) = json(
+            &app,
+            "PUT",
+            &base,
+            serde_json::json!({"name": title, "colour_slot": colour, "hosts": ["Isla Fraser"]}),
+        )
+        .await;
+        ok(c, &b);
+        let (c, b) = json(
+            &app,
+            "PUT",
+            &format!("{base}/series/1"),
+            serde_json::json!({}),
+        )
+        .await;
+        ok(c, &b);
+        let (c, b) = json(
+            &app,
+            "POST",
+            &format!("{base}/series/1/episodes"),
+            serde_json::json!({"count": 3}),
+        )
+        .await;
+        ok(c, &b);
+        let (c, b) = json(
+            &app,
+            "POST",
+            &format!("{base}/series/1/episodes/1/air"),
+            serde_json::json!({}),
+        )
+        .await;
+        ok(c, &b);
+    }
+    let attach = async |slug: &str, episode: u32, files: serde_json::Value| {
+        let (c, b) = json(
+            &app,
+            "PUT",
+            &format!("/api/v1/shows/{slug}/series/1/episodes/{episode}/files"),
+            files,
+        )
+        .await;
+        assert_eq!(c, StatusCode::OK, "{b}");
+    };
+    attach(
+        "members",
+        1,
+        serde_json::json!({"enclosure": aired, "opus": aired_opus}),
+    )
+    .await;
+    attach("members", 2, serde_json::json!({"enclosure": unaired})).await;
+    attach("members", 3, serde_json::json!({"enclosure": shared})).await;
+    attach("open-desk", 1, serde_json::json!({"enclosure": open})).await;
+    attach("open-desk", 2, serde_json::json!({"enclosure": shared})).await;
+
+    let fetch = async |method: &str, uri: String, range: bool| {
+        let mut req = Request::builder().method(method).uri(uri);
+        if range {
+            req = req.header(header::RANGE, "bytes=0-9");
+        }
+        let (code, bytes) = send(&app, req.body(Body::empty()).unwrap()).await;
+        (code, String::from_utf8_lossy(&bytes).into_owned())
+    };
+    let file = async |f: &str| fetch("GET", format!("/media/episodes/{f}"), false).await.0;
+    let items = async |slug: &str| {
+        let (code, xml) = fetch("GET", format!("/feeds/{slug}.xml"), false).await;
+        assert_eq!(code, StatusCode::OK, "{xml}");
+        xml.matches("<item>").count()
+    };
+    let listed = async || {
+        let (code, body) = fetch("GET", "/api/v1/public/episodes?limit=50".into(), false).await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        body
+    };
+    let show = weavesignal_model::shows::get_show(&pool, station_id, "members")
+        .await
+        .unwrap()
+        .expect("the show")
+        .id;
+    let rule = async |rule: &str, opens_at_ms: Option<i64>| {
+        weavesignal_model::listener_keys_db::set_access(
+            &pool,
+            station_id,
+            &weavesignal_model::listener_keys_db::Access {
+                show_id: show,
+                rule: rule.into(),
+                opens_at_ms,
+                slate: "fallback".into(),
+                slate_note: String::new(),
+                updated_ms: 0,
+                updated_by: "shows-db-test".into(),
+            },
+            "shows-db-test",
+        )
+        .await
+        .unwrap();
+    };
+
+    // Public: as before. A file no episode names is not served, nor a half-written copy.
+    assert_eq!(items("members").await, 1);
+    assert!(listed().await.contains(&aired));
+    for f in [&aired, &aired_opus, &unaired, &open, &shared] {
+        assert_eq!(file(f).await, StatusCode::OK, "{f}");
+    }
+    let encoded = aired.replacen('-', "%2D", 1);
+    assert_eq!(file(&encoded).await, StatusCode::OK);
+    let (code, part) = fetch("GET", format!("/media/episodes/{aired}"), true).await;
+    assert_eq!(
+        (code, part.is_empty()),
+        (StatusCode::PARTIAL_CONTENT, false)
+    );
+    let (code, body) = fetch("HEAD", format!("/media/episodes/{aired}"), false).await;
+    assert_eq!((code, body.len()), (StatusCode::OK, 0));
+    for f in [
+        stray.as_str(),
+        ".retag-half.mp3",
+        "%2Eretag-half.mp3",
+        "..%2F..%2Fcards",
+        "sub%2Fx.mp3",
+        "sub/x.mp3",
+    ] {
+        assert_eq!(file(f).await, StatusCode::NOT_FOUND, "{f}");
+    }
+
+    // Keyed: nothing of the show is left in the feed, the list or the file route; the other
+    // show is untouched, but for the file it shares with the keyed one.
+    for opens in [None, Some(4_000_000_000_000)] {
+        rule("key", opens).await;
+        assert_eq!(items("members").await, 0, "{opens:?}");
+        assert_eq!(items("open-desk").await, 1);
+        let list = listed().await;
+        assert!(
+            !list.contains(&aired) && !list.contains(&aired_opus),
+            "{list}"
+        );
+        assert!(list.contains(&open), "{list}");
+        for f in [&aired, &aired_opus, &unaired, &shared, &encoded] {
+            assert_eq!(file(f).await, StatusCode::NOT_FOUND, "{f} {opens:?}");
+            for (method, range) in [("HEAD", false), ("GET", true)] {
+                let (code, _) = fetch(method, format!("/media/episodes/{f}"), range).await;
+                assert_eq!(code, StatusCode::NOT_FOUND, "{method} {f}");
+            }
+        }
+        assert_eq!(file(&open).await, StatusCode::OK);
+    }
+
+    // Opened to everyone, and public again: as before.
+    for (kind, opens) in [("key", Some(1_000)), ("public", None)] {
+        rule(kind, opens).await;
+        assert_eq!(items("members").await, 1, "{kind}");
+        assert!(listed().await.contains(&aired), "{kind}");
+        assert_eq!(file(&aired).await, StatusCode::OK, "{kind}");
+        assert_eq!(file(&unaired).await, StatusCode::OK, "{kind}");
+    }
+
+    // A file an episode no longer names is not served any more.
+    attach("members", 1, serde_json::json!({"enclosure": replacement})).await;
+    assert_eq!(file(&replacement).await, StatusCode::OK);
+    assert_eq!(file(&aired).await, StatusCode::NOT_FOUND);
+
+    // The rules cannot be read: nothing is served.
+    pool.close().await;
+    assert_eq!(file(&replacement).await, StatusCode::INTERNAL_SERVER_ERROR);
+}

@@ -15,7 +15,7 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 use weavesignal_control::app::{AppState, router};
-use weavesignal_control::carts::CartsLink;
+use weavesignal_control::carts::{CartsLink, station_config};
 use weavesignal_control::config::CartsConfig;
 use weavesignal_control::desk::DeskClient;
 use weavesignal_control::hub::Hub;
@@ -120,11 +120,12 @@ async fn an_upload_becomes_a_cart_through_the_media_worker() {
     .await;
     assert_eq!(code, StatusCode::CREATED, "{cart}");
     assert_eq!(cart["duration_ms"], 2000);
-    // A 440 Hz sine at half scale in stereo is about -6.7 LUFS; the gain brings it to -23.
+    // A 440 Hz sine at half scale in stereo is about -6.7 LUFS; the gain brings it to the target
+    // the settings leave to the station, -16 for a station made since 1.3.3.
     let lufs = cart["loudness_lufs"].as_f64().unwrap();
     let gain = cart["gain_db"].as_f64().unwrap();
     assert!((lufs - -6.7).abs() < 0.3, "{cart}");
-    assert!((lufs + gain - -23.0).abs() < 0.05, "{cart}");
+    assert!((lufs + gain - -16.0).abs() < 0.05, "{cart}");
     let file = cart["file"].as_str().unwrap().to_owned();
     assert!(weavesignal_model::carts::is_cart_file(&file));
     let flac = std::fs::read(dir.join(&file)).unwrap();
@@ -1064,4 +1065,185 @@ async fn the_default_pack_is_loaded_again_and_keeps_what_is_a_persons() {
     assert_eq!(again["plans"][0]["remove"], 0);
     let _ = wall(app.clone(), 5, hub.clone()).await;
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// A station's cart wall on its own database: a bank, a tone through the media worker, and what
+/// the wall says its target is. Returns (the catalogue's `loudness_lufs`, the tone's measured
+/// loudness plus its stored gain).
+async fn level_on(pool: &sqlx::PgPool, station: &Station, config: CartsConfig) -> (f64, f64) {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("carts-level-{}", uuid::Uuid::new_v4()));
+    let config = CartsConfig {
+        media_dir: dir.clone(),
+        worker: Some(env!("CARGO_BIN_EXE_weavesignal-control").into()),
+        ..config
+    };
+    let hub = Hub::new(
+        &station.name,
+        Studio::default(),
+        DeskClient::new(None),
+        None,
+        Duration::from_millis(250),
+        CartsLink::new(config, Some((pool.clone(), station.id))),
+    );
+    hub.start_carts().await;
+    let app = router(Arc::new(AppState {
+        station: station.clone(),
+        db: Some(pool.clone()),
+        room: None,
+        admin_token: Some(ADMIN.into()),
+        staff: Default::default(),
+        hub: hub.clone(),
+        join: weavesignal_control::config::JoinConfig::default(),
+        video: Default::default(),
+        joins: Default::default(),
+        turn_tls_port: 5349,
+        steering: Default::default(),
+    }));
+    let (code, cat) = send(
+        &app,
+        req(
+            "PUT",
+            "/api/v1/carts/banks/1",
+            Body::from(r#"{"name": "Level", "colour_slot": 3}"#),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{cat}");
+    let wav = weavesignal_media::wav_sine(44_100, 2, 2.0, 440.0, 0.5);
+    let (code, cart) = send(
+        &app,
+        req(
+            "PUT",
+            "/api/v1/carts/banks/1/slots/1?label=Tone&mode=one_shot",
+            Body::from(wav),
+        ),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{cart}");
+    let _ = std::fs::remove_dir_all(&dir);
+    (
+        cat["loudness_lufs"].as_f64().unwrap(),
+        cart["loudness_lufs"].as_f64().unwrap() + cart["gain_db"].as_f64().unwrap(),
+    )
+}
+
+/// 1.3.3 brings a new installation's carts to -16 LUFS, and keeps every station from before at
+/// -23 (or at whatever its settings say): migration 0073 marks the stations it finds, and a
+/// station's settings that set a target win either way. Proved on two databases of their own:
+/// one migrated as 1.3.2 left it (migrations 0001 to 0072, a station in it) and then started by
+/// this release, and one this release makes from nothing.
+#[tokio::test]
+#[ignore = "needs WEAVESIGNAL_TEST_DATABASE_URL"]
+async fn new_stations_carts_are_minus_16_and_an_upgraded_station_keeps_minus_23() {
+    let url =
+        std::env::var("WEAVESIGNAL_TEST_DATABASE_URL").expect("WEAVESIGNAL_TEST_DATABASE_URL");
+    let admin = sqlx::PgPool::connect(&url).await.expect("connect");
+    let tag = uuid::Uuid::new_v4().simple().to_string();
+    let (upgraded_db, fresh_db) = (
+        format!("carts_upgraded_{}", &tag[..12]),
+        format!("carts_fresh_{}", &tag[..12]),
+    );
+    for db in [&upgraded_db, &fresh_db] {
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {db}")))
+            .execute(&admin)
+            .await
+            .unwrap();
+    }
+    let at = |db: &str| format!("{}/{db}", url.rsplit_once('/').unwrap().0);
+    let settings = CartsConfig::default();
+    assert_eq!(settings.loudness_lufs, None, "the settings leave it out");
+
+    // 1.3.2's database: its migrations, 0001 to 0072 (the last 1.3.2 shipped), and its station
+    // as 1.3.2's start wrote it.
+    let src = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../model/migrations"));
+    let old = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("migrations-1.3.2-{tag}"));
+    std::fs::create_dir_all(&old).unwrap();
+    for e in std::fs::read_dir(src).unwrap() {
+        let name = e.unwrap().file_name().into_string().unwrap();
+        if name
+            .get(..4)
+            .and_then(|n| n.parse::<u32>().ok())
+            .is_some_and(|n| n <= 72)
+        {
+            std::fs::copy(src.join(&name), old.join(&name)).unwrap();
+        }
+    }
+    assert!(old.join("0072_keyed_interval.sql").is_file());
+    assert!(!old.join("0073_carts_loudness_default.sql").exists());
+    let pool = sqlx::PgPool::connect(&at(&upgraded_db)).await.unwrap();
+    sqlx::migrate::Migrator::new(old.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let id = StationId::new_random();
+    sqlx::query("INSERT INTO station (id, name) VALUES ($1, $2)")
+        .bind(id.as_uuid())
+        .bind("Kettle FM")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&old);
+
+    // Upgraded: this release starts on it, twice. It stays at -23, and so do its uploads.
+    for _ in 0..2 {
+        let station = ensure_station(&pool, &Station::new(id, "Kettle FM").unwrap())
+            .await
+            .unwrap();
+        let cfg = station_config(settings.clone(), &pool, station.id)
+            .await
+            .unwrap();
+        assert_eq!(cfg.target(), -23.0, "an upgraded station keeps -23");
+        let (said, played) = level_on(&pool, &station, cfg).await;
+        assert_eq!(said, -23.0);
+        assert!((played - -23.0).abs() < 0.05, "{played}");
+    }
+    let station = Station::new(id, "Kettle FM").unwrap();
+    // Its settings (or CARTS_LOUDNESS_LUFS) move it to -16.
+    let set = CartsConfig {
+        loudness_lufs: Some(-16.0),
+        ..settings.clone()
+    };
+    let cfg = station_config(set, &pool, station.id).await.unwrap();
+    let (said, played) = level_on(&pool, &station, cfg).await;
+    assert_eq!(said, -16.0);
+    assert!((played - -16.0).abs() < 0.05, "{played}");
+
+    // A new installation: an empty database, its station made at its first start; -16 then
+    // and at every start after.
+    let fresh = sqlx::PgPool::connect(&at(&fresh_db)).await.unwrap();
+    let new_id = StationId::new_random();
+    for _ in 0..2 {
+        let station = ensure_station(&fresh, &Station::new(new_id, "Ochil Radio").unwrap())
+            .await
+            .unwrap();
+        let cfg = station_config(settings.clone(), &fresh, station.id)
+            .await
+            .unwrap();
+        assert_eq!(cfg.target(), -16.0, "a new station's carts are at -16");
+        let (said, played) = level_on(&fresh, &station, cfg).await;
+        assert_eq!(said, -16.0);
+        assert!((played - -16.0).abs() < 0.05, "{played}");
+    }
+    // Its settings can keep it at -23.
+    let set = CartsConfig {
+        loudness_lufs: Some(-23.0),
+        ..settings.clone()
+    };
+    let cfg = station_config(set, &fresh, new_id).await.unwrap();
+    assert_eq!(cfg.target(), -23.0);
+
+    pool.close().await;
+    fresh.close().await;
+    for db in [&upgraded_db, &fresh_db] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE {db} WITH (FORCE)"
+        )))
+        .execute(&admin)
+        .await
+        .unwrap();
+    }
 }

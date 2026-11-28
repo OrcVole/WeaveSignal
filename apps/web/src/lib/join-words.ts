@@ -54,3 +54,20 @@ export function movedHere(m: Moved, now: number): string {
   const due = m.airing_start_ms > now ? 'is due on air' : 'was due on air';
   return `The rehearsal for ${m.show} has moved to the live studio, which ${due} at ${clock(m.airing_start_ms)}. This page took your place there: you join standing by, and you are not on air until the handover.`;
 }
+
+/** `/join/` opened with no invitation in its address (1.3.3): typed by hand, found in a search,
+ *  or a link that lost everything after its `#` on the way. Nothing has gone wrong on the page,
+ *  so it is not worded as a fault: it says who the page is for, what to do with the link, who to
+ *  ask without one, and where everyone else wants to be. `station` is empty until it is known. */
+export function bareWords(station: string): { title: string; heading: string; who: string; link: string; ask: string; listen: string; player: string } {
+  const s = station.trim();
+  return {
+    title: s ? `Join ${s}` : 'Join the studio',
+    heading: 'Join with an invitation',
+    who: `This page is for people ${s || 'the station'} has invited to its studio: guests, remote DJs and presenters.`,
+    link: 'Have the link the station sent you? Open that link, all of it, on this device, and your invitation comes with it.',
+    ask: 'No link, or only part of one? Ask whoever invited you to send it again.',
+    listen: 'Here to listen, or to call the show?',
+    player: s ? `Go to ${s}’s player` : 'Go to the player',
+  };
+}

@@ -1,6 +1,6 @@
 ---
 title: "Install on Cloudron"
-description: "Install the WeaveSignal 1.0.0 Cloudron package from its image, choose its domains and ports, sign in, and keep the station private until it goes public."
+description: "Install the WeaveSignal Cloudron package from its catalogue, choose its domains and ports, sign in, and keep the station private until it goes public."
 type: howto
 status: draft
 last_verified: 2026-11-10
@@ -8,7 +8,7 @@ sidebar:
   order: 31
 ---
 
-> **Package 1.0.0, amd64.** Listed on ca.cloudron.io, the community app catalogue: <https://ca.cloudron.io/app/top.weavesignal.cloudronapp>.
+> **The package is amd64.** Listed on ca.cloudron.io, the community app catalogue: <https://ca.cloudron.io/app/top.weavesignal.cloudronapp>.
 > The package's source is in the repository, in `deploy/cloudron/`.
 
 > **New to this?** The [install wizard](/docs/install-wizard/) asks for the four names and gives you `weavesignal.env`, the DNS records (with the AAAA steps below worked out) and the commands (from 1.0.1).
@@ -56,11 +56,12 @@ Cloudron asks for four domains and the public ports:
 | Live room media over TCP | off | 7881 if you turn it on; TURN over TLS reaches the same guests |
 | Hosts' own studios: Icecast | off | 8005 if you turn it on; TCP, for hosts who send from their own software ([Set up a host in their own studio](/docs/how-to/set-up-a-host-in-their-own-studio/)) |
 | Hosts' own studios: SRT | off | 9710 if you turn it on; UDP, the same hosts over SRT |
+| Hosts' own studios: WHIP | off | 9712 if you turn it on; UDP, a host sending from OBS; needs the public pages' domain |
 
 Every port stays a setting you can change later in the app's settings (ADR-0075).
 Open the media port and the TURN port, and any optional port you turn on, in the server's firewall and in any cloud provider's firewall.
 
-The two ports for hosts' own studios are off at install; turn them on in the app's **Location** settings when the station sets up its first host.
+The three ports for hosts' own studios are off at install; turn them on in the app's **Location** settings when the station sets up its first host.
 The station then listens on them only while a show key exists, and tells hosts the numbers chosen here.
 A host's software connects to the server directly on these ports, through Cloudron's port mapping rather than its proxy, so the station should count wrong keys by the host's own address.
 This is expected from how Docker maps ports, and has not yet been measured on a Cloudron.
@@ -76,8 +77,8 @@ The login cannot be added to an app already installed, which is why the package 
 To build the image yourself, from the repository's root:
 
 ```sh
-podman build -t registry.station.example/weavesignal-cloudron:1.3.2 -f deploy/cloudron/Dockerfile .
-podman push registry.station.example/weavesignal-cloudron:1.3.2
+podman build -t registry.station.example/weavesignal-cloudron:1.3.3 -f deploy/cloudron/Dockerfile .
+podman push registry.station.example/weavesignal-cloudron:1.3.3
 ```
 
 The Dockerfile needs the repository's root as its context and uses build caches, so it is built on your machine, not by Cloudron.
@@ -85,7 +86,7 @@ Push it to a registry the Cloudron can pull from (a private one needs a read-onl
 
 ## Sign in
 
-Cloudron shows a checklist for the app after installing, and a note with the same first steps: set the station up, make yourself an admin, choose who hears the stream, open the public ports, and, only if hosts will send from their own software, turn on the two source ports in Location.
+Cloudron shows a checklist for the app after installing, and a note with the same first steps: set the station up, make yourself an admin, choose who hears the stream, open the public ports, and, only if hosts will send from their own software, turn on the source ports you need in Location.
 
 If you press **Open in Cloudron** and land on a page that says *This station is not set up yet*, that is the app's own domain before the station is named (1.1): it lists these steps, links to the setup page and to the studio app's installers, and goes away once the station has a name of its own or its setup is finished. A 1.0.5 install that updates to 1.1 and was never set up, still called *Kettle FM*, shows it too. It is shown only on the app's own domain; the public pages' domain keeps the player and answers 404 for it.
 
@@ -109,7 +110,7 @@ The app writes two files in `/app/data` on its first start; open them with Cloud
 
 | File | Holds |
 |---|---|
-| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `STUN_SERVERS`, `CONSENT_CONTACT`, the consent words (`CONSENT_TEXT`, empty for the default words; from 1.2), `FEED_BUFFER_S`, `VIDEO`, `REHEARSAL` (from 1.3.0), video's encoder (`VIDEO_ENCODER`, `svt`: the app has no GPU; from 1.2), `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings), which the package cannot run yet), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
+| `weavesignal.env` | the station's settings: `STATION_NAME`, `ROOM_NAME`, `LISTENERS_AUTH`, `LISTENERS_MOUNT`, `NODE_IP`, `STUN_SERVERS`, `CONSENT_CONTACT`, the consent words (`CONSENT_TEXT`, empty for the default words; from 1.2), `FEED_BUFFER_S`, `VIDEO`, `REHEARSAL` (from 1.3.0), video's encoder (`VIDEO_ENCODER`, `svt`: the app has no GPU; from 1.2), `MAIL_MODE`, `PUBLISHING_URL`, `PUBLISHING_PLACE`, `PUBLISHING_ZONE`, `SEARCH_LISTING`, `DIRECTORY_LISTING`, the Opus stream's rate (`OPUS_BITRATE`, 96 kbit/s), the two MP3 streams (`COMPAT_STREAM`, `COMPAT_MOUNT`, `COMPAT_BITRATE` at 128 kbit/s, and `COMPAT_HIGH_STREAM`, `COMPAT_HIGH_MOUNT`, `COMPAT_HIGH_BITRATE` at 320; [Playout](/docs/reference/playout/#the-mp3-streams)), the chat's hours (`CHAT_HOURS`: `always` or `shows`; [The chat service](/docs/reference/chat/#hours)), sending the programme to another Icecast server (`ICECAST_OUT` and its host, port, mount, user, TLS and bit rate; [how-to](/docs/how-to/send-to-azuracast/)), RTMP out's picture and encoder (`VIDEO_CANVAS`, `RTMP_RUNG`, `RTMP_H264`, `RTMP_VIDEO_KBPS`; [RTMP out](/docs/reference/rtmp-out/#settings)), playout's processing (`PROCESSING`, `PROCESSING_TARGET_LUFS`, `PROCESSING_MAX_GAIN_DB`), the carts' loudness (`CARTS_LOUDNESS_LUFS`, empty for the station's own; from 1.3.3: [The carts' loudness](/docs/reference/desk-carts/#the-carts-loudness)), from 1.1 the show, the rundown, the banned list and content steering (`STUDIO_*` and `STEERING_*`, empty until you set them; [Set the show](/docs/how-to/set-the-show/#on-cloudron), [Steer viewers to the edges](/docs/how-to/run-edges/#steer-viewers-to-the-edges)), the internal ports and `LOG_LEVEL` |
 | `secrets.env` | made once (`ICECAST_OUT_PASSWORD` is an empty line for you to fill if you send to another Icecast server): `STATION_ID`, LiveKit's key and secret, the listener source password, `CONTROL_ADMIN_TOKEN`, `LISTENERS_PASSWORD`, and the three keys `CHAT_EMAIL_KEY`, `CONTROL_EMAIL_KEY` and `CONTROL_TOKEN_KEY` |
 
 On every start the package writes each service's own settings from these two files and from Cloudron's environment.

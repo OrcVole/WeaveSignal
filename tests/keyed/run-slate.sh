@@ -12,7 +12,8 @@
 # stand-in desk (1 kHz over SRT), no control plane: this script sends playout's commands. One
 # listener process for the whole run; playout is started again for each station:
 #   loop    no slate file, an empty fallback folder, the default loop (the shipped file): default_loop
-#   junk    no slate file, a fallback folder holding only a file that does not play: default_loop
+#   junk    no slate file, a fallback folder holding only a file that does not play: default_loop,
+#           and (1.3.3) not a line about that file in playout's log
 #   files   no slate file, a fallback file (440 Hz) and the default loop: fallback
 #   slate   a slate file (2500 Hz), a fallback file and the default loop: slate_file
 # For each: the desk live, the public mount followed for 48 s, the window on for 16 s in the
@@ -167,5 +168,11 @@ for s in $STATIONS; do
   check "$s: no gap over 1 s at the window's start or end ($(py "$cap.json" '[e["quiet_s"] for e in d.get("edges", [])]') s)" \
     "py '$cap.json' 'all(e[\"quiet_s\"] <= 1.0 for e in d[\"edges\"])' | grep -q True"
   stop_playout "$s"
+  # 1.3.3: a file in the fallback folder that is not a sound never reaches the decoder (before,
+  # about two tries a second, three error lines each, filled playout's log).
+  if [ "$s" = junk ]; then
+    check "$s: playout's log has no decoder errors for notes.txt ($(grep -c 'notes.txt' "$run/playout-$s.log" || true) lines)" \
+      "! grep -q 'notes.txt' '$run/playout-$s.log'"
+  fi
 done
 exit "$fail"

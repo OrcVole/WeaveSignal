@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // SPDX-FileCopyrightText: 2026 The WeaveSignal contributors
-// Start now (New show, part 2; 1.3.2, the operator's answer of 2026-11-24): a first show on air
+// Start now (New show, part 2; 1.3.2, the operator's answer of 2026-11-24; the DJ's setup, part
+// 3, from 1.3.3): a first show on air
 // within a minute, with one press, for the person who has just named it. The rule is the
 // station's (`GET /api/v1/schedule/rule/now`): once, from the station's next whole minute, on
 // its own clock and zone, so a studio whose clock is wrong still starts the show when it says.
@@ -64,6 +65,8 @@ export const START_NOW = {
   lead: 'On air straight away?',
   /** What one press does, with the length the form gives. */
   what: (minutes: number) => `Makes the show and starts it at the next whole minute, station time, for ${lengthWords(minutes)}, once. Give it more dates later, from the show’s pane.`,
+  /** The same in the DJ's setup, where the press saves the DJ's own show. */
+  whatMine: (minutes: number) => `Saves your show and starts it at the next whole minute, station time, for ${lengthWords(minutes)}, once. Give it more dates later, from Settings, under Your show.`,
   notNow: 'Not now',
 } as const;
 

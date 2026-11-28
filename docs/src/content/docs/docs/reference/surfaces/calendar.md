@@ -25,7 +25,7 @@ Not drawn on the tab: the app’s top bar, `studio.frame`, is above every tab.
 | `‹` `›` (`←` `→`) | the previous and next week; in the Day view the previous and next day |
 | **Today** (`T`) | back to this week, or to today in the Day view |
 | the range | the week's dates, or the day's: *Wed 18 November 2026* |
-| **Week** (`W`), **Day** (`D`), **Rota** (`R`), **Studios** | the view. **Rota** (from 1.2) is the next twelve hours as a list (`calendar.rota`, below). **Day** opens one day (`calendar.day`): the selected block's day, else today when it is in the week shown, else the week's Monday. The tab opens on **Week** every time. **Studios** is **[planned](/docs/reference/release-one-status/)** and says it is not in this build: studios as columns wait for a studio on each show |
+| **Week** (`W`), **Day** (`D`), **Rota** (`R`), **Studios** | the view. **Rota** (from 1.2) is the next twelve hours as a list (`calendar.rota`, below). **Day** opens one day (`calendar.day`): the selected block's day, else today when it is in the week shown, else the week's Monday. The tab opens on **Week** every time. **Studios** (from 1.3.0) opens one day with a column for each studio: Studio and, where the station's rehearsal studio is on, Rehearsal, with its bookings and sessions ([Rehearse before your show](/docs/how-to/rehearse-before-your-show/)). At a station older than 1.3.0 the button says why there is no such view |
 | the zone | the station's time zone, and its clock change if one falls this week |
 | **Choose the time zone…** | shown to an admin until someone has chosen the station's zone; opens Settings |
 | **New show** | opens New show (`calendar.new-show`) |
@@ -66,7 +66,7 @@ A block takes focus with `Tab` and opens with `⏎`; a future episode can be dra
 
 ### Where shows clash
 
-The model has no studios yet, so any two shows that share time clash.
+A show has no studio of its own (every show goes out from the one live studio), so any two shows that share time clash.
 The week folds them, so that one name is always readable and nothing is drawn through anything else:
 
 | What is drawn | When |
@@ -133,7 +133,7 @@ Every other pane of the column begins its crumbs with **‹ Shows**, which close
 `Esc` does the same from anywhere on the tab, once no text field, menu or dialog has the key; it closes nothing while the column holds changes that are not saved, and the tab says so.
 So does a press on the grid where no block is. There is little of that, because automation fills every gap in time and a press on those hours opens their log: only the narrow gap beside a day's blocks, and in a wide window the plane beside the Day view's column.
 The rows are one stop for `Tab`: `↑` `↓`, `Home` and `End` move between them, and `⏎` opens the show.
-From 1.3.2 each row ends with the tick **Keyed show**, for an admin or a producer: ticked, the show is kept for people with a key from that moment, and what the tick did is said under the row; unticking a keyed show asks first. `Tab` from the row in focus reaches its tick. Anyone else sees the word **Keyed**, with the key, on a keyed show.
+From 1.3.2 each row ends with the tick **Keyed show**, for an admin or a producer: ticked, the show is kept for people with a key from that moment, and what the tick did is said under the row; unticking a keyed show asks first. From 1.3.3 it is ticked only while a key is needed: a show that has opened to everyone by itself is not ticked, and a line under its row says when it opened and that ticking keeps it again ([the tick's three states](/docs/reference/surfaces/keys/#the-key-beside-a-show)). `Tab` from the row in focus reaches its tick. Anyone else sees the word **Keyed**, with the key, on a keyed show.
 
 ## `calendar.show-dates`
 
@@ -245,7 +245,7 @@ At the foot of the list of shows (`calendar.shows`): the shows that draw nothing
 ![The episode editor for Saturday Night Kettle: its path, date and time, and each field marked as inherited or set here.](../../../../../assets/screens/reference-calendar-episode-editor.png)
 
 The selected episode: its path (**‹ Shows** › the show › series › episode), its date and a TONIGHT, ON AIR or AIRED chip, and a level switch (Episode, Series n, Show). **Show**, and the show's name in the path, open the show's pane at its Dates (`calendar.show-dates`).
-From 1.3.2 the first thing under the head, on an episode and on a date not drafted yet, is who can listen: the tick **Keyed show** (the show's, for an admin or a producer), the rule in words (*This show is kept for people with a key. Every episode …, this one too*), and **Who can listen…**. On an aired episode it says that a key keeps the whole show, not one episode. A show's pane has the same tick under its name, on both its tabs.
+From 1.3.2 the first thing under the head, on an episode and on a date not drafted yet, is who can listen: the tick **Keyed show** (the show's, for an admin or a producer), the rule in words (*This show is kept for people with a key. Every episode …, this one too*), and **Who can listen…**. On an aired episode it says that a key keeps the whole show, not one episode, that nothing there changes who heard it on air, and (from 1.3.3) what the tick does to that episode's file: a keyed show's podcast feed and episode files are held back, an aired episode's too, until the show is open to everyone, and copies already downloaded cannot be called back. A show's pane has the same tick under its name, on both its tabs.
 The same column, under the same name, holds a dashed rule date's **Draft this episode**, **Skip this date** and **All its dates**, and the show editor (the show pane's **Details**). With nothing open the column is the list of shows (`calendar.shows`).
 Every field carries one of three markers:
 

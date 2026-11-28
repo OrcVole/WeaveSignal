@@ -94,7 +94,7 @@ services:
     depends_on: [listeners, control]
 
   desk:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-desk", "--config", "/etc/weavesignal/desk.toml"]
@@ -145,7 +145,7 @@ services:
     restart: unless-stopped
 
   control:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-control", "--config", "/etc/weavesignal/control.toml", "serve"]
@@ -168,6 +168,10 @@ services:
       # Whether a pulled source (1.2) may open an address inside the station's own network
       # (PULL_ALLOW_PRIVATE=true); empty or false, the default, refuses those.
       WEAVESIGNAL_PULL_ALLOW_PRIVATE: ${PULL_ALLOW_PRIVATE:-}
+      # The carts' loudness target in LUFS (1.3.3, CARTS_LOUDNESS_LUFS). Empty, the default: the
+      # station's own, -16 for a station installed with 1.3.3 or later and -23, as before, for
+      # one from an earlier release. Never written with a default here, or every station moves.
+      WEAVESIGNAL_CARTS_LOUDNESS_LUFS: ${CARTS_LOUDNESS_LUFS:-}
     configs:
       - source: control
         target: /etc/weavesignal/control.toml
@@ -196,7 +200,7 @@ services:
   # control plane's studio view for the room's modes. Sign-in codes go nowhere until the
   # station sets [mail] (MAIL_MODE).
   chat:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-chat", "--config", "/etc/weavesignal/chat.toml", "serve"]
@@ -233,7 +237,7 @@ services:
   # SOURCE_WHIP_PORT, its offers passed on by the control plane to INGEST_WHIP_PORT on loopback,
   # and its one ICE candidate LiveKit's address (LIVEKIT_NODE_IP, which weavesignal.sh sets).
   ingest:
-    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2}
+    image: ${SERVER_IMAGE:-forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3}
     oom_score_adj: ${WEAVESIGNAL_OOM_SCORE_ADJ:-0}
     network_mode: host
     command: ["weavesignal-ingest", "run"]

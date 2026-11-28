@@ -22,8 +22,7 @@ Every account has one role for the whole station: `admin`, `producer`, `presente
 | any role | run the studio: the desk, the screener, the carts, the chat's modes and moderation, the schedule, shows and cards, invitations |
 | `admin` only | retention, holds and erasure; the people list; the chat's settings, exports and holds; playout's settings; listener monitors; the staff list; API tokens and webhooks |
 
-WeaveSignal 1.0 enforces those two tiers.
-The role is recorded either way, so a finer split can follow without changing anyone's account.
+WeaveSignal 1.0 enforced those two tiers. Later releases added actions that need a producer or an admin, among them listener keys, who can listen to a show, holding a handover and deleting a show.
 
 ## The first admin
 
@@ -130,7 +129,6 @@ An admin cannot turn off their own account or take away their own admin role; an
 - **The platform's own sign-in** (Cloudron's OpenID Connect), which ADR-0127 adds where a deployment offers it.
 - **A setting for which ways in a station offers**: today the password is always on, and the emailed code is on when `[mail]` is.
 - **A person setting their own sign-in address in the app**: they ask an admin (the route for it exists).
-- **Retention holds and erasure named by the sign-in**: a hold still records the name typed in its *By* field (filled in from your account).
 - **Roles limited to one show or a time window.**
 - The browser build of the studio is still given the station key (`?token=`), as before.
 

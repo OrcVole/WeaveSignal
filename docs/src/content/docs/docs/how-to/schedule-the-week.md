@@ -50,6 +50,7 @@ For a first show, or one that should be on air in a minute (from 1.3.2):
 3. **Done** says when it starts, in the station's time. When that minute comes, the step at the top of the studio becomes the show's. **ON AIR** is the lamp, not the schedule: it lights when listeners can hear someone, which is the **On** key's doing, not the clock's.
 
 If another show is on the schedule at that minute, **Start now** says which and what a clash costs, and waits for **Start now anyway** or **Not now**; nothing is made until you choose. A presenter, whom the station does not let schedule over another show, is told so instead. The minute is the station's own, on its clock and in its zone, so a computer whose clock is wrong still starts the show on time. Give the show more dates later from its pane: **When it airs**, **Change…**.
+From 1.3.3 a DJ setting up their own show for the first time has the same **Start now**, at the head of the setup's third part ([Set up your show](/docs/how-to/set-up-your-show/#start-now)).
 
 Hosts, a description, the card layout and the presenter's details are in the show editor; a series and its episodes inherit them until set lower down (ADR-0055).
 

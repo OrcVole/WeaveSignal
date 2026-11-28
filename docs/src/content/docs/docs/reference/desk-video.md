@@ -138,17 +138,17 @@ How the card reaches the desk, on each route ([Use a GPU for video](/docs/how-to
 `weavesignal.sh` with `GPU` unset or `auto` looks for a CDI spec that declares `nvidia.com/gpu` in `/etc/cdi` and `/var/run/cdi` and writes `GPU=nvidia` or `GPU=none`; `GPU=nvidia` with no spec stops it.
 The image needs no driver of its own: Fedora's GStreamer `nvcodec` plugin opens the driver's libraries that the CDI spec mounts, and the image keeps no plugin registry, so a run with the card finds the plugin.
 
-Measured on a card so far only by the M5 bench (below); `tests/gpu/measure.sh` runs the desk's chain on a card at each rung and several at once, with the kernel log watched for the driver's Xid faults, and stops at the first.
+Measured on a card by the M5 bench ([Rungs](#rungs), [What it costs](#what-it-costs)) and, on 2026-11-21, by `tests/gpu/measure.sh` with the 1.2.0 image on one RTX 5090: every rung, three encodes at once and ten minutes of 720p30 held real time with no Xid. The script runs the desk's encoder chain on a card, not a station, with an easy picture, and stops at the first of the driver's Xid faults in the kernel log.
 
 ## A host's own picture
 
-**Designed, not built (1.2).** A host in their own studio often encodes a picture already, with their own card. The design is that the desk passes that picture through to viewers without encoding it again, where the codecs allow, so the host's GPU does the work and the station's server does none.
+**Designed, not built (1.2).** A host in their own studio often encodes a picture already, with their own card. The design is that the desk passes that picture through to viewers without encoding it again, where the codecs allow, so the host's GPU makes the large picture; the station still encodes its own 480p rung for viewers on slow links.
 
 What the desk does today: a host's software reaches the ingest over Icecast, SRT, WHIP, the bridge or VBAN; the ingest takes **the sound only** (an SRT stream's picture is skipped by its MPEG-TS reader, OBS's WHIP picture is accepted and thrown away), decodes it to 48 kHz and hands the desk PCM over one loopback connection per source. The picture viewers see is always the desk's own: the vision mixer's shot, or the slate, encoded at the station.
 
 How it would work:
 
-1. **In.** SRT carrying MPEG-TS with the picture beside the sound: H.264, or AV1 where the host's encoder can put AV1 in MPEG-TS (which OBS versions do is not checked yet). The ingest would keep the picture's elementary stream and hand it to the desk on a second loopback connection beside the sound, with each access unit's timestamp on the source's clock.
+1. **In.** SRT carrying MPEG-TS with the picture beside the sound: H.264, or AV1 where the host's encoder can put AV1 in MPEG-TS (OBS 33.0.2 does, with both its SVT-AV1 and NVENC encoders, seen on 2026-11-21; older versions were not checked). The ingest would keep the picture's elementary stream and hand it to the desk on a second loopback connection beside the sound, with each access unit's timestamp on the source's clock.
 2. **At the desk.** While that source is the only one on air, HLS's rung (and RTMP out's open profile) would take the host's AV1 as it is, re-timed onto the desk's clock and held behind the profanity delay with the sound; the vision mixer, captions and the slate would not touch it. Anyone else on air with them, or a dump, would switch back to the desk's own encode at the next keyframe.
 3. **Where the codecs do not allow it.** H.264 from the host can go to RTMP out's compatible profile as it is, but HLS here is AV1 only, so it would be decoded and encoded again (on the station's card if it has one). A picture larger than the rung, or a keyframe interval other than the segment length, also needs encoding again.
 

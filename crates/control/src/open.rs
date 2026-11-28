@@ -408,7 +408,7 @@ fn file(public: Option<&str>, v: Option<&Value>) -> Option<PublicFile> {
     operation_id = "public_episodes",
     tag = "public",
     summary = "Published episodes",
-    description = "For a station's own website: aired episodes with published files, newest first, with where to hear them, their card, their page and their feed. Page back with `before_ms`. No bearer; CORS open to any origin; limited per address. Cached for 30 s.",
+    description = "For a station's own website: aired episodes with published files, newest first, with where to hear them, their card, their page and their feed. None of a show kept for people with a key (1.3.3). Page back with `before_ms`. No bearer; CORS open to any origin; limited per address. Cached for 30 s.",
     params(EpisodesQuery),
     responses(
         (status = 200, description = "The episodes.", body = PublishedEpisodes),
@@ -436,6 +436,12 @@ async fn episodes(
     let public = public_url(&state);
     let mut found: Vec<(i64, Show, Series, Episode)> = Vec::new();
     for show in all {
+        // A show kept for people with a key has published nothing to the public (1.3.3).
+        match crate::shows::kept_for_keys(&state, show.id).await {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(f) => return f.into_response(),
+        }
         match shows::published_episodes(pool, show.id).await {
             Ok(list) => {
                 for (series, ep) in list {

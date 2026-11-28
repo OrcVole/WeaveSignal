@@ -10,7 +10,8 @@
   // click-through of 2026-11-25: the pane opens at Dates and said nothing of it): the tick that
   // makes the show keyed (KeyedTick, the one control), in words whether everyone can listen or
   // only people with a key, and Who can listen…, which opens Details at the rest of the choice
-  // (what the public hears meanwhile, when it opens to everyone).
+  // (what the public hears meanwhile, when it opens to everyone). A show that opened to everyone
+  // by itself is not ticked (1.3.3): the tick says when it opened and that ticking keeps it again.
   import ShowDates from './ShowDates.svelte';
   import ShowEditor from './ShowEditor.svelte';
   import type { Show, ShowView } from '../lib/schedule.ts';
@@ -74,7 +75,8 @@
   {#if keyed.state === 'ok'}
     <div class="listen" data-testid="pane-listen" data-listen={listen}>
       <KeyedTick slug={show.slug} name={show.name} id="sp-{show.slug}" />
-      <span class="lw">{LISTEN_SHORT[listen]}</span>
+      <!-- On a show that opened to everyone the tick's own line says so, for whoever has the tick. -->
+      {#if !(may && listen === 'opened')}<span class="lw">{LISTEN_SHORT[listen]}</span>{/if}
       {#if may}<button type="button" class="linkish" title="What the public hears meanwhile, and when it opens to everyone" onclick={() => toWhoCanListen(show.slug)}>{KEEP.change}</button>{/if}
     </div>
   {/if}

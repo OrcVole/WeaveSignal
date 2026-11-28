@@ -22,7 +22,7 @@ A program should ignore fields it does not know.
 |---|---|---|---|
 | Open routes | none | a station's own website | read-only: now playing, the coming week, published episodes, the station's public facts |
 | API token | `Authorization: Bearer rsa_…` | a program run by the station: a stream deck, a scheduling script, a bot | the scopes the token was made with, and nothing an admin alone may do |
-| Webhook | a secret per webhook, used to check what arrives | another system that wants to be told | five events, pushed to its address |
+| Webhook | a secret per webhook, used to check what arrives | another system that wants to be told | seven events, pushed to its address |
 
 The station key (`WEAVESIGNAL_CONTROL_ADMIN_TOKEN`) and a staff session still work as before and are not for integrations: the key can do everything, including erasure and staff accounts.
 
@@ -96,7 +96,7 @@ They follow the station's listing setting ([The public pages](/docs/reference/pu
 | `GET /api/v1/now-playing/events` | the same as server-sent events: a `now_playing` event at once, then one per change; a keep-alive every 15 s |
 | `GET /api/v1/public/station` | `station`, `show` (the title on now), `stream_url`, `live` (the show is on air), `call_in_open`, `video` (`live` and `audio` HLS addresses, or null), `zone` |
 | `GET /api/v1/public/schedule?days=7` | the episodes airing from now for `days` (1 to 14), in air order: `show` (`slug`, `name`), `series`, `number`, `aired`, `title`, `description`, `kind`, `air_at` (with the station's offset), `air_at_ms`, `minutes`, `hosts`, `guests`, `tags`, `explicit`, `image`. Under `zone`, with `from_ms` and `to_ms` |
-| `GET /api/v1/public/episodes?limit=20&before_ms=` | episodes that have aired and have published files, newest first (`limit` 1 to 50; `before_ms` pages back): the schedule's fields and `audio` and `audio_opus` (`url`, `mime`, `length`, `duration_ms`), `link`, `feed` |
+| `GET /api/v1/public/episodes?limit=20&before_ms=` | episodes that have aired and have published files, newest first (`limit` 1 to 50; `before_ms` pages back): the schedule's fields and `audio` and `audio_opus` (`url`, `mime`, `length`, `duration_ms`), `link`, `feed`; none of a show kept for people with a key (1.3.3) |
 | `GET /api/v1/public/schedule.ics`, `GET /api/v1/public/shows/{show}.ics` | the schedule, or one show, as an iCalendar file to subscribe to (1.0.5): one event per show's rule, its name, description and page only ([Calendar files](/docs/reference/calendar-files/#export)) |
 
 An episode with an air time is in the schedule, but until it airs only as its place in it: `title` and `description` are `null`, and `guests` and `tags` are empty, and `image` is the show's card. The station has no step that publishes an episode before it airs, so a season drafted from the rule, or a guest pencilled in, is not announced here; once it has aired, the schedule and the episode list show its words as they went out.

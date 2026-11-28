@@ -17,7 +17,6 @@ const DAY = 86_400_000;
 const key = (o: Partial<ListenKey> = {}): ListenKey => ({
   id: 'k1',
   kind: 'personal',
-  label: 'Isla Fraser',
   media: 'both',
   all_shows: false,
   shows: [
@@ -172,15 +171,13 @@ describe('a refusal, as the station sends it', () => {
 describe('the welcome', () => {
   it('greets everyone the same, and never by the name staff gave the key', () => {
     // A key's name is staff's own, to find the key again: "Agent test (delete me)" was shown to
-    // its holder (the operator, 2026-11-25). No key carries a name of the holder's own today.
-    for (const label of ['Isla Fraser', 'Agent test (delete me)', 'Ticket 014', 'Dunfermline Gaelic Choir', 'Radio Ross relay']) {
-      for (const kind of ['personal', 'group', 'machine'] as const) {
-        const said = welcome(key({ label, kind }), 'Kettle FM', NOW, Z);
-        expect(said.lead).toBe('Welcome.');
-        expect(`${said.lead} ${said.rest}`).not.toContain(label.split(' ')[0]);
-      }
+    // its holder (the operator, 2026-11-25). Since 1.3.3 the station does not send it at all.
+    for (const kind of ['personal', 'group', 'machine'] as const) {
+      expect(welcome(key({ kind }), 'Kettle FM', NOW, Z).lead).toBe('Welcome.');
     }
     expect(GREETING).toBe('Welcome.');
+    const s = (openapi as unknown as { components: { schemas: Record<string, { properties?: Record<string, unknown> }> } }).components.schemas;
+    expect(Object.keys(s.ListenKey.properties ?? {})).not.toContain('label');
   });
 
   it('says what the key opens and until when', () => {

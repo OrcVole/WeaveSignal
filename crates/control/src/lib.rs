@@ -96,7 +96,7 @@ pub fn room_state(config: &Config) -> Option<app::RoomState> {
 }
 
 /// Load a cart pack into the station's banks, then stop (`weavesignal-control carts load-pack`).
-pub async fn load_pack(config: Config, dir: &std::path::Path) -> anyhow::Result<usize> {
+pub async fn load_pack(mut config: Config, dir: &std::path::Path) -> anyhow::Result<usize> {
     let station = config.station()?;
     let url = config.database_url.as_ref().with_context(|| {
         format!(
@@ -112,6 +112,9 @@ pub async fn load_pack(config: Config, dir: &std::path::Path) -> anyhow::Result<
     let station = weavesignal_model::ensure_station(&pool, &station)
         .await
         .context("cannot apply the migrations")?;
+    config.carts = carts::station_config(config.carts, &pool, station.id)
+        .await
+        .context("cannot read the station's cart loudness")?;
     let hub = hub::Hub::new(
         &station.name,
         studio::Studio::default(),
@@ -137,7 +140,7 @@ fn sip_api(config: &Config) -> Option<std::sync::Arc<dyn phone::sync::SipApi>> {
 }
 
 /// Run the control plane until SIGINT or SIGTERM.
-pub async fn serve(config: Config) -> anyhow::Result<()> {
+pub async fn serve(mut config: Config) -> anyhow::Result<()> {
     let listener = bind(&config).await?;
     let mut station = config.station()?;
 
@@ -159,6 +162,13 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
                 .await
                 .context("cannot apply the migrations")?;
             tracing::info!("database migrated");
+            config.carts = carts::station_config(config.carts, &pool, station.id)
+                .await
+                .context("cannot read the station's cart loudness")?;
+            tracing::info!(
+                lufs = config.carts.target(),
+                "carts are brought to this loudness"
+            );
             Some(pool)
         }
     };

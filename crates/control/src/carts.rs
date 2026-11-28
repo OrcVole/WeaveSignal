@@ -92,6 +92,22 @@ impl CartsLink {
     }
 }
 
+/// The settings' cart wall with the station's own default target filled in, when the settings
+/// leave it out: -23 LUFS for a station from before 1.3.3, which migration 0073 kept at its old
+/// level, -16 for one made since. Read once at start, before the wall or the media worker sees
+/// the settings, by every command that loads carts.
+pub async fn station_config(
+    config: CartsConfig,
+    pool: &sqlx::PgPool,
+    station: StationId,
+) -> Result<CartsConfig, sqlx::Error> {
+    if config.loudness_lufs.is_some() {
+        return Ok(config);
+    }
+    let old = carts::loudness_default(pool, station).await?;
+    Ok(config.with_station_default(old))
+}
+
 /// One cart sounding, as the control plane keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Sounding {
@@ -319,7 +335,7 @@ impl CartWall {
                     missing: self.missing.contains(&c.id),
                 })
                 .collect(),
-            loudness_lufs: config.loudness_lufs,
+            loudness_lufs: config.target(),
             max_upload_mb: config.max_upload_mb,
             max_seconds: config.max_seconds,
         }
@@ -1249,9 +1265,12 @@ mod tests {
         let cat = w.catalogue(&CartsConfig::default(), None);
         assert_eq!(
             (cat.loudness_lufs, cat.max_upload_mb, cat.max_seconds),
-            (-23.0, 64, 600.0),
+            (-16.0, 64, 600.0),
             "the limits an upload is held to come with the catalogue"
         );
+        // A station from before 1.3.3 says the level its database kept.
+        let old = CartsConfig::default().with_station_default(Some(-23.0));
+        assert_eq!(w.catalogue(&old, None).loudness_lufs, -23.0);
         assert!(!cat.carts[0].missing && cat.carts[1].missing);
         std::fs::remove_file(dir.join(&present)).unwrap();
         assert!(w.refresh_missing(&dir));

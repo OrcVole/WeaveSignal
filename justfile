@@ -94,6 +94,11 @@ liq-check:
     ! grep -q 'to_desk_buffer' {{root}}/playout/weavesignal.liq
     # The outgoing Icecast source (ADR-0226) stays on a clock of its own, so a remote that stalls cannot hold up our listeners
     grep -q 'buffer(id="icecast_out_buffer"' {{root}}/playout/listeners.liq
+    # The fallback folder (1.3.3): files that cannot be sounds by their name never reach the decoder (whose errors filled playout's log), every other file plays as before
+    podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/r/tests/playout:ro -v {{root}}/playout:/r/playout:ro -v {{root}}/assets/default-loop:/a:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /r/tests/playout/station-files.liq
+    grep -q '^%include "station_files.liq"' {{root}}/playout/weavesignal.liq && grep -q '^%include "station_files.liq"' {{root}}/playout/listeners.liq
+    ! grep -nE '(^|[^_a-z])playlist\([^)]*fallback_dir' {{root}}/playout/*.liq
+    grep -q 'playout/station_files.liq' {{root}}/deploy/cloudron/Dockerfile
     # The default loop plays three laps with no gap at the join (ADR-0130)
     podman run --rm --security-opt label=disable -v {{root}}/tests/playout:/t:ro -v {{root}}/assets/default-loop:/a:ro --entrypoint /usr/bin/liquidsoap {{liquidsoap_image}} /t/default-loop.liq
 
@@ -203,7 +208,9 @@ test-onair:
 # 264xx. `NEGATIVE=1` shows the test catches a leak. Then what the public hears meanwhile, for a
 # station with a slate file, with fallback files, and with only the default loop (an empty folder,
 # or one with nothing that plays): real sound, never silence (tests/keyed/run-slate.sh, 266xx).
+# And the edge in front of an HTTPS station reached by host name (run-edge-tls.sh, 26512).
 test-keyed: edge-image
+    EDGE_IMAGE={{edge_image}} SKIP_BUILD=1 {{root}}/tests/keyed/run-edge-tls.sh
     EDGE_IMAGE={{edge_image}} {{root}}/tests/keyed/run-stack.sh
     {{root}}/tests/keyed/run-slate.sh
 
@@ -238,6 +245,26 @@ test-m3:
 test-join-layout:
     cd {{root}}/apps/web && pnpm install --frozen-lockfile && pnpm build
     node {{root}}/tests/m3/layout.mjs
+
+# The microphone chooser (1.3.3) and the bare /join/ page with no stack (needs PLAYWRIGHT_CORE): the
+# join page with a stand-in room, the player's call-in and the echo test as they ship, in headless
+# Chromium with its three test microphones, at 390 and 320 px: no list before the browser names a
+# microphone, a choice kept and asked for again, a change during a call that waits for its button
+# and keeps the join pages' capture rules, a refusal and an unplugging (both simulated), consent
+# sent as before, the echo test untouched. BROWSER=firefox with FIREFOX=<executable> runs it in a
+# stock Firefox over WebDriver BiDi. A change against a real room and desk is
+# tests/m3/microphone-room.mjs, on tests/m3/run-join.sh's stack. Not in `ci`.
+test-microphone:
+    cd {{root}}/apps/web && pnpm install --frozen-lockfile && pnpm build
+    node {{root}}/tests/m3/microphone.mjs
+
+# The player on a station with a picture, with no stack (needs PLAYWRIGHT_CORE and ffmpeg): the
+# page as it ships, a station that is only answers and a short HLS stream made here. Pause and
+# play again, with the picture and with Audio only, and a stream that does not start, then does:
+# the button always says what a press will do. Port 29450, on loopback. Not in `ci`.
+test-player-pause:
+    cd {{root}}/apps/web && pnpm install --frozen-lockfile && pnpm build
+    node {{root}}/tests/player/pause.mjs
 
 # A browser's camera at the desk (needs PLAYWRIGHT_CORE): headless Chromium publishes a camera as
 # the join page does (AV1, the talk station's Brave fault of 2026-11-11), and the desk keeps that
@@ -346,6 +373,9 @@ compose-check:
     # Every service that runs the server image falls back to the same one (the ingest's said 1.0.4 until 1.2.1)
     test "$(grep -o 'SERVER_IMAGE:-[^}]*' {{root}}/deploy/compose/compose.yaml | sort -u | wc -l)" = 1 || { grep -n 'SERVER_IMAGE:-' {{root}}/deploy/compose/compose.yaml; echo 'compose-check: the services fall back to different server images'; exit 1; }
     cd {{root}}/deploy/compose && PULL_ALLOW_PRIVATE=true LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --format json | python3 -I -c 'import json,sys; e=json.load(sys.stdin)["services"]["control"]["environment"]; assert e.get("WEAVESIGNAL_PULL_ALLOW_PRIVATE") == "true", e.get("WEAVESIGNAL_PULL_ALLOW_PRIVATE"); print("compose-check: PULL_ALLOW_PRIVATE reaches the control plane")'
+    # The carts' loudness (1.3.3): unset, nothing reaches the control plane (the station's own default, -23 for a station from before 1.3.3); set, it does
+    cd {{root}}/deploy/compose && LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --format json | python3 -I -c 'import json,sys,tomllib; c=json.load(sys.stdin); e=c["services"]["control"]["environment"]; t=tomllib.loads(c["configs"]["control"]["content"]); assert e.get("WEAVESIGNAL_CARTS_LOUDNESS_LUFS") in (None, ""), e.get("WEAVESIGNAL_CARTS_LOUDNESS_LUFS"); assert "loudness_lufs" not in t.get("carts", {}), t["carts"]; print("compose-check: an unset CARTS_LOUDNESS_LUFS sets no cart level")'
+    cd {{root}}/deploy/compose && CARTS_LOUDNESS_LUFS=-16 LIVEKIT_API_SECRET=check-only-check-only-check-only-0 CHAT_EMAIL_KEY=check-only-check-only-check-only-0 LISTENERS_SOURCE_PASSWORD=check-only POSTGRES_PASSWORD=check-only podman compose --env-file .env.example config --format json | python3 -I -c 'import json,sys; e=json.load(sys.stdin)["services"]["control"]["environment"]; assert e.get("WEAVESIGNAL_CARTS_LOUDNESS_LUFS") == "-16", e.get("WEAVESIGNAL_CARTS_LOUDNESS_LUFS"); print("compose-check: CARTS_LOUDNESS_LUFS reaches the control plane")'
 
 # The server image the Compose bundle runs (the desk, the control plane and the chat)
 server-image:

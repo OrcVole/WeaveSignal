@@ -6,11 +6,17 @@
   // time, its limits and a note. The form holds text, so a half-typed number is not a number
   // yet; lib/keys.ts checks it and makes the body the station takes. The less obvious fields
   // (the kind, what it opens, the window, the limits, a family) carry a hint: a ? with a tooltip.
+  //
+  // For is Sound and picture, or Sound only. A third choice, Picture, with its sound, is no
+  // longer offered (1.3.3; ADR-0295): a key for the picture carries the show's sound, so it
+  // opened what Sound and picture does. A key made with it goes on working and is shown as it
+  // is: its page says so, and Change keeps the choice in the list for that key alone, with a
+  // line that says what it opens, so saving another field does not change what the key is.
   import { KIND_LINE, KIND_WORD, LABEL_MAX, MEDIA_WORD, NOTE_MAX, emailHint, type KeyForm, type KeyProblems } from '../lib/keys.ts';
   import { keyed } from '../lib/keys.svelte.ts';
   import type { KeyFamily, KeyKind, KeyMedia, KeyedShow } from '../lib/keysApi.ts';
   import { localInputValue } from '../schedule/model.ts';
-  import { KEY_TIPS } from '../lib/keyed.ts';
+  import { KEY_TIPS, MEDIA_OLD } from '../lib/keyed.ts';
   import Hint from './Hint.svelte';
 
   let {
@@ -24,6 +30,7 @@
     id,
     hasEmail = false,
     email = $bindable('keep'),
+    video = false,
     two = false,
   }: {
     /** In a wide dialog: the fields in two columns, read down the first and then the second. */
@@ -42,12 +49,16 @@
     id: string;
     /** In `change`: the station keeps an email address for this key. */
     hasEmail?: boolean;
+    /** In `change`: the key as the station has it was made for the picture, a choice no longer
+     *  offered for a new key (1.3.3): it stays in this key's list. */
+    video?: boolean;
     /** In `change`: what happens to that address. */
     email?: 'keep' | 'remove' | 'set';
   } = $props();
 
   const KINDS: readonly KeyKind[] = ['personal', 'group', 'machine'];
-  const MEDIA: readonly KeyMedia[] = ['both', 'sound', 'video'];
+  /** What a key can be for. A key that was made for the picture keeps that in its own list. */
+  const MEDIA: readonly KeyMedia[] = $derived(video || form.media === 'video' ? ['both', 'sound', 'video'] : ['both', 'sound']);
   const tz = $derived(zone || Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   function toggleShow(show: string, on: boolean) {
@@ -127,9 +138,10 @@
 
   <div class="field">
     <span class="labrow"><label for="{id}-media">For</label><Hint id="{id}-media-tip" about="sound and picture">{KEY_TIPS.media}</Hint></span>
-    <select id="{id}-media" bind:value={form.media}>
+    <select id="{id}-media" bind:value={form.media} aria-describedby={form.media === 'video' ? `${id}-media-old` : undefined}>
       {#each MEDIA as m (m)}<option value={m}>{MEDIA_WORD[m]}</option>{/each}
     </select>
+    {#if form.media === 'video'}<span id="{id}-media-old" class="hint" data-testid="media-old">{MEDIA_OLD}</span>{/if}
   </div>
 
   <fieldset class="plain">

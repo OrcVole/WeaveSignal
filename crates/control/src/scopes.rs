@@ -245,6 +245,7 @@ pub const NEVER: &[&str] = &[
     "/api/v1/openapi.json",
     // Files every listener reaches without a bearer.
     "/feeds/{file}",
+    "/media/episodes/{file}",
     "/hls/{path}",
     "/api/v1/station",
     "/api/v1/room/tokens",

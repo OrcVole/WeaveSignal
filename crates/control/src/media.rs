@@ -124,7 +124,7 @@ pub async fn normalise(
         vec![
             "normalise".to_owned(),
             "--target-lufs".to_owned(),
-            cfg.loudness_lufs.to_string(),
+            cfg.target().to_string(),
             "--ceiling-dbtp".to_owned(),
             cfg.ceiling_dbtp.to_string(),
             "--max-seconds".to_owned(),

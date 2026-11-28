@@ -13,8 +13,7 @@ Keys are read by their place on the keyboard, not their letter, so the rows stay
 `⌃` is Ctrl (Cmd on a Mac), `⇧` is Shift, `⌥` is Alt.
 A key printed twice, such as `Del Del`, means the same key twice within 3 s.
 
-A key whose feature is not in 1.0.0 still answers: it shows a note in the toast slot saying so, and nothing happens to the room.
-Those keys say **note only** below, and link to [what is planned](/docs/reference/release-one-status/#not-in-release-one).
+One part of the keymap is not built: playout as a desk source. Slot 6's on-air, cue and mute keys show a note in the toast slot saying so, and nothing happens to the room ([what is planned](/docs/reference/release-one-status/#not-in-release-one)).
 Release 1.1 changes four keys (ADR-0289, issue 9): `⌃R` pressed twice restarts playout, `⌃4` opens the Room, and `⌃⇧R` and `⌃⇧B` are no longer keys.
 
 ## The rules

@@ -37,6 +37,7 @@ vi.mock('livekit-client', () => {
   return {
     Room,
     RoomEvent: {},
+    TrackEvent: { Restarted: 'restarted', Muted: 'muted' },
     DisconnectReason: {},
     Track: { Source: { Camera: 'camera', Microphone: 'microphone' }, Kind: {} },
     createLocalAudioTrack: async () => {
@@ -85,7 +86,8 @@ beforeEach(() => {
   events.length = 0;
   followed.length = 0;
   tokens = [];
-  mic = { mediaStreamTrack: { readyState: 'live' } as MediaStreamTrack, stop: vi.fn() } as unknown as typeof mic;
+  const capture = { readyState: 'live', label: 'Built-in Audio', getSettings: () => ({ deviceId: 'built-in' }), addEventListener: () => {} };
+  mic = { mediaStreamTrack: capture as unknown as MediaStreamTrack, stop: vi.fn(), on: () => mic, off: () => mic } as unknown as typeof mic;
 });
 
 describe('what the rehearsal studio’s page says', () => {

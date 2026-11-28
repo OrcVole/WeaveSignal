@@ -521,7 +521,9 @@ async fn a_key_is_redeemed_for_a_token_that_opens_its_shows_and_is_renewed_and_r
     assert_eq!(code, StatusCode::OK, "{r}");
     let token = r["token"].as_str().unwrap().to_owned();
     let device = Uuid::parse_str(r["device"].as_str().unwrap()).unwrap();
-    assert_eq!(r["key"]["label"], "Ishbel");
+    // The name staff gave the key is theirs: the holder is not sent it (1.3.3).
+    assert!(r["key"].get("label").is_none(), "{r}");
+    assert!(!r.to_string().contains("Ishbel"), "{r}");
     assert_eq!(r["key"]["shows"][0]["slug"], "friday-supporters");
     assert_eq!(r["renew_in_s"], 60);
     assert!(r["key"]["ends_soon"] == false);
@@ -559,6 +561,11 @@ async fn a_key_is_redeemed_for_a_token_that_opens_its_shows_and_is_renewed_and_r
     .await;
     assert_eq!(code, StatusCode::FORBIDDEN);
     assert_eq!(e["code"], "does_not_open_show");
+    // A refusal names nothing of the key's own either (1.3.3).
+    assert!(
+        e.get("label").is_none() && !e.to_string().contains("Ishbel"),
+        "{e}"
+    );
     // and the right one is not.
     ok(listen(
         &p.app,
@@ -922,6 +929,7 @@ async fn device_listen_and_people_limits_hold_when_many_redeem_at_once() {
     for (code, body) in &refused {
         assert_eq!(*code, StatusCode::CONFLICT);
         assert_eq!(body["code"], "too_many_devices");
+        assert!(body.get("label").is_none(), "{body}");
         assert_eq!(body["devices"].as_array().unwrap().len(), 2);
         assert_eq!(body["max_devices"], 2);
     }

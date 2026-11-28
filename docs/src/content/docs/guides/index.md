@@ -18,7 +18,7 @@ The studio app makes no sound by itself: you hear the station, and speak into it
 Take these in order:
 
 1. [Hear it, and speak into it](/docs/tutorials/first-sound/): your first sound out in ten minutes.
-2. [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/): the audio devices, in the browser and in Windows.
+2. [Choose your microphone and speakers](/docs/how-to/choose-your-microphone-and-speakers/): the audio devices, the microphone on the page, the speakers in the browser and in Windows.
 3. [Play a sound file](/docs/how-to/play-a-sound-file/): an MP3 on a key, to test with.
 4. [Schedule the week](/docs/how-to/schedule-the-week/) for your shows, and [put a sound file in the schedule](/docs/how-to/put-a-file-in-the-schedule/) for music between them.
 5. [No sound?](/guides/no-sound/): what silence means, and what to do.

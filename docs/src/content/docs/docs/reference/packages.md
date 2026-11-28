@@ -8,15 +8,15 @@ sidebar:
   order: 12
 ---
 
-What the repository builds, where each piece lives, and where the 1.0.0 builds are published.
+What the repository builds, where each piece lives, and where the builds are published.
 
 | What | Published at |
 |---|---|
-| The studio app's packages, with their `.sig` files and checksums | the assets of [release v1.0.0 on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases/tag/v1.1.1), and the updater's tree under `https://weavesignal.top/updates/` |
+| The studio app's packages, with their `.sig` files and checksums | the assets of [the releases on the Forgejo](https://forgejo.weavesignal.top/WeaveSignal/weavesignal/releases), and the updater's tree under `https://weavesignal.top/updates/` |
 | The updater's feed | `https://weavesignal.top/updates/latest.json` |
-| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.2` |
-| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.3.2`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.3.2` |
-| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.3.2` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
+| The server image the Compose bundle and the Quadlets run | `forgejo.weavesignal.top/weavesignal/weavesignal-server:1.3.3` |
+| The edge and relay images | `forgejo.weavesignal.top/weavesignal/weavesignal-edge:1.3.3`, `forgejo.weavesignal.top/weavesignal/weavesignal-relay:1.3.3` |
+| The Cloudron package's image | `forgejo.weavesignal.top/weavesignal/weavesignal-cloudron:1.3.3` ([Install on Cloudron](/docs/how-to/install-on-cloudron/)) |
 
 The repository's root also holds `CHANGELOG.md`, what each release changed, and `SECURITY.md`, how to report a security fault.
 
@@ -35,7 +35,7 @@ Built by `just package-desktop` (Linux) and `just package-windows` (Windows) int
 
 For 1.0.0 the files are `WeaveSignal_1.0.0_amd64.AppImage`, `WeaveSignal_1.0.0_amd64.deb`, `WeaveSignal-1.0.0-1.x86_64.rpm` and `WeaveSignal_1.0.0_x64-setup.exe`, with `SHA256SUMS-1.0.0` and `SHA256SUMS-1.0.0-windows`.
 `weave-signal` is the Tauri bundler's spelling of the product name, WeaveSignal.
-No macOS package yet (ADR-0015).
+There is no macOS package, and none is planned.
 
 The `.deb` and `.rpm` install:
 
@@ -150,6 +150,7 @@ Not pinned: the base images (`ubuntu:24.04`, `debian:13`, `fedora:44`, `node`, `
 | `STUN_SERVERS` | empty unless set: the STUN servers the station may ask ([STUN servers](#stun-servers)) |
 | `CONGESTION_CONTROL` | `gcc` unless set: how the desk's senders control congestion; `homegrown` or `disabled` ([`desk.toml`](/docs/reference/settings/#desktoml)); refused if it is none of the three |
 | `VIDEO_ENCODER`, `GPU`, and with `GPU=nvidia` `GPU_DEVICE`, `NVENC_SESSIONS` | `auto` unless set; `GPU` unset or `auto` is what the script finds, written as `nvidia` (an NVIDIA CDI spec in `/etc/cdi` or `/var/run/cdi`) or `none`; `GPU=nvidia` with no spec is refused; `nvidia.com/gpu=all` and 12 ([Use a GPU for video](/docs/how-to/use-a-gpu-for-video/)). With `VIDEO=true` and `GPU=nvidia` the bundle adds `gpu.yaml`, and the Quadlets give the desk's unit `AddDevice=` |
+| `CARTS_LOUDNESS_LUFS` | not written unless set: the station's own cart level, −16 for a station installed with 1.3.3 or later and −23 for one from before. Set, every cart loaded from then on is brought to it; kept as written ([The carts' loudness](/docs/reference/desk-carts/#the-carts-loudness)) |
 | `KIT_VBAN` | `false` unless set: `true` lets the station take VBAN from a studio PC on its own network ([Connect a studio PC over VBAN](/docs/how-to/connect-a-studio-pc-over-vban/)); refused if it is neither. 1.2.0 removed the line on every run; from 1.2.1 it is kept |
 | `PUBLIC_ORIGIN` without `--public` | empty unless set: the address a station without `--public` prints on its cards and feeds, such as `http://192.168.1.20:7310` on a private network; kept as written (from 1.2.1). With `--public` it is worked out from the name instead, and `--public off` removes it |
 | With `--public`: `PUBLIC_DOMAIN`, `PUBLIC_TLS`, `ACME_EMAIL`, `NODE_IP`, `TURN_ALLOW_CIDRS`, `PROXY_HTTPS_PORT`, `PROXY_HTTP_PORT`, `TURN_TLS_PORT`, `TURN_UDP_PORT`, `LIVEKIT_TCP_PORT` | the name and what the environment gives; free ports; then, worked out from them on every run and not to be edited, the addresses the services are given (`PUBLIC_ORIGIN`, `ROOM_PUBLIC_URL`, `STREAM_URL`), `FORWARDED_FOR`, `TURN_ENABLED` and the proxy's and LiveKit's derived lines (`LIVEKIT_NODE_IP` is `NODE_IP` if set, else the A record of `PUBLIC_DOMAIN` read on that run, and `LIVEKIT_USE_EXTERNAL_IP` is always `false`: [LiveKit's public address](#livekits-public-address)) ([Publish a station from the Compose bundle](/docs/how-to/publish-with-compose/)) |

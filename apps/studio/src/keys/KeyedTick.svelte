@@ -7,9 +7,18 @@
   // the Schedule's list of shows, the top of a show's pane, an episode and a date not drafted
   // yet, the Keys tab's list of shows. New show's tick has the same look and words.
   //
+  // The tick means one thing: a key is needed to listen to the show now. It is ticked on a show
+  // kept for people with a key and on no other. A show that was kept and has opened to everyone
+  // by itself (its time to open has passed) is not ticked, since everyone can listen (1.3.3; in
+  // 1.3.2 it stayed ticked, and an open show could be taken for a kept one): the words beside
+  // it say when it opened, and ticking it keeps it again from that moment. The tooltip says
+  // what the state means and what a press does.
+  //
   // Ticking it keeps the show for people with a key from that moment (the rule it had before
   // is kept: what the public hears, a time to come when it opens to everyone), and a line says
-  // so. Unticking a keyed show would let everyone hear what was kept, so it asks once first.
+  // so, with what becomes of its podcast feed and episode files (1.3.3: held back while it is
+  // keyed, earlier episodes included; a station of 1.3.2 holds nothing back, and is said to).
+  // Unticking a keyed show would let everyone hear what was kept, so it asks once first.
   // A refusal is said in the station's terms (it keeps a show only where playout can keep it
   // from the public) and the tick goes back. It is a producer's and an admin's: anyone else
   // sees the mark on a keyed show and no control. Nothing is drawn at a station older than
@@ -17,7 +26,8 @@
   // episode the words beside it say so.
   import { account } from '../lib/account.svelte.ts';
   import { mayManageKeys, timeWords } from '../lib/keys.ts';
-  import { KEEP, KEYED, listenState } from '../lib/keyed.ts';
+  import { KEEP, KEYED, holdsFiles, keptWords, listenState, openedAgainWords, openedWords, tickTip, ticked } from '../lib/keyed.ts';
+  import { APP_VERSION } from '../appVersion.ts';
   import { keyed, keepShow, openToEveryone, ruledShow } from '../lib/keys.svelte.ts';
   import { studio } from '../lib/studio.svelte.ts';
 
@@ -26,6 +36,7 @@
     name,
     id,
     compact = false,
+    plain = false,
     tabindex = 0,
   }: {
     slug: string;
@@ -34,13 +45,24 @@
     id: string;
     /** In a row of a list: the tick alone, with what it did under the row. */
     compact?: boolean;
+    /** Where the words beside it already say how the show stands (an episode's line, a row
+     *  with its own column for it): the tick does not say again that the show has opened. */
+    plain?: boolean;
     tabindex?: number;
   } = $props();
 
   const may = $derived(mayManageKeys(account.me));
   const row = $derived(ruledShow(slug));
   const st = $derived(listenState(row));
+  const on = $derived(ticked(st));
   const zone = $derived(studio.zone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+  /** When a show that was kept opened to everyone, in the station's time. */
+  const openedAt = $derived(st === 'opened' && row?.opens_at_ms != null ? timeWords(row.opens_at_ms, zone) : null);
+  /** The station holds a keyed show's podcast feed and episode files back (1.3.3). */
+  const held = $derived(holdsFiles(studio.stationVersion, APP_VERSION));
+  /** What the tick's state means and what a press does: the label's tooltip, and the tick's
+   *  description for a screen reader. */
+  const tip = $derived(tickTip(st, { opened: openedAt, held }));
   let busy = $state(false);
   let problem = $state('');
   let said = $state('');
@@ -61,7 +83,7 @@
     busy = true;
     try {
       await keepShow(slug);
-      said = `${name} is kept for people with a key, from now. Make keys for its listeners on the Keys tab.`;
+      said = keptWords(name, held);
     } catch (err) {
       problem = err instanceof Error ? err.message : 'The station did not answer. Try again.';
       if (box) box.checked = false;
@@ -75,7 +97,7 @@
     try {
       await openToEveryone(slug);
       asking = false;
-      said = `${name} is open to everyone again. Its keys are kept, and open nothing until it is keyed again.`;
+      said = openedAgainWords(name, held);
     } catch (err) {
       problem = err instanceof Error ? err.message : 'The station did not answer. Try again.';
     } finally {
@@ -87,15 +109,17 @@
 
 {#if keyed.state === 'ok'}
   {#if may}
-    <span class="keyedtick" class:compact class:on={st !== 'public'} data-testid="keyed-tick" data-show={slug} data-listen={st}>
-      <label title={KEYED.tip}>
-        <input bind:this={box} type="checkbox" checked={st !== 'public'} disabled={busy} {tabindex} aria-describedby="{id}-kt-say" onchange={press} />
+    <span class="keyedtick" class:compact class:on data-testid="keyed-tick" data-show={slug} data-listen={st}>
+      <label title={tip}>
+        <input bind:this={box} type="checkbox" checked={on} disabled={busy} {tabindex} aria-describedby="{id}-kt-tip {id}-kt-say" onchange={press} />
         <svg aria-hidden="true"><use href="#g-key" /></svg><span class="w">{KEEP.tick}</span><span class="sr-only">: {name}</span>
       </label>
+      <!-- The tooltip's words, for a screen reader: what the state means and what a press does. -->
+      <span id="{id}-kt-tip" hidden>{tip}</span>
       <span id="{id}-kt-say" class="say">
         {#if asking}
           <span class="ask" role="group" aria-label="Open {name} to everyone">
-            <span>Open {name} to everyone again? Its keys are kept.</span>
+            <span>Open {name} to everyone again? Its keys are kept{held ? ', and its episodes return to the podcast feed' : ''}.</span>
             <button type="button" class="btn sm danger-hollow" disabled={busy} aria-busy={busy || undefined} onclick={open}>Open to everyone</button>
             <!-- svelte-ignore a11y_autofocus -->
             <button type="button" class="btn sm quiet" autofocus onclick={() => { asking = false; box?.focus(); }}>Keep it keyed</button>
@@ -106,8 +130,8 @@
           <span class="err" role="alert">{problem}</span>
         {:else if said}
           <span role="status" data-testid="keyed-tick-said">{said}</span>
-        {:else if st === 'opened' && !compact}
-          <span>Kept for people with a key until it opened to everyone{row?.opens_at_ms != null ? ` (${timeWords(row.opens_at_ms, zone)})` : ''}.</span>
+        {:else if st === 'opened' && !plain}
+          <span data-testid="keyed-tick-opened">{openedWords(openedAt)}</span>
         {/if}
       </span>
     </span>

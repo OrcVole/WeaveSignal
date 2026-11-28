@@ -419,7 +419,7 @@
     <form onsubmit={submitChange} novalidate>
       <h2 id="kc-h" data-panel-title>Change {key.label}’s key</h2>
       <p class="lead">The key’s text stays the same, so nothing needs sending again. A change reaches someone who is listening {soon}, at their player's next renewal.</p>
-      <KeyFields bind:form {problems} {shows} mode="change" {zone} {now} id="ch" hasEmail={key.has_email} bind:email two />
+      <KeyFields bind:form {problems} {shows} mode="change" {zone} {now} id="ch" hasEmail={key.has_email} video={key.media === 'video'} bind:email two />
       {#if changeErr}<p class="err" role="alert">{changeErr}</p>{/if}
       <div class="acts">
         <button type="button" class="btn quiet" onclick={() => changeEl?.close()} disabled={saving}>Cancel</button>
